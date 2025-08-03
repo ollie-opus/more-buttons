@@ -1,0 +1,47 @@
+Privacy Policy for More Buttons Chrome Extension
+Effective Date: August 2, 2025
+
+1. Introduction
+More Buttons ("we", "our", or "us") respects your privacy and is committed to protecting your personal information. This Privacy Policy explains how we collect, use, and safeguard your data when you use the More Buttons Chrome extension ("Extension").
+
+By installing or using the Extension, you agree to the terms of this Privacy Policy.
+
+2. Information We Collect
+Non-Personal Data:
+We do not collect any personal information such as your name, email address, or payment details.
+
+Browsing Data:
+The Extension runs on specific websites to enhance your browsing experience by adding extra buttons and features. It may access certain data on those pages (such as the current URL or page content) only to perform its intended functionality (e.g., generating QR codes).
+
+Local Storage:
+The Extension uses your browser’s local/session storage to save temporary flags and settings required for its operations. No data is transmitted to any server.
+
+3. How We Use Your Information
+To provide and improve the functionality of the Extension.
+
+To generate QR codes and PDF posters based on the current webpage URL.
+
+To temporarily store information locally for feature triggers.
+
+We do not sell, share, or rent your information to third parties.
+
+4. Data Sharing and Disclosure
+We do not share your information with third parties. The Extension operates primarily on your device and does not send data to external servers except when fetching public resources (e.g., font files or images hosted on GitHub).
+
+5. Security
+We take reasonable measures to protect your data within the scope of the Extension’s functionality. However, please note that no method of transmission over the internet or electronic storage is completely secure.
+
+6. Your Rights and Choices
+You can uninstall or disable the Extension at any time from your Chrome browser.
+
+Since the Extension does not collect personal data, there are no user accounts or profiles to delete.
+
+7. Changes to This Privacy Policy
+We may update this Privacy Policy from time to time. We encourage you to review it periodically. Continued use of the Extension after changes constitute your acceptance of the updated policy.
+
+8. Contact Me
+If you have any questions or concerns about this Privacy Policy or the Extension, please contact me at:
+
+Email: olliepotter1@gmail.com
+
+Thank you for using More Buttons!
