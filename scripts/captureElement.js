@@ -16,8 +16,8 @@ export async function captureElement(scale, settingsOverrides = {}) {
   if (!captureSettings.downloadPath) captureSettings.downloadPath = 'occ-captures';
   if (!captureSettings.downloadMode) captureSettings.downloadMode = 'both';
   if (captureSettings.capturePadding == null) captureSettings.capturePadding = 0;
-  const padding = Math.max(0, parseInt(captureSettings.capturePadding, 10) || 0);
   Object.assign(captureSettings, settingsOverrides);
+  const padding = Math.max(0, parseInt(captureSettings.capturePadding, 10) || 0);
 
   let capturing = false;
 
