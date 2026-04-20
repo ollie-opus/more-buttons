@@ -36,6 +36,7 @@ export async function githubFetchAndPush(onProgress, buildUpdatedMarkdown) {
   return githubFetchAndPushFile('docs/pages/system-status.md', onProgress, buildUpdatedMarkdown);
 }
 
+// base64Data — raw Base64 string (no data-URI prefix; strip with dataUrl.split(',')[1])
 export async function githubPushImageIfNotExists(imagePath, base64Data, onProgress) {
   const REPO = 'ollie-opus/opus-knowledge-base';
   const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
