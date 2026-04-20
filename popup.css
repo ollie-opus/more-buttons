@@ -1,0 +1,22 @@
+body {
+  min-width: 320px;
+  padding: 8px;
+  margin: 0;
+  font-family: RubikVariable, ui-sans-serif, system-ui, sans-serif;
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-variation-settings: "FILL" 1;
+  font-size: 24px;
+  font-style: normal;
+  transition: color 0.3s ease;
+  user-select: none;
+}
+
+#popup-buttons-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}

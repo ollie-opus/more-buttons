@@ -1,0 +1,22 @@
+<form id="integrations-form" data-storage-key="moreButtonsIntegrations" data-max-width="720px">
+  <h2>Integrations</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">GitHub PAT</label>
+    <input class="more-buttons-input-text" type="password" name="githubPAT" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+  </div>
+
+  <p class="more-buttons-description">
+    Generate a fine-grained token in GitHub
+    <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">here</a>
+    or by navigating to:<br />
+    <strong>Settings</strong> → <strong>Developer settings</strong> → <strong>Personal access tokens</strong> → <strong>Fine-grained tokens</strong>.<br />
+    Set repository access to <strong>opus-knowledge-base</strong> only, with <strong>Contents: Read and write</strong>.
+  </p>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="save,close">Save</button>
+    <button type="button" class="more-buttons-button secondary" data-action="delete,close">Clear</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close">Close</button>
+  </div>
+</form>

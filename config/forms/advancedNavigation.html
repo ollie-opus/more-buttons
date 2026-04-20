@@ -1,0 +1,44 @@
+<form id="advanced-navigation-form" data-storage-key="moreButtonsAdvancedNavigation">
+  <h2>Advanced Navigation</h2>
+
+  <p class="more-buttons-description">Configure how locations are modified when you use advanced navigation tools.</p>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Manage mode?</label>
+    <div class="more-buttons-radio-group-row">
+      <label class="more-buttons-sub-label">
+        <input type="checkbox" name="manageModeEnabled" value="manageModeEnabled" />
+        Enable manage mode
+      </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Mode</label>
+    <div class="more-buttons-radio-group-row">
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="mode" value="prefix" />
+        Prefix
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="mode" value="suffix" />
+        Suffix
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="mode" value="regex" />
+        Replace
+      </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Parameter</label>
+    <input class="more-buttons-input-text" type="text" id="parameter" name="parameter" placeholder="Replace format: target|replacement" />
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" id="mb-form-save" data-action="save,close">Save</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-delete" data-action="delete,close">Delete</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-close" data-action="close">Close</button>
+  </div>
+</form>

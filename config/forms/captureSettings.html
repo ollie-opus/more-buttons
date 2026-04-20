@@ -1,0 +1,34 @@
+<form id="capture-settings-form" data-storage-key="moreButtonsCaptureSettings">
+  <h2>Capture Settings</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Download path</label>
+    <input class="more-buttons-input-text" type="text" name="downloadPath" value="occ-captures" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Captured themes</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"> <input type="radio" name="downloadMode" value="both" checked /> Both light &amp; dark </label>
+      <label class="more-buttons-radio-btn"> <input type="radio" name="downloadMode" value="current" /> Current theme only </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Capture padding (px)</label>
+    <input class="more-buttons-input-text" type="number" name="capturePadding" value="0" min="0" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Additional options</label>
+    <div class="more-buttons-radio-group-row">
+      <label class="more-buttons-sub-label"> <input type="checkbox" name="resizeMode" /> Resize mode </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="save,close">Save</button>
+    <button type="button" class="more-buttons-button secondary" data-action="delete,close">Reset</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close">Close</button>
+  </div>
+</form>

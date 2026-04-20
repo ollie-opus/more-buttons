@@ -1,0 +1,25 @@
+<form id="merge-revisions-form" data-storage-key="mergeRevisionsPrompt">
+  <h2>Potential merge candidates detected</h2>
+
+  <p class="more-buttons-description">
+    Multiple revisions/files have been detected with the same document date(s). Would you like to
+    <strong>merge</strong> them into one PDF file per date, or <strong>keep all revisions separate</strong>?
+  </p>
+
+  <!-- Label on the left, summary + list stacked on the right -->
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Merge candidates</label>
+    <div class="more-buttons-candidates-wrapper">
+      <div id="merge-candidates-summary" class="more-buttons-info"></div>
+      <div id="merge-candidates-detail" class="more-buttons-list"></div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" id="mb-merge-confirm">Merge revisions</button>
+
+    <button type="button" class="more-buttons-button secondary" id="mb-merge-cancel">Keep separate</button>
+
+    <button type="button" class="more-buttons-button secondary" id="mb-form-close" data-action="close">Close</button>
+  </div>
+</form>

@@ -1,0 +1,87 @@
+<form id="preset-form" data-storage-key="moreButtonsCustomQRPoster" data-max-width="720px">
+  <h2>Custom QR Builder</h2>
+
+  <p class="more-buttons-description">Select a preset below and define the details of your QR poster. These settings get saved for future use.</p>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Presets</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn">
+        <input type="radio" name="preset" value="site-safety-poster" required data-fill='{"poster-title":"Site Safety","poster-description":"Scan here to log incidents and access site safety documentation","page":"default"}' />
+        Site Safety Poster
+      </label>
+      <label class="more-buttons-radio-btn">
+        <input type="radio" name="preset" value="asset-safety-poster" data-fill='{"poster-title":"Asset Safety","poster-description":"Scan here to report issues, access tasks, and view documentation for this asset","page":"default"}' />
+        Asset Safety Poster
+      </label>
+      <label class="more-buttons-radio-btn">
+        <input type="radio" name="preset" value="raw-qr" />
+        Raw QR
+      </label>
+      <label class="more-buttons-radio-btn">
+        <input type="radio" name="preset" value="custom-poster" />
+        Custom
+      </label>
+    </div>
+  </div>
+
+  <hr data-show-when="preset" />
+  <br data-show-when="preset" />
+
+  <div class="more-buttons-form-group" data-show-when="preset">
+    <label class="more-buttons-label">Title</label>
+    <input class="more-buttons-input-text" type="text" id="poster-title" name="poster-title" placeholder="e.g. Log a contractor" required data-maxlength="21" />
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="preset preset!=raw-qr">
+    <label class="more-buttons-label">Description</label>
+    <textarea class="more-buttons-input-text" id="poster-description" name="poster-description" rows="3" placeholder="e.g. Scan here to log a contractor on site" required data-maxlength="80"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="preset">
+    <label class="more-buttons-label">QR Sub-page</label>
+    <div class="more-buttons-radio-group-column">
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="page" value="default" required />
+        Default (none)
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="page" value="new" />
+        Report something
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="page" value="documents" />
+        Documents
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="page" value="recipes" />
+        Checklists + Playbooks
+      </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="preset page=new">
+    <label class="more-buttons-label">Report key filter</label>
+    <input class="more-buttons-input-text" type="text" id="report-key-filter" name="report-key-filter" placeholder="e.g. contractor-on-site" />
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="preset=raw-qr">
+    <label class="more-buttons-label">Format</label>
+    <div class="more-buttons-radio-group-column">
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="format" value="png" required />
+        PNG
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="format" value="svg" />
+        SVG
+      </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" id="mb-form-save" data-action="save,close" data-validate>Save settings</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-delete" data-action="delete,close">Delete settings</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-close" data-action="close">Cancel</button>
+  </div>
+</form>

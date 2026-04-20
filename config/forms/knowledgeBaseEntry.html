@@ -1,0 +1,19 @@
+<form id="knowledge-base-entry-form" data-storage-key="moreButtonsKnowledgeBaseEntry" data-max-width="720px">
+  <h2>Knowledge Base Management</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Areas</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"> <input type="radio" name="entryType" value="step-by-step-guide" required /> Step-by-step guide </label>
+      <label class="more-buttons-radio-btn"> <input type="radio" name="entryType" value="system-update" /> System update </label>
+      <label class="more-buttons-radio-btn"> <input type="radio" name="entryType" value="system-status" /> System status </label>
+    </div>
+  </div>
+
+  <div data-show-when="entryType=system-status" data-fetch-markdown="https://raw.githubusercontent.com/ollie-opus/opus-knowledge-base/main/docs/pages/system-status.md" data-fetch-trigger="entryType=system-status"></div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="openReportIncident" data-show-when="entryType=system-status">Report an incident</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close">Close</button>
+  </div>
+</form>

@@ -1,0 +1,42 @@
+<form id="update-incident-form" data-storage-key="moreButtonsUpdateIncident" data-max-width="720px">
+  <h2>Update Incident</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Service(s) Affected</label>
+    <input type="text" name="incidentTitle" disabled />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Reported</label>
+    <input type="datetime-local" name="reported" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Description</label>
+    <textarea name="description" rows="2"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Current Status</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --amber"><input type="radio" name="currentStatus" value="ongoing" /> Ongoing</label>
+      <label class="more-buttons-radio-btn --green"><input type="radio" name="currentStatus" value="resolved" /> Resolved</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="currentStatus=resolved">
+    <label class="more-buttons-label">Resolved</label>
+    <input type="datetime-local" name="resolved" />
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="currentStatus=resolved">
+    <label class="more-buttons-label">Causation</label>
+    <textarea name="causation" rows="2" placeholder="What caused the incident?"></textarea>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="submitUpdateIncident">Save & Publish</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteIncident">Delete</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close">Cancel</button>
+  </div>
+</form>

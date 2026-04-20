@@ -1,0 +1,22 @@
+<form id="preset-form" data-storage-key="moreButtonsReportTypesPreset" data-max-width="960px">
+  <h2>Bulk Report Type Preset</h2>
+
+  <p class="more-buttons-description">Choose install or uninstall for each report type, then save as a reusable preset.</p>
+
+  <div class="more-buttons-form-group more-buttons-form-group--full">
+    <div id="report-type-preset-list" data-page-radios="report_type_packages[]" data-rt-advanced-container="#report-type-advanced-list" class="more-buttons-rt-list"></div>
+  </div>
+
+  <details class="more-buttons-advanced-section">
+    <summary class="more-buttons-advanced-toggle">System required report types</summary>
+    <div class="more-buttons-form-group more-buttons-form-group--full" style="margin-top: 10px">
+      <div id="report-type-advanced-list" class="more-buttons-rt-list"></div>
+    </div>
+  </details>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" id="mb-form-save" data-action="save,close" data-validate>Save preset</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-delete" data-action="delete,close">Delete preset</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-close" data-action="close">Close</button>
+  </div>
+</form>

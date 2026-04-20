@@ -1,0 +1,40 @@
+<form id="preset-form" data-storage-key="moreButtonsSitePreset">
+  <h2>Site/Employee/Asset Preset</h2>
+
+  <p class="more-buttons-description">Save a reusable preset for this site, including state, roles, and location.</p>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Name</label>
+    <input class="more-buttons-input-text" type="text" id="name" name="name" placeholder="e.g. Bob Smith / FLT 12 / Site 42" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">State</label>
+    <div class="more-buttons-radio-group-row">
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="archived" value="yes" />
+        Archived
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="radio" name="archived" value="no" />
+        Not archived / clear end day
+      </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Role/type(s) to install</label>
+    <input class="more-buttons-input-text" type="text" id="role" name="role" placeholder="Enter package tags separated by '&'" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Located at</label>
+    <input class="more-buttons-input-text" type="text" id="location" name="location" placeholder="Enter 'Located at' radio id" />
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" id="mb-form-save" data-action="save,close">Save preset</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-delete" data-action="delete,close">Delete preset</button>
+    <button type="button" class="more-buttons-button secondary" id="mb-form-close" data-action="close">Close</button>
+  </div>
+</form>

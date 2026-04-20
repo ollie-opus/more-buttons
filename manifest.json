@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "More Buttons",
+  "version": "0.6.2",
+  "description": "More buttons and automations!",
+  "permissions": ["storage", "activeTab", "tabs", "debugger", "downloads"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": ["https://cloud.opus-safety.co.uk/*", "<all_urls>"],
+  "web_accessible_resources": [
+    {
+      "resources": ["config/containers.json", "config/buttons.json", "config/automations.json", "config/labelColours.json", "scripts/actions.js", "scripts/form.js", "scripts/formActions.js", "scripts/github.js", "scripts/systemStatus.js", "scripts/buttons.js", "scripts/containers.js", "scripts/automations.js", "scripts/utils.js", "scripts/navigateToNewDocumentPage.js", "scripts/clearAllCheckboxes.js", "scripts/setAnnualDocumentDefault.js", "scripts/copyQuestions.js", "scripts/auditCSVExport.js", "scripts/navigateToEmployeePageForRegEmail.js", "scripts/generateAndDisplayRegEmail.js", "scripts/copyEmailFromEmailIframe.js", "scripts/copyRoleCheckboxValue.js", "scripts/initSiteQRPosterGeneration.js", "scripts/createSiteQRCode.js", "scripts/generateSiteQRPosterPDF.js", "scripts/highlightPackageTemplateInMPP.js", "scripts/setAccess.js", "scripts/employeeRecordAccessEditEnhancement.js", "scripts/fillInputsFromPreset.js", "scripts/applyAdvancedNavigation.js", "scripts/mergeIndicatorsEnhancement.js", "scripts/questionSectionToggle.js", "scripts/toggleContainerVisibility.js", "scripts/updateFocusParam.js", "scripts/bulkRevisionDownload.js", "scripts/smartDocumentSubmit.js", "scripts/copySitesToClipboard.js", "scripts/uninstallAllNonSystemReportTypes.js", "scripts/applyReportTypePreset.js", "scripts/siteListFocusIcons.js", "scripts/attachColorPresetPills.js", "scripts/captureElement.js", "scripts/toggleMoreButtonsActive.js"],
+      "matches": ["https://cloud.opus-safety.co.uk/*"]
+    },
+    {
+      "resources": ["config/forms/*"],
+      "matches": ["https://cloud.opus-safety.co.uk/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://cloud.opus-safety.co.uk/admin/sites/*/qrs/*"],
+      "js": ["scripts/libs/qrcode.min.js", "scripts/libs/jspdf.umd.min.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://cloud.opus-safety.co.uk/admin/sites/*/documents/*"],
+      "js": ["scripts/libs/pdf-lib.min.js", "scripts/libs/jszip.min.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://cloud.opus-safety.co.uk/*"],
+      "js": ["scripts/content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

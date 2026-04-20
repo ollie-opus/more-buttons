@@ -1,0 +1,106 @@
+[
+  {
+    "id": "example-automation",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["dashboard", "edit", "tenwvnfqedcq"]
+    },
+    "action": "exampleAction"
+  },
+  {
+    "id": "more_buttons_automation_35c0f382",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_35c0f382"]
+    },
+    "action": "generateAndDisplayRegEmail:default"
+  },
+  {
+    "id": "more_buttons_automation_70d24924",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_70d24924"]
+    },
+    "action": "generateAndDisplayRegEmail:seed"
+  },
+  {
+    "id": "more_buttons_automation_7dca63d3",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_7dca63d3"]
+    },
+    "action": "copyRoleCheckboxValue:employee"
+  },
+  {
+    "id": "more_buttons_automation_c6e56e7f",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_c6e56e7f"]
+    },
+    "action": "copyRoleCheckboxValue:asset"
+  },
+  {
+    "id": "more_buttons_automation_3ee255f7",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_3ee255f7"]
+    },
+    "action": "createSiteQRCode"
+  },
+  {
+    "id": "more_buttons_automation_a003a593",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[0-9a-fA-F-]{36}\\/qrs\\/[0-9a-fA-F-]{36}$"]
+    },
+    "action": "generateSiteQRPosterPDF"
+  },
+  {
+    "id": "more_buttons_automation_53d03c6d",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_53d03c6d"]
+    },
+    "action": "highlightPackageTemplateInMPP"
+  },
+  {
+    "id": "more_buttons_automation_20658ec2",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\\?.*)?$"]
+    },
+    "action": "employeeRecordAccessEditEnhancement"
+  },
+  {
+    "id": "more_buttons_automation_ae20ed30",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/sites(?:\\?.*)?$"]
+    },
+    "action": "applyAdvancedNavigation"
+  },
+  {
+    "id": "more_buttons_automation_34f2e92a",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["templates", "merge"]
+    },
+    "action": "mergeIndicatorsEnhancement"
+  },
+  {
+    "id": "more_buttons_automation_dd32f6ed",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/sites(?:\\?.*)?$"]
+    },
+    "action": "siteListFocusIcons"
+  },
+  {
+    "id": "more_buttons_automation_2f7776f3",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/templates/label-categories", "/edit"]
+    },
+    "action": "attachColorPresetPills"
+  }
+]

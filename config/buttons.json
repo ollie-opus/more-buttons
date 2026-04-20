@@ -1,0 +1,575 @@
+[
+  {
+    "id": "mb-example-btn",
+    "displayText": "Example Button",
+    "hoverText": "Example Button",
+    "icon": "settings",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["example", "button", "tw93502352g", "REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/qrs$"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "exampleAction"
+  },
+  {
+    "id": "mb-integrations-btn",
+    "displayText": "Integrations",
+    "hoverText": "Manage integrations",
+    "icon": "extension",
+    "fillColor": "#475569",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["/"]
+    },
+    "containerId": "popup-primary",
+    "action": "createForm:integrations"
+  },
+  {
+    "id": "mb-popup-active-toggle-btn",
+    "hoverText": "Toggle More Buttons on/off",
+    "icon": "toggle_off",
+    "fillColor": "#6b7280",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["/"]
+    },
+    "containerId": "popup-primary",
+    "action": "toggleMoreButtonsActive",
+    "toggle": {
+      "storageKey": "moreButtonsActive",
+      "iconOn": "toggle_on",
+      "iconOff": "toggle_off",
+      "fillColorOn": "#047857",
+      "fillColorOff": "#6b7280",
+      "displayTextOn": "Extension enabled",
+      "displayTextOff": "Extension disabled"
+    }
+  },
+  {
+    "id": "mb-copy-employee-role-tags-btn",
+    "displayText": "Copy role tags",
+    "hoverText": "Copy all Role Tags in CSV format (for Ollie's scripts)",
+    "icon": "sell",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/employees\\/roles$"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "navigateToNewDocumentPage:employee"
+  },
+  {
+    "id": "mb-copy-asset-type-tags-btn",
+    "displayText": "Copy asset type tags",
+    "hoverText": "Copy all Asset Type Tags in CSV format (for Ollie's scripts)",
+    "icon": "sell",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/equipments\\/asset-types$"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "navigateToNewDocumentPage:asset"
+  },
+  {
+    "id": "mb-set-annual-document-default-btn",
+    "displayText": "Set annual default",
+    "hoverText": "Sets scope to device. Sets severity to minor. Sets interval to 1 year. Sets lead time to 2 weeks.",
+    "icon": "edit_document",
+    "fillColor": "#9027DB",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": [["documents/new?data"], ["documents", "edit"]]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "setAnnualDocumentDefault"
+  },
+  {
+    "id": "mb-copy-questions-btn",
+    "displayText": "Copy questions/steps",
+    "hoverText": "Copy all questions to clipboard",
+    "icon": "content_copy",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": [
+        ["templates/checklists/dGF", "!/edit"],
+        ["templates/playbooks/dGF", "!/edit"],
+        ["templates/audits/dGF", "!/edit"]
+      ]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "copyQuestions"
+  },
+  {
+    "id": "mb-generate-qr-btn",
+    "displayText": "Generate QR",
+    "hoverText": "Generate a QR based on your saved settings",
+    "icon": "qr_code",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/qrs$"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "initSiteQRPosterGeneration:customQRPoster",
+    "splitWith": [
+      {
+        "id": "mb-edit-qr-poster-settings-btn",
+        "icon": "edit",
+        "hoverText": "Edit your stored QR poster settings",
+        "action": "createForm:customQRPoster"
+      }
+    ]
+  },
+  {
+    "id": "mb-audit-csv-export-btn",
+    "displayText": "Audit CSV export",
+    "hoverText": "Export this audit to CSV",
+    "icon": "download",
+    "fillColor": "#047857",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["templates/checklists/dGF", "/edit?checklist="]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "auditCSVExport"
+  },
+  {
+    "id": "mb-generate-client-email-btn",
+    "displayText": "Generate default e-mail",
+    "hoverText": "Generates a registration email to send to this employee",
+    "icon": "mail",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/link/", "!confirm"]
+    },
+    "containerId": "centeredLinkPageContainer-absolute",
+    "action": "navigateToEmployeePageForRegEmail:default"
+  },
+  {
+    "id": "mb-generate-seed-client-email-btn",
+    "displayText": "Generate seed e-mail",
+    "hoverText": "Generates a tailored registration email to send to this seed client employee",
+    "icon": "eco",
+    "fillColor": "#047857",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/link/", "!confirm"]
+    },
+    "containerId": "centeredLinkPageContainer-absolute",
+    "action": "navigateToEmployeePageForRegEmail:seed"
+  },
+  {
+    "id": "mb-copy-reg-email-btn",
+    "displayText": "Copy registration e-mail",
+    "hoverText": "Copy the generated registration email displayed to clipboard",
+    "icon": "content_copy",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_35c0f382"]
+    },
+    "containerId": "centeredBottomContainer-fixed",
+    "action": "copyEmailFromEmailIframe"
+  },
+  {
+    "id": "mb-copy-seed-client-email-btn",
+    "displayText": "Copy seed registration e-mail",
+    "hoverText": "Copy the generated seed email displayed to clipboard",
+    "icon": "content_copy",
+    "fillColor": "#047857",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["more_buttons_automation_70d24924"]
+    },
+    "containerId": "centeredBottomContainer-fixed",
+    "action": "copyEmailFromEmailIframe"
+  },
+  {
+    "id": "mb-set-access-administrator-btn",
+    "displayText": "Set admin",
+    "hoverText": "Grant this employee administrator access to this site and to their own record",
+    "icon": "settings",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "setAccess:administrator"
+  },
+  {
+    "id": "mb-set-access-manager-btn",
+    "displayText": "Set manager",
+    "hoverText": "Grant this employee manager access to this site and to their own record",
+    "icon": "work",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "setAccess:manager"
+  },
+  {
+    "id": "mb-set-access-user-btn",
+    "displayText": "Set user",
+    "hoverText": "Grant this employee user access to this site",
+    "icon": "person",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "setAccess:user"
+  },
+  {
+    "id": "mb-set-access-none-btn",
+    "displayText": "Revoke access",
+    "hoverText": "Revoke this employee's access to this site",
+    "icon": "cancel",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "setAccess:"
+  },
+  {
+    "id": "mb-switch-focus-toggle-btn",
+    "displayText": "Refocus",
+    "hoverText": "Switch the focus of the access tree",
+    "icon": "mystery",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "toggleContainerVisibility:accessFocusButtonHiddenContainer"
+  },
+  {
+    "id": "mb-switch-focus-opus-btn",
+    "displayText": "Opus",
+    "hoverText": "Switch the focus of the access tree to opus",
+    "icon": "graph_2",
+    "fillColor": "#00CBE0",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "accessFocusButtonHiddenContainer",
+    "action": "updateFocusParam:opus"
+  },
+  {
+    "id": "mb-switch-focus-seed-btn",
+    "displayText": "Seeds",
+    "hoverText": "Switch the focus of the access tree to seed sites",
+    "icon": "eco",
+    "fillColor": "#047857",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "accessFocusButtonHiddenContainer",
+    "action": "updateFocusParam:seeds"
+  },
+  {
+    "id": "mb-switch-focus-opus-ltd-btn",
+    "displayText": "Opus Ltd",
+    "hoverText": "Switch the focus of the access tree to Opus Safety Ltd",
+    "icon": "work",
+    "fillColor": "#002E72",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["access/edit"]
+    },
+    "containerId": "accessFocusButtonHiddenContainer",
+    "action": "updateFocusParam:opus_ltd"
+  },
+  {
+    "id": "mb-apply-preset-btn",
+    "displayText": "Apply preset",
+    "hoverText": "Apply your stored preset onto this site/asset/employee",
+    "icon": "imagesearch_roller",
+    "fillColor": "#9027DB",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": [["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/edit*"], ["employees/new"], ["equipments/new"]]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "fillInputsFromPreset",
+    "splitWith": [
+      {
+        "id": "mb-edit-preset-btn",
+        "icon": "edit",
+        "hoverText": "Edit your stored preset",
+        "action": "createForm:sitePreset"
+      }
+    ]
+  },
+  {
+    "id": "mb-advanced-navigation-btn",
+    "displayText": "Advanced navigation",
+    "hoverText": "Define the specific page you land on when selecting a site",
+    "icon": "explore",
+    "fillColor": "transparent",
+    "textColor": { "light": "#334156", "dark": "#E2E8F0" },
+    "border": { "light": "1px solid #cbd5e1", "dark": "1px solid #556780" },
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/sites(?:\\?.*)?$"]
+    },
+    "containerId": "topMiddleContainer-absolute",
+    "action": "createForm:advancedNavigation"
+  },
+  {
+    "id": "mb-section-toggle-btn",
+    "displayText": "Toggle sections",
+    "hoverText": "Toggle open/close all sections in this checklist/playbook/audit",
+    "icon": "arrow_drop_down_circle",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": [
+        ["edit", "templates/checklists"],
+        ["edit", "templates/playbooks"],
+        ["edit", "templates/audits"]
+      ]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "questionSectionToggle"
+  },
+  {
+    "id": "mb-smart-bulk-revision-download-btn",
+    "displayText": "Smart download all",
+    "hoverText": "Downloads all revision files, adding opus_metadata that can be used with smart submit. Documents of the same document date will become candidates for merging.",
+    "icon": "download",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/documents/", "!edit", "!new", "!revision", "!templates", "!package"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "bulkRevisionDownload:file"
+  },
+  {
+    "id": "mb-smart-submit-btn",
+    "displayText": "Smart submit",
+    "hoverText": "Submits the form and automatically populates the document date if a compatible file is present",
+    "icon": "send",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/documents/", "/revisions/new"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "smartDocumentSubmit"
+  },
+  {
+    "id": "mb-more-site-options-btn",
+    "displayText": "",
+    "hoverText": "More Site Options",
+    "icon": "content_copy",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "toggleContainerVisibility:moreSiteOptionsButtonHiddenContainer"
+  },
+  {
+    "id": "mb-copy-site-urls-btn",
+    "displayText": "Copy /sites urls",
+    "hoverText": "Copies all /sites urls to clipboard (for Ollie's scripts)",
+    "icon": "content_copy",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+    },
+    "containerId": "moreSiteOptionsButtonHiddenContainer",
+    "action": "copySitesToClipboard:sites"
+  },
+  {
+    "id": "mb-copy-admin-site-urls-btn",
+    "displayText": "Copy /admin/sites urls",
+    "hoverText": "Copies all /admin/sites urls to clipboard (for Ollie's scripts)",
+    "icon": "content_copy",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+    },
+    "containerId": "moreSiteOptionsButtonHiddenContainer",
+    "action": "copySitesToClipboard:adminSites"
+  },
+  {
+    "id": "mb-copy-all-site-urls-csv-btn",
+    "displayText": "Copy all site urls (csv)",
+    "hoverText": "A more comprehensive csv format of /admin/sites + /sites and hierarchy information to clipboard (for Ollie's scripts)",
+    "icon": "content_copy",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+    },
+    "containerId": "moreSiteOptionsButtonHiddenContainer",
+    "action": "copySitesToClipboard:all"
+  },
+  {
+    "id": "mb-apply-report-type-preset-btn",
+    "displayText": "Apply preset",
+    "hoverText": "Apply your stored report type preset",
+    "icon": "imagesearch_roller",
+    "fillColor": "#9027DB",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/templates\\/report-types$"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "applyReportTypePreset",
+    "splitWith": [
+      {
+        "id": "mb-edit-report-type-preset-btn",
+        "icon": "settings",
+        "hoverText": "Edit your stored report type preset",
+        "action": "createForm:bulkReportTypePreset"
+      }
+    ]
+  },
+  {
+    "id": "mb-uninstall-all-report-types-btn",
+    "displayText": "Uninstall all report types",
+    "hoverText": "Uninstalls all non-system required report types from this site.",
+    "icon": "deployed_code_alert",
+    "fillColor": "#dc2626",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/templates\\/report-types$"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "uninstallAllNonSystemReportTypes"
+  },
+  {
+    "id": "mb-element-selector-btn",
+    "displayText": "Element selector",
+    "hoverText": "Selects elements",
+    "icon": "deployed_code_alert",
+    "fillColor": "#db2777",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["/"]
+    },
+    "containerId": "popup-element-capture",
+    "action": "captureElement:2",
+    "splitWith": [
+      {
+        "id": "mb-element-selector-settings-btn",
+        "icon": "settings",
+        "hoverText": "Capture settings",
+        "action": "createForm:captureSettings"
+      }
+    ]
+  },
+  {
+    "id": "mb-manage-knowledge-base-btn",
+    "displayText": "Manage knowledge base",
+    "hoverText": "Management tools for the knowledge base",
+    "icon": "book_2",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["/"]
+    },
+    "containerId": "popup-knowledge-base",
+    "action": "openKnowledgeBaseEntry"
+  },
+  {
+    "id": "mb-clear-checkboxes-btn",
+    "displayText": "Clear checkboxes",
+    "hoverText": "Clear all checkbox fields on this page",
+    "icon": "disabled_by_default",
+    "fillColor": "#dc2626",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["edit", "!todos", "!access"]
+    },
+    "containerId": "topRightContainer-fixed-meatballoffset",
+    "action": "clearAllCheckboxes"
+  }
+]

@@ -1,0 +1,51 @@
+<form id="report-incident-form" data-storage-key="moreButtonsReportIncident" data-max-width="720px">
+  <h2><span class="more-buttons-icon">warning</span> Report Incident</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Service(s) Affected</label>
+    <div id="report-incident-services" class="more-buttons-radio-btn-group-row">
+      <!-- dynamically injected by openReportIncident -->
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Service Impact</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --amber"><input type="radio" name="impact" value="disruption" /> Disruption</label>
+      <label class="more-buttons-radio-btn --red"><input type="radio" name="impact" value="outage" /> Outage</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Description</label>
+    <textarea name="description" rows="2" placeholder="What are users experiencing?"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Reported</label>
+    <input type="datetime-local" name="reported" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Current Status</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --amber"><input type="radio" name="currentStatus" value="ongoing" checked /> Ongoing</label>
+      <label class="more-buttons-radio-btn --green"><input type="radio" name="currentStatus" value="resolved" /> Resolved</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="currentStatus=resolved">
+    <label class="more-buttons-label">Resolved</label>
+    <input type="datetime-local" name="resolved" />
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="currentStatus=resolved">
+    <label class="more-buttons-label">Causation</label>
+    <textarea name="causation" rows="2" placeholder="What caused the incident?"></textarea>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="submitReportIncident">Publish Incident</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close">Cancel</button>
+  </div>
+</form>
