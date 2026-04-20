@@ -1,6 +1,9 @@
+let captureStoreCallback = null;
+export function setCaptureStoreMode(fn) { captureStoreCallback = fn; }
+
 let activeCaptureCleanup = null;
 
-export async function captureElement(scale) {
+export async function captureElement(scale, settingsOverrides = {}) {
   if (activeCaptureCleanup) {
     activeCaptureCleanup();
     return;
@@ -14,6 +17,7 @@ export async function captureElement(scale) {
   if (!captureSettings.downloadMode) captureSettings.downloadMode = 'both';
   if (captureSettings.capturePadding == null) captureSettings.capturePadding = 0;
   const padding = Math.max(0, parseInt(captureSettings.capturePadding, 10) || 0);
+  Object.assign(captureSettings, settingsOverrides);
 
   let capturing = false;
 
@@ -232,9 +236,13 @@ export async function captureElement(scale) {
         : [];
       const filename = [...prefixSegments, ...pathSegments, fileName].join('/');
 
-      await new Promise(resolve =>
-        chrome.runtime.sendMessage({ type: 'downloadFile', dataUrl: finalDataUrl, filename }, resolve)
-      );
+      if (captureStoreCallback) {
+        captureStoreCallback({ dataUrl: finalDataUrl, filename });
+      } else {
+        await new Promise(resolve =>
+          chrome.runtime.sendMessage({ type: 'downloadFile', dataUrl: finalDataUrl, filename }, resolve)
+        );
+      }
     } finally {
       capturing = false;
     }
