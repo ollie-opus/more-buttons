@@ -316,3 +316,26 @@ function updateCapturesList(formEl) {
     });
   });
 }
+
+// ── Publish functions ─────────────────────────────────────────────────────────
+
+async function pushCaptures(captures, onProgress) {
+  for (const c of captures) {
+    await githubPushImageIfNotExists(`docs/assets/${c.lightFilename}`, c.lightDataUrl.split(',')[1], onProgress);
+    await githubPushImageIfNotExists(`docs/assets/${c.darkFilename}`, c.darkDataUrl.split(',')[1], onProgress);
+  }
+}
+
+export async function publishNewUpdate(update, captures, onProgress) {
+  await pushCaptures(captures, onProgress);
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, update, captures));
+}
+
+export async function publishUpdatedUpdate(idx, update, captures, onProgress) {
+  await pushCaptures(captures, onProgress);
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => replaceUpdateInMarkdown(md, idx, update, captures));
+}
+
+export async function publishDeleteUpdate(idx, onProgress) {
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, idx));
+}
