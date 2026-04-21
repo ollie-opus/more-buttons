@@ -378,9 +378,11 @@
   border-radius: 6px;
   padding: 8px 10px;
 }
-.mb-incident-card.--red   { background: rgba(239,83,80,0.12);  border: 1px solid rgba(239,83,80,0.45);  }
-.mb-incident-card.--amber { background: rgba(255,179,0,0.12);  border: 1px solid rgba(255,179,0,0.45);  }
-.mb-incident-card.--green { background: rgba(102,187,106,0.12); border: 1px solid rgba(102,187,106,0.45); }
+.mb-incident-card.--red    { background: rgba(239,83,80,0.12);   border: 1px solid rgba(239,83,80,0.45);   }
+.mb-incident-card.--amber  { background: rgba(255,179,0,0.12);   border: 1px solid rgba(255,179,0,0.45);   }
+.mb-incident-card.--green  { background: rgba(102,187,106,0.12); border: 1px solid rgba(102,187,106,0.45); }
+.mb-incident-card.--blue   { background: rgba(66,165,245,0.12);  border: 1px solid rgba(66,165,245,0.45);  }
+.mb-incident-card.--purple { background: rgba(199,84,176,0.12);  border: 1px solid rgba(199,84,176,0.45);  }
 
 .more-buttons-candidates-wrapper {
   display: flex;

@@ -1,12 +1,9 @@
 import { registerFormAction } from './formActions.js';
 import { githubFetchAndPush } from './github.js';
 import { createForm } from './form.js';
+import { renderCard, escapeHtml } from './cardRenderer.js';
 
 // ── Private helpers ───────────────────────────────────────────────────────────
-
-function escapeHtml(str) {
-  return (str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 function indentBlock(text, indent) {
   return text.split('\n').map(line => line.length ? indent + line : line).join('\n');
@@ -290,22 +287,9 @@ export function renderSystemStatus(markdown) {
 }
 
 function incidentCard(inc, btnAttr, btnLabel) {
-  const colour = inc.impact === 'outage' ? 'rgb(239,83,80)' : 'rgb(255,179,0)';
-  const cardColour = inc.impact === 'outage' ? 'red' : 'amber';
-  return `
-  <div class="mb-incident-card --${cardColour}">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-      <strong style="font-size:0.875rem;">${escapeHtml(inc.title)}</strong>
-      <span style="color:${colour};font-size:0.75rem;font-weight:700;text-transform:uppercase;">${escapeHtml(inc.impact)}</span>
-    </div>
-    <div style="font-size:0.8125rem;color:var(--mb-text-muted);margin-bottom:6px;">${escapeHtml(inc.description)}</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <span style="font-size:0.8rem;color:var(--mb-text-label);">${escapeHtml(inc.reported)} · ${escapeHtml(inc.currentStatus === 'resolved' ? 'Resolved' : 'Ongoing')}</span>
-      <button type="button" class="more-buttons-button secondary"
-              style="font-size:0.8rem;padding:4px 10px;"
-              ${btnAttr}>${btnLabel}</button>
-    </div>
-  </div>`;
+  const colour = inc.impact === 'outage' ? 'red' : 'amber';
+  const meta = `${escapeHtml(inc.reported)} · ${escapeHtml(inc.currentStatus === 'resolved' ? 'Resolved' : 'Ongoing')}`;
+  return renderCard({ colour, title: inc.title, badge: inc.impact, description: inc.description, meta, btnAttr, btnLabel });
 }
 
 // ── Public exports ────────────────────────────────────────────────────────────

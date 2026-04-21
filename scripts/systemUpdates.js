@@ -2,6 +2,7 @@ import { registerFormAction } from './formActions.js';
 import { githubFetchAndPushFile, githubPushImageIfNotExists } from './github.js';
 import { createForm } from './form.js';
 import { captureElement, setCaptureStoreMode } from './captureElement.js';
+import { renderCard, escapeHtml } from './cardRenderer.js';
 
 // ── Module-level capture state ────────────────────────────────────────────────
 let pendingCaptures = [];
@@ -23,10 +24,6 @@ const MONTH_NAMES = [
 ];
 
 // ── Private helpers ───────────────────────────────────────────────────────────
-
-function escapeHtml(str) {
-  return (str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 function formatUpdateDate(dateStr) {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -261,31 +258,18 @@ export function deleteUpdateFromMarkdown(markdown, idx) {
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
-function updateCard(update) {
-  const colours = {
-    'feature-release': { text: '#1d4ed8', border: '#93c5fd', bg: '#dbeafe' },
-    'new-addition':    { text: '#15803d', border: '#86efac', bg: '#dcfce7' },
-    'improvement':     { text: '#b45309', border: '#fcd34d', bg: '#fef3c7' },
-  };
-  const c = colours[update.type] ?? { text: '#374151', border: '#d1d5db', bg: '#f3f4f6' };
-  const label = TYPE_LABELS[update.type] ?? update.type;
-  const preview = (update.body ?? '').replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '').replace(/\n+/g, ' ').trim();
-  const truncated = preview.length > 120 ? preview.slice(0, 120) + '…' : preview;
+const TYPE_COLOURS = {
+  'feature-release': 'purple',
+  'new-addition':    'green',
+  'improvement':     'blue',
+};
 
-  return `
-  <div class="mb-incident-card" style="border-left:3px solid ${c.border};background:${c.bg}33;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-      <strong style="font-size:0.875rem;">${escapeHtml(update.title)}</strong>
-      <span style="color:${c.text};font-size:0.75rem;font-weight:700;background:${c.bg};border:1px solid ${c.border};border-radius:4px;padding:1px 6px;">${escapeHtml(label.toUpperCase())}</span>
-    </div>
-    ${truncated ? `<div style="font-size:0.8125rem;color:var(--mb-text-muted);margin-bottom:6px;">${escapeHtml(truncated)}</div>` : ''}
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <span style="font-size:0.8rem;color:var(--mb-text-label);">${escapeHtml(update.date)}</span>
-      <button type="button" class="more-buttons-button secondary"
-              style="font-size:0.8rem;padding:4px 10px;"
-              data-edit-system-update="${update.idx}">Edit</button>
-    </div>
-  </div>`;
+function updateCard(update) {
+  const colour = TYPE_COLOURS[update.type] ?? 'amber';
+  const badge = TYPE_LABELS[update.type] ?? update.type;
+  const preview = (update.body ?? '').replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '').replace(/\n+/g, ' ').trim();
+  const description = preview.length > 120 ? preview.slice(0, 120) + '…' : preview || null;
+  return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr: `data-edit-system-update="${update.idx}"`, btnLabel: 'Edit' });
 }
 
 export function renderSystemUpdates(markdown) {
