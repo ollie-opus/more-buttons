@@ -3,6 +3,10 @@ import { githubFetchAndPushFile, githubPushImageIfNotExists } from './github.js'
 import { createForm } from './form.js';
 import { captureElement, setCaptureStoreMode } from './captureElement.js';
 
+// ── Module-level capture state ────────────────────────────────────────────────
+let pendingCaptures = [];
+let partialCapture = {};
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const UPDATES_FILE = 'docs/pages/system-updates.md';
@@ -253,4 +257,62 @@ export function deleteUpdateFromMarkdown(markdown, idx) {
   }
 
   return md;
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+
+function updateCard(update) {
+  const colours = {
+    'feature-release': { text: '#1d4ed8', border: '#93c5fd', bg: '#dbeafe' },
+    'new-addition':    { text: '#15803d', border: '#86efac', bg: '#dcfce7' },
+    'improvement':     { text: '#b45309', border: '#fcd34d', bg: '#fef3c7' },
+  };
+  const c = colours[update.type] ?? { text: '#374151', border: '#d1d5db', bg: '#f3f4f6' };
+  const label = TYPE_LABELS[update.type] ?? update.type;
+  const preview = (update.body ?? '').replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '').replace(/\n+/g, ' ').trim();
+  const truncated = preview.length > 120 ? preview.slice(0, 120) + '…' : preview;
+
+  return `
+  <div class="mb-incident-card" style="border-left:3px solid ${c.border};background:${c.bg}33;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <strong style="font-size:0.875rem;">${escapeHtml(update.title)}</strong>
+      <span style="color:${c.text};font-size:0.75rem;font-weight:700;background:${c.bg};border:1px solid ${c.border};border-radius:4px;padding:1px 6px;">${escapeHtml(label.toUpperCase())}</span>
+    </div>
+    ${truncated ? `<div style="font-size:0.8125rem;color:var(--mb-text-muted);margin-bottom:6px;">${escapeHtml(truncated)}</div>` : ''}
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:0.8rem;color:var(--mb-text-label);">${escapeHtml(update.date)}</span>
+      <button type="button" class="more-buttons-button secondary"
+              style="font-size:0.8rem;padding:4px 10px;"
+              data-edit-system-update="${update.idx}">Edit</button>
+    </div>
+  </div>`;
+}
+
+export function renderSystemUpdates(markdown) {
+  const updates = parseUpdateBlocks(markdown);
+  if (updates.length === 0) return `<p class="more-buttons-description">No system updates yet.</p>`;
+  return updates.map(u => updateCard(u)).join('');
+}
+
+// ── Capture helpers ───────────────────────────────────────────────────────────
+
+function updateCapturesList(formEl) {
+  const container = formEl.querySelector('#log-update-captures, #edit-update-captures');
+  if (!container) return;
+  container.innerHTML = pendingCaptures.map((c, i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px;background:var(--mb-surface);border-radius:6px;border:1px solid var(--mb-border);">
+      <img src="${c.lightDataUrl}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
+      <img src="${c.darkDataUrl}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
+      <span style="font-size:0.75rem;color:var(--mb-text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.lightFilename)}</span>
+      <button type="button" class="more-buttons-button secondary" style="font-size:0.75rem;padding:2px 8px;"
+              data-remove-capture="${i}">✕</button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('[data-remove-capture]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pendingCaptures.splice(parseInt(btn.dataset.removeCapture), 1);
+      updateCapturesList(formEl);
+    });
+  });
 }
