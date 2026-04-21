@@ -27,15 +27,16 @@ function escapeHtml(str) {
 function formatUpdateDate(dateStr) {
   const [year, month, day] = dateStr.split('-').map(Number);
   const v = day % 100;
-  const ordinal = (v >= 11 && v <= 13) ? 'th' : (['th','st','nd','rd'][day % 10] ?? 'th');
+  const ordinal = (v >= 11 && v <= 13) ? 'th' : (['th','st','nd','rd'][v % 10] ?? 'th');
   return `${day}${ordinal} ${MONTH_NAMES[month - 1]} ${year}`;
 }
 
 function parseDateStr(formattedDate) {
   const m = formattedDate.match(/^(\d+)\w*\s+(\w+)\s+(\d{4})$/);
   if (!m) return null;
-  const month = MONTH_NAMES.indexOf(m[2]) + 1;
-  return { year: parseInt(m[3]), month, day: parseInt(m[1]) };
+  const monthIdx = MONTH_NAMES.indexOf(m[2]);
+  if (monthIdx === -1) return null;
+  return { year: parseInt(m[3]), month: monthIdx + 1, day: parseInt(m[1]) };
 }
 
 function getYearMonthFromDateStr(dateStr) {
@@ -83,7 +84,7 @@ export function buildUpdateBlock(update, captures = []) {
   const formattedDate = formatUpdateDate(update.date);
   const header = `??? ${update.type} "${typeLabel}: ${update.title}<br><small style="opacity: 0.6">${formattedDate}</small>"`;
 
-  const descLines = (update.description ?? '').split('\n').map(l => l.length ? '    ' + l : l);
+  const descLines = (update.description ?? update.body ?? '').split('\n').map(l => l.length ? '    ' + l : l);
   const captureLines = captures.flatMap(c => [
     '',
     `    ![](../assets/${c.lightFilename}#only-light){ width="700" loading=lazy }`,
