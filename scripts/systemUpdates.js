@@ -349,8 +349,13 @@ registerFormAction('startCapture', ({ formEl, overlay }) => {
   partialCapture = {};
   overlay.style.display = 'none';
 
+  if (Object.keys(partialCapture).length > 0) {
+    overlay.style.display = '';
+    return;
+  }
+
   setCaptureStoreMode(({ dataUrl, filename }) => {
-    if (!formEl.isConnected) { setCaptureStoreMode(null); return; }
+    if (!formEl.isConnected) { setCaptureStoreMode(null); overlay.style.display = ''; return; }
 
     if (filename.includes('-light-mode')) {
       partialCapture.lightDataUrl = dataUrl;
@@ -474,15 +479,16 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
     pendingCaptures = [];
     cleanup();
   } catch (e) {
+    await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     btn.textContent = originalText;
     btn.disabled = false;
     alert('Failed to save update: ' + e.message);
   }
 });
 
-registerFormAction('deleteSystemUpdate', async ({ cleanup }) => {
+registerFormAction('deleteSystemUpdate', async ({ formEl, cleanup }) => {
   if (!confirm('Delete this system update? This cannot be undone.')) return;
-  const btn = document.querySelector('[data-action="deleteSystemUpdate"]');
+  const btn = formEl.querySelector('[data-action="deleteSystemUpdate"]');
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
   try {
@@ -499,6 +505,7 @@ registerFormAction('deleteSystemUpdate', async ({ cleanup }) => {
     }
     cleanup();
   } catch (e) {
+    await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     if (btn) { btn.textContent = originalText; btn.disabled = false; }
     alert('Failed to delete update: ' + e.message);
   }
