@@ -339,3 +339,167 @@ export async function publishUpdatedUpdate(idx, update, captures, onProgress) {
 export async function publishDeleteUpdate(idx, onProgress) {
   return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, idx));
 }
+
+// ── Form action registrations ─────────────────────────────────────────────────
+
+registerFormAction('startCapture', ({ formEl, overlay }) => {
+  const padding = parseInt(formEl.querySelector('[name="capturePadding"]')?.value ?? '0', 10) || 0;
+  const resizeMode = formEl.querySelector('[name="captureResizeMode"]')?.checked ?? false;
+
+  partialCapture = {};
+  overlay.style.display = 'none';
+
+  setCaptureStoreMode(({ dataUrl, filename }) => {
+    if (!formEl.isConnected) { setCaptureStoreMode(null); return; }
+
+    if (filename.includes('-light-mode')) {
+      partialCapture.lightDataUrl = dataUrl;
+      partialCapture.lightFilename = filename;
+    } else {
+      partialCapture.darkDataUrl = dataUrl;
+      partialCapture.darkFilename = filename;
+    }
+    if (partialCapture.lightDataUrl && partialCapture.darkDataUrl) {
+      pendingCaptures.push({ ...partialCapture });
+      partialCapture = {};
+      setCaptureStoreMode(null);
+      overlay.style.display = '';
+      updateCapturesList(formEl);
+    }
+  });
+
+  captureElement(1, {
+    downloadPath: 'occ-captures',
+    downloadMode: 'both',
+    capturePadding: padding,
+    resizeMode,
+  });
+});
+
+registerFormAction('openLogSystemUpdate', async () => {
+  pendingCaptures = [];
+  const { formEl: logFormEl } = await createForm('logSystemUpdate');
+  if (!logFormEl) return;
+  const dateInput = logFormEl.querySelector('[name="updateDate"]');
+  if (dateInput && !dateInput.value) {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    dateInput.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+});
+
+registerFormAction('submitLogSystemUpdate', async ({ formEl, cleanup }) => {
+  const btn = formEl.querySelector('[data-action="submitLogSystemUpdate"]');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  try {
+    const title = formEl.querySelector('[name="updateTitle"]')?.value.trim() ?? '';
+    const date = formEl.querySelector('[name="updateDate"]')?.value ?? '';
+    const type = formEl.querySelector('[name="updateType"]:checked')?.value;
+    const description = formEl.querySelector('[name="description"]')?.value.trim() ?? '';
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+
+    const update = { title, date, type, description };
+    const captures = [...pendingCaptures];
+    const updatedMarkdown = await publishNewUpdate(update, captures, s => { btn.textContent = s; });
+
+    const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
+    if (fetchEl && updatedMarkdown) {
+      fetchEl.innerHTML = renderSystemUpdates(updatedMarkdown);
+      fetchEl._lastMarkdown = updatedMarkdown;
+    }
+    pendingCaptures = [];
+    cleanup();
+  } catch (e) {
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('Failed to publish update: ' + e.message);
+  }
+});
+
+registerFormAction('openEditSystemUpdate', async ({ idx }) => {
+  const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
+  const markdown = fetchEl?._lastMarkdown;
+  if (!markdown) return;
+
+  const updates = parseUpdateBlocks(markdown);
+  const update = updates[idx];
+  if (!update) return;
+
+  pendingCaptures = [];
+
+  const dateInfo = parseDateStr(update.date);
+  const isoDate = dateInfo
+    ? `${dateInfo.year}-${String(dateInfo.month).padStart(2,'0')}-${String(dateInfo.day).padStart(2,'0')}`
+    : '';
+
+  await chrome.storage.local.set({
+    moreButtonsEditSystemUpdate: {
+      updateTitle: update.title,
+      updateDate:  isoDate,
+      updateType:  update.type,
+      description: update.body,
+      _updateIdx:  idx,
+    }
+  });
+
+  await createForm('editSystemUpdate');
+});
+
+registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
+  const btn = formEl.querySelector('[data-action="submitEditSystemUpdate"]');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  try {
+    const { moreButtonsEditSystemUpdate } = await chrome.storage.local.get('moreButtonsEditSystemUpdate');
+    const idx = moreButtonsEditSystemUpdate?._updateIdx;
+    if (idx === undefined) throw new Error('No update index found');
+
+    const title = formEl.querySelector('[name="updateTitle"]')?.value.trim() ?? '';
+    const date = formEl.querySelector('[name="updateDate"]')?.value ?? '';
+    const type = formEl.querySelector('[name="updateType"]:checked')?.value;
+    const description = formEl.querySelector('[name="description"]')?.value.trim() ?? '';
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+
+    const update = { title, date, type, description };
+    const captures = [...pendingCaptures];
+    const updatedMarkdown = await publishUpdatedUpdate(idx, update, captures, s => { btn.textContent = s; });
+
+    await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
+    const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
+    if (fetchEl && updatedMarkdown) {
+      fetchEl.innerHTML = renderSystemUpdates(updatedMarkdown);
+      fetchEl._lastMarkdown = updatedMarkdown;
+    }
+    pendingCaptures = [];
+    cleanup();
+  } catch (e) {
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('Failed to save update: ' + e.message);
+  }
+});
+
+registerFormAction('deleteSystemUpdate', async ({ cleanup }) => {
+  if (!confirm('Delete this system update? This cannot be undone.')) return;
+  const btn = document.querySelector('[data-action="deleteSystemUpdate"]');
+  const originalText = btn?.textContent;
+  if (btn) btn.disabled = true;
+  try {
+    const { moreButtonsEditSystemUpdate } = await chrome.storage.local.get('moreButtonsEditSystemUpdate');
+    const idx = moreButtonsEditSystemUpdate?._updateIdx;
+    if (idx === undefined) throw new Error('No update index found');
+
+    const updatedMarkdown = await publishDeleteUpdate(idx, s => { if (btn) btn.textContent = s; });
+    await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
+    const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
+    if (fetchEl && updatedMarkdown) {
+      fetchEl.innerHTML = renderSystemUpdates(updatedMarkdown);
+      fetchEl._lastMarkdown = updatedMarkdown;
+    }
+    cleanup();
+  } catch (e) {
+    if (btn) { btn.textContent = originalText; btn.disabled = false; }
+    alert('Failed to delete update: ' + e.message);
+  }
+});
