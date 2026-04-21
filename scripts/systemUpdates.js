@@ -148,12 +148,10 @@ export function insertUpdateIntoMarkdown(markdown, update, captures = []) {
       if (parseInt(ym[1]) < year) { insertPos = ym.index; break; }
     }
     if (insertPos >= 0) {
-      md = md.slice(0, insertPos) + yearBlock + md.slice(insertPos);
+      const needsBlank = insertPos >= 2 && md[insertPos - 2] !== '\n';
+      md = md.slice(0, insertPos) + (needsBlank ? '\n' : '') + yearBlock + md.slice(insertPos);
     } else {
-      const firstYear = md.search(/^## \d{4}\s*$/m);
-      md = firstYear >= 0
-        ? md.slice(0, firstYear) + yearBlock + md.slice(firstYear)
-        : md.trimEnd() + '\n\n' + yearBlock;
+      md = md.trimEnd() + '\n\n' + yearBlock;
     }
   }
 
