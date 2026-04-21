@@ -1,6 +1,7 @@
 import { getFormAction } from './formActions.js';
 import { fetchGitHubMarkdown } from './github.js';
 import { renderSystemStatus } from './systemStatus.js';
+import { renderSystemUpdates } from './systemUpdates.js';
 
 export async function createForm(formName) {
   // Inject CSS once via <link> tag
@@ -469,7 +470,8 @@ export async function createForm(formName) {
       el.innerHTML = '<p class="more-buttons-description">Loading...</p>';
       try {
         const markdown = await fetchGitHubMarkdown(url);
-        el.innerHTML = renderSystemStatus(markdown);
+        const renderer = url.includes('system-updates') ? renderSystemUpdates : renderSystemStatus;
+        el.innerHTML = renderer(markdown);
         el._lastMarkdown = markdown;
       } catch {
         el.innerHTML = '<p class="more-buttons-description">Failed to load services.</p>';
@@ -494,6 +496,12 @@ export async function createForm(formName) {
       if (editBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
         getFormAction('openEditPastIncident')?.({ ...ctx, idx: parseInt(editBtn.dataset.editPastIncident, 10) });
+        return;
+      }
+      const editUpdateBtn = e.target.closest('[data-edit-system-update]');
+      if (editUpdateBtn) {
+        const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
+        getFormAction('openEditSystemUpdate')?.({ ...ctx, idx: parseInt(editUpdateBtn.dataset.editSystemUpdate, 10) });
         return;
       }
     });
