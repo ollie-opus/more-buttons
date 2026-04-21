@@ -93,3 +93,166 @@ export function buildUpdateBlock(update, captures = []) {
 
   return [header, '', ...descLines, ...captureLines].join('\n');
 }
+
+// ── Month/Year heading management ─────────────────────────────────────────────
+
+function cleanEmptyYearSection(md, year) {
+  const lines = md.split('\n');
+  const yearIdx = lines.findIndex(l => l === `## ${year}`);
+  if (yearIdx === -1) return md;
+
+  let hasMonths = false;
+  let nextYearIdx = lines.length;
+  for (let i = yearIdx + 1; i < lines.length; i++) {
+    if (/^## \d{4}/.test(lines[i])) { nextYearIdx = i; break; }
+    if (/^### /.test(lines[i])) { hasMonths = true; break; }
+  }
+  if (hasMonths) return md;
+
+  let removeStart = yearIdx;
+  if (removeStart > 0 && lines[removeStart - 1] === '') removeStart--;
+  return [...lines.slice(0, removeStart), ...lines.slice(nextYearIdx)].join('\n');
+}
+
+function cleanEmptyMonthSection(md, monthLabel, year) {
+  const lines = md.split('\n');
+  const monthIdx = lines.findIndex(l => l === `### ${monthLabel}`);
+  if (monthIdx === -1) return md;
+
+  let hasUpdates = false;
+  let nextSectionIdx = lines.length;
+  for (let i = monthIdx + 1; i < lines.length; i++) {
+    if (/^#{2,3} /.test(lines[i])) { nextSectionIdx = i; break; }
+    if (/^\?\?\? /.test(lines[i])) { hasUpdates = true; break; }
+  }
+  if (hasUpdates) return md;
+
+  let removeStart = monthIdx;
+  if (removeStart > 0 && lines[removeStart - 1] === '') removeStart--;
+  md = [...lines.slice(0, removeStart), ...lines.slice(nextSectionIdx)].join('\n');
+  return cleanEmptyYearSection(md, year);
+}
+
+export function insertUpdateIntoMarkdown(markdown, update, captures = []) {
+  const block = buildUpdateBlock(update, captures);
+  const { year, month, monthLabel } = getYearMonthFromDateStr(update.date);
+  let md = markdown;
+
+  // Ensure year section exists
+  if (!new RegExp(`^## ${year}\\s*$`, 'm').test(md)) {
+    const yearBlock = `## ${year}\n\n---\n\n`;
+    const yearRe = /^## (\d{4})\s*$/gm;
+    let insertPos = -1;
+    let ym;
+    while ((ym = yearRe.exec(md)) !== null) {
+      if (parseInt(ym[1]) < year) { insertPos = ym.index; break; }
+    }
+    if (insertPos >= 0) {
+      md = md.slice(0, insertPos) + yearBlock + md.slice(insertPos);
+    } else {
+      const firstYear = md.search(/^## \d{4}\s*$/m);
+      md = firstYear >= 0
+        ? md.slice(0, firstYear) + yearBlock + md.slice(firstYear)
+        : md.trimEnd() + '\n\n' + yearBlock;
+    }
+  }
+
+  // Ensure month heading exists
+  if (!new RegExp(`^### ${monthLabel}\\s*$`, 'm').test(md)) {
+    const yearStart = md.search(new RegExp(`^## ${year}\\s*$`, 'm'));
+    const afterYearLine = md.indexOf('\n', yearStart) + 1;
+    const nextYearMatch = /^## \d{4}/m.exec(md.slice(afterYearLine));
+    const yearEnd = nextYearMatch ? afterYearLine + nextYearMatch.index : md.length;
+    const yearSection = md.slice(afterYearLine, yearEnd);
+
+    const monthRe = /^### (\w+) (\d{4})\s*$/gm;
+    let insertRelIdx = -1;
+    let mm;
+    while ((mm = monthRe.exec(yearSection)) !== null) {
+      if ((MONTH_NAMES.indexOf(mm[1]) + 1) < month) { insertRelIdx = mm.index; break; }
+    }
+
+    const monthBlock = `### ${monthLabel}\n\n`;
+    if (insertRelIdx >= 0) {
+      const absIdx = afterYearLine + insertRelIdx;
+      md = md.slice(0, absIdx) + monthBlock + md.slice(absIdx);
+    } else {
+      const absEnd = nextYearMatch ? md.indexOf(nextYearMatch[0], afterYearLine) : md.length;
+      md = md.slice(0, absEnd) + monthBlock + md.slice(absEnd);
+    }
+  }
+
+  // Insert block at top of month section (after heading + blank lines)
+  const monthPos = md.search(new RegExp(`^### ${monthLabel}\\s*$`, 'm'));
+  let insertAt = md.indexOf('\n', monthPos) + 1;
+  while (insertAt < md.length && md[insertAt] === '\n') insertAt++;
+  return md.slice(0, insertAt) + block + '\n\n' + md.slice(insertAt);
+}
+
+export function replaceUpdateInMarkdown(markdown, idx, update, newCaptures = []) {
+  const lines = markdown.split('\n');
+  let count = 0;
+  let startLine = -1;
+  let endLine = -1;
+  let i = 0;
+
+  while (i < lines.length) {
+    if (/^\?\?\? (feature-release|new-addition|improvement) ".+"$/.test(lines[i])) {
+      if (count === idx) {
+        startLine = i;
+        i++;
+        while (i < lines.length && (lines[i].startsWith('    ') || lines[i] === '')) i++;
+        endLine = i;
+        break;
+      }
+      count++;
+    }
+    i++;
+  }
+
+  if (startLine === -1) return markdown;
+  const newBlock = buildUpdateBlock(update, newCaptures);
+  return [...lines.slice(0, startLine), ...newBlock.split('\n'), ...lines.slice(endLine)].join('\n');
+}
+
+export function deleteUpdateFromMarkdown(markdown, idx) {
+  const updates = parseUpdateBlocks(markdown);
+  const target = updates[idx];
+  if (!target) return markdown;
+
+  const lines = markdown.split('\n');
+  let count = 0;
+  let startLine = -1;
+  let endLine = -1;
+  let i = 0;
+
+  while (i < lines.length) {
+    if (/^\?\?\? (feature-release|new-addition|improvement) ".+"$/.test(lines[i])) {
+      if (count === idx) {
+        startLine = i;
+        i++;
+        while (i < lines.length && (lines[i].startsWith('    ') || lines[i] === '')) i++;
+        if (i < lines.length && lines[i] === '') i++;
+        endLine = i;
+        break;
+      }
+      count++;
+    }
+    i++;
+  }
+
+  if (startLine === -1) return markdown;
+
+  let effectiveStart = startLine;
+  if (effectiveStart > 0 && lines[effectiveStart - 1] === '') effectiveStart--;
+
+  let md = [...lines.slice(0, effectiveStart), ...lines.slice(endLine)].join('\n');
+
+  const dateInfo = parseDateStr(target.date);
+  if (dateInfo) {
+    const monthLabel = `${MONTH_NAMES[dateInfo.month - 1]} ${dateInfo.year}`;
+    md = cleanEmptyMonthSection(md, monthLabel, dateInfo.year);
+  }
+
+  return md;
+}
