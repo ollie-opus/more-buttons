@@ -274,8 +274,13 @@ function updateCard(update) {
 
 export function renderSystemUpdates(markdown) {
   const updates = parseUpdateBlocks(markdown);
-  if (updates.length === 0) return `<p class="more-buttons-description">No system updates yet.</p>`;
-  return updates.map(u => updateCard(u)).join('');
+  const cards = updates.length === 0
+    ? `<p class="more-buttons-description">No past updates.</p>`
+    : updates.map(u => updateCard(u)).join('');
+  return `<details class="more-buttons-advanced-section" style="margin-top:8px;">
+    <summary class="more-buttons-advanced-toggle" style="font-size:1rem;font-weight:600;color:var(--mb-heading);">Past Updates</summary>
+    <div style="margin-top:10px;">${cards}</div>
+  </details>`;
 }
 
 // ── Capture helpers ───────────────────────────────────────────────────────────
