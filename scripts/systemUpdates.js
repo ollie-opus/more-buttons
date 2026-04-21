@@ -301,8 +301,8 @@ function updateCapturesList(formEl) {
   if (!container) return;
   container.innerHTML = pendingCaptures.map((c, i) => `
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px;background:var(--mb-surface);border-radius:6px;border:1px solid var(--mb-border);">
-      <img src="${c.lightDataUrl}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
-      <img src="${c.darkDataUrl}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
+      <img src="${escapeHtml(c.lightDataUrl)}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
+      <img src="${escapeHtml(c.darkDataUrl)}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
       <span style="font-size:0.75rem;color:var(--mb-text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.lightFilename)}</span>
       <button type="button" class="more-buttons-button secondary" style="font-size:0.75rem;padding:2px 8px;"
               data-remove-capture="${i}">✕</button>
