@@ -319,7 +319,7 @@ function updateCapturesList(formEl) {
 
 // ── Publish functions ─────────────────────────────────────────────────────────
 
-async function pushCaptures(captures, onProgress) {
+async function pushCaptures(captures = [], onProgress) {
   for (const c of captures) {
     await githubPushImageIfNotExists(`docs/assets/${c.lightFilename}`, c.lightDataUrl.split(',')[1], onProgress);
     await githubPushImageIfNotExists(`docs/assets/${c.darkFilename}`, c.darkDataUrl.split(',')[1], onProgress);
