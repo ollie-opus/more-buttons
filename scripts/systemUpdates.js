@@ -346,13 +346,13 @@ registerFormAction('startCapture', ({ formEl, overlay }) => {
   const padding = parseInt(formEl.querySelector('[name="capturePadding"]')?.value ?? '0', 10) || 0;
   const resizeMode = formEl.querySelector('[name="captureResizeMode"]')?.checked ?? false;
 
-  partialCapture = {};
-  overlay.style.display = 'none';
-
   if (Object.keys(partialCapture).length > 0) {
     overlay.style.display = '';
     return;
   }
+
+  partialCapture = {};
+  overlay.style.display = 'none';
 
   setCaptureStoreMode(({ dataUrl, filename }) => {
     if (!formEl.isConnected) { setCaptureStoreMode(null); overlay.style.display = ''; return; }
