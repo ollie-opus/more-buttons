@@ -1,0 +1,46 @@
+<form id="edit-system-update-form" data-storage-key="moreButtonsEditSystemUpdate" data-max-width="720px">
+  <h2>Edit System Update</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Title</label>
+    <input type="text" name="updateTitle" required placeholder="e.g. Employee Checklist Improvements" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Date</label>
+    <input type="date" name="updateDate" required />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Type</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --blue"><input type="radio" name="updateType" value="feature-release" required /> Feature release</label>
+      <label class="more-buttons-radio-btn --green"><input type="radio" name="updateType" value="new-addition" /> New addition</label>
+      <label class="more-buttons-radio-btn --amber"><input type="radio" name="updateType" value="improvement" /> Improvement</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Description</label>
+    <textarea name="description" rows="4"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Add captures</label>
+    <div class="more-buttons-radio-group-row">
+      <label class="more-buttons-sub-label"><input type="checkbox" name="captureResizeMode" /> Resize mode</label>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+      <input class="more-buttons-input-text" type="number" name="capturePadding" value="0" min="0" style="width:80px;" />
+      <span class="more-buttons-description" style="margin:0;">px padding</span>
+    </div>
+    <button type="button" class="more-buttons-button secondary" style="margin-top:8px;" data-action="startCapture">Capture element</button>
+    <div id="edit-update-captures"></div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="submitEditSystemUpdate" data-validate>Save &amp; Publish</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteSystemUpdate">Delete</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close">Cancel</button>
+  </div>
+</form>
