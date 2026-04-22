@@ -3,10 +3,14 @@ import { githubFetchAndPushFile, githubPushImageIfNotExists } from './github.js'
 import { createForm } from './form.js';
 import { captureElement, setCaptureStoreMode } from './captureElement.js';
 import { renderCard, escapeHtml } from './cardRenderer.js';
+import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID } from './admonitions.js';
 
 // ── Module-level capture state ────────────────────────────────────────────────
 let pendingCaptures = [];
+let existingCaptures = [];
 let partialCapture = {};
+
+const RAW_ASSETS_BASE = 'https://raw.githubusercontent.com/ollie-opus/opus-knowledge-base/main/docs/assets/';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -48,51 +52,39 @@ function getYearMonthFromDateStr(dateStr) {
 // ── Parse / build ─────────────────────────────────────────────────────────────
 
 export function parseUpdateBlocks(markdown) {
-  const lines = markdown.split('\n');
-  const updates = [];
-  let i = 0;
-  let blockIdx = 0;
-
-  while (i < lines.length) {
-    const headerMatch = lines[i].match(/^\?\?\? (feature-release|new-addition|improvement) "(.+)"$/);
-    if (headerMatch) {
-      const type = headerMatch[1];
-      const fullTitle = headerMatch[2];
-      const dateMatch = fullTitle.match(/<small[^>]*>([^<]+)<\/small>/);
-      const date = dateMatch ? dateMatch[1] : '';
-      const rawTitle = fullTitle.replace(/<br><small[^>]*>[^<]*<\/small>/, '').trim();
-      const labelPrefix = (TYPE_LABELS[type] ?? '') + ': ';
-      const title = rawTitle.startsWith(labelPrefix) ? rawTitle.slice(labelPrefix.length) : rawTitle;
-
-      i++;
-      const bodyLines = [];
-      while (i < lines.length && (lines[i].startsWith('    ') || lines[i] === '')) {
-        bodyLines.push(lines[i].startsWith('    ') ? lines[i].slice(4) : lines[i]);
-        i++;
-      }
-      while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1] === '') bodyLines.pop();
-
-      updates.push({ type, title, date, body: bodyLines.join('\n'), idx: blockIdx++ });
-    } else {
-      i++;
-    }
-  }
-  return updates;
+  const raw = parseAdmonitions(markdown, /feature-release|new-addition|improvement/);
+  return raw.map(({ type, title, body, uuid }) => {
+    const dateMatch = title.match(/<small[^>]*>([^<]+)<\/small>/);
+    const date = dateMatch ? dateMatch[1] : '';
+    const rawTitle = title.replace(/<br><small[^>]*>[^<]*<\/small>/, '').trim();
+    const labelPrefix = (TYPE_LABELS[type] ?? '') + ': ';
+    const cleanTitle = rawTitle.startsWith(labelPrefix) ? rawTitle.slice(labelPrefix.length) : rawTitle;
+    return { type, title: cleanTitle, date, body, uuid };
+  });
 }
 
 export function buildUpdateBlock(update, captures = []) {
   const typeLabel = TYPE_LABELS[update.type] ?? update.type;
   const formattedDate = formatUpdateDate(update.date);
-  const header = `??? ${update.type} "${typeLabel}: ${update.title}<br><small style="opacity: 0.6">${formattedDate}</small>"`;
+  const fullTitleString = `${typeLabel}: ${update.title}<br><small style="opacity: 0.6">${formattedDate}</small>`;
 
-  const descLines = (update.description ?? update.body ?? '').split('\n').map(l => l.length ? '    ' + l : l);
-  const captureLines = captures.flatMap(c => [
-    '',
-    `    ![](../assets/${c.lightFilename}#only-light){ width="700" loading=lazy }`,
-    `    ![](../assets/${c.darkFilename}#only-dark){ width="700" loading=lazy }`,
-  ]);
+  const descLines = (update.description ?? update.body ?? '').split('\n');
+  const captureLines = captures.flatMap(c => {
+    const dimAttr = c.dimMode === 'width' ? `width="${c.dimValue}"` : `style="height: ${c.dimValue ?? 50}px"`;
+    return [
+      '',
+      `![](../assets/${c.lightFilename}#only-light){ ${dimAttr} loading=lazy }`,
+      `![](../assets/${c.darkFilename}#only-dark){ ${dimAttr} loading=lazy }`,
+    ];
+  });
 
-  return [header, '', ...descLines, ...captureLines].join('\n');
+  const bodyContent = [...descLines, ...captureLines].join('\n');
+  const uuid = update.uuid ?? generateUUID();
+  const bodyWithUUID = bodyContent.includes('data-uuid=')
+    ? bodyContent
+    : injectAdmonitionUUID(bodyContent, uuid);
+
+  return buildAdmonition('???', update.type, fullTitleString, bodyWithUUID);
 }
 
 // ── Month/Year heading management ─────────────────────────────────────────────
@@ -188,69 +180,20 @@ export function insertUpdateIntoMarkdown(markdown, update, captures = []) {
   return md.slice(0, insertAt) + block + '\n\n' + md.slice(insertAt);
 }
 
-export function replaceUpdateInMarkdown(markdown, idx, update, newCaptures = []) {
-  const lines = markdown.split('\n');
-  let count = 0;
-  let startLine = -1;
-  let endLine = -1;
-  let i = 0;
-
-  while (i < lines.length) {
-    if (/^\?\?\? (feature-release|new-addition|improvement) ".+"$/.test(lines[i])) {
-      if (count === idx) {
-        startLine = i;
-        i++;
-        while (i < lines.length && (lines[i].startsWith('    ') || lines[i] === '')) i++;
-        endLine = i;
-        break;
-      }
-      count++;
-    }
-    i++;
-  }
-
-  if (startLine === -1) return markdown;
-  const newBlock = buildUpdateBlock(update, newCaptures);
-  return [...lines.slice(0, startLine), ...newBlock.split('\n'), ...lines.slice(endLine)].join('\n');
+export function replaceUpdateInMarkdown(markdown, uuid, update, newCaptures = []) {
+  return replaceAdmonitionByUUID(markdown, uuid, buildUpdateBlock(update, newCaptures));
 }
 
-export function deleteUpdateFromMarkdown(markdown, idx) {
-  const updates = parseUpdateBlocks(markdown);
-  const target = updates[idx];
-  if (!target) return markdown;
+export function deleteUpdateFromMarkdown(markdown, uuid) {
+  const target = parseUpdateBlocks(markdown).find(u => u.uuid === uuid);
+  let md = deleteAdmonitionByUUID(markdown, uuid);
 
-  const lines = markdown.split('\n');
-  let count = 0;
-  let startLine = -1;
-  let endLine = -1;
-  let i = 0;
-
-  while (i < lines.length) {
-    if (/^\?\?\? (feature-release|new-addition|improvement) ".+"$/.test(lines[i])) {
-      if (count === idx) {
-        startLine = i;
-        i++;
-        while (i < lines.length && (lines[i].startsWith('    ') || lines[i] === '')) i++;
-        if (i < lines.length && lines[i] === '') i++;
-        endLine = i;
-        break;
-      }
-      count++;
+  if (target) {
+    const dateInfo = parseDateStr(target.date);
+    if (dateInfo) {
+      const monthLabel = `${MONTH_NAMES[dateInfo.month - 1]} ${dateInfo.year}`;
+      md = cleanEmptyMonthSection(md, monthLabel, dateInfo.year);
     }
-    i++;
-  }
-
-  if (startLine === -1) return markdown;
-
-  let effectiveStart = startLine;
-  if (effectiveStart > 0 && lines[effectiveStart - 1] === '') effectiveStart--;
-
-  let md = [...lines.slice(0, effectiveStart), ...lines.slice(endLine)].join('\n');
-
-  const dateInfo = parseDateStr(target.date);
-  if (dateInfo) {
-    const monthLabel = `${MONTH_NAMES[dateInfo.month - 1]} ${dateInfo.year}`;
-    md = cleanEmptyMonthSection(md, monthLabel, dateInfo.year);
   }
 
   return md;
@@ -267,9 +210,15 @@ const TYPE_COLOURS = {
 function updateCard(update) {
   const colour = TYPE_COLOURS[update.type] ?? 'amber';
   const badge = TYPE_LABELS[update.type] ?? update.type;
-  const preview = (update.body ?? '').replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '').replace(/\n+/g, ' ').trim();
+  const preview = (update.body ?? '')
+    .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
+    .replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '')
+    .replace(/\n+/g, ' ')
+    .trim();
   const description = preview.length > 120 ? preview.slice(0, 120) + '…' : preview || null;
-  return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr: `data-edit-system-update="${update.idx}"`, btnLabel: 'Edit' });
+  const btnAttr = update.uuid ? `data-edit-system-update="${update.uuid}"` : `disabled title="This entry doesn't have a UUID configured"`;
+  const btnLabel = update.uuid ? 'Edit' : 'Error';
+  return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr, btnLabel });
 }
 
 export function renderSystemUpdates(markdown) {
@@ -285,31 +234,121 @@ export function renderSystemUpdates(markdown) {
 
 // ── Capture helpers ───────────────────────────────────────────────────────────
 
+function parseExistingCaptures(body) {
+  const captures = [];
+  const re = /!\[\]\(\.\.\/assets\/([^)#]+)#only-light\)\{\s*([^}]+?)\s*\}/g;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const lightFilename = m[1];
+    const darkFilename = lightFilename.replace('-light-mode', '-dark-mode');
+    const attrs = m[2];
+    const heightMatch = attrs.match(/height:\s*(\d+)px/);
+    const widthMatch = attrs.match(/width="(\d+)"/);
+    const dimMode = widthMatch ? 'width' : 'height';
+    const dimValue = widthMatch ? parseInt(widthMatch[1]) : (heightMatch ? parseInt(heightMatch[1]) : 50);
+    captures.push({ lightFilename, darkFilename, dimMode, dimValue });
+  }
+  return captures;
+}
+
+function captureRowHtml(imgSrc, dimMode, dimValue, removeAttr, dimModeAttr, dimValueAttr, addToLibrary, addToLibraryAttr) {
+  const libraryCheckbox = addToLibraryAttr !== undefined ? `
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.75rem;color:var(--mb-text-muted);white-space:nowrap;">
+          <input type="checkbox" ${addToLibraryAttr} ${addToLibrary ? 'checked' : ''} style="margin:0;" />
+          Add to library
+        </label>` : '';
+  return `
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px;background:var(--mb-surface);border-radius:6px;border:1px solid var(--mb-border);">
+      <img src="${imgSrc}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
+      <div style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+        <select ${dimModeAttr} style="font-size:0.75rem;padding:2px 4px;border-radius:4px;border:1px solid var(--mb-border);background:var(--mb-surface);color:var(--mb-text);">
+          <option value="height" ${dimMode === 'height' ? 'selected' : ''}>height</option>
+          <option value="width" ${dimMode === 'width' ? 'selected' : ''}>width</option>
+        </select>
+        <input type="number" ${dimValueAttr} value="${dimValue ?? 50}" min="1"
+               style="width:60px;font-size:0.75rem;padding:2px 4px;border-radius:4px;border:1px solid var(--mb-border);background:var(--mb-surface);color:var(--mb-text);" />
+        <span style="font-size:0.75rem;color:var(--mb-text-muted);">px</span>${libraryCheckbox}
+        <button type="button" class="more-buttons-button secondary" style="font-size:0.75rem;padding:2px 8px;"
+                ${removeAttr}>✕</button>
+      </div>
+    </div>`;
+}
+
 function updateCapturesList(formEl) {
   const container = formEl.querySelector('#log-update-captures, #edit-update-captures');
   if (!container) return;
-  container.innerHTML = pendingCaptures.map((c, i) => `
-    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px;background:var(--mb-surface);border-radius:6px;border:1px solid var(--mb-border);">
-      <img src="${escapeHtml(c.lightDataUrl)}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
-      <img src="${escapeHtml(c.darkDataUrl)}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
-      <span style="font-size:0.75rem;color:var(--mb-text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.lightFilename)}</span>
-      <button type="button" class="more-buttons-button secondary" style="font-size:0.75rem;padding:2px 8px;"
-              data-remove-capture="${i}">✕</button>
-    </div>
-  `).join('');
 
+  const showLabels = existingCaptures.length > 0 && pendingCaptures.length > 0;
+  const labelStyle = 'font-size:0.75rem;color:var(--mb-text-muted);margin:8px 0 0;';
+
+  const existingHtml = existingCaptures.map((c, i) =>
+    captureRowHtml(
+      RAW_ASSETS_BASE + escapeHtml(c.lightFilename),
+      c.dimMode, c.dimValue,
+      `data-remove-existing="${i}"`,
+      `data-existing-dim-mode="${i}"`,
+      `data-existing-dim-value="${i}"`
+    )
+  ).join('');
+
+  const pendingHtml = pendingCaptures.map((c, i) =>
+    captureRowHtml(
+      escapeHtml(c.lightDataUrl),
+      c.dimMode, c.dimValue,
+      `data-remove-capture="${i}"`,
+      `data-dim-mode="${i}"`,
+      `data-dim-value="${i}"`,
+      pendingCaptures[i].addToLibrary !== false,
+      `data-add-to-library="${i}"`
+    )
+  ).join('');
+
+  container.innerHTML =
+    (showLabels ? `<p style="${labelStyle}">Existing</p>` : '') + existingHtml +
+    (showLabels ? `<p style="${labelStyle}">New</p>` : '') + pendingHtml;
+
+  container.querySelectorAll('[data-existing-dim-mode]').forEach(sel => {
+    sel.addEventListener('change', () => { existingCaptures[parseInt(sel.dataset.existingDimMode)].dimMode = sel.value; });
+  });
+  container.querySelectorAll('[data-existing-dim-value]').forEach(inp => {
+    inp.addEventListener('input', () => { existingCaptures[parseInt(inp.dataset.existingDimValue)].dimValue = parseInt(inp.value) || 50; });
+  });
+  container.querySelectorAll('[data-remove-existing]').forEach(btn => {
+    btn.addEventListener('click', () => { existingCaptures.splice(parseInt(btn.dataset.removeExisting), 1); updateCapturesList(formEl); });
+  });
+  container.querySelectorAll('[data-dim-mode]').forEach(sel => {
+    sel.addEventListener('change', () => { pendingCaptures[parseInt(sel.dataset.dimMode)].dimMode = sel.value; });
+  });
+  container.querySelectorAll('[data-dim-value]').forEach(inp => {
+    inp.addEventListener('input', () => { pendingCaptures[parseInt(inp.dataset.dimValue)].dimValue = parseInt(inp.value) || 50; });
+  });
   container.querySelectorAll('[data-remove-capture]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      pendingCaptures.splice(parseInt(btn.dataset.removeCapture), 1);
-      updateCapturesList(formEl);
-    });
+    btn.addEventListener('click', () => { pendingCaptures.splice(parseInt(btn.dataset.removeCapture), 1); updateCapturesList(formEl); });
+  });
+  container.querySelectorAll('[data-add-to-library]').forEach(cb => {
+    cb.addEventListener('change', () => { pendingCaptures[parseInt(cb.dataset.addToLibrary)].addToLibrary = cb.checked; });
   });
 }
 
 // ── Publish functions ─────────────────────────────────────────────────────────
 
+function resolveCaptures(captures) {
+  return captures.map(c => {
+    if (c.lightDataUrl && c.addToLibrary === false) {
+      const id = generateUUID();
+      return {
+        ...c,
+        lightFilename: `occ-captures/uncategorised/${id}-light-mode.png`,
+        darkFilename:  `occ-captures/uncategorised/${id}-dark-mode.png`,
+      };
+    }
+    return c;
+  });
+}
+
 async function pushCaptures(captures = [], onProgress) {
   for (const c of captures) {
+    if (!c.lightDataUrl) continue;
     await githubPushImageIfNotExists(`docs/assets/${c.lightFilename}`, c.lightDataUrl.split(',')[1], onProgress);
     await githubPushImageIfNotExists(`docs/assets/${c.darkFilename}`, c.darkDataUrl.split(',')[1], onProgress);
   }
@@ -320,13 +359,13 @@ export async function publishNewUpdate(update, captures, onProgress) {
   return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, update, captures));
 }
 
-export async function publishUpdatedUpdate(idx, update, captures, onProgress) {
+export async function publishUpdatedUpdate(uuid, update, captures, onProgress) {
   await pushCaptures(captures, onProgress);
-  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => replaceUpdateInMarkdown(md, idx, update, captures));
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => replaceUpdateInMarkdown(md, uuid, update, captures));
 }
 
-export async function publishDeleteUpdate(idx, onProgress) {
-  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, idx));
+export async function publishDeleteUpdate(uuid, onProgress) {
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, uuid));
 }
 
 // ── Form action registrations ─────────────────────────────────────────────────
@@ -354,7 +393,7 @@ registerFormAction('startCapture', ({ formEl, overlay }) => {
       partialCapture.darkFilename = filename;
     }
     if (partialCapture.lightDataUrl && partialCapture.darkDataUrl) {
-      pendingCaptures.push({ ...partialCapture });
+      pendingCaptures.push({ ...partialCapture, dimMode: 'height', dimValue: 50, addToLibrary: true });
       partialCapture = {};
       setCaptureStoreMode(null);
       overlay.style.display = '';
@@ -362,7 +401,7 @@ registerFormAction('startCapture', ({ formEl, overlay }) => {
     }
   });
 
-  captureElement(1, {
+  captureElement(2, {
     downloadPath: 'occ-captures',
     downloadMode: 'both',
     capturePadding: padding,
@@ -372,6 +411,7 @@ registerFormAction('startCapture', ({ formEl, overlay }) => {
 
 registerFormAction('openLogSystemUpdate', async () => {
   pendingCaptures = [];
+  existingCaptures = [];
   const { formEl: logFormEl } = await createForm('logSystemUpdate');
   if (!logFormEl) return;
   const dateInput = logFormEl.querySelector('[name="updateDate"]');
@@ -394,7 +434,7 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, cleanup }) => {
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description };
-    const captures = [...pendingCaptures];
+    const captures = resolveCaptures([...pendingCaptures]);
     const updatedMarkdown = await publishNewUpdate(update, captures, s => { btn.textContent = s; });
 
     const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
@@ -411,16 +451,17 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, cleanup }) => {
   }
 });
 
-registerFormAction('openEditSystemUpdate', async ({ idx }) => {
+registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
   const markdown = fetchEl?._lastMarkdown;
   if (!markdown) return;
 
   const updates = parseUpdateBlocks(markdown);
-  const update = updates[idx];
+  const update = updates.find(u => u.uuid === uuid);
   if (!update) return;
 
   pendingCaptures = [];
+  existingCaptures = parseExistingCaptures(update.body ?? '');
 
   const dateInfo = parseDateStr(update.date);
   const isoDate = dateInfo
@@ -432,12 +473,18 @@ registerFormAction('openEditSystemUpdate', async ({ idx }) => {
       updateTitle: update.title,
       updateDate:  isoDate,
       updateType:  update.type,
-      description: update.body,
-      _updateIdx:  idx,
+      description: (update.body ?? '')
+        .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
+        .replace(/\n?\s*!\[\]\(\.\.\/assets\/[^)]+#only-(light|dark)\)\{[^}]*\}/g, '')
+        .trim(),
     }
   });
 
-  await createForm('editSystemUpdate');
+  const { formEl: editFormEl } = await createForm('editSystemUpdate');
+  if (editFormEl) {
+    editFormEl.dataset.editUuid = update.uuid;
+    updateCapturesList(editFormEl);
+  }
 });
 
 registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
@@ -445,9 +492,8 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
-    const { moreButtonsEditSystemUpdate } = await chrome.storage.local.get('moreButtonsEditSystemUpdate');
-    const idx = moreButtonsEditSystemUpdate?._updateIdx;
-    if (idx === undefined) throw new Error('No update index found');
+    const _uuid = formEl.dataset.editUuid;
+    if (!_uuid) throw new Error('No update identity found');
 
     const title = formEl.querySelector('[name="updateTitle"]')?.value.trim() ?? '';
     const date = formEl.querySelector('[name="updateDate"]')?.value ?? '';
@@ -455,9 +501,12 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
     const description = formEl.querySelector('[name="description"]')?.value.trim() ?? '';
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
-    const update = { title, date, type, description };
-    const captures = [...pendingCaptures];
-    const updatedMarkdown = await publishUpdatedUpdate(idx, update, captures, s => { btn.textContent = s; });
+    const update = { title, date, type, description, uuid: _uuid };
+    const captures = resolveCaptures([...existingCaptures, ...pendingCaptures]);
+    await pushCaptures(captures, s => { btn.textContent = s; });
+    const updatedMarkdown = await githubFetchAndPushFile(UPDATES_FILE, s => { btn.textContent = s; }, md => {
+      return replaceUpdateInMarkdown(md, _uuid, update, captures);
+    });
 
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
@@ -466,6 +515,7 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
       fetchEl._lastMarkdown = updatedMarkdown;
     }
     pendingCaptures = [];
+    existingCaptures = [];
     cleanup();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
@@ -481,11 +531,12 @@ registerFormAction('deleteSystemUpdate', async ({ formEl, cleanup }) => {
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
   try {
-    const { moreButtonsEditSystemUpdate } = await chrome.storage.local.get('moreButtonsEditSystemUpdate');
-    const idx = moreButtonsEditSystemUpdate?._updateIdx;
-    if (idx === undefined) throw new Error('No update index found');
+    const _uuid = formEl.dataset.editUuid;
+    if (!_uuid) throw new Error('No update identity found');
 
-    const updatedMarkdown = await publishDeleteUpdate(idx, s => { if (btn) btn.textContent = s; });
+    const updatedMarkdown = await githubFetchAndPushFile(UPDATES_FILE, s => { if (btn) btn.textContent = s; }, md => {
+      return deleteUpdateFromMarkdown(md, _uuid);
+    });
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
     if (fetchEl && updatedMarkdown) {

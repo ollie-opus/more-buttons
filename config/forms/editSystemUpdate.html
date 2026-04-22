@@ -14,9 +14,9 @@
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Type</label>
     <div class="more-buttons-radio-btn-group-row">
-      <label class="more-buttons-radio-btn --blue"><input type="radio" name="updateType" value="feature-release" required /> Feature release</label>
+      <label class="more-buttons-radio-btn --purple"><input type="radio" name="updateType" value="feature-release" required /> Feature release</label>
       <label class="more-buttons-radio-btn --green"><input type="radio" name="updateType" value="new-addition" /> New addition</label>
-      <label class="more-buttons-radio-btn --amber"><input type="radio" name="updateType" value="improvement" /> Improvement</label>
+      <label class="more-buttons-radio-btn --blue"><input type="radio" name="updateType" value="improvement" /> Improvement</label>
     </div>
   </div>
 
@@ -27,14 +27,17 @@
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Add captures</label>
-    <div class="more-buttons-radio-group-row">
-      <label class="more-buttons-sub-label"><input type="checkbox" name="captureResizeMode" /> Resize mode</label>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-      <input class="more-buttons-input-text" type="number" name="capturePadding" value="0" min="0" style="width:80px;" />
-      <span class="more-buttons-description" style="margin:0;">px padding</span>
-    </div>
-    <button type="button" class="more-buttons-button secondary" style="margin-top:8px;" data-action="startCapture">Capture element</button>
+    <details class="more-buttons-advanced-section">
+      <summary class="more-buttons-advanced-toggle">Capture settings</summary>
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px">
+        <label class="more-buttons-sub-label"><input type="checkbox" name="captureResizeMode" /> Resize mode</label>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <input class="more-buttons-input-text" type="number" name="capturePadding" value="0" min="0" style="width: 80px" />
+          <span class="more-buttons-description" style="margin: 0">px padding</span>
+        </div>
+      </div>
+    </details>
+    <button type="button" class="more-buttons-button secondary" style="margin-top: 8px" data-action="startCapture">Capture element</button>
     <div id="edit-update-captures"></div>
   </div>
 

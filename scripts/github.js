@@ -1,4 +1,18 @@
-export async function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown) {
+import { ensureAdmonitionUUIDs } from './admonitions.js';
+
+let _opQueue = Promise.resolve();
+
+const ADMONITION_TYPE_BY_FILE = {
+  'system-updates.md': /feature-release|new-addition|improvement/,
+  'system-status.md':  /status-available|status-disruption|status-outage/,
+};
+
+export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown) {
+  _opQueue = _opQueue.then(() => _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown));
+  return _opQueue;
+}
+
+async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, retries = 1) {
   const REPO = 'ollie-opus/opus-knowledge-base';
   const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
   const token = moreButtonsIntegrations?.githubPAT;
@@ -12,7 +26,10 @@ export async function githubFetchAndPushFile(filePath, onProgress, buildUpdatedM
   const fileData = await fileRes.json();
   const currentMarkdown = decodeURIComponent(escape(atob(fileData.content.replace(/\n/g, ''))));
 
-  const updatedMarkdown = buildUpdatedMarkdown(currentMarkdown);
+  const typeRegex = Object.entries(ADMONITION_TYPE_BY_FILE).find(([k]) => filePath.includes(k))?.[1];
+  const migratedMarkdown = typeRegex ? ensureAdmonitionUUIDs(currentMarkdown, typeRegex) : currentMarkdown;
+
+  const updatedMarkdown = buildUpdatedMarkdown(migratedMarkdown);
 
   onProgress?.('Pushing to GitHub...');
   const label = filePath.includes('system-updates') ? 'system updates' : 'system status';
@@ -25,6 +42,9 @@ export async function githubFetchAndPushFile(filePath, onProgress, buildUpdatedM
       sha: fileData.sha
     })
   });
+  if (putRes.status === 409 && retries > 0) {
+    return _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, 0);
+  }
   if (!putRes.ok) {
     const err = await putRes.json();
     throw new Error(err.message || `GitHub API error: ${putRes.status}`);

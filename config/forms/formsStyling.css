@@ -169,6 +169,7 @@
 .more-buttons-overlay-content input[type="text"],
 .more-buttons-overlay-content input[type="number"],
 .more-buttons-overlay-content input[type="datetime-local"],
+.more-buttons-overlay-content input[type="date"],
 .more-buttons-overlay-content select,
 .more-buttons-overlay-content textarea {
   width: 100%;
@@ -193,6 +194,7 @@
 .more-buttons-overlay-content input[type="text"]:focus,
 .more-buttons-overlay-content input[type="number"]:focus,
 .more-buttons-overlay-content input[type="datetime-local"]:focus,
+.more-buttons-overlay-content input[type="date"]:focus,
 .more-buttons-overlay-content select:focus,
 .more-buttons-overlay-content textarea:focus {
   border-color: #3b82f6;
@@ -202,6 +204,7 @@
 .more-buttons-overlay-content input[type="text"]:disabled,
 .more-buttons-overlay-content input[type="number"]:disabled,
 .more-buttons-overlay-content input[type="datetime-local"]:disabled,
+.more-buttons-overlay-content input[type="date"]:disabled,
 .more-buttons-overlay-content select:disabled,
 .more-buttons-overlay-content textarea:disabled {
   background-color: var(--mb-bg-disabled);
@@ -269,9 +272,11 @@
 }
 
 /* Coloured variants — unselected inherits standard style, colour only applies when checked */
-.more-buttons-radio-btn.--green:has(:checked)  { background: rgb(102,187,106); color: #fff;           box-shadow: 0 1px 2px rgba(102,187,106,0.45); }
-.more-buttons-radio-btn.--amber:has(:checked)  { background: rgb(255,179,0);   color: rgb(80,50,0);   box-shadow: 0 1px 2px rgba(255,179,0,0.45); }
-.more-buttons-radio-btn.--red:has(:checked)    { background: rgb(239,83,80);   color: #fff;           box-shadow: 0 1px 2px rgba(239,83,80,0.45); }
+.more-buttons-radio-btn.--green:has(:checked)  { background: rgb(102,187,106); color: #fff; box-shadow: 0 1px 2px rgba(102,187,106,0.45); }
+.more-buttons-radio-btn.--amber:has(:checked)  { background: rgb(255,179,0); color: rgb(80,50,0); box-shadow: 0 1px 2px rgba(255,179,0,0.45); }
+.more-buttons-radio-btn.--red:has(:checked)    { background: rgb(239,83,80); color: #fff; box-shadow: 0 1px 2px rgba(239,83,80,0.45); }
+.more-buttons-radio-btn.--blue:has(:checked)   { background: rgb(66,165,245); color: #fff; box-shadow: 0 1px 2px rgba(66,165,245,0.45); }
+.more-buttons-radio-btn.--purple:has(:checked) { background: rgb(199,84,176); color: #fff; box-shadow: 0 1px 2px rgba(199,84,176,0.45); }
 
 .more-buttons-radio-btn-group-row.--invalid,
 .more-buttons-radio-btn-group-column.--invalid {
@@ -330,6 +335,7 @@
 .more-buttons-button:hover {
   background: var(--mb-btn-hover);
   box-shadow: 0 2px 4px rgba(15, 23, 42, 0.4);
+  align-self: flex-start;
 }
 
 .more-buttons-button:active {
@@ -341,6 +347,7 @@
   background: var(--mb-btn-2-bg);
   color: var(--mb-btn-2-fg);
   box-shadow: none;
+  align-self: flex-start;
 }
 
 .more-buttons-button.secondary:hover {
@@ -350,6 +357,7 @@
 .more-buttons-button.danger {
   background: #ef4444;
   color: #ffffff;
+  align-self: flex-start;
 }
 
 .more-buttons-button.danger:hover {

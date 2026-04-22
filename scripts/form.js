@@ -3,7 +3,14 @@ import { fetchGitHubMarkdown } from './github.js';
 import { renderSystemStatus } from './systemStatus.js';
 import { renderSystemUpdates } from './systemUpdates.js';
 
+let activeFormCleanup = null;
+
 export async function createForm(formName) {
+  if (activeFormCleanup) {
+    activeFormCleanup();
+    activeFormCleanup = null;
+  }
+
   // Inject CSS once via <link> tag
   if (!document.getElementById('more-buttons-overlay-stylesheet')) {
     const link = document.createElement('link');
@@ -40,7 +47,10 @@ export async function createForm(formName) {
     document.removeEventListener('keydown', handleKeyDown);
     document.body.style.overflow = previousBodyOverflow;
     if (overlay.isConnected) overlay.remove();
+    if (activeFormCleanup === cleanup) activeFormCleanup = null;
   }
+
+  activeFormCleanup = cleanup;
 
   document.addEventListener('keydown', handleKeyDown);
 
@@ -489,19 +499,19 @@ export async function createForm(formName) {
       const updateBtn = e.target.closest('[data-update-incident]');
       if (updateBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openUpdateIncident')?.({ ...ctx, idx: parseInt(updateBtn.dataset.updateIncident, 10) });
+        getFormAction('openUpdateIncident')?.({ ...ctx, uuid: updateBtn.dataset.updateIncident });
         return;
       }
       const editBtn = e.target.closest('[data-edit-past-incident]');
       if (editBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openEditPastIncident')?.({ ...ctx, idx: parseInt(editBtn.dataset.editPastIncident, 10) });
+        getFormAction('openEditPastIncident')?.({ ...ctx, uuid: editBtn.dataset.editPastIncident });
         return;
       }
       const editUpdateBtn = e.target.closest('[data-edit-system-update]');
       if (editUpdateBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openEditSystemUpdate')?.({ ...ctx, idx: parseInt(editUpdateBtn.dataset.editSystemUpdate, 10) });
+        getFormAction('openEditSystemUpdate')?.({ ...ctx, uuid: editUpdateBtn.dataset.editSystemUpdate });
         return;
       }
     });

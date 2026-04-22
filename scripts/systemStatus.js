@@ -2,6 +2,7 @@ import { registerFormAction } from './formActions.js';
 import { githubFetchAndPush } from './github.js';
 import { createForm } from './form.js';
 import { renderCard, escapeHtml } from './cardRenderer.js';
+import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID } from './admonitions.js';
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -9,201 +10,247 @@ function indentBlock(text, indent) {
   return text.split('\n').map(line => line.length ? indent + line : line).join('\n');
 }
 
+/**
+ * Extracts a named field from an admonition body.
+ * Body lines are stored WITHOUT the 4-space prefix (already stripped by parseAdmonitions).
+ */
 function extractIncidentField(body, fieldName) {
-  const re = new RegExp(`^    - \\*\\*${fieldName}:\\*\\*\\s*(.*)$`, 'm');
+  const re = new RegExp(`^- \\*\\*${fieldName}:\\*\\*\\s*(.*)$`, 'm');
   const m = body.match(re);
   if (!m) return '';
   return m[1].replace(/^`|`$/g, '').trim();
 }
 
+/**
+ * Builds a complete incident admonition block.
+ * UUID is embedded in the body as a hidden span (first line).
+ * Body lines have NO leading indent — buildAdmonition adds the 4-space prefix.
+ */
 function buildIncidentBlock(inc) {
-  return [
-    `!!! status-${inc.impact} "${inc.title}"`,
+  const uuid = inc.uuid ?? generateUUID();
+  const bodyLines = [
     '',
-    `    - **Service Impact:** ${inc.impact.toUpperCase()}`,
-    `    - **Current Status:** \`${inc.currentStatus === 'resolved' ? 'Resolved' : 'Ongoing'}\``,
-    `    - **Description:** ${inc.description || ''}`,
-    `    - **Reported:** ${inc.reported || ''}`,
-    `    - **Resolved:** ${inc.resolved || ''}`,
-    `    - **Causation:** ${inc.causation || ''}`,
+    `- **Service Impact:** ${inc.impact.toUpperCase()}`,
+    `- **Current Status:** \`${inc.currentStatus === 'resolved' ? 'Resolved' : 'Ongoing'}\``,
+    `- **Description:** ${inc.description || ''}`,
+    `- **Reported:** ${inc.reported || ''}`,
+    `- **Resolved:** ${inc.resolved || ''}`,
+    `- **Causation:** ${inc.causation || ''}`,
   ].join('\n');
+
+  const bodyWithUUID = injectAdmonitionUUID(bodyLines, uuid);
+
+  return buildAdmonition('!!!', `status-${inc.impact}`, inc.title, bodyWithUUID);
 }
 
+const INCIDENT_TYPE_RE = /status-available|status-disruption|status-outage/;
+
+/**
+ * Parses all incident admonition blocks from a section of markdown.
+ * Delegates to parseAdmonitions, then maps to the domain shape.
+ */
 function parseIncidentBlocks(sectionBody) {
-  const re = /^!!! status-(available|disruption|outage) "([^"]+)"\n\n((?:    [^\n]*\n?)*)/gm;
-  const incidents = [];
-  let m;
-  while ((m = re.exec(sectionBody)) !== null) {
-    const body = m[3];
-    incidents.push({
-      title:         m[2],
-      impact:        m[1],
-      description:   extractIncidentField(body, 'Description'),
-      reported:      extractIncidentField(body, 'Reported'),
-      resolved:      extractIncidentField(body, 'Resolved'),
-      currentStatus: extractIncidentField(body, 'Current Status').toLowerCase() || 'ongoing',
-      causation:     extractIncidentField(body, 'Causation'),
-    });
-  }
-  return incidents;
+  return parseAdmonitions(sectionBody, INCIDENT_TYPE_RE).map(block => ({
+    title:         block.title,
+    impact:        block.type.replace('status-', ''),
+    description:   extractIncidentField(block.body, 'Description'),
+    reported:      extractIncidentField(block.body, 'Reported'),
+    resolved:      extractIncidentField(block.body, 'Resolved'),
+    currentStatus: extractIncidentField(block.body, 'Current Status').toLowerCase() || 'ongoing',
+    causation:     extractIncidentField(block.body, 'Causation'),
+    uuid:          block.uuid,
+  }));
 }
 
+/**
+ * Parses past incident blocks from the full markdown document.
+ * parseAdmonitions handles any indent level transparently.
+ */
 function parsePastIncidentBlocks(markdown) {
   const pastMatch = markdown.match(/^## Past Incidents[^\n]*\n([\s\S]*)$/m);
   if (!pastMatch) return [];
-  const outlineContent = pastMatch[1].match(/^\?\?\? outline "[^"]+"\n\n([\s\S]*)$/m)?.[1] ?? '';
-  const stripped = outlineContent.replace(/^ {4}/gm, '');
-  return parseIncidentBlocks(stripped);
+  return parseAdmonitions(pastMatch[1], INCIDENT_TYPE_RE).map(block => ({
+    title:         block.title,
+    impact:        block.type.replace('status-', ''),
+    description:   extractIncidentField(block.body, 'Description'),
+    reported:      extractIncidentField(block.body, 'Reported'),
+    resolved:      extractIncidentField(block.body, 'Resolved'),
+    currentStatus: extractIncidentField(block.body, 'Current Status').toLowerCase() || 'ongoing',
+    causation:     extractIncidentField(block.body, 'Causation'),
+    uuid:          block.uuid,
+  }));
 }
 
 function updateMarkdownServices(markdown, updates) {
-  return markdown.replace(
-    /^!!! status-(?:available|disruption|outage) "([^"]+)"\n\n {4}\*\*Status:\*\* (?:AVAILABLE|DISRUPTION|OUTAGE) *$/gm,
-    (match, name) => {
-      const newStatus = updates[name];
-      if (!newStatus) return match;
-      return `!!! status-${newStatus} "${name}"\n\n    **Status:** ${newStatus.toUpperCase()}`;
+  const SERVICE_TYPE_RE = /status-available|status-disruption|status-outage/;
+  const servicesMatch = markdown.match(/^## Services\s*\n([\s\S]*?)(?=\n---|\n##)/m);
+  if (!servicesMatch) return markdown;
+
+  const serviceBlocks = parseAdmonitions(servicesMatch[1], SERVICE_TYPE_RE);
+  let result = markdown;
+
+  for (const block of serviceBlocks) {
+    const newStatus = updates[block.title];
+    if (!newStatus) continue;
+
+    if (block.uuid) {
+      const newBody = injectAdmonitionUUID('\n**Status:** ' + newStatus.toUpperCase(), block.uuid);
+      const newBlock = buildAdmonition('!!!', `status-${newStatus}`, block.title, newBody);
+      result = replaceAdmonitionByUUID(result, block.uuid, newBlock);
+    } else {
+      // Fallback: regex for legacy blocks without a UUID
+      const escapedTitle = block.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      result = result.replace(
+        new RegExp(`^!!! status-(?:available|disruption|outage) "${escapedTitle}"\\n\\n    \\*\\*Status:\\*\\* (?:AVAILABLE|DISRUPTION|OUTAGE) *$`, 'gm'),
+        `!!! status-${newStatus} "${block.title}"\n\n    **Status:** ${newStatus.toUpperCase()}`
+      );
     }
-  );
+  }
+  return result;
 }
 
+/**
+ * Updates open incidents using UUID-based operations.
+ *
+ * For each open incident:
+ *   - If it has an update and is now resolved: deleteAdmonitionByUUID from open,
+ *     then prepend (indented) into past incidents collapsible.
+ *   - If it has an update and is still open: replaceAdmonitionByUUID in place.
+ *   - If no update: leave it alone.
+ *
+ * For a new incident: build and prepend to the open section (or resolved section).
+ */
 function updateMarkdownIncidents(markdown, incidentUpdates, newIncident) {
   const parts = markdown.split('\n---\n');
   const openIdx = parts.findIndex(p => /^## Open Incidents/m.test(p));
-  const pastIdx = parts.findIndex(p => /^## Past Incidents/m.test(p));
 
   if (openIdx === -1) return markdown;
 
+  // Parse current open incidents to get their UUIDs and apply incidentUpdates by UUID
   const openSection = parts[openIdx];
-  const blockRe = /^!!! status-(available|disruption|outage) "([^"]+)"\n\n((?:    [^\n]*\n?)*)/gm;
-  const openBlocks = [];
-  let bm;
-  while ((bm = blockRe.exec(openSection)) !== null) {
-    openBlocks.push({ status: bm[1], title: bm[2], body: bm[3] });
-  }
+  const openIncidents = parseIncidentBlocks(openSection);
 
-  const resolvedBlocks = [];
-  const remainingBlocks = [];
+  // Rebuild the full markdown from parts so UUID operations work on correct positions
+  let result = parts.join('\n---\n');
 
-  openBlocks.forEach((block, idx) => {
-    const update = incidentUpdates[idx] ?? null;
-    const inc = {
-      title:         block.title,
-      impact:        update?.impact ?? block.impact ?? block.status,
-      description:   update?.description ?? extractIncidentField(block.body, 'Description'),
-      reported:      update?.reported ?? extractIncidentField(block.body, 'Reported'),
-      resolved:      update?.resolved ?? extractIncidentField(block.body, 'Resolved'),
-      currentStatus: update?.currentStatus ?? (extractIncidentField(block.body, 'Current Status').toLowerCase() || 'ongoing'),
-      causation:     update?.causation ?? extractIncidentField(block.body, 'Causation'),
+  // Process updates: keyed by UUID (incidentUpdates is now a map of uuid → update)
+  // For backwards compatibility we also support array-indexed updates (legacy callers)
+  openIncidents.forEach((inc) => {
+    const update = (inc.uuid && incidentUpdates[inc.uuid]) ? incidentUpdates[inc.uuid] : null;
+
+    if (!update) return; // no change for this incident
+
+    const merged = {
+      ...inc,
+      ...update,
+      uuid: inc.uuid, // always preserve UUID
     };
 
-    const rebuilt = buildIncidentBlock(inc);
-    if (inc.currentStatus === 'resolved') {
-      resolvedBlocks.push(rebuilt);
+    if (merged.currentStatus === 'resolved') {
+      // Remove from open section
+      if (merged.uuid) {
+        result = deleteAdmonitionByUUID(result, merged.uuid);
+      }
+      // Prepend to past incidents collapsible (indented 4 spaces)
+      const resolvedBlocks = [buildIncidentBlock(merged)];
+      if (resolvedBlocks.length > 0) {
+        const updatedParts = result.split('\n---\n');
+        const updatedPastIdx = updatedParts.findIndex(p => /^## Past Incidents/m.test(p));
+        if (updatedPastIdx !== -1) {
+          const indented = resolvedBlocks.map(b => indentBlock(b, '    ')).join('\n\n');
+          updatedParts[updatedPastIdx] = updatedParts[updatedPastIdx].replace(
+            /(^\?\?\? outline "[^"]+"\n\n)/m,
+            `$1${indented}\n\n`
+          );
+          result = updatedParts.join('\n---\n');
+        }
+      }
     } else {
-      remainingBlocks.push(rebuilt);
+      // Update in place via UUID
+      if (merged.uuid) {
+        result = replaceAdmonitionByUUID(result, merged.uuid, buildIncidentBlock(merged));
+      }
     }
   });
 
+  // Handle new incident
   if (newIncident?.title) {
-    const block = buildIncidentBlock(newIncident);
-    if (newIncident.currentStatus === 'resolved') {
-      resolvedBlocks.unshift(block);
+    const newInc = { ...newIncident, uuid: newIncident.uuid ?? generateUUID() };
+    const builtBlock = buildIncidentBlock(newInc);
+
+    if (newInc.currentStatus === 'resolved') {
+      // Prepend to past incidents collapsible
+      const updatedParts = result.split('\n---\n');
+      const updatedPastIdx = updatedParts.findIndex(p => /^## Past Incidents/m.test(p));
+      if (updatedPastIdx !== -1) {
+        const indented = indentBlock(builtBlock, '    ');
+        updatedParts[updatedPastIdx] = updatedParts[updatedPastIdx].replace(
+          /(^\?\?\? outline "[^"]+"\n\n)/m,
+          `$1${indented}\n\n`
+        );
+        result = updatedParts.join('\n---\n');
+      }
     } else {
-      remainingBlocks.unshift(block);
+      // Prepend to open incidents section
+      const updatedParts = result.split('\n---\n');
+      const updatedOpenIdx = updatedParts.findIndex(p => /^## Open Incidents/m.test(p));
+      if (updatedOpenIdx !== -1) {
+        const openHeaderMatch = updatedParts[updatedOpenIdx].match(/^(## Open Incidents[^\n]*\n)/m);
+        const openHeader = openHeaderMatch ? openHeaderMatch[1] : '## Open Incidents\n';
+        // Get all current open blocks in the section to rebuild
+        const currentOpen = parseIncidentBlocks(updatedParts[updatedOpenIdx]);
+        const allOpenBlocks = [builtBlock, ...currentOpen.map(i => buildIncidentBlock(i))];
+        updatedParts[updatedOpenIdx] = openHeader + '\n' + allOpenBlocks.join('\n\n') + '\n';
+        result = updatedParts.join('\n---\n');
+      }
     }
   }
 
-  // Rebuild the open incidents section
-  const openHeaderMatch = openSection.match(/^(## Open Incidents[^\n]*\n)/m);
-  const openHeader = openHeaderMatch ? openHeaderMatch[1] : '## Open Incidents\n';
-  parts[openIdx] = openHeader + '\n' + remainingBlocks.join('\n\n') + (remainingBlocks.length ? '\n' : '');
-
-  // Prepend newly-resolved incidents into the past incidents collapsible
-  if (resolvedBlocks.length > 0 && pastIdx !== -1) {
-    const indented = resolvedBlocks.map(b => indentBlock(b, '    ')).join('\n\n');
-    parts[pastIdx] = parts[pastIdx].replace(
-      /(^\?\?\? outline "[^"]+"\n\n)/m,
-      `$1${indented}\n\n`
-    );
-  }
-
-  return recalculateServiceStatuses(parts.join('\n---\n'));
+  return recalculateServiceStatuses(result);
 }
 
-function updateMarkdownPastIncident(markdown, idx, update) {
-  const parts = markdown.split('\n---\n');
-  const openIdx = parts.findIndex(p => /^## Open Incidents/m.test(p));
-  const pastIdx = parts.findIndex(p => /^## Past Incidents/m.test(p));
-  if (pastIdx === -1) return markdown;
+/**
+ * Updates a past incident identified by UUID.
+ * If switching to 'ongoing', deletes from past and prepends to open.
+ * If remaining resolved, replaces in place via UUID.
+ */
+function updateMarkdownPastIncident(markdown, uuid, update) {
+  const pastIncidents = parsePastIncidentBlocks(markdown);
+  const inc = pastIncidents.find(i => i.uuid === uuid);
+  if (!inc) return markdown;
 
-  const pastSection = parts[pastIdx];
-  const outlineMatch = pastSection.match(/(^\?\?\? outline "[^"]+"\n\n)([\s\S]*)$/m);
-  if (!outlineMatch) return markdown;
+  const merged = { ...inc, ...update, uuid: inc.uuid };
 
-  const stripped = outlineMatch[2].replace(/^ {4}/gm, '');
-  const incidents = parseIncidentBlocks(stripped);
-  if (!incidents[idx]) return markdown;
-
-  const inc = { ...incidents[idx], ...update };
-
-  if (inc.currentStatus === 'ongoing') {
+  if (merged.currentStatus === 'ongoing') {
     // Remove from past
-    const remainingPast = incidents.filter((_, i) => i !== idx);
-    const indented = remainingPast.map(i => indentBlock(buildIncidentBlock(i), '    ')).join('\n\n');
-    parts[pastIdx] = pastSection.replace(
-      /(\?\?\? outline "[^"]+"\n\n)[\s\S]*/m,
-      `$1${indented ? indented + '\n' : ''}`
-    );
-    // Prepend to Open Incidents
+    let result = deleteAdmonitionByUUID(markdown, uuid);
+
+    // Prepend to open incidents section
+    const parts = result.split('\n---\n');
+    const openIdx = parts.findIndex(p => /^## Open Incidents/m.test(p));
     if (openIdx !== -1) {
       const openHeaderMatch = parts[openIdx].match(/^(## Open Incidents[^\n]*\n)/m);
       const openHeader = openHeaderMatch ? openHeaderMatch[1] : '## Open Incidents\n';
       const existingOpen = parseIncidentBlocks(parts[openIdx]);
-      const allOpen = [inc, ...existingOpen];
+      const allOpen = [merged, ...existingOpen];
       parts[openIdx] = openHeader + '\n' + allOpen.map(i => buildIncidentBlock(i)).join('\n\n') + '\n';
+      result = parts.join('\n---\n');
     }
+
+    return recalculateServiceStatuses(result);
   } else {
     // Update in place
-    const updatedPast = incidents.map((i, n) => buildIncidentBlock(n === idx ? inc : i));
-    const indented = updatedPast.map(b => indentBlock(b, '    ')).join('\n\n');
-    parts[pastIdx] = pastSection.replace(
-      /(\?\?\? outline "[^"]+"\n\n)[\s\S]*/m,
-      `$1${indented}\n`
-    );
+    const result = replaceAdmonitionByUUID(markdown, uuid, buildIncidentBlock(merged));
+    return recalculateServiceStatuses(result);
   }
-
-  return recalculateServiceStatuses(parts.join('\n---\n'));
 }
 
-function deleteMarkdownIncident(markdown, idx, isPastIncident) {
-  const parts = markdown.split('\n---\n');
-
-  if (isPastIncident) {
-    const pastIdx = parts.findIndex(p => /^## Past Incidents/m.test(p));
-    if (pastIdx === -1) return markdown;
-    const pastSection = parts[pastIdx];
-    const outlineMatch = pastSection.match(/(^\?\?\? outline "[^"]+"\n\n)([\s\S]*)$/m);
-    if (!outlineMatch) return markdown;
-    const stripped = outlineMatch[2].replace(/^ {4}/gm, '');
-    const incidents = parseIncidentBlocks(stripped);
-    const remaining = incidents.filter((_, i) => i !== idx);
-    const indented = remaining.map(i => indentBlock(buildIncidentBlock(i), '    ')).join('\n\n');
-    parts[pastIdx] = pastSection.replace(
-      /(\?\?\? outline "[^"]+"\n\n)[\s\S]*/m,
-      `$1${indented ? indented + '\n' : ''}`
-    );
-  } else {
-    const openIdx = parts.findIndex(p => /^## Open Incidents/m.test(p));
-    if (openIdx === -1) return markdown;
-    const openHeaderMatch = parts[openIdx].match(/^(## Open Incidents[^\n]*\n)/m);
-    const openHeader = openHeaderMatch ? openHeaderMatch[1] : '## Open Incidents\n';
-    const incidents = parseIncidentBlocks(parts[openIdx]);
-    const remaining = incidents.filter((_, i) => i !== idx);
-    parts[openIdx] = openHeader + (remaining.length ? '\n' + remaining.map(i => buildIncidentBlock(i)).join('\n\n') + '\n' : '');
-  }
-
-  return recalculateServiceStatuses(parts.join('\n---\n'));
+/**
+ * Deletes an incident (open or past) identified by UUID.
+ */
+function deleteMarkdownIncident(markdown, uuid) {
+  const result = deleteAdmonitionByUUID(markdown, uuid);
+  return recalculateServiceStatuses(result);
 }
 
 function recalculateServiceStatuses(markdown) {
@@ -263,8 +310,9 @@ export function renderSystemStatus(markdown) {
   if (openIncidents.length === 0) {
     html += `<p class="more-buttons-description">No open incidents.</p>`;
   } else {
-    openIncidents.forEach((inc, idx) => {
-      html += incidentCard(inc, `data-update-incident="${idx}"`, 'Update');
+    openIncidents.forEach(inc => {
+      const btnAttr = inc.uuid ? `data-update-incident="${inc.uuid}"` : `disabled title="This entry doesn't have a UUID configured"`;
+      html += incidentCard(inc, btnAttr, inc.uuid ? 'Update' : 'Error');
     });
   }
 
@@ -277,8 +325,9 @@ export function renderSystemStatus(markdown) {
   if (pastIncidents.length === 0) {
     html += `<p class="more-buttons-description">No past incidents.</p>`;
   } else {
-    pastIncidents.forEach((inc, idx) => {
-      html += incidentCard(inc, `data-edit-past-incident="${idx}"`, 'Edit');
+    pastIncidents.forEach(inc => {
+      const btnAttr = inc.uuid ? `data-edit-past-incident="${inc.uuid}"` : `disabled title="This entry doesn't have a UUID configured"`;
+      html += incidentCard(inc, btnAttr, inc.uuid ? 'Edit' : 'Error');
     });
   }
   html += `</div></details>`;
@@ -306,27 +355,26 @@ export async function publishSystemStatus(formEl, onProgress) {
 
 export async function publishNewIncident(incident, onProgress) {
   return githubFetchAndPush(onProgress, currentMarkdown => {
-    return updateMarkdownIncidents(currentMarkdown, [], incident);
+    return updateMarkdownIncidents(currentMarkdown, {}, incident);
   });
 }
 
-export async function publishUpdatedIncident(update, incidentIdx, onProgress) {
+export async function publishUpdatedIncident(uuid, update, onProgress) {
   return githubFetchAndPush(onProgress, currentMarkdown => {
-    const updates = [];
-    updates[incidentIdx] = update;
+    const updates = { [uuid]: update };
     return updateMarkdownIncidents(currentMarkdown, updates, null);
   });
 }
 
-export async function publishUpdatedPastIncident(update, incidentIdx, onProgress) {
+export async function publishUpdatedPastIncident(uuid, update, onProgress) {
   return githubFetchAndPush(onProgress, currentMarkdown =>
-    updateMarkdownPastIncident(currentMarkdown, incidentIdx, update)
+    updateMarkdownPastIncident(currentMarkdown, uuid, update)
   );
 }
 
-export async function publishDeleteIncident(incidentIdx, isPastIncident, onProgress) {
+export async function publishDeleteIncident(uuid, onProgress) {
   return githubFetchAndPush(onProgress, currentMarkdown =>
-    deleteMarkdownIncident(currentMarkdown, incidentIdx, isPastIncident)
+    deleteMarkdownIncident(currentMarkdown, uuid)
   );
 }
 
@@ -450,13 +498,13 @@ registerFormAction('submitReportIncident', async ({ formEl, cleanup }) => {
   }
 });
 
-registerFormAction('openUpdateIncident', async ({ formEl, idx }) => {
+registerFormAction('openUpdateIncident', async ({ formEl, uuid }) => {
   const fetchEl = formEl.querySelector('[data-fetch-markdown]');
   const markdown = fetchEl?._lastMarkdown;
   if (!markdown) return;
   const openMatch = markdown.match(/^## Open Incidents\s*\n([\s\S]*?)(?=\n---|\n##)/m);
   const incidents = openMatch ? parseIncidentBlocks(openMatch[1]) : [];
-  const inc = incidents[idx];
+  const inc = incidents.find(i => i.uuid === uuid);
   if (!inc) return;
 
   await chrome.storage.local.set({
@@ -467,19 +515,19 @@ registerFormAction('openUpdateIncident', async ({ formEl, idx }) => {
       reported:      (inc.reported || '').replace(' ', 'T'),
       resolved:      (inc.resolved || '').replace(' ', 'T'),
       causation:     inc.causation,
-      _incidentIdx:  idx,
     }
   });
 
-  await createForm('updateIncident');
+  const { formEl: updateFormEl } = await createForm('updateIncident');
+  if (updateFormEl) updateFormEl.dataset.editUuid = uuid;
 });
 
-registerFormAction('openEditPastIncident', async ({ formEl, idx }) => {
+registerFormAction('openEditPastIncident', async ({ formEl, uuid }) => {
   const fetchEl = formEl.querySelector('[data-fetch-markdown]');
   const markdown = fetchEl?._lastMarkdown;
   if (!markdown) return;
   const incidents = parsePastIncidentBlocks(markdown);
-  const inc = incidents[idx];
+  const inc = incidents.find(i => i.uuid === uuid);
   if (!inc) return;
 
   await chrome.storage.local.set({
@@ -490,12 +538,11 @@ registerFormAction('openEditPastIncident', async ({ formEl, idx }) => {
       reported:        (inc.reported || '').replace(' ', 'T'),
       resolved:        (inc.resolved || '').replace(' ', 'T'),
       causation:       inc.causation,
-      _incidentIdx:    idx,
-      _isPastIncident: true,
     }
   });
 
-  await createForm('updateIncident');
+  const { formEl: updateFormEl } = await createForm('updateIncident');
+  if (updateFormEl) updateFormEl.dataset.editUuid = uuid;
 });
 
 registerFormAction('submitUpdateIncident', async ({ formEl, cleanup }) => {
@@ -503,10 +550,8 @@ registerFormAction('submitUpdateIncident', async ({ formEl, cleanup }) => {
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
-    const { moreButtonsUpdateIncident } = await chrome.storage.local.get('moreButtonsUpdateIncident');
-    const incidentIdx = moreButtonsUpdateIncident?._incidentIdx;
-    if (incidentIdx === undefined) throw new Error('No incident index found');
-    const isPastIncident = moreButtonsUpdateIncident?._isPastIncident ?? false;
+    const _uuid = formEl.dataset.editUuid;
+    if (!_uuid) throw new Error('No incident UUID found');
     const currentStatus = formEl.querySelector('[name="currentStatus"]:checked')?.value ?? 'ongoing';
     const resolvedRaw = formEl.querySelector('[name="resolved"]')?.value ?? '';
     const resolvedValue = currentStatus === 'resolved' && !resolvedRaw
@@ -519,9 +564,22 @@ registerFormAction('submitUpdateIncident', async ({ formEl, cleanup }) => {
       resolved:      resolvedValue.replace('T', ' '),
       causation:     formEl.querySelector('[name="causation"]')?.value.trim() ?? '',
     };
-    const updatedMarkdown = isPastIncident
-      ? await publishUpdatedPastIncident(update, incidentIdx, status => { btn.textContent = status; })
-      : await publishUpdatedIncident(update, incidentIdx, status => { btn.textContent = status; });
+    // UUID-based: try open incidents first, then past incidents
+    const updatedMarkdown = await githubFetchAndPush(
+      status => { btn.textContent = status; },
+      currentMarkdown => {
+        // Try open incidents
+        const openMatch = currentMarkdown.match(/^## Open Incidents\s*\n([\s\S]*?)(?=\n---|\n##)/m);
+        const openIncidents = openMatch ? parseIncidentBlocks(openMatch[1]) : [];
+        const isOpen = openIncidents.some(i => i.uuid === _uuid);
+
+        if (isOpen) {
+          return updateMarkdownIncidents(currentMarkdown, { [_uuid]: update }, null);
+        } else {
+          return updateMarkdownPastIncident(currentMarkdown, _uuid, update);
+        }
+      }
+    );
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
     const parentFetchEl = document.querySelector('[data-fetch-markdown]');
     if (parentFetchEl && updatedMarkdown) {
@@ -542,11 +600,9 @@ registerFormAction('deleteIncident', async ({ formEl, cleanup }) => {
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
-    const { moreButtonsUpdateIncident } = await chrome.storage.local.get('moreButtonsUpdateIncident');
-    const incidentIdx = moreButtonsUpdateIncident?._incidentIdx;
-    if (incidentIdx === undefined) throw new Error('No incident index found');
-    const isPastIncident = moreButtonsUpdateIncident?._isPastIncident ?? false;
-    const updatedMarkdown = await publishDeleteIncident(incidentIdx, isPastIncident, status => { btn.textContent = status; });
+    const _uuid = formEl.dataset.editUuid;
+    if (!_uuid) throw new Error('No incident UUID found');
+    const updatedMarkdown = await publishDeleteIncident(_uuid, status => { btn.textContent = status; });
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
     const parentFetchEl = document.querySelector('[data-fetch-markdown]');
     if (parentFetchEl && updatedMarkdown) {
