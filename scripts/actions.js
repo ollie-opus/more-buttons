@@ -1,8 +1,12 @@
 export { createForm } from './form.js';
 
 export { publishSystemStatus, publishNewIncident, publishUpdatedIncident,
-         publishUpdatedPastIncident, publishDeleteIncident, openKnowledgeBaseEntry }
+         publishUpdatedPastIncident, publishDeleteIncident }
   from './systemStatus.js';
+
+import './systemUpdates.js';
+
+export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';
 
 export { navigateToNewDocumentPage } from './navigateToNewDocumentPage.js';
 export { clearAllCheckboxes } from './clearAllCheckboxes.js';

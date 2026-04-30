@@ -280,59 +280,25 @@ function recalculateServiceStatuses(markdown) {
   return updateMarkdownServices(markdown, derived);
 }
 
-export function renderSystemStatus(markdown) {
-  let html = '';
-
-  // Services (read-only)
-  const servicesMatch = markdown.match(/^## Services\s*\n([\s\S]*?)(?=\n---|\n##)/m);
-  if (servicesMatch) {
-    const body = servicesMatch[1];
-    const re = /^!!! (status-available|status-disruption|status-outage) "([^"]+)"/gm;
-    html += `<p class="more-buttons-section-heading">Services</p>`;
-    let m;
-    while ((m = re.exec(body)) !== null) {
-      const status = m[1].replace('status-', '');
-      const name = m[2];
-      const colour = status === 'outage' ? '#dc2626' : status === 'disruption' ? '#d97706' : '#16a34a';
-      html += `
-      <div class="more-buttons-form-group" data-service-name="${escapeHtml(name)}">
-        <label class="more-buttons-label">${escapeHtml(name)}</label>
-        <span style="color:${colour};font-size:0.875rem;font-weight:600;">${status.toUpperCase()}</span>
-      </div>`;
-    }
-  }
-
-  // Open Incidents
+export function renderOpenIncidents(markdown, panel) {
   const openMatch = markdown.match(/^## Open Incidents\s*\n([\s\S]*?)(?=\n---|\n##)/m);
-  html += `<p class="more-buttons-section-heading" style="margin-top:18px;">Open Incidents</p>`;
-  const openIncidents = openMatch ? parseIncidentBlocks(openMatch[1]) : [];
+  const incidents = openMatch ? parseIncidentBlocks(openMatch[1]) : [];
+  panel.innerHTML = incidents.length === 0
+    ? `<p class="more-buttons-description">No open incidents.</p>`
+    : incidents.map(inc => {
+        const btnAttr = inc.uuid ? `data-update-incident="${inc.uuid}"` : `disabled title="No UUID"`;
+        return incidentCard(inc, btnAttr, inc.uuid ? 'Update' : 'Error');
+      }).join('');
+}
 
-  if (openIncidents.length === 0) {
-    html += `<p class="more-buttons-description">No open incidents.</p>`;
-  } else {
-    openIncidents.forEach(inc => {
-      const btnAttr = inc.uuid ? `data-update-incident="${inc.uuid}"` : `disabled title="This entry doesn't have a UUID configured"`;
-      html += incidentCard(inc, btnAttr, inc.uuid ? 'Update' : 'Error');
-    });
-  }
-
-  // Past Incidents (collapsed)
-  html += `<details class="more-buttons-advanced-section" style="margin-top:18px;">
-    <summary class="more-buttons-advanced-toggle" style="font-size:1rem;font-weight:600;color:var(--mb-heading);">Past Incidents</summary>
-    <div style="margin-top:10px;">`;
-  const pastIncidents = parsePastIncidentBlocks(markdown);
-
-  if (pastIncidents.length === 0) {
-    html += `<p class="more-buttons-description">No past incidents.</p>`;
-  } else {
-    pastIncidents.forEach(inc => {
-      const btnAttr = inc.uuid ? `data-edit-past-incident="${inc.uuid}"` : `disabled title="This entry doesn't have a UUID configured"`;
-      html += incidentCard(inc, btnAttr, inc.uuid ? 'Edit' : 'Error');
-    });
-  }
-  html += `</div></details>`;
-
-  return html;
+export function renderResolvedIncidents(markdown, panel) {
+  const incidents = parsePastIncidentBlocks(markdown);
+  panel.innerHTML = incidents.length === 0
+    ? `<p class="more-buttons-description">No resolved incidents.</p>`
+    : incidents.map(inc => {
+        const btnAttr = inc.uuid ? `data-edit-past-incident="${inc.uuid}"` : `disabled title="No UUID"`;
+        return incidentCard(inc, btnAttr, inc.uuid ? 'Edit' : 'Error');
+      }).join('');
 }
 
 function incidentCard(inc, btnAttr, btnLabel) {
@@ -378,58 +344,20 @@ export async function publishDeleteIncident(uuid, onProgress) {
   );
 }
 
-export async function openKnowledgeBaseEntry() {
-  const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
-  if (moreButtonsIntegrations?.githubPAT) {
-    createForm('knowledgeBaseEntry');
-    return;
-  }
-
-  // Not connected — inject CSS if needed and show a simple overlay
-  if (!document.getElementById('more-buttons-overlay-stylesheet')) {
-    const link = document.createElement('link');
-    link.id = 'more-buttons-overlay-stylesheet';
-    link.rel = 'stylesheet';
-    link.href = chrome.runtime.getURL('config/forms/formsStyling.css');
-    (document.head || document.documentElement).appendChild(link);
-  }
-
-  const overlay = document.createElement('div');
-  overlay.className = 'more-buttons-overlay';
-  const content = document.createElement('div');
-  content.className = 'more-buttons-overlay-content';
-  content.setAttribute('role', 'dialog');
-  content.setAttribute('aria-modal', 'true');
-  content.innerHTML = `
-    <h2>GitHub not connected</h2>
-    <p class="more-buttons-description">Please add a GitHub PAT in Integrations to use this feature.</p>
-    <div class="more-buttons-form-actions">
-      <button type="button" class="more-buttons-button" id="mb-open-integrations">Open Integrations</button>
-      <button type="button" class="more-buttons-button secondary" id="mb-close-not-connected">Close</button>
-    </div>`;
-  overlay.appendChild(content);
-  document.body.appendChild(overlay);
-
-  const cleanup = () => { overlay.remove(); document.removeEventListener('keydown', handleKey); };
-  const handleKey = e => { if (e.key === 'Escape') cleanup(); };
-  document.addEventListener('keydown', handleKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
-  content.querySelector('#mb-close-not-connected').addEventListener('click', cleanup);
-  content.querySelector('#mb-open-integrations').addEventListener('click', () => {
-    cleanup();
-    createForm('integrations');
-  });
-}
-
 // ── Form action registrations ─────────────────────────────────────────────────
 
 registerFormAction('openReportIncident', async ({ formEl }) => {
-  // Collect service names from read-only service display elements
+  const fetchEl = formEl.querySelector('[data-fetch-markdown]');
+  const markdown = fetchEl?._lastMarkdown ?? '';
   const serviceNames = [];
-  formEl.querySelectorAll('[data-service-name]').forEach(el => {
-    const name = el.dataset.serviceName;
-    if (name) serviceNames.push(name);
-  });
+  if (markdown) {
+    const servicesMatch = markdown.match(/^## Services\s*\n([\s\S]*?)(?=\n---|\n##)/m);
+    if (servicesMatch) {
+      parseAdmonitions(servicesMatch[1], INCIDENT_TYPE_RE).forEach(block => {
+        if (block.title) serviceNames.push(block.title);
+      });
+    }
+  }
 
   const { formEl: reportFormEl } = await createForm('reportIncident');
   if (!reportFormEl) return;
@@ -459,8 +387,8 @@ registerFormAction('openReportIncident', async ({ formEl }) => {
   }
 });
 
-registerFormAction('submitReportIncident', async ({ formEl, cleanup }) => {
-  const btn = formEl.querySelector('[data-action="submitReportIncident"]');
+registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) => {
+  const btn = content.querySelector('[data-action="submitReportIncident"]');
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
@@ -487,8 +415,14 @@ registerFormAction('submitReportIncident', async ({ formEl, cleanup }) => {
     // Update parent form's fetch div
     const parentFetchEl = document.querySelector('[data-fetch-markdown]');
     if (parentFetchEl && updatedMarkdown) {
-      parentFetchEl.innerHTML = renderSystemStatus(updatedMarkdown);
       parentFetchEl._lastMarkdown = updatedMarkdown;
+      if (parentFetchEl._templateHTML) {
+        parentFetchEl.innerHTML = parentFetchEl._templateHTML;
+        parentFetchEl.querySelectorAll('[data-render]').forEach(panel => {
+          if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(updatedMarkdown, panel);
+          else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(updatedMarkdown, panel);
+        });
+      }
     }
     cleanup();
   } catch (e) {
@@ -545,8 +479,8 @@ registerFormAction('openEditPastIncident', async ({ formEl, uuid }) => {
   if (updateFormEl) updateFormEl.dataset.editUuid = uuid;
 });
 
-registerFormAction('submitUpdateIncident', async ({ formEl, cleanup }) => {
-  const btn = formEl.querySelector('[data-action="submitUpdateIncident"]');
+registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) => {
+  const btn = content.querySelector('[data-action="submitUpdateIncident"]');
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
@@ -583,8 +517,14 @@ registerFormAction('submitUpdateIncident', async ({ formEl, cleanup }) => {
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
     const parentFetchEl = document.querySelector('[data-fetch-markdown]');
     if (parentFetchEl && updatedMarkdown) {
-      parentFetchEl.innerHTML = renderSystemStatus(updatedMarkdown);
       parentFetchEl._lastMarkdown = updatedMarkdown;
+      if (parentFetchEl._templateHTML) {
+        parentFetchEl.innerHTML = parentFetchEl._templateHTML;
+        parentFetchEl.querySelectorAll('[data-render]').forEach(panel => {
+          if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(updatedMarkdown, panel);
+          else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(updatedMarkdown, panel);
+        });
+      }
     }
     cleanup();
   } catch (e) {
@@ -594,9 +534,9 @@ registerFormAction('submitUpdateIncident', async ({ formEl, cleanup }) => {
   }
 });
 
-registerFormAction('deleteIncident', async ({ formEl, cleanup }) => {
+registerFormAction('deleteIncident', async ({ formEl, content, cleanup }) => {
   if (!confirm('Delete this incident? This cannot be undone.')) return;
-  const btn = formEl.querySelector('[data-action="deleteIncident"]');
+  const btn = content.querySelector('[data-action="deleteIncident"]');
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
@@ -606,8 +546,14 @@ registerFormAction('deleteIncident', async ({ formEl, cleanup }) => {
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
     const parentFetchEl = document.querySelector('[data-fetch-markdown]');
     if (parentFetchEl && updatedMarkdown) {
-      parentFetchEl.innerHTML = renderSystemStatus(updatedMarkdown);
       parentFetchEl._lastMarkdown = updatedMarkdown;
+      if (parentFetchEl._templateHTML) {
+        parentFetchEl.innerHTML = parentFetchEl._templateHTML;
+        parentFetchEl.querySelectorAll('[data-render]').forEach(panel => {
+          if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(updatedMarkdown, panel);
+          else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(updatedMarkdown, panel);
+        });
+      }
     }
     cleanup();
   } catch (e) {

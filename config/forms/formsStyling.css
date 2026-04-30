@@ -94,13 +94,24 @@
   width: 100%;
   max-width: 540px;
   max-height: calc(100vh - 3rem);
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
   font-family: RubikVariable, ui-sans-serif, system-ui, sans-serif,
     Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
   box-sizing: border-box;
   position: relative;
   animation: more-buttons-fade-in 0.18s ease-out;
+}
+
+.more-buttons-overlay-content > form {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
 }
 
 .more-buttons-overlay-content h2 {
@@ -306,8 +317,8 @@
 }
 
 .more-buttons-form-actions {
-  margin-top: 18px;
-  grid-column: 1 / -1;
+  padding-top: 14px;
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -660,4 +671,281 @@ details[open] .more-buttons-advanced-toggle::before {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
+}
+
+/* ── Side-nav two-column layout ───────────────────────────────────────────── */
+
+.more-buttons-side-nav-layout {
+  display: flex;
+  gap: 0;
+  min-height: 320px;
+  margin-top: 4px;
+}
+
+.more-buttons-side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--mb-border-subtle);
+  padding-right: 12px;
+  margin-right: 20px;
+}
+
+.more-buttons-side-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--mb-text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+  user-select: none;
+}
+
+.more-buttons-side-nav-item input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.more-buttons-side-nav-item:hover {
+  background: var(--mb-bg-subtle);
+  color: var(--mb-text);
+}
+
+.more-buttons-side-nav-item:has(:checked) {
+  background: var(--mb-radio-checked-bg);
+  color: var(--mb-radio-checked-fg);
+}
+
+.more-buttons-side-nav-item .more-buttons-icon {
+  font-size: 1.1rem;
+  opacity: 0.75;
+}
+
+.more-buttons-side-nav-item:has(:checked) .more-buttons-icon {
+  opacity: 1;
+}
+
+.more-buttons-side-nav-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.more-buttons-side-nav-content .more-buttons-form-actions {
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+@media (max-width: 600px) {
+  .more-buttons-side-nav-layout {
+    flex-direction: column;
+  }
+  .more-buttons-side-nav {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--mb-border-subtle);
+    padding-right: 0;
+    padding-bottom: 12px;
+    margin-right: 0;
+    margin-bottom: 16px;
+  }
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+
+.more-buttons-tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.more-buttons-tab-list {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--mb-border-subtle);
+  margin-bottom: 14px;
+}
+
+.more-buttons-tab {
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--mb-text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.more-buttons-tab:hover {
+  color: var(--mb-text);
+}
+
+.more-buttons-tab.--active {
+  color: var(--mb-text);
+  border-bottom-color: var(--mb-radio-checked-bg);
+}
+
+.more-buttons-tab-panel {
+  flex: 1;
+}
+
+.more-buttons-tab-panel[hidden] {
+  display: none;
+}
+
+/* ── Knowledge Base Hierarchy Tree ─────────────────────────────────────────── */
+
+.mb-kb-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.mb-kb-node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Unified row: same height and layout for both section headers and file items */
+.mb-kb-node-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--mb-border);
+  background: none;
+  text-align: left;
+  font-size: 0.875rem;
+  color: var(--mb-text);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.12s ease;
+  font-family: inherit;
+}
+
+.mb-kb-node-row {
+  background: var(--mb-bg-subtle);
+}
+
+.mb-kb-node-row:hover {
+  background: var(--mb-border-subtle);
+}
+
+.mb-kb-node-icon {
+  font-size: 1rem;
+  color: var(--mb-text-muted);
+  flex-shrink: 0;
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
+}
+
+/* Section expand/collapse arrow */
+.mb-kb-arrow {
+  transition: transform 0.15s ease;
+  transform: rotate(90deg); /* points down = expanded */
+}
+
+.mb-kb-node.--collapsed > .mb-kb-node-row .mb-kb-arrow {
+  transform: rotate(0deg); /* points right = collapsed */
+}
+
+.mb-kb-node.--collapsed > .mb-kb-node-children {
+  display: none;
+}
+
+/* Children container — indents children */
+.mb-kb-node-children {
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Child nodes need position:relative for their connector pseudo-elements */
+.mb-kb-node-children > .mb-kb-node {
+  position: relative;
+}
+
+/* L-shaped elbow: both the vertical stub (node top → row centre) and the horizontal
+   elbow are drawn as a single element using border-left + border-bottom.
+   Both segments reference the node div directly, so there is no junction or
+   sub-pixel mismatch between the stub and the ::after continuation. */
+.mb-kb-node-children > .mb-kb-node::before {
+  content: '';
+  position: absolute;
+  left: -7px;          /* border-left renders at this x; same origin as ::after */
+  top: -4px;           /* extends up through the 4px gap above the children container */
+  width: 7px;          /* horizontal extent to the button's left edge */
+  height: 19px;        /* 15px to row centre + 4px to cover the gap */
+  border-left: 1px solid var(--mb-border-subtle);
+  border-bottom: 1px solid var(--mb-border-subtle);
+  pointer-events: none;
+}
+
+/* Vertical continuation: from this row's centre down to the next sibling's row centre.
+   bottom: -15px extends exactly 15px past this node's bottom edge, landing on the next
+   sibling's row centre regardless of how many expanded children this node has. */
+.mb-kb-node-children > .mb-kb-node:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: -7px;          /* same x as ::before's border-left — no sub-pixel mismatch */
+  top: 15px;           /* starts at row centre */
+  bottom: -19px;       /* ends at next sibling's row centre (15px + 4px gap) */
+  width: 1px;
+  background: var(--mb-border-subtle);
+  pointer-events: none;
+}
+
+/* ── Knowledge Base Search ──────────────────────────────────────────────────── */
+
+.mb-kb-search {
+  width: 100%;
+  padding: 6px 9px;
+  margin-bottom: 8px;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background: var(--mb-bg-input);
+  color: var(--mb-text);
+  font-size: 0.875rem;
+  font-family: inherit;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.mb-kb-search::placeholder {
+  color: var(--mb-text-placeholder);
+}
+
+.mb-kb-search:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+.mb-kb-node.--search-hidden {
+  display: none;
+}
+
+[data-search-active] .mb-kb-node.--collapsed > .mb-kb-node-children {
+  display: flex;
+}
+
+/* Hide the downward connector on the last *visible* node in a group during search */
+[data-search-active] .mb-kb-node-children > .mb-kb-node:not(:has(~ .mb-kb-node:not(.--search-hidden)))::after {
+  display: none;
 }

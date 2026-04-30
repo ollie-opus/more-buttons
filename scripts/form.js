@@ -1,11 +1,20 @@
 import { getFormAction } from './formActions.js';
 import { fetchGitHubMarkdown } from './github.js';
-import { renderSystemStatus } from './systemStatus.js';
-import { renderSystemUpdates } from './systemUpdates.js';
+import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
+import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
+
+const renderFns = {
+  renderOpenIncidents,
+  renderResolvedIncidents,
+  renderDraftUpdates,
+  renderPublishedUpdates
+};
 
 let activeFormCleanup = null;
+const navStack = [];
 
-export async function createForm(formName) {
+export async function createForm(formName, opener) {
+  navStack.push(opener ?? (() => createForm(formName)));
   if (activeFormCleanup) {
     activeFormCleanup();
     activeFormCleanup = null;
@@ -39,6 +48,7 @@ export async function createForm(formName) {
   // Utility: close overlay + cleanup
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
+      navStack.length = 0;
       cleanup();
     }
   };
@@ -68,10 +78,39 @@ export async function createForm(formName) {
 
   content.innerHTML = formHtml;
 
+  // Move form-actions outside the form so it sits below the scroll area,
+  // preventing the scrollbar from rendering over the buttons.
+  const formActionsEl = content.querySelector('.more-buttons-form-actions');
+  if (formActionsEl) content.appendChild(formActionsEl);
+
+  content.addEventListener('click', e => {
+  const tab = e.target.closest('[data-tab]');
+  if (!tab) return;
+
+  const tabName = tab.dataset.tab;
+  const tabsContainer = tab.closest('.more-buttons-tabs');
+  if (!tabsContainer) return;
+
+  // Update active tab button
+  tabsContainer.querySelectorAll('[data-tab]').forEach(t => {
+    t.classList.toggle('--active', t === tab);
+  });
+
+  // Show correct panel
+  tabsContainer.querySelectorAll('[data-tab-panel]').forEach(panel => {
+    panel.hidden = panel.dataset.tabPanel !== tabName;
+  });
+});
+
   // Grab the form with storage key attribute
   const formEl = content.querySelector('form[data-storage-key]');
-  if (formEl?.dataset.maxWidth) {
-    content.style.maxWidth = formEl.dataset.maxWidth;
+  if (formEl?.dataset.width) {
+    content.style.width = formEl.dataset.width;
+    content.style.maxWidth = formEl.dataset.width;
+  }
+  if (formEl?.dataset.height) {
+    content.style.height = formEl.dataset.height;
+    content.style.maxHeight = formEl.dataset.height;
   }
   if (!formEl) {
     // No form element — wire up action buttons with close + module function support
@@ -80,7 +119,14 @@ export async function createForm(formName) {
       const steps = btn.getAttribute('data-action').split(',').map(s => s.trim());
       btn.addEventListener('click', async () => {
         for (const step of steps) {
-          if (step === 'close') { cleanup(); continue; }
+          if (step === 'close') { navStack.length = 0; cleanup(); continue; }
+          if (step === 'back') {
+            navStack.pop();
+            const prev = navStack.pop();
+            cleanup();
+            if (prev) await prev();
+            continue;
+          }
           let [stepName, stepParam] = step.includes(':') ? step.split(':') : [step, null];
           const fn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
           if (fn) { cleanup(); await fn(stepParam); }
@@ -142,7 +188,13 @@ export async function createForm(formName) {
         resolve();
       });
     }),
-    close: () => { cleanup(); return Promise.resolve(); },
+    back: async () => {
+      navStack.pop();
+      const prev = navStack.pop();
+      cleanup();
+      if (prev) await prev();
+    },
+    close: () => { navStack.length = 0; cleanup(); return Promise.resolve(); },
   };
 
   // Validation: checks required fields and data-maxlength limits
@@ -477,12 +529,31 @@ export async function createForm(formName) {
         const checked = formEl.querySelector(`input[name="${name}"]:checked`);
         if (!checked || checked.value !== value) return;
       }
+      // Capture original structure (tabs + panels) BEFORE we overwrite anything
+      const originalHTML = el._templateHTML || el.innerHTML;
+      if (!el._templateHTML) el._templateHTML = originalHTML;
+
+      // Show loading state
       el.innerHTML = '<p class="more-buttons-description">Loading...</p>';
+
       try {
         const markdown = await fetchGitHubMarkdown(url);
-        const renderer = url.includes('system-updates') ? renderSystemUpdates : renderSystemStatus;
-        el.innerHTML = renderer(markdown);
+
+        // Restore the original HTML (tabs + panels)
+        el.innerHTML = originalHTML;
+
+        // Fill each panel via its data-render hook
+        el.querySelectorAll('[data-render]').forEach(panel => {
+          const fn = renderFns[panel.dataset.render];
+          if (fn) {
+            fn(markdown, panel);
+          } else {
+            console.warn(`No renderer found for ${panel.dataset.render}`);
+          }
+        });
+
         el._lastMarkdown = markdown;
+
       } catch {
         el.innerHTML = '<p class="more-buttons-description">Failed to load services.</p>';
       }

@@ -1,4 +1,4 @@
-<form id="edit-system-update-form" data-storage-key="moreButtonsEditSystemUpdate" data-max-width="720px">
+<form id="edit-system-update-form" data-storage-key="moreButtonsEditSystemUpdate" data-width="80vw" data-height="80vh">
   <h2>Edit System Update</h2>
 
   <div class="more-buttons-form-group">
@@ -26,24 +26,28 @@
   </div>
 
   <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Add captures</label>
-    <details class="more-buttons-advanced-section">
-      <summary class="more-buttons-advanced-toggle">Capture settings</summary>
-      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px">
-        <label class="more-buttons-sub-label"><input type="checkbox" name="captureResizeMode" /> Resize mode</label>
-        <div style="display: flex; align-items: center; gap: 8px">
-          <input class="more-buttons-input-text" type="number" name="capturePadding" value="0" min="0" style="width: 80px" />
-          <span class="more-buttons-description" style="margin: 0">px padding</span>
-        </div>
+    <label class="more-buttons-label">Captures</label>
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-direction: row; gap: 12px">
+        <button type="button" class="more-buttons-button secondary" data-action="startCapture">Add a capture</button>
+        <details class="more-buttons-advanced-section" style="margin-top: 8px">
+          <summary class="more-buttons-advanced-toggle">Capture settings</summary>
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px">
+            <label class="more-buttons-sub-label"><input type="checkbox" name="captureResizeMode" /> Resize mode</label>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <input class="more-buttons-input-text" type="number" name="capturePadding" value="0" min="0" style="width: 80px" />
+              <span class="more-buttons-description" style="margin: 0">px padding</span>
+            </div>
+          </div>
+        </details>
       </div>
-    </details>
-    <button type="button" class="more-buttons-button secondary" style="margin-top: 8px" data-action="startCapture">Capture element</button>
-    <div id="edit-update-captures"></div>
+      <div id="edit-update-captures"></div>
+    </div>
   </div>
 
   <div class="more-buttons-form-actions">
     <button type="button" class="more-buttons-button" data-action="submitEditSystemUpdate" data-validate>Save &amp; Publish</button>
     <button type="button" class="more-buttons-button danger" data-action="deleteSystemUpdate">Delete</button>
-    <button type="button" class="more-buttons-button secondary" data-action="close">Cancel</button>
+    <button type="button" class="more-buttons-button secondary" data-action="back">Back</button>
   </div>
 </form>

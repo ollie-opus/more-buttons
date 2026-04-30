@@ -221,15 +221,15 @@ function updateCard(update) {
   return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr, btnLabel });
 }
 
-export function renderSystemUpdates(markdown) {
+export function renderDraftUpdates(markdown, panel) {
+  panel.innerHTML = `<p class="more-buttons-description">No draft updates.</p>`;
+}
+
+export function renderPublishedUpdates(markdown, panel) {
   const updates = parseUpdateBlocks(markdown);
-  const cards = updates.length === 0
-    ? `<p class="more-buttons-description">No past updates.</p>`
+  panel.innerHTML = updates.length === 0
+    ? `<p class="more-buttons-description">No published updates.</p>`
     : updates.map(u => updateCard(u)).join('');
-  return `<details class="more-buttons-advanced-section" style="margin-top:8px;">
-    <summary class="more-buttons-advanced-toggle" style="font-size:1rem;font-weight:600;color:var(--mb-heading);">Past Updates</summary>
-    <div style="margin-top:10px;">${cards}</div>
-  </details>`;
 }
 
 // ── Capture helpers ───────────────────────────────────────────────────────────
@@ -422,8 +422,8 @@ registerFormAction('openLogSystemUpdate', async () => {
   }
 });
 
-registerFormAction('submitLogSystemUpdate', async ({ formEl, cleanup }) => {
-  const btn = formEl.querySelector('[data-action="submitLogSystemUpdate"]');
+registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup }) => {
+  const btn = content.querySelector('[data-action="submitLogSystemUpdate"]');
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
@@ -439,8 +439,14 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, cleanup }) => {
 
     const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
     if (fetchEl && updatedMarkdown) {
-      fetchEl.innerHTML = renderSystemUpdates(updatedMarkdown);
       fetchEl._lastMarkdown = updatedMarkdown;
+      if (fetchEl._templateHTML) {
+        fetchEl.innerHTML = fetchEl._templateHTML;
+        fetchEl.querySelectorAll('[data-render]').forEach(panel => {
+          if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(updatedMarkdown, panel);
+          else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(updatedMarkdown, panel);
+        });
+      }
     }
     pendingCaptures = [];
     cleanup();
@@ -487,8 +493,8 @@ registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   }
 });
 
-registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
-  const btn = formEl.querySelector('[data-action="submitEditSystemUpdate"]');
+registerFormAction('submitEditSystemUpdate', async ({ formEl, content, cleanup }) => {
+  const btn = content.querySelector('[data-action="submitEditSystemUpdate"]');
   const originalText = btn.textContent;
   btn.disabled = true;
   try {
@@ -511,8 +517,14 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
     if (fetchEl && updatedMarkdown) {
-      fetchEl.innerHTML = renderSystemUpdates(updatedMarkdown);
       fetchEl._lastMarkdown = updatedMarkdown;
+      if (fetchEl._templateHTML) {
+        fetchEl.innerHTML = fetchEl._templateHTML;
+        fetchEl.querySelectorAll('[data-render]').forEach(panel => {
+          if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(updatedMarkdown, panel);
+          else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(updatedMarkdown, panel);
+        });
+      }
     }
     pendingCaptures = [];
     existingCaptures = [];
@@ -525,9 +537,9 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, cleanup }) => {
   }
 });
 
-registerFormAction('deleteSystemUpdate', async ({ formEl, cleanup }) => {
+registerFormAction('deleteSystemUpdate', async ({ formEl, content, cleanup }) => {
   if (!confirm('Delete this system update? This cannot be undone.')) return;
-  const btn = formEl.querySelector('[data-action="deleteSystemUpdate"]');
+  const btn = content.querySelector('[data-action="deleteSystemUpdate"]');
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
   try {
@@ -540,8 +552,14 @@ registerFormAction('deleteSystemUpdate', async ({ formEl, cleanup }) => {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
     if (fetchEl && updatedMarkdown) {
-      fetchEl.innerHTML = renderSystemUpdates(updatedMarkdown);
       fetchEl._lastMarkdown = updatedMarkdown;
+      if (fetchEl._templateHTML) {
+        fetchEl.innerHTML = fetchEl._templateHTML;
+        fetchEl.querySelectorAll('[data-render]').forEach(panel => {
+          if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(updatedMarkdown, panel);
+          else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(updatedMarkdown, panel);
+        });
+      }
     }
     cleanup();
   } catch (e) {

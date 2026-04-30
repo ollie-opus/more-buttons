@@ -555,7 +555,7 @@
       "keywords": ["/"]
     },
     "containerId": "popup-knowledge-base",
-    "action": "openKnowledgeBaseEntry"
+    "action": "openKnowledgeBaseManagement"
   },
   {
     "id": "mb-clear-checkboxes-btn",

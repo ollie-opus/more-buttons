@@ -1,0 +1,19 @@
+<form id="system-status-entry-form" data-storage-key="moreButtonsSystemStatusEntry" data-width="80vw" data-height="80vh">
+  <h2>System Status</h2>
+
+  <div data-fetch-markdown="https://raw.githubusercontent.com/ollie-opus/opus-knowledge-base/main/docs/pages/system-status.md">
+    <div class="more-buttons-tabs">
+      <div class="more-buttons-tab-list">
+        <button type="button" class="more-buttons-tab --active" data-tab="open-incidents">Open Incidents</button>
+        <button type="button" class="more-buttons-tab" data-tab="resolved-incidents">Resolved Incidents</button>
+      </div>
+      <div class="more-buttons-tab-panel" data-tab-panel="open-incidents" data-render="renderOpenIncidents"></div>
+      <div class="more-buttons-tab-panel" data-tab-panel="resolved-incidents" data-render="renderResolvedIncidents" hidden></div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="openReportIncident">Report an incident</button>
+    <button type="button" class="more-buttons-button secondary" data-action="back">Back</button>
+  </div>
+</form>
