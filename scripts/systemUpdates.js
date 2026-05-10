@@ -1,5 +1,7 @@
 import { registerFormAction } from './formActions.js';
 import { githubFetchAndPushFile, githubPushImageIfNotExists } from './github.js';
+import { readRepoText, assetCdnUrl } from './repoClient.js';
+import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
 import { createForm } from './form.js';
 import { captureElement, setCaptureStoreMode } from './captureElement.js';
 import { renderCard, escapeHtml } from './cardRenderer.js';
@@ -10,11 +12,12 @@ let pendingCaptures = [];
 let existingCaptures = [];
 let partialCapture = {};
 
-const RAW_ASSETS_BASE = 'https://raw.githubusercontent.com/ollie-opus/opus-knowledge-base/main/docs/assets/';
+const DRAFT_ENTITY = 'systemUpdateDrafts';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const UPDATES_FILE = 'docs/pages/system-updates.md';
+const DRAFTS_FILE = 'docs/drafts/system-updates.md';
 
 const TYPE_LABELS = {
   'feature-release': 'Feature release',
@@ -127,6 +130,9 @@ function cleanEmptyMonthSection(md, monthLabel, year) {
 }
 
 export function insertUpdateIntoMarkdown(markdown, update, captures = []) {
+  if (update.uuid && parseUpdateBlocks(markdown).some(u => u.uuid === update.uuid)) {
+    return replaceAdmonitionByUUID(markdown, update.uuid, buildUpdateBlock(update, captures));
+  }
   const block = buildUpdateBlock(update, captures);
   const { year, month, monthLabel } = getYearMonthFromDateStr(update.date);
   let md = markdown;
@@ -199,6 +205,30 @@ export function deleteUpdateFromMarkdown(markdown, uuid) {
   return md;
 }
 
+// ── Drafts: parse / build / mutate ────────────────────────────────────────────
+
+const DRAFTS_HEADER = '# System update drafts\n\n';
+
+export const parseDraftBlocks = parseUpdateBlocks;
+
+export function insertDraftIntoMarkdown(markdown, update, captures = []) {
+  const block = buildUpdateBlock(update, captures);
+  const base = markdown && markdown.trim() ? markdown : DRAFTS_HEADER;
+  const headerMatch = base.match(/^(#\s.*\n+)/);
+  if (headerMatch) {
+    return base.slice(0, headerMatch[0].length) + block + '\n\n' + base.slice(headerMatch[0].length);
+  }
+  return DRAFTS_HEADER + block + '\n\n' + base;
+}
+
+export function replaceDraftInMarkdown(markdown, uuid, update, captures = []) {
+  return replaceAdmonitionByUUID(markdown, uuid, buildUpdateBlock({ ...update, uuid }, captures));
+}
+
+export function removeDraftFromMarkdown(markdown, uuid) {
+  return deleteAdmonitionByUUID(markdown, uuid);
+}
+
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 const TYPE_COLOURS = {
@@ -221,8 +251,36 @@ function updateCard(update) {
   return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr, btnLabel });
 }
 
-export function renderDraftUpdates(markdown, panel) {
-  panel.innerHTML = `<p class="more-buttons-description">No draft updates.</p>`;
+function draftCard(update) {
+  const colour = TYPE_COLOURS[update.type] ?? 'amber';
+  const typeLabel = TYPE_LABELS[update.type] ?? update.type;
+  const badge = `Draft · ${typeLabel}`;
+  const preview = (update.body ?? '')
+    .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
+    .replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '')
+    .replace(/\n+/g, ' ')
+    .trim();
+  const description = preview.length > 120 ? preview.slice(0, 120) + '…' : preview || null;
+  const btnAttr = update.uuid ? `data-edit-draft-system-update="${update.uuid}"` : `disabled title="This draft doesn't have a UUID"`;
+  const btnLabel = update.uuid ? 'Edit' : 'Error';
+  return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr, btnLabel });
+}
+
+export async function renderDraftUpdates(_markdown, panel) {
+  panel.innerHTML = `<p class="more-buttons-description">Loading drafts...</p>`;
+  let draftsMarkdown = '';
+  try {
+    draftsMarkdown = await readRepoText(DRAFTS_FILE);
+  } catch {
+    draftsMarkdown = '';
+  }
+  const allDrafts = draftsMarkdown ? parseDraftBlocks(draftsMarkdown) : [];
+  const fetchedUuids = new Set(allDrafts.map(d => d.uuid).filter(Boolean));
+  reconcile(DRAFT_ENTITY, fetchedUuids);
+  const drafts = filterSuppressed(DRAFT_ENTITY, allDrafts);
+  panel.innerHTML = drafts.length === 0
+    ? `<p class="more-buttons-description">No draft updates.</p>`
+    : drafts.map(d => draftCard(d)).join('');
 }
 
 export function renderPublishedUpdates(markdown, panel) {
@@ -283,7 +341,7 @@ function updateCapturesList(formEl) {
 
   const existingHtml = existingCaptures.map((c, i) =>
     captureRowHtml(
-      RAW_ASSETS_BASE + escapeHtml(c.lightFilename),
+      escapeHtml(assetCdnUrl('docs/assets/' + c.lightFilename)),
       c.dimMode, c.dimValue,
       `data-remove-existing="${i}"`,
       `data-existing-dim-mode="${i}"`,
@@ -368,6 +426,42 @@ export async function publishDeleteUpdate(uuid, onProgress) {
   return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, uuid));
 }
 
+// ── Draft persistence ─────────────────────────────────────────────────────────
+
+export async function saveNewDraft(update, captures, onProgress) {
+  await pushCaptures(captures, onProgress);
+  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => insertDraftIntoMarkdown(md, update, captures));
+}
+
+export async function saveExistingDraft(uuid, update, captures, onProgress) {
+  await pushCaptures(captures, onProgress);
+  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => replaceDraftInMarkdown(md, uuid, update, captures));
+}
+
+export async function publishDraft(uuid, update, captures, onProgress) {
+  await pushCaptures(captures, onProgress);
+  const updatedPublished = await githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, { ...update, uuid }, captures));
+  await githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid));
+  return updatedPublished;
+}
+
+export async function deleteDraft(uuid, onProgress) {
+  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid));
+}
+
+// ── Render helpers shared by draft action handlers ────────────────────────────
+
+async function refreshSystemUpdatesPanels(updatedPublishedMarkdown) {
+  const fetchEl = document.querySelector('[data-fetch-path*="system-updates"]');
+  if (!fetchEl || !fetchEl._templateHTML) return;
+  const md = updatedPublishedMarkdown ?? await readRepoText(UPDATES_FILE);
+  fetchEl.innerHTML = fetchEl._templateHTML;
+  fetchEl.querySelectorAll('[data-render]').forEach(panel => {
+    if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(md, panel);
+    else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(md, panel);
+  });
+}
+
 // ── Form action registrations ─────────────────────────────────────────────────
 
 registerFormAction('startCapture', ({ formEl, overlay }) => {
@@ -437,17 +531,7 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
     const captures = resolveCaptures([...pendingCaptures]);
     const updatedMarkdown = await publishNewUpdate(update, captures, s => { btn.textContent = s; });
 
-    const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
-    if (fetchEl && updatedMarkdown) {
-      fetchEl._lastMarkdown = updatedMarkdown;
-      if (fetchEl._templateHTML) {
-        fetchEl.innerHTML = fetchEl._templateHTML;
-        fetchEl.querySelectorAll('[data-render]').forEach(panel => {
-          if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(updatedMarkdown, panel);
-          else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(updatedMarkdown, panel);
-        });
-      }
-    }
+    await refreshSystemUpdatesPanels(updatedMarkdown);
     pendingCaptures = [];
     cleanup();
   } catch (e) {
@@ -458,13 +542,10 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
 });
 
 registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
-  const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
-  const markdown = fetchEl?._lastMarkdown;
-  if (!markdown) return;
-
+  const markdown = await readRepoText(UPDATES_FILE);
   const updates = parseUpdateBlocks(markdown);
   const update = updates.find(u => u.uuid === uuid);
-  if (!update) return;
+  if (!update) { alert('Entry not found.'); return; }
 
   pendingCaptures = [];
   existingCaptures = parseExistingCaptures(update.body ?? '');
@@ -515,17 +596,7 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, content, cleanup }
     });
 
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
-    if (fetchEl && updatedMarkdown) {
-      fetchEl._lastMarkdown = updatedMarkdown;
-      if (fetchEl._templateHTML) {
-        fetchEl.innerHTML = fetchEl._templateHTML;
-        fetchEl.querySelectorAll('[data-render]').forEach(panel => {
-          if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(updatedMarkdown, panel);
-          else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(updatedMarkdown, panel);
-        });
-      }
-    }
+    await refreshSystemUpdatesPanels(updatedMarkdown);
     pendingCaptures = [];
     existingCaptures = [];
     cleanup();
@@ -550,21 +621,160 @@ registerFormAction('deleteSystemUpdate', async ({ formEl, content, cleanup }) =>
       return deleteUpdateFromMarkdown(md, _uuid);
     });
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    const fetchEl = document.querySelector('[data-fetch-markdown*="system-updates"]');
-    if (fetchEl && updatedMarkdown) {
-      fetchEl._lastMarkdown = updatedMarkdown;
-      if (fetchEl._templateHTML) {
-        fetchEl.innerHTML = fetchEl._templateHTML;
-        fetchEl.querySelectorAll('[data-render]').forEach(panel => {
-          if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(updatedMarkdown, panel);
-          else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(updatedMarkdown, panel);
-        });
-      }
-    }
+    await refreshSystemUpdatesPanels(updatedMarkdown);
     cleanup();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     if (btn) { btn.textContent = originalText; btn.disabled = false; }
     alert('Failed to delete update: ' + e.message);
+  }
+});
+
+// ── Draft form actions ────────────────────────────────────────────────────────
+
+function readUpdateFormFields(formEl) {
+  const title = formEl.querySelector('[name="updateTitle"]')?.value.trim() ?? '';
+  const date = formEl.querySelector('[name="updateDate"]')?.value ?? '';
+  const type = formEl.querySelector('[name="updateType"]:checked')?.value;
+  const description = formEl.querySelector('[name="description"]')?.value.trim() ?? '';
+  return { title, date, type, description };
+}
+
+registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup }) => {
+  const btn = content.querySelector('[data-action="saveDraftSystemUpdate"]');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  try {
+    const { title, date, type, description } = readUpdateFormFields(formEl);
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+
+    const update = { title, date, type, description };
+    const captures = resolveCaptures([...pendingCaptures]);
+    await saveNewDraft(update, captures, s => { btn.textContent = s; });
+
+    await refreshSystemUpdatesPanels();
+    pendingCaptures = [];
+    cleanup();
+  } catch (e) {
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('Failed to save draft: ' + e.message);
+  }
+});
+
+registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
+  let draftsMarkdown = '';
+  try {
+    draftsMarkdown = await readRepoText(DRAFTS_FILE);
+  } catch {
+    alert('Failed to load drafts.');
+    return;
+  }
+  const drafts = parseDraftBlocks(draftsMarkdown);
+  const update = drafts.find(u => u.uuid === uuid);
+  if (!update) { alert('Draft not found.'); return; }
+
+  pendingCaptures = [];
+  existingCaptures = parseExistingCaptures(update.body ?? '');
+
+  const dateInfo = parseDateStr(update.date);
+  const isoDate = dateInfo
+    ? `${dateInfo.year}-${String(dateInfo.month).padStart(2,'0')}-${String(dateInfo.day).padStart(2,'0')}`
+    : '';
+
+  await chrome.storage.local.set({
+    moreButtonsEditDraftSystemUpdate: {
+      updateTitle: update.title,
+      updateDate:  isoDate,
+      updateType:  update.type,
+      description: (update.body ?? '')
+        .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
+        .replace(/\n?\s*!\[\]\(\.\.\/assets\/[^)]+#only-(light|dark)\)\{[^}]*\}/g, '')
+        .trim(),
+    }
+  });
+
+  const { formEl: editFormEl } = await createForm('editDraftSystemUpdate');
+  if (editFormEl) {
+    editFormEl.dataset.editUuid = update.uuid;
+    updateCapturesList(editFormEl);
+  }
+});
+
+registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content, cleanup }) => {
+  const btn = content.querySelector('[data-action="saveDraftEditSystemUpdate"]');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  try {
+    const _uuid = formEl.dataset.editUuid;
+    if (!_uuid) throw new Error('No draft identity found');
+
+    const { title, date, type, description } = readUpdateFormFields(formEl);
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+
+    const update = { title, date, type, description, uuid: _uuid };
+    const captures = resolveCaptures([...existingCaptures, ...pendingCaptures]);
+    await saveExistingDraft(_uuid, update, captures, s => { btn.textContent = s; });
+
+    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
+    await refreshSystemUpdatesPanels();
+    pendingCaptures = [];
+    existingCaptures = [];
+    cleanup();
+  } catch (e) {
+    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('Failed to save draft: ' + e.message);
+  }
+});
+
+registerFormAction('publishDraftSystemUpdate', async ({ formEl, content, cleanup }) => {
+  const btn = content.querySelector('[data-action="publishDraftSystemUpdate"]');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  try {
+    const _uuid = formEl.dataset.editUuid;
+    if (!_uuid) throw new Error('No draft identity found');
+
+    const { title, date, type, description } = readUpdateFormFields(formEl);
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+
+    const update = { title, date, type, description };
+    const captures = resolveCaptures([...existingCaptures, ...pendingCaptures]);
+    const updatedMarkdown = await publishDraft(_uuid, update, captures, s => { btn.textContent = s; });
+
+    suppress(DRAFT_ENTITY, _uuid);
+    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
+    await refreshSystemUpdatesPanels(updatedMarkdown);
+    pendingCaptures = [];
+    existingCaptures = [];
+    cleanup();
+  } catch (e) {
+    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
+    btn.textContent = originalText;
+    btn.disabled = false;
+    alert('Failed to publish draft: ' + e.message);
+  }
+});
+
+registerFormAction('deleteDraftSystemUpdate', async ({ formEl, content, cleanup }) => {
+  if (!confirm('Delete this draft? This cannot be undone.')) return;
+  const btn = content.querySelector('[data-action="deleteDraftSystemUpdate"]');
+  const originalText = btn?.textContent;
+  if (btn) btn.disabled = true;
+  try {
+    const _uuid = formEl.dataset.editUuid;
+    if (!_uuid) throw new Error('No draft identity found');
+
+    await deleteDraft(_uuid, s => { if (btn) btn.textContent = s; });
+    suppress(DRAFT_ENTITY, _uuid);
+    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
+    await refreshSystemUpdatesPanels();
+    cleanup();
+  } catch (e) {
+    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
+    if (btn) { btn.textContent = originalText; btn.disabled = false; }
+    alert('Failed to delete draft: ' + e.message);
   }
 });

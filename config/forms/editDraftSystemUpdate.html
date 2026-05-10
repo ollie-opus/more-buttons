@@ -1,5 +1,5 @@
-<form id="log-system-update-form" data-storage-key="moreButtonsLogSystemUpdate" data-width="80vw" data-height="80vh">
-  <h2>Log System Update</h2>
+<form id="edit-draft-system-update-form" data-storage-key="moreButtonsEditDraftSystemUpdate" data-width="80vw" data-height="80vh">
+  <h2>Edit Draft</h2>
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Title</label>
@@ -22,7 +22,7 @@
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Description</label>
-    <textarea name="description" rows="4" placeholder="Describe the update..."></textarea>
+    <textarea name="description" rows="4"></textarea>
   </div>
 
   <div class="more-buttons-form-group">
@@ -41,13 +41,14 @@
           </div>
         </details>
       </div>
-      <div id="log-update-captures"></div>
+      <div id="edit-update-captures"></div>
     </div>
   </div>
 
   <div class="more-buttons-form-actions">
-    <button type="button" class="more-buttons-button" data-action="submitLogSystemUpdate" data-validate>Publish update</button>
-    <button type="button" class="more-buttons-button secondary" data-action="saveDraftSystemUpdate" data-validate>Save draft</button>
+    <button type="button" class="more-buttons-button" data-action="publishDraftSystemUpdate" data-validate>Publish update</button>
+    <button type="button" class="more-buttons-button secondary" data-action="saveDraftEditSystemUpdate" data-validate>Save draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteDraftSystemUpdate">Delete</button>
     <button type="button" class="more-buttons-button secondary" data-action="back">Back</button>
   </div>
 </form>

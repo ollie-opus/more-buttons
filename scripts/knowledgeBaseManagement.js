@@ -1,7 +1,6 @@
 import { createForm } from './form.js';
-import { fetchGitHubMarkdown } from './github.js';
+import { readRepoText } from './repoClient.js';
 
-const ZENSICAL_TOML_URL = 'https://raw.githubusercontent.com/ollie-opus/opus-knowledge-base/main/zensical.toml';
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 
 function parseNav(tomlText) {
@@ -100,14 +99,14 @@ export async function openKnowledgeBaseManagement() {
     const { formEl } = await createForm('knowledgeBaseManagement', openKnowledgeBaseManagement);
     if (!formEl) return;
 
-    const livePanel = formEl.querySelector('[data-kb-panel="live-articles"]');
+    const livePanel = formEl.querySelector('[data-kb-panel="guides"]');
     const systemPanel = formEl.querySelector('[data-kb-panel="system"]');
 
     if (livePanel) livePanel.innerHTML = '<p class="more-buttons-description">Loading…</p>';
     if (systemPanel) systemPanel.innerHTML = '<p class="more-buttons-description">Loading…</p>';
 
     try {
-      const tomlText = await fetchGitHubMarkdown(ZENSICAL_TOML_URL);
+      const tomlText = await readRepoText('zensical.toml');
       const nav = parseNav(tomlText);
 
       if (livePanel) {

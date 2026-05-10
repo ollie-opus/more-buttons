@@ -1,4 +1,5 @@
 import { ensureAdmonitionUUIDs } from './admonitions.js';
+import { contentsApiUrl, authHeader } from './repoClient.js';
 
 let _opQueue = Promise.resolve();
 
@@ -13,18 +14,22 @@ export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
 }
 
 async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, retries = 1) {
-  const REPO = 'ollie-opus/opus-knowledge-base';
-  const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
-  const token = moreButtonsIntegrations?.githubPAT;
-  if (!token) throw new Error('No GitHub PAT configured');
+  const auth = await authHeader();
 
   onProgress?.('Fetching current file...');
-  const fileRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
-    headers: { 'Authorization': `token ${token}` }
+  const fileRes = await fetch(contentsApiUrl(filePath), {
+    headers: { 'Authorization': auth },
+    cache: 'no-store',
   });
-  if (!fileRes.ok) throw new Error(`GitHub API error: ${fileRes.status}`);
-  const fileData = await fileRes.json();
-  const currentMarkdown = decodeURIComponent(escape(atob(fileData.content.replace(/\n/g, ''))));
+  let currentMarkdown = '';
+  let currentSha;
+  if (fileRes.ok) {
+    const fileData = await fileRes.json();
+    currentMarkdown = decodeURIComponent(escape(atob(fileData.content.replace(/\n/g, ''))));
+    currentSha = fileData.sha;
+  } else if (fileRes.status !== 404) {
+    throw new Error(`GitHub API error: ${fileRes.status}`);
+  }
 
   const typeRegex = Object.entries(ADMONITION_TYPE_BY_FILE).find(([k]) => filePath.includes(k))?.[1];
   const migratedMarkdown = typeRegex ? ensureAdmonitionUUIDs(currentMarkdown, typeRegex) : currentMarkdown;
@@ -33,14 +38,15 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
 
   onProgress?.('Pushing to GitHub...');
   const label = filePath.includes('system-updates') ? 'system updates' : 'system status';
-  const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+  const putBody = {
+    message: `Update ${label}\n\nPublished via More Buttons Chrome Extension`,
+    content: btoa(unescape(encodeURIComponent(updatedMarkdown)))
+  };
+  if (currentSha) putBody.sha = currentSha;
+  const putRes = await fetch(contentsApiUrl(filePath), {
     method: 'PUT',
-    headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: `Update ${label}\n\nPublished via More Buttons Chrome Extension`,
-      content: btoa(unescape(encodeURIComponent(updatedMarkdown))),
-      sha: fileData.sha
-    })
+    headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify(putBody)
   });
   if (putRes.status === 409 && retries > 0) {
     return _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, 0);
@@ -58,21 +64,19 @@ export async function githubFetchAndPush(onProgress, buildUpdatedMarkdown) {
 
 // base64Data — raw Base64 string (no data-URI prefix; strip with dataUrl.split(',')[1])
 export async function githubPushImageIfNotExists(imagePath, base64Data, onProgress) {
-  const REPO = 'ollie-opus/opus-knowledge-base';
-  const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
-  const token = moreButtonsIntegrations?.githubPAT;
-  if (!token) throw new Error('No GitHub PAT configured');
+  const auth = await authHeader();
 
-  const checkRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${imagePath}`, {
-    headers: { 'Authorization': `token ${token}` }
+  const checkRes = await fetch(contentsApiUrl(imagePath), {
+    headers: { 'Authorization': auth },
+    cache: 'no-store',
   });
   if (checkRes.ok) return; // already exists — skip
   if (checkRes.status !== 404) throw new Error(`GitHub API error: ${checkRes.status}`);
 
   onProgress?.(`Uploading ${imagePath.split('/').pop()}...`);
-  const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${imagePath}`, {
+  const putRes = await fetch(contentsApiUrl(imagePath), {
     method: 'PUT',
-    headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: 'Add capture\n\nPublished via More Buttons Chrome Extension',
       content: base64Data
@@ -82,25 +86,4 @@ export async function githubPushImageIfNotExists(imagePath, base64Data, onProgre
     const err = await putRes.json();
     throw new Error(err.message || `GitHub API error: ${putRes.status}`);
   }
-}
-
-// Fetches markdown via the GitHub API (bypasses CDN cache) when the URL is a
-// raw.githubusercontent.com URL and a PAT is configured. Falls back to a plain fetch.
-export async function fetchGitHubMarkdown(rawUrl) {
-  const m = rawUrl.match(/^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
-  if (m) {
-    const [, owner, repo, branch, path] = m;
-    const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
-    const token = moreButtonsIntegrations?.githubPAT;
-    if (token) {
-      const res = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
-        { headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.raw' } }
-      );
-      if (res.ok) return res.text();
-    }
-  }
-  const res = await fetch(rawUrl, { cache: 'no-store' });
-  if (!res.ok) throw new Error(res.status);
-  return res.text();
 }

@@ -1,8 +1,22 @@
 import { registerFormAction } from './formActions.js';
 import { githubFetchAndPush } from './github.js';
+import { readRepoText } from './repoClient.js';
 import { createForm } from './form.js';
 import { renderCard, escapeHtml } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID } from './admonitions.js';
+
+const STATUS_FILE = 'docs/pages/system-status.md';
+
+async function refreshSystemStatusPanels(updatedMarkdown) {
+  const fetchEl = document.querySelector('[data-fetch-path*="system-status"]');
+  if (!fetchEl || !fetchEl._templateHTML) return;
+  const md = updatedMarkdown ?? await readRepoText(STATUS_FILE);
+  fetchEl.innerHTML = fetchEl._templateHTML;
+  fetchEl.querySelectorAll('[data-render]').forEach(panel => {
+    if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(md, panel);
+    else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(md, panel);
+  });
+}
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -311,7 +325,7 @@ function incidentCard(inc, btnAttr, btnLabel) {
 
 export async function publishSystemStatus(formEl, onProgress) {
   const serviceUpdates = {};
-  formEl.querySelectorAll('[data-fetch-markdown] [data-service-group]').forEach(group => {
+  formEl.querySelectorAll('[data-fetch-path] [data-service-group]').forEach(group => {
     const name = group.querySelector('.more-buttons-label')?.textContent.trim();
     const checked = group.querySelector('input[type="radio"]:checked');
     if (name && checked) serviceUpdates[name] = checked.value;
@@ -346,9 +360,8 @@ export async function publishDeleteIncident(uuid, onProgress) {
 
 // ── Form action registrations ─────────────────────────────────────────────────
 
-registerFormAction('openReportIncident', async ({ formEl }) => {
-  const fetchEl = formEl.querySelector('[data-fetch-markdown]');
-  const markdown = fetchEl?._lastMarkdown ?? '';
+registerFormAction('openReportIncident', async () => {
+  const markdown = await readRepoText(STATUS_FILE);
   const serviceNames = [];
   if (markdown) {
     const servicesMatch = markdown.match(/^## Services\s*\n([\s\S]*?)(?=\n---|\n##)/m);
@@ -400,7 +413,11 @@ registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) 
     const currentStatus = formEl.querySelector('[name="currentStatus"]:checked')?.value ?? 'ongoing';
     const resolvedRaw = formEl.querySelector('[name="resolved"]')?.value ?? '';
     const resolvedValue = currentStatus === 'resolved' && !resolvedRaw
-      ? (() => { const now = new Date(); now.setSeconds(0, 0); return now.toISOString().slice(0, 16); })()
+      ? (() => {
+          const now = new Date();
+          const pad = n => String(n).padStart(2, '0');
+          return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        })()
       : resolvedRaw;
     const incident = {
       title,
@@ -412,18 +429,7 @@ registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) 
       causation:     formEl.querySelector('[name="causation"]')?.value.trim() ?? '',
     };
     const updatedMarkdown = await publishNewIncident(incident, status => { btn.textContent = status; });
-    // Update parent form's fetch div
-    const parentFetchEl = document.querySelector('[data-fetch-markdown]');
-    if (parentFetchEl && updatedMarkdown) {
-      parentFetchEl._lastMarkdown = updatedMarkdown;
-      if (parentFetchEl._templateHTML) {
-        parentFetchEl.innerHTML = parentFetchEl._templateHTML;
-        parentFetchEl.querySelectorAll('[data-render]').forEach(panel => {
-          if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(updatedMarkdown, panel);
-          else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(updatedMarkdown, panel);
-        });
-      }
-    }
+    await refreshSystemStatusPanels(updatedMarkdown);
     cleanup();
   } catch (e) {
     btn.textContent = originalText;
@@ -432,14 +438,12 @@ registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) 
   }
 });
 
-registerFormAction('openUpdateIncident', async ({ formEl, uuid }) => {
-  const fetchEl = formEl.querySelector('[data-fetch-markdown]');
-  const markdown = fetchEl?._lastMarkdown;
-  if (!markdown) return;
+registerFormAction('openUpdateIncident', async ({ uuid }) => {
+  const markdown = await readRepoText(STATUS_FILE);
   const openMatch = markdown.match(/^## Open Incidents\s*\n([\s\S]*?)(?=\n---|\n##)/m);
   const incidents = openMatch ? parseIncidentBlocks(openMatch[1]) : [];
   const inc = incidents.find(i => i.uuid === uuid);
-  if (!inc) return;
+  if (!inc) { alert('Incident not found.'); return; }
 
   await chrome.storage.local.set({
     moreButtonsUpdateIncident: {
@@ -456,13 +460,11 @@ registerFormAction('openUpdateIncident', async ({ formEl, uuid }) => {
   if (updateFormEl) updateFormEl.dataset.editUuid = uuid;
 });
 
-registerFormAction('openEditPastIncident', async ({ formEl, uuid }) => {
-  const fetchEl = formEl.querySelector('[data-fetch-markdown]');
-  const markdown = fetchEl?._lastMarkdown;
-  if (!markdown) return;
+registerFormAction('openEditPastIncident', async ({ uuid }) => {
+  const markdown = await readRepoText(STATUS_FILE);
   const incidents = parsePastIncidentBlocks(markdown);
   const inc = incidents.find(i => i.uuid === uuid);
-  if (!inc) return;
+  if (!inc) { alert('Incident not found.'); return; }
 
   await chrome.storage.local.set({
     moreButtonsUpdateIncident: {
@@ -489,7 +491,11 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
     const currentStatus = formEl.querySelector('[name="currentStatus"]:checked')?.value ?? 'ongoing';
     const resolvedRaw = formEl.querySelector('[name="resolved"]')?.value ?? '';
     const resolvedValue = currentStatus === 'resolved' && !resolvedRaw
-      ? (() => { const now = new Date(); now.setSeconds(0, 0); return now.toISOString().slice(0, 16); })()
+      ? (() => {
+          const now = new Date();
+          const pad = n => String(n).padStart(2, '0');
+          return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        })()
       : resolvedRaw;
     const update = {
       description:   formEl.querySelector('[name="description"]')?.value.trim() ?? '',
@@ -515,17 +521,7 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
       }
     );
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
-    const parentFetchEl = document.querySelector('[data-fetch-markdown]');
-    if (parentFetchEl && updatedMarkdown) {
-      parentFetchEl._lastMarkdown = updatedMarkdown;
-      if (parentFetchEl._templateHTML) {
-        parentFetchEl.innerHTML = parentFetchEl._templateHTML;
-        parentFetchEl.querySelectorAll('[data-render]').forEach(panel => {
-          if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(updatedMarkdown, panel);
-          else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(updatedMarkdown, panel);
-        });
-      }
-    }
+    await refreshSystemStatusPanels(updatedMarkdown);
     cleanup();
   } catch (e) {
     btn.textContent = originalText;
@@ -544,17 +540,7 @@ registerFormAction('deleteIncident', async ({ formEl, content, cleanup }) => {
     if (!_uuid) throw new Error('No incident UUID found');
     const updatedMarkdown = await publishDeleteIncident(_uuid, status => { btn.textContent = status; });
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
-    const parentFetchEl = document.querySelector('[data-fetch-markdown]');
-    if (parentFetchEl && updatedMarkdown) {
-      parentFetchEl._lastMarkdown = updatedMarkdown;
-      if (parentFetchEl._templateHTML) {
-        parentFetchEl.innerHTML = parentFetchEl._templateHTML;
-        parentFetchEl.querySelectorAll('[data-render]').forEach(panel => {
-          if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(updatedMarkdown, panel);
-          else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(updatedMarkdown, panel);
-        });
-      }
-    }
+    await refreshSystemStatusPanels(updatedMarkdown);
     cleanup();
   } catch (e) {
     btn.textContent = originalText;

@@ -1,8 +1,16 @@
 import { getFormAction } from './formActions.js';
-import { fetchGitHubMarkdown } from './github.js';
+import { readRepoText } from './repoClient.js';
 import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 
+// Render-function contract for renderFns:
+// - Signature: (initialMarkdown, panel). `initialMarkdown` is the freshly-read
+//   contents of the panel's data-fetch-path file at first paint.
+// - May ignore initialMarkdown and self-fetch via readRepoText(path) (e.g. drafts
+//   panel reading a different file). Always read fresh — no stashed cache.
+// - Should be async and may show a loading state for slow fetches.
+// - When a panel owns suppressible IDs, call staleSuppression.reconcile(...) and
+//   filterSuppressed(...) using the freshly-fetched ID set.
 const renderFns = {
   renderOpenIncidents,
   renderResolvedIncidents,
@@ -517,12 +525,12 @@ export async function createForm(formName, opener) {
     if (!container._rtTable) container.textContent = 'No report types found on this page.';
   });
 
-  // Dynamic markdown fetch: populate data-fetch-markdown containers when their trigger condition is met.
+  // Dynamic markdown fetch: populate data-fetch-path containers when their trigger condition is met.
   // Only re-fetches when the trigger radio itself changes, not on changes within the fetched content.
-  const fetchEls = formEl.querySelectorAll('[data-fetch-markdown]');
+  const fetchEls = formEl.querySelectorAll('[data-fetch-path]');
   const checkAndLoad = () => {
     fetchEls.forEach(async el => {
-      const url = el.dataset.fetchMarkdown;
+      const path = el.dataset.fetchPath;
       const trigger = el.dataset.fetchTrigger;
       if (trigger) {
         const [name, value] = trigger.split('=');
@@ -537,7 +545,7 @@ export async function createForm(formName, opener) {
       el.innerHTML = '<p class="more-buttons-description">Loading...</p>';
 
       try {
-        const markdown = await fetchGitHubMarkdown(url);
+        const markdown = await readRepoText(path);
 
         // Restore the original HTML (tabs + panels)
         el.innerHTML = originalHTML;
@@ -551,9 +559,6 @@ export async function createForm(formName, opener) {
             console.warn(`No renderer found for ${panel.dataset.render}`);
           }
         });
-
-        el._lastMarkdown = markdown;
-
       } catch {
         el.innerHTML = '<p class="more-buttons-description">Failed to load services.</p>';
       }
@@ -583,6 +588,12 @@ export async function createForm(formName, opener) {
       if (editUpdateBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
         getFormAction('openEditSystemUpdate')?.({ ...ctx, uuid: editUpdateBtn.dataset.editSystemUpdate });
+        return;
+      }
+      const editDraftBtn = e.target.closest('[data-edit-draft-system-update]');
+      if (editDraftBtn) {
+        const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
+        getFormAction('openEditDraftSystemUpdate')?.({ ...ctx, uuid: editDraftBtn.dataset.editDraftSystemUpdate });
         return;
       }
     });
