@@ -4,9 +4,17 @@ export { publishSystemStatus, publishNewIncident, publishUpdatedIncident,
          publishUpdatedPastIncident, publishDeleteIncident }
   from './systemStatus.js';
 
+import './captures.js';
 import './systemUpdates.js';
+import './guides.js';
+import './captureLibrary.js';
+import './captureEntry.js';
+import './integrations.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';
+export { openCaptureLibrary } from './captureLibrary.js';
+export { openCaptureEntry } from './captureEntry.js';
+export { openIntegrations } from './integrations.js';
 
 export { navigateToNewDocumentPage } from './navigateToNewDocumentPage.js';
 export { clearAllCheckboxes } from './clearAllCheckboxes.js';
@@ -36,5 +44,5 @@ export { uninstallAllNonSystemReportTypes } from './uninstallAllNonSystemReportT
 export { applyReportTypePreset } from './applyReportTypePreset.js';
 export { siteListFocusIcons } from './siteListFocusIcons.js';
 export { attachColorPresetPills } from './attachColorPresetPills.js';
-export { captureElement } from './captureElement.js';
+export { enterCaptureMode, restoreCaptureMode } from './captureMode.js';
 export { toggleMoreButtonsActive } from './toggleMoreButtonsActive.js';

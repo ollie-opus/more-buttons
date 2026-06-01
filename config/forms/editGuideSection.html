@@ -1,0 +1,30 @@
+<form data-nav data-dirty-guard id="edit-guide-section-form" data-storage-key="moreButtonsEditGuideSection" data-width="80vw" data-height="80vh">
+  <h2 data-guide-section-heading>Edit section</h2>
+
+  <div class="more-buttons-form-group" data-section-parent-row>
+    <label class="more-buttons-label">Section parent</label>
+    <select name="sectionParent" data-section-parent-select></select>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Title</label>
+    <input type="text" name="sectionTitle" required />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Description</label>
+    <textarea name="sectionDescription" rows="6" placeholder="Markdown allowed — lists, defn lists, etc."></textarea>
+  </div>
+
+  <div class="more-buttons-form-group" data-admonitions-row>
+    <label class="more-buttons-label">Admonitions</label>
+    <div>
+      <div data-section-admonitions></div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="submitEditGuideSection" data-validate>Save</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteGuideSection" data-delete-section-btn>Delete</button>
+  </div>
+</form>

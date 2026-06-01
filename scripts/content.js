@@ -11,15 +11,31 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
         if (document.getElementById('google-material-icons-css')) return;
 
         const addLink = () => {
-            const link = document.createElement('link');
-            link.id = 'google-material-icons-css';
-            link.rel = 'stylesheet';
-            link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200';
-            document.head.appendChild(link);
-
             const style = document.createElement('style');
-            style.textContent = `.material-symbols-outlined { font-family: 'Material Symbols Outlined'; font-style: normal; user-select: none; }`;
+            style.id = 'google-material-icons-css';
+            // inline-block + width:1em + overflow:hidden reserves an
+            // icon-sized slot so layout doesn't jump when the glyph arrives.
+            style.textContent = `.material-symbols-outlined { font-family: 'Material Symbols Outlined'; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; letter-spacing: normal; text-transform: none; white-space: nowrap; word-wrap: normal; direction: ltr; user-select: none; display: inline-block; width: 1em; overflow: hidden; vertical-align: middle; }`;
             document.head.appendChild(style);
+
+            // Register the font via FontFace API using fetched bytes rather
+            // than a chrome-extension:// URL in @font-face. The host page's
+            // font-src CSP applies to URL-based @font-face loads but not to
+            // byte-based FontFace registrations, so this works on any site.
+            if (document.fonts?.add && !window.__mbMaterialFontLoading) {
+                window.__mbMaterialFontLoading = true;
+                fetch(chrome.runtime.getURL('assets/fonts/MaterialSymbolsOutlined.woff2'))
+                    .then(r => r.arrayBuffer())
+                    .then(buf => {
+                        const face = new FontFace('Material Symbols Outlined', buf, {
+                            style: 'normal',
+                            weight: '100 700',
+                            display: 'block',
+                        });
+                        return face.load().then(loaded => document.fonts.add(loaded));
+                    })
+                    .catch(() => {});
+            }
         };
 
         if (document.head) {
@@ -198,6 +214,13 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
     }, 500);
 
     loadUI();
+
+    // Resume capture mode if a window.sessionStorage record survived a hard
+    // navigation. restoreCaptureMode itself decides whether to restore based
+    // on performance navigation type (reload → clear instead of restore).
+    import(chrome.runtime.getURL('scripts/actions.js')).then(m => {
+        m.restoreCaptureMode?.();
+    }).catch(() => {});
 
 });
 

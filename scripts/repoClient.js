@@ -34,3 +34,20 @@ export async function readRepoText(path, { signal } = {}) {
   if (!res.ok) throw new Error('GitHub API error: ' + res.status);
   return res.text();
 }
+
+// Read a binary file via the contents API and return a Blob. Bypasses HTTP
+// caches and the raw.githubusercontent.com CDN (which has ~5min stale
+// windows after writes), so freshly-pushed assets read back immediately.
+// Trade-off: each call costs one API request against the 5000/hr rate limit,
+// so use this only where post-write freshness matters (e.g. capture preview
+// after override). For browsing many images at once, prefer assetCdnUrl.
+export async function readRepoBlob(path, { signal } = {}) {
+  const auth = await authHeader();
+  const res = await fetch(contentsApiUrl(path), {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github.raw' },
+    cache: 'no-store',
+    signal,
+  });
+  if (!res.ok) throw new Error('GitHub API error: ' + res.status);
+  return res.blob();
+}

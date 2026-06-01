@@ -37,7 +37,8 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
   const updatedMarkdown = buildUpdatedMarkdown(migratedMarkdown);
 
   onProgress?.('Pushing to GitHub...');
-  const label = filePath.includes('system-updates') ? 'system updates' : 'system status';
+  const filename = filePath.split('/').pop();
+  const label = filename.replace(/\.md$/, '').replace(/-/g, ' ');
   const putBody = {
     message: `Update ${label}\n\nPublished via More Buttons Chrome Extension`,
     content: btoa(unescape(encodeURIComponent(updatedMarkdown)))
@@ -60,6 +61,86 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
 
 export async function githubFetchAndPush(onProgress, buildUpdatedMarkdown) {
   return githubFetchAndPushFile('docs/pages/system-status.md', onProgress, buildUpdatedMarkdown);
+}
+
+/**
+ * Deletes a file via the contents API. No-op if the file doesn't exist (404).
+ * Serialised through _opQueue alongside push operations.
+ *
+ * @param {string} filePath
+ * @param {(s: string) => void} [onProgress]
+ */
+export function githubDeleteFile(filePath, onProgress) {
+  _opQueue = _opQueue.then(() => _githubDeleteFile(filePath, onProgress));
+  return _opQueue;
+}
+
+async function _githubDeleteFile(filePath, onProgress) {
+  const auth = await authHeader();
+
+  onProgress?.('Fetching current file...');
+  const fileRes = await fetch(contentsApiUrl(filePath), {
+    headers: { 'Authorization': auth },
+    cache: 'no-store',
+  });
+  if (fileRes.status === 404) return; // already gone
+  if (!fileRes.ok) throw new Error(`GitHub API error: ${fileRes.status}`);
+
+  const fileData = await fileRes.json();
+  const sha = fileData.sha;
+
+  onProgress?.('Deleting file...');
+  const filename = filePath.split('/').pop();
+  const label = filename.replace(/\.md$/, '').replace(/-/g, ' ');
+  const delRes = await fetch(contentsApiUrl(filePath), {
+    method: 'DELETE',
+    headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: `Delete ${label}\n\nPublished via More Buttons Chrome Extension`,
+      sha,
+    }),
+  });
+  if (!delRes.ok) {
+    const err = await delRes.json();
+    throw new Error(err.message || `GitHub API error: ${delRes.status}`);
+  }
+}
+
+// Replaces an existing binary file in place. base64Data — raw Base64 string
+// (no data-URI prefix; strip with dataUrl.split(',')[1]). Throws if the file
+// doesn't already exist (use githubPushImageIfNotExists for creates).
+// Serialised through _opQueue alongside other push/delete operations.
+export function githubReplaceImage(imagePath, base64Data, onProgress) {
+  _opQueue = _opQueue.then(() => _githubReplaceImage(imagePath, base64Data, onProgress));
+  return _opQueue;
+}
+
+async function _githubReplaceImage(imagePath, base64Data, onProgress) {
+  const auth = await authHeader();
+
+  onProgress?.('Fetching current file...');
+  const fileRes = await fetch(contentsApiUrl(imagePath), {
+    headers: { 'Authorization': auth },
+    cache: 'no-store',
+  });
+  if (fileRes.status === 404) throw new Error(`File not found: ${imagePath}`);
+  if (!fileRes.ok) throw new Error(`GitHub API error: ${fileRes.status}`);
+  const { sha } = await fileRes.json();
+
+  onProgress?.(`Uploading ${imagePath.split('/').pop()}...`);
+  const putRes = await fetch(contentsApiUrl(imagePath), {
+    method: 'PUT',
+    headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'Replace capture\n\nPublished via More Buttons Chrome Extension',
+      content: base64Data,
+      sha,
+    }),
+  });
+  if (!putRes.ok) {
+    const err = await putRes.json();
+    throw new Error(err.message || `GitHub API error: ${putRes.status}`);
+  }
 }
 
 // base64Data — raw Base64 string (no data-URI prefix; strip with dataUrl.split(',')[1])

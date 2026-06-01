@@ -57,30 +57,62 @@ export function injectAdmonitionUUID(body, uuid) {
  * Parses all admonition blocks in `markdown` whose type matches `typeRegex`.
  * Handles any indent level (e.g. blocks nested inside `??? outline "..."`).
  *
- * Header pattern matched per line:
- *   /^(\s*)(\?\?\?|!!!) (<typeRegex source>) "(.+)"$/
+ * Header pattern matched per line (title is optional — MkDocs allows
+ * `!!! step` for an auto-titled block, in addition to `!!! step "Title"`):
+ *   /^(\s*)(\?\?\?|!!!) (<typeRegex source>)(?:\s+"(.*)")?\s*$/
  *
  * Body lines are those that start with (header-indent + 4 spaces) or are
  * blank lines within the block. The base-indent + 4-space prefix is stripped
  * from body lines before storing. Trailing blank lines are trimmed from body.
  *
+ * Options:
+ *   skipTabBlocks - when true, `=== "..."` content-tab blocks at any indent
+ *                   are skipped over (so admonitions buried inside a tab
+ *                   block are not returned as siblings of the tab).
+ *
  * @param {string} markdown - Full markdown document.
  * @param {RegExp} typeRegex - Regex matching the admonition type field.
+ * @param {{skipTabBlocks?: boolean}} [opts]
  * @returns {Array<{prefix: string, type: string, title: string, body: string, uuid: string|null, indent: string, headerLine: number, endLine: number}>}
  */
-export function parseAdmonitions(markdown, typeRegex) {
+export function parseAdmonitions(markdown, typeRegex, { skipTabBlocks = false } = {}) {
   const lines = markdown.split('\n');
   const results = [];
-  const headerRe = new RegExp(`^(\\s*)(\\?\\?\\?|!!!) (${typeRegex.source}) "(.+)"$`);
+  const headerRe = new RegExp(`^(\\s*)(\\?\\?\\?|!!!) (${typeRegex.source})(?:\\s+"(.*)")?\\s*$`);
+  const tabRe = /^(\s*)=== "(.+)"\s*$/;
 
   let i = 0;
   while (i < lines.length) {
+    if (skipTabBlocks) {
+      const tabMatch = lines[i].match(tabRe);
+      if (tabMatch) {
+        const tabIndent = tabMatch[1].length;
+        const tabContentIndent = tabIndent + 4;
+        i++; // past the === line
+        // Skip lines at or deeper than tabContentIndent (the tab's content),
+        // plus blank lines, plus consecutive sibling tab headers at the same
+        // indent (the same tab group).
+        while (i < lines.length) {
+          const line = lines[i];
+          if (line === '') { i++; continue; }
+          const lineIndent = (line.match(/^(\s*)/) || ['', ''])[1].length;
+          if (lineIndent >= tabContentIndent) { i++; continue; }
+          if (lineIndent === tabIndent && /^=== "(.+)"\s*$/.test(line.slice(tabIndent))) {
+            i++; // sibling tab header
+            continue;
+          }
+          break;
+        }
+        continue;
+      }
+    }
+
     const m = lines[i].match(headerRe);
     if (m) {
       const indent = m[1];       // leading whitespace of the header line
       const prefix = m[2];       // '???' or '!!!'
       const type   = m[3];       // admonition type string
-      const title  = m[4];       // quoted title content
+      const title  = m[4] ?? ''; // quoted title content (empty when title is omitted)
       const bodyIndent = indent + '    '; // 4 more spaces than header
       const headerLine = i;
 
@@ -102,12 +134,16 @@ export function parseAdmonitions(markdown, typeRegex) {
         }
       }
 
-      // Trim trailing blank lines
+      // Trim trailing blank lines from the body AND walk endLine back so the
+      // splice/replace operations don't swallow the blank-line separator
+      // before whatever content follows this block.
       while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1] === '') {
         bodyLines.pop();
       }
-
-      const endLine = i; // first line index after the block
+      let endLine = i;
+      while (endLine > headerLine + 1 && lines[endLine - 1] === '') {
+        endLine--;
+      }
       const body = bodyLines.join('\n');
       const uuid = getAdmonitionUUID(body);
 
@@ -125,7 +161,8 @@ export function parseAdmonitions(markdown, typeRegex) {
  * Body lines are indented 4 spaces; empty lines are left bare.
  *
  * Output format:
- *   ${prefix} ${type} "${title}"
+ *   ${prefix} ${type} "${title}"   (or `${prefix} ${type}` when title is empty —
+ *                                   MkDocs auto-titles from the type)
  *
  *       ${body line 1}
  *       ${body line 2}
@@ -133,17 +170,55 @@ export function parseAdmonitions(markdown, typeRegex) {
  *
  * @param {string} prefix - '???' or '!!!'
  * @param {string} type   - Admonition type, e.g. 'feature-release'
- * @param {string} title  - Title string (unquoted)
+ * @param {string} title  - Title string (unquoted). Empty string ⇒ no quoted title.
  * @param {string} body   - Body content with NO leading indent
  * @returns {string} Full admonition block (no outer indent)
  */
 export function buildAdmonition(prefix, type, title, body) {
-  const header = `${prefix} ${type} "${title}"`;
+  const header = title ? `${prefix} ${type} "${title}"` : `${prefix} ${type}`;
   const indentedBody = body
     .split('\n')
     .map(line => (line.length ? '    ' + line : line))
     .join('\n');
   return `${header}\n\n${indentedBody}`;
+}
+
+// ── Title / meta ──────────────────────────────────────────────────────────────
+
+/**
+ * Matches a trailing `<span class="meta">…</span>` on a title string. Group 1
+ * is the visible title (may be empty); group 2 is the meta text. The meta span
+ * must be the last thing on the line.
+ */
+const META_SPAN_RE = /^(.*?)<span class="meta"\s*>(.*?)<\/span>\s*$/;
+
+/**
+ * Splits an admonition's raw title into its visible title and trailing meta.
+ * Meta is stored inline as `<span class="meta">…</span>` at the end of the
+ * title (rendered muted on the docs site), e.g.
+ *   `Configure access<span class="meta">(optional)</span>`
+ * Titles with no meta span return `{ title: <raw>, meta: '' }`.
+ *
+ * @param {string} rawTitle
+ * @returns {{ title: string, meta: string }}
+ */
+export function splitTitleMeta(rawTitle) {
+  const m = (rawTitle ?? '').match(META_SPAN_RE);
+  return m ? { title: m[1], meta: m[2] } : { title: rawTitle ?? '', meta: '' };
+}
+
+/**
+ * Joins a visible title and meta back into a raw title string. When `meta` is
+ * empty (after trimming) the title is returned unchanged — no span emitted.
+ *
+ * @param {string} title
+ * @param {string} meta
+ * @returns {string}
+ */
+export function joinTitleMeta(title, meta) {
+  const t = title ?? '';
+  const m = (meta ?? '').trim();
+  return m ? `${t}<span class="meta">${m}</span>` : t;
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -266,43 +341,82 @@ export function deleteAdmonitionByUUID(markdown, uuid) {
   ].join('\n');
 }
 
+// ── Insert into parent ────────────────────────────────────────────────────────
+
+/**
+ * Inserts `newBlock` as the last child within the body of the admonition
+ * identified by `parentUuid`. The new block is re-indented so it sits at
+ * the parent body's indent level (header indent + 4).
+ *
+ * @param {string} markdown
+ * @param {string} parentUuid
+ * @param {string} newBlock - Replacement block text (no outer indent).
+ * @returns {string}
+ */
+export function insertAdmonitionIntoParentByUUID(markdown, parentUuid, newBlock) {
+  const lines = markdown.split('\n');
+  const loc = locateBlockByUUID(lines, parentUuid);
+  if (!loc) return markdown;
+
+  const { endLine, headerIndent } = loc;
+  const bodyIndent = headerIndent + '    ';
+  const indentedBlock = reindent(newBlock, bodyIndent);
+
+  return [
+    ...lines.slice(0, endLine),
+    '',
+    ...indentedBlock.split('\n'),
+    ...lines.slice(endLine),
+  ].join('\n');
+}
+
 // ── UUID injection ────────────────────────────────────────────────────────────
 
 /**
  * Ensures every admonition block matching `typeRegex` has an embedded UUID
- * span. Blocks that already contain a UUID are left untouched.
+ * span — at every nesting level. Blocks that already contain a UUID are
+ * left untouched (but their bodies are still recursively visited).
  *
- * For blocks without a UUID, a new UUID is generated, injected into the body,
- * the block is rebuilt with `buildAdmonition`, re-indented to the block's
- * original indent level, and spliced back in by direct line-range replacement
- * (since these blocks have no UUID yet, we use the line positions from the
- * initial parse pass, processing in reverse order so earlier indices remain
- * stable).
+ * For each block:
+ *   1. Recursively ensure UUIDs inside its body (so nested children are
+ *      processed before the parent is rebuilt).
+ *   2. If the block itself has no UUID, inject one at the top of the body.
+ *   3. If anything changed, rebuild via `buildAdmonition` and splice back
+ *      into the result.
+ *
+ * Blocks are processed in reverse order so earlier line indices remain valid
+ * as we splice in replacement text.
  *
  * @param {string} markdown   - Full markdown document.
  * @param {RegExp} typeRegex  - Regex matching the admonition type field.
- * @returns {string} Updated markdown (unchanged if all blocks already have UUIDs).
+ * @returns {string} Updated markdown (unchanged if every block at every depth already has a UUID).
  */
 export function ensureAdmonitionUUIDs(markdown, typeRegex) {
-  const needsUUID = parseAdmonitions(markdown, typeRegex).filter(b => b.uuid === null);
+  const all = parseAdmonitions(markdown, typeRegex);
+  if (all.length === 0) return markdown;
 
-  if (needsUUID.length === 0) return markdown;
-
-  // Process in reverse order so line indices of earlier blocks remain valid
-  // as we splice in replacement text.
   let result = markdown.split('\n');
-  for (let k = needsUUID.length - 1; k >= 0; k--) {
-    const { headerLine, endLine, prefix, type, title, body, indent } = needsUUID[k];
-    const newUUID  = generateUUID();
-    const newBody  = injectAdmonitionUUID(body, newUUID);
-    const newBlock = buildAdmonition(prefix, type, title, newBody);
+  let modified = false;
+  for (let k = all.length - 1; k >= 0; k--) {
+    const { headerLine, endLine, prefix, type, title, body, indent, uuid } = all[k];
+
+    const bodyWithSubUUIDs = ensureAdmonitionUUIDs(body, typeRegex);
+    const bodyChanged = bodyWithSubUUIDs !== body;
+    const needsOwnUUID = uuid === null;
+    if (!bodyChanged && !needsOwnUUID) continue;
+
+    const finalBody = needsOwnUUID
+      ? injectAdmonitionUUID(bodyWithSubUUIDs, generateUUID())
+      : bodyWithSubUUIDs;
+    const newBlock = buildAdmonition(prefix, type, title, finalBody);
 
     result = [
       ...result.slice(0, headerLine),
       ...reindent(newBlock, indent).split('\n'),
       ...result.slice(endLine),
     ];
+    modified = true;
   }
 
-  return result.join('\n');
+  return modified ? result.join('\n') : markdown;
 }

@@ -27,7 +27,7 @@
       "keywords": ["/"]
     },
     "containerId": "popup-primary",
-    "action": "createForm:integrations"
+    "action": "openIntegrations"
   },
   {
     "id": "mb-popup-active-toggle-btn",
@@ -532,15 +532,7 @@
       "keywords": ["/"]
     },
     "containerId": "popup-element-capture",
-    "action": "captureElement:2",
-    "splitWith": [
-      {
-        "id": "mb-element-selector-settings-btn",
-        "icon": "settings",
-        "hoverText": "Capture settings",
-        "action": "createForm:captureSettings"
-      }
-    ]
+    "action": "enterCaptureMode"
   },
   {
     "id": "mb-manage-knowledge-base-btn",

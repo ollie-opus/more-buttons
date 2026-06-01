@@ -1,5 +1,7 @@
 import { createForm } from './form.js';
 import { readRepoText } from './repoClient.js';
+import { getFormAction } from './formActions.js';
+import { renderTree, applySearch } from './kbTree.js';
 
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 
@@ -29,68 +31,32 @@ function parseNav(tomlText) {
   }
 }
 
-function renderKbItem(item) {
+// Convert a TOML nav item (string | { name: value }) to a generic kbTree node.
+function navItemToNode(item) {
   if (typeof item === 'string') {
-    return `<div class="mb-kb-node">
-      <button class="mb-kb-node-row" type="button" data-kb-file="${item}">
-        <span class="mb-kb-node-icon material-symbols-outlined">description</span>
-        ${item.split('/').pop().replace(/\.md$/, '')}
-      </button>
-    </div>`;
+    return {
+      kind: 'file',
+      label: item.split('/').pop().replace(/\.md$/, ''),
+      attrs: { 'data-kb-file': item },
+    };
   }
-
   const [displayName, value] = Object.entries(item)[0];
-
   if (typeof value === 'string') {
-    return `<div class="mb-kb-node">
-      <button class="mb-kb-node-row" type="button" data-kb-file="${value}">
-        <span class="mb-kb-node-icon material-symbols-outlined">description</span>
-        ${displayName}
-      </button>
-    </div>`;
+    return {
+      kind: 'file',
+      label: displayName,
+      attrs: { 'data-kb-file': value, 'data-kb-label': displayName },
+    };
   }
-
-  const childrenHtml = Array.isArray(value)
-    ? value.map(child => renderKbItem(child)).join('')
-    : '';
-
-  return `<div class="mb-kb-node">
-    <button class="mb-kb-node-row" type="button" data-kb-section>
-      <span class="mb-kb-node-icon mb-kb-arrow material-symbols-outlined">chevron_right</span>
-      ${displayName}
-    </button>
-    <div class="mb-kb-node-children">${childrenHtml}</div>
-  </div>`;
-}
-
-function applySearch(tree, query) {
-  const q = query.trim().toLowerCase();
-  tree.querySelectorAll('.mb-kb-node').forEach(n => n.classList.remove('--search-hidden', '--search-match'));
-  if (!q) {
-    tree.removeAttribute('data-search-active');
-    return;
-  }
-  tree.setAttribute('data-search-active', '');
-  tree.querySelectorAll('[data-kb-file]').forEach(btn => {
-    if (btn.textContent.trim().toLowerCase().includes(q)) {
-      let node = btn.closest('.mb-kb-node');
-      while (node && tree.contains(node)) {
-        node.classList.add('--search-match');
-        node = node.parentElement?.closest('.mb-kb-node');
-      }
-    }
-  });
-  tree.querySelectorAll('.mb-kb-node:not(.--search-match)').forEach(n => n.classList.add('--search-hidden'));
+  return {
+    kind: 'folder',
+    label: displayName,
+    children: Array.isArray(value) ? value.map(navItemToNode) : [],
+  };
 }
 
 function renderKbHierarchy(items) {
-  if (!items || items.length === 0) {
-    return '<p class="more-buttons-description">No articles found.</p>';
-  }
-  return `
-    <input type="search" class="mb-kb-search" placeholder="Search…" aria-label="Search articles">
-    <div class="mb-kb-tree">${items.map(item => renderKbItem(item)).join('')}</div>
-  `;
+  return renderTree(items.map(navItemToNode), { emptyMessage: 'No articles found.' });
 }
 
 export async function openKnowledgeBaseManagement() {
@@ -136,18 +102,27 @@ export async function openKnowledgeBaseManagement() {
       if (tree) applySearch(tree, searchEl.value);
     });
 
-    formEl.addEventListener('click', async e => {
+    // .more-buttons-form-actions gets moved out of <form> by form.js, so
+    // listen on the parent overlay-content to catch both form-internal and
+    // moved-out footer clicks.
+    formEl.parentElement?.addEventListener('click', async e => {
+      if (e.target.closest('[data-kb-open-capture-library]')) {
+        await getFormAction('openCaptureLibrary')?.();
+        return;
+      }
       const sectionRow = e.target.closest('[data-kb-section]');
       if (sectionRow) {
         sectionRow.closest('.mb-kb-node')?.classList.toggle('--collapsed');
         return;
       }
 
-      const fileEl = e.target.closest('[data-kb-file]');
+      const fileEl = e.target.closest('[data-kb-leaf]');
       if (!fileEl) return;
       const file = fileEl.dataset.kbFile;
+      const label = fileEl.dataset.kbLabel;
       if (file === 'pages/system-updates.md') await createForm('systemUpdatesEntry');
       else if (file === 'pages/system-status.md') await createForm('systemStatusEntry');
+      else await getFormAction('openGuideEntry')?.({ filePath: file, label });
     });
 
     return;
@@ -185,6 +160,6 @@ export async function openKnowledgeBaseManagement() {
   content.querySelector('#mb-close-not-connected').addEventListener('click', cleanup);
   content.querySelector('#mb-open-integrations').addEventListener('click', () => {
     cleanup();
-    createForm('integrations');
+    getFormAction('openIntegrations')?.();
   });
 }

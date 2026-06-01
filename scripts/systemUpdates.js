@@ -1,16 +1,14 @@
 import { registerFormAction } from './formActions.js';
-import { githubFetchAndPushFile, githubPushImageIfNotExists } from './github.js';
-import { readRepoText, assetCdnUrl } from './repoClient.js';
+import { githubFetchAndPushFile } from './github.js';
+import { readRepoText } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
 import { createForm } from './form.js';
-import { captureElement, setCaptureStoreMode } from './captureElement.js';
-import { renderCard, escapeHtml } from './cardRenderer.js';
-import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID } from './admonitions.js';
-
-// ── Module-level capture state ────────────────────────────────────────────────
-let pendingCaptures = [];
-let existingCaptures = [];
-let partialCapture = {};
+import { renderCard } from './cardRenderer.js';
+import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
+import {
+  captures, resetCaptureState, setExistingCaptures,
+  parseExistingCaptures, updateCapturesList, resolveCaptures, pushCaptures,
+} from './captures.js';
 
 const DRAFT_ENTITY = 'systemUpdateDrafts';
 
@@ -57,9 +55,7 @@ function getYearMonthFromDateStr(dateStr) {
 export function parseUpdateBlocks(markdown) {
   const raw = parseAdmonitions(markdown, /feature-release|new-addition|improvement/);
   return raw.map(({ type, title, body, uuid }) => {
-    const dateMatch = title.match(/<small[^>]*>([^<]+)<\/small>/);
-    const date = dateMatch ? dateMatch[1] : '';
-    const rawTitle = title.replace(/<br><small[^>]*>[^<]*<\/small>/, '').trim();
+    const { title: rawTitle, meta: date } = splitTitleMeta(title);
     const labelPrefix = (TYPE_LABELS[type] ?? '') + ': ';
     const cleanTitle = rawTitle.startsWith(labelPrefix) ? rawTitle.slice(labelPrefix.length) : rawTitle;
     return { type, title: cleanTitle, date, body, uuid };
@@ -69,7 +65,7 @@ export function parseUpdateBlocks(markdown) {
 export function buildUpdateBlock(update, captures = []) {
   const typeLabel = TYPE_LABELS[update.type] ?? update.type;
   const formattedDate = formatUpdateDate(update.date);
-  const fullTitleString = `${typeLabel}: ${update.title}<br><small style="opacity: 0.6">${formattedDate}</small>`;
+  const fullTitleString = joinTitleMeta(`${typeLabel}: ${update.title}`, formattedDate);
 
   const descLines = (update.description ?? update.body ?? '').split('\n');
   const captureLines = captures.flatMap(c => {
@@ -290,127 +286,7 @@ export function renderPublishedUpdates(markdown, panel) {
     : updates.map(u => updateCard(u)).join('');
 }
 
-// ── Capture helpers ───────────────────────────────────────────────────────────
-
-function parseExistingCaptures(body) {
-  const captures = [];
-  const re = /!\[\]\(\.\.\/assets\/([^)#]+)#only-light\)\{\s*([^}]+?)\s*\}/g;
-  let m;
-  while ((m = re.exec(body)) !== null) {
-    const lightFilename = m[1];
-    const darkFilename = lightFilename.replace('-light-mode', '-dark-mode');
-    const attrs = m[2];
-    const heightMatch = attrs.match(/height:\s*(\d+)px/);
-    const widthMatch = attrs.match(/width="(\d+)"/);
-    const dimMode = widthMatch ? 'width' : 'height';
-    const dimValue = widthMatch ? parseInt(widthMatch[1]) : (heightMatch ? parseInt(heightMatch[1]) : 50);
-    captures.push({ lightFilename, darkFilename, dimMode, dimValue });
-  }
-  return captures;
-}
-
-function captureRowHtml(imgSrc, dimMode, dimValue, removeAttr, dimModeAttr, dimValueAttr, addToLibrary, addToLibraryAttr) {
-  const libraryCheckbox = addToLibraryAttr !== undefined ? `
-        <label style="display:flex;align-items:center;gap:4px;font-size:0.75rem;color:var(--mb-text-muted);white-space:nowrap;">
-          <input type="checkbox" ${addToLibraryAttr} ${addToLibrary ? 'checked' : ''} style="margin:0;" />
-          Add to library
-        </label>` : '';
-  return `
-    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:6px;background:var(--mb-surface);border-radius:6px;border:1px solid var(--mb-border);">
-      <img src="${imgSrc}" style="height:40px;border-radius:3px;border:1px solid var(--mb-border);" />
-      <div style="display:flex;align-items:center;gap:4px;margin-left:auto;">
-        <select ${dimModeAttr} style="font-size:0.75rem;padding:2px 4px;border-radius:4px;border:1px solid var(--mb-border);background:var(--mb-surface);color:var(--mb-text);">
-          <option value="height" ${dimMode === 'height' ? 'selected' : ''}>height</option>
-          <option value="width" ${dimMode === 'width' ? 'selected' : ''}>width</option>
-        </select>
-        <input type="number" ${dimValueAttr} value="${dimValue ?? 50}" min="1"
-               style="width:60px;font-size:0.75rem;padding:2px 4px;border-radius:4px;border:1px solid var(--mb-border);background:var(--mb-surface);color:var(--mb-text);" />
-        <span style="font-size:0.75rem;color:var(--mb-text-muted);">px</span>${libraryCheckbox}
-        <button type="button" class="more-buttons-button secondary" style="font-size:0.75rem;padding:2px 8px;"
-                ${removeAttr}>✕</button>
-      </div>
-    </div>`;
-}
-
-function updateCapturesList(formEl) {
-  const container = formEl.querySelector('#log-update-captures, #edit-update-captures');
-  if (!container) return;
-
-  const showLabels = existingCaptures.length > 0 && pendingCaptures.length > 0;
-  const labelStyle = 'font-size:0.75rem;color:var(--mb-text-muted);margin:8px 0 0;';
-
-  const existingHtml = existingCaptures.map((c, i) =>
-    captureRowHtml(
-      escapeHtml(assetCdnUrl('docs/assets/' + c.lightFilename)),
-      c.dimMode, c.dimValue,
-      `data-remove-existing="${i}"`,
-      `data-existing-dim-mode="${i}"`,
-      `data-existing-dim-value="${i}"`
-    )
-  ).join('');
-
-  const pendingHtml = pendingCaptures.map((c, i) =>
-    captureRowHtml(
-      escapeHtml(c.lightDataUrl),
-      c.dimMode, c.dimValue,
-      `data-remove-capture="${i}"`,
-      `data-dim-mode="${i}"`,
-      `data-dim-value="${i}"`,
-      pendingCaptures[i].addToLibrary !== false,
-      `data-add-to-library="${i}"`
-    )
-  ).join('');
-
-  container.innerHTML =
-    (showLabels ? `<p style="${labelStyle}">Existing</p>` : '') + existingHtml +
-    (showLabels ? `<p style="${labelStyle}">New</p>` : '') + pendingHtml;
-
-  container.querySelectorAll('[data-existing-dim-mode]').forEach(sel => {
-    sel.addEventListener('change', () => { existingCaptures[parseInt(sel.dataset.existingDimMode)].dimMode = sel.value; });
-  });
-  container.querySelectorAll('[data-existing-dim-value]').forEach(inp => {
-    inp.addEventListener('input', () => { existingCaptures[parseInt(inp.dataset.existingDimValue)].dimValue = parseInt(inp.value) || 50; });
-  });
-  container.querySelectorAll('[data-remove-existing]').forEach(btn => {
-    btn.addEventListener('click', () => { existingCaptures.splice(parseInt(btn.dataset.removeExisting), 1); updateCapturesList(formEl); });
-  });
-  container.querySelectorAll('[data-dim-mode]').forEach(sel => {
-    sel.addEventListener('change', () => { pendingCaptures[parseInt(sel.dataset.dimMode)].dimMode = sel.value; });
-  });
-  container.querySelectorAll('[data-dim-value]').forEach(inp => {
-    inp.addEventListener('input', () => { pendingCaptures[parseInt(inp.dataset.dimValue)].dimValue = parseInt(inp.value) || 50; });
-  });
-  container.querySelectorAll('[data-remove-capture]').forEach(btn => {
-    btn.addEventListener('click', () => { pendingCaptures.splice(parseInt(btn.dataset.removeCapture), 1); updateCapturesList(formEl); });
-  });
-  container.querySelectorAll('[data-add-to-library]').forEach(cb => {
-    cb.addEventListener('change', () => { pendingCaptures[parseInt(cb.dataset.addToLibrary)].addToLibrary = cb.checked; });
-  });
-}
-
 // ── Publish functions ─────────────────────────────────────────────────────────
-
-function resolveCaptures(captures) {
-  return captures.map(c => {
-    if (c.lightDataUrl && c.addToLibrary === false) {
-      const id = generateUUID();
-      return {
-        ...c,
-        lightFilename: `occ-captures/uncategorised/${id}-light-mode.png`,
-        darkFilename:  `occ-captures/uncategorised/${id}-dark-mode.png`,
-      };
-    }
-    return c;
-  });
-}
-
-async function pushCaptures(captures = [], onProgress) {
-  for (const c of captures) {
-    if (!c.lightDataUrl) continue;
-    await githubPushImageIfNotExists(`docs/assets/${c.lightFilename}`, c.lightDataUrl.split(',')[1], onProgress);
-    await githubPushImageIfNotExists(`docs/assets/${c.darkFilename}`, c.darkDataUrl.split(',')[1], onProgress);
-  }
-}
 
 export async function publishNewUpdate(update, captures, onProgress) {
   await pushCaptures(captures, onProgress);
@@ -464,48 +340,8 @@ async function refreshSystemUpdatesPanels(updatedPublishedMarkdown) {
 
 // ── Form action registrations ─────────────────────────────────────────────────
 
-registerFormAction('startCapture', ({ formEl, overlay }) => {
-  const padding = parseInt(formEl.querySelector('[name="capturePadding"]')?.value ?? '0', 10) || 0;
-  const resizeMode = formEl.querySelector('[name="captureResizeMode"]')?.checked ?? false;
-
-  if (Object.keys(partialCapture).length > 0) {
-    overlay.style.display = '';
-    return;
-  }
-
-  partialCapture = {};
-  overlay.style.display = 'none';
-
-  setCaptureStoreMode(({ dataUrl, filename }) => {
-    if (!formEl.isConnected) { setCaptureStoreMode(null); overlay.style.display = ''; return; }
-
-    if (filename.includes('-light-mode')) {
-      partialCapture.lightDataUrl = dataUrl;
-      partialCapture.lightFilename = filename;
-    } else {
-      partialCapture.darkDataUrl = dataUrl;
-      partialCapture.darkFilename = filename;
-    }
-    if (partialCapture.lightDataUrl && partialCapture.darkDataUrl) {
-      pendingCaptures.push({ ...partialCapture, dimMode: 'height', dimValue: 50, addToLibrary: true });
-      partialCapture = {};
-      setCaptureStoreMode(null);
-      overlay.style.display = '';
-      updateCapturesList(formEl);
-    }
-  });
-
-  captureElement(2, {
-    downloadPath: 'occ-captures',
-    downloadMode: 'both',
-    capturePadding: padding,
-    resizeMode,
-  });
-});
-
 registerFormAction('openLogSystemUpdate', async () => {
-  pendingCaptures = [];
-  existingCaptures = [];
+  resetCaptureState();
   const { formEl: logFormEl } = await createForm('logSystemUpdate');
   if (!logFormEl) return;
   const dateInput = logFormEl.querySelector('[name="updateDate"]');
@@ -528,11 +364,11 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description };
-    const captures = resolveCaptures([...pendingCaptures]);
-    const updatedMarkdown = await publishNewUpdate(update, captures, s => { btn.textContent = s; });
+    const resolved = resolveCaptures([...captures]);
+    const updatedMarkdown = await publishNewUpdate(update, resolved, s => { btn.textContent = s; });
 
     await refreshSystemUpdatesPanels(updatedMarkdown);
-    pendingCaptures = [];
+    resetCaptureState();
     cleanup();
   } catch (e) {
     btn.textContent = originalText;
@@ -547,8 +383,8 @@ registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   const update = updates.find(u => u.uuid === uuid);
   if (!update) { alert('Entry not found.'); return; }
 
-  pendingCaptures = [];
-  existingCaptures = parseExistingCaptures(update.body ?? '');
+  resetCaptureState();
+  setExistingCaptures(parseExistingCaptures(update.body ?? ''));
 
   const dateInfo = parseDateStr(update.date);
   const isoDate = dateInfo
@@ -589,16 +425,15 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, content, cleanup }
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description, uuid: _uuid };
-    const captures = resolveCaptures([...existingCaptures, ...pendingCaptures]);
-    await pushCaptures(captures, s => { btn.textContent = s; });
+    const resolved = resolveCaptures([...captures]);
+    await pushCaptures(resolved, s => { btn.textContent = s; });
     const updatedMarkdown = await githubFetchAndPushFile(UPDATES_FILE, s => { btn.textContent = s; }, md => {
-      return replaceUpdateInMarkdown(md, _uuid, update, captures);
+      return replaceUpdateInMarkdown(md, _uuid, update, resolved);
     });
 
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     await refreshSystemUpdatesPanels(updatedMarkdown);
-    pendingCaptures = [];
-    existingCaptures = [];
+    resetCaptureState();
     cleanup();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
@@ -649,11 +484,11 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup })
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description };
-    const captures = resolveCaptures([...pendingCaptures]);
-    await saveNewDraft(update, captures, s => { btn.textContent = s; });
+    const resolved = resolveCaptures([...captures]);
+    await saveNewDraft(update, resolved, s => { btn.textContent = s; });
 
     await refreshSystemUpdatesPanels();
-    pendingCaptures = [];
+    resetCaptureState();
     cleanup();
   } catch (e) {
     btn.textContent = originalText;
@@ -674,8 +509,8 @@ registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
   const update = drafts.find(u => u.uuid === uuid);
   if (!update) { alert('Draft not found.'); return; }
 
-  pendingCaptures = [];
-  existingCaptures = parseExistingCaptures(update.body ?? '');
+  resetCaptureState();
+  setExistingCaptures(parseExistingCaptures(update.body ?? ''));
 
   const dateInfo = parseDateStr(update.date);
   const isoDate = dateInfo
@@ -713,13 +548,12 @@ registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content, cleanu
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description, uuid: _uuid };
-    const captures = resolveCaptures([...existingCaptures, ...pendingCaptures]);
-    await saveExistingDraft(_uuid, update, captures, s => { btn.textContent = s; });
+    const resolved = resolveCaptures([...captures]);
+    await saveExistingDraft(_uuid, update, resolved, s => { btn.textContent = s; });
 
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
     await refreshSystemUpdatesPanels();
-    pendingCaptures = [];
-    existingCaptures = [];
+    resetCaptureState();
     cleanup();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
@@ -741,14 +575,13 @@ registerFormAction('publishDraftSystemUpdate', async ({ formEl, content, cleanup
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description };
-    const captures = resolveCaptures([...existingCaptures, ...pendingCaptures]);
-    const updatedMarkdown = await publishDraft(_uuid, update, captures, s => { btn.textContent = s; });
+    const resolved = resolveCaptures([...captures]);
+    const updatedMarkdown = await publishDraft(_uuid, update, resolved, s => { btn.textContent = s; });
 
     suppress(DRAFT_ENTITY, _uuid);
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
     await refreshSystemUpdatesPanels(updatedMarkdown);
-    pendingCaptures = [];
-    existingCaptures = [];
+    resetCaptureState();
     cleanup();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');

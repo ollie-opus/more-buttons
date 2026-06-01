@@ -2,6 +2,17 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('Extension installed');
 });
 
+// Grant content scripts access to chrome.storage.session. Without this,
+// capture mode's persistence layer silently no-ops in the page context.
+// setAccessLevel must be called from a privileged context (the SW), and
+// the setting persists for the extension's lifetime — re-asserting it on
+// every SW start is safe and idempotent.
+try {
+  chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
+} catch (e) {
+  console.warn('storage.session.setAccessLevel failed:', e);
+}
+
 function cmd(tabId, method, params = {}) {
   return new Promise((resolve, reject) => {
     chrome.debugger.sendCommand({ tabId }, method, params, result => {

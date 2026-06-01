@@ -102,6 +102,11 @@
     Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
   box-sizing: border-box;
   position: relative;
+}
+
+/* Only play the intro animation on a genuine fresh open, not on in-place
+   navigation (push/back/forward/crumb), which re-mounts this node. */
+.more-buttons-overlay-content.--animate-in {
   animation: more-buttons-fade-in 0.18s ease-out;
 }
 
@@ -137,6 +142,106 @@
   line-height: 1;
 }
 
+/* ── Navigation bar (back/forward + breadcrumb) ───────────────────────────── */
+
+.more-buttons-navbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--mb-border-subtle);
+}
+
+.more-buttons-nav-arrows {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.more-buttons-nav-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mb-text-muted);
+  cursor: pointer;
+  transition: background 0.12s ease-out, color 0.12s ease-out;
+}
+
+.more-buttons-nav-arrow .more-buttons-icon {
+  font-size: 1.125rem;
+}
+
+.more-buttons-nav-arrow:hover:not(:disabled) {
+  background: var(--mb-btn-2-bg);
+  color: var(--mb-text);
+}
+
+.more-buttons-nav-arrow:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.more-buttons-nav-close {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.more-buttons-nav-close:hover:not(:disabled) {
+  background: var(--mb-btn-2-bg);
+  color: #ef4444;
+}
+
+.more-buttons-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.more-buttons-crumb {
+  border: none;
+  background: transparent;
+  margin: 0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s ease-out, color 0.12s ease-out;
+}
+
+button.more-buttons-crumb:hover {
+  color: var(--mb-text);
+  background: var(--mb-btn-2-bg);
+}
+
+.more-buttons-crumb.--current {
+  color: var(--mb-text);
+  font-weight: 500;
+  cursor: default;
+}
+
+.more-buttons-crumb-sep {
+  color: var(--mb-text-disabled);
+  font-size: 0.8125rem;
+  user-select: none;
+}
+
 .more-buttons-description {
   margin: 0 0 14px 0;
   padding: 0;
@@ -155,7 +260,7 @@
   grid-template-columns: 160px minmax(0, 1fr);
   align-items: flex-start;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 22px;
 }
 
 .more-buttons-label {
@@ -283,11 +388,21 @@
 }
 
 /* Coloured variants — unselected inherits standard style, colour only applies when checked */
-.more-buttons-radio-btn.--green:has(:checked)  { background: rgb(102,187,106); color: #fff; box-shadow: 0 1px 2px rgba(102,187,106,0.45); }
-.more-buttons-radio-btn.--amber:has(:checked)  { background: rgb(255,179,0); color: rgb(80,50,0); box-shadow: 0 1px 2px rgba(255,179,0,0.45); }
-.more-buttons-radio-btn.--red:has(:checked)    { background: rgb(239,83,80); color: #fff; box-shadow: 0 1px 2px rgba(239,83,80,0.45); }
-.more-buttons-radio-btn.--blue:has(:checked)   { background: rgb(66,165,245); color: #fff; box-shadow: 0 1px 2px rgba(66,165,245,0.45); }
-.more-buttons-radio-btn.--purple:has(:checked) { background: rgb(199,84,176); color: #fff; box-shadow: 0 1px 2px rgba(199,84,176,0.45); }
+.more-buttons-radio-btn.--green:has(:checked)       { background: rgb(102,187,106); color: #fff;            box-shadow: 0 1px 2px rgba(102,187,106,0.45); }
+.more-buttons-radio-btn.--amber:has(:checked)       { background: rgb(255,179,0);   color: rgb(80,50,0);    box-shadow: 0 1px 2px rgba(255,179,0,0.45); }
+.more-buttons-radio-btn.--red:has(:checked)         { background: rgb(239,83,80);   color: #fff;            box-shadow: 0 1px 2px rgba(239,83,80,0.45); }
+.more-buttons-radio-btn.--blue:has(:checked)        { background: rgb(66,165,245);  color: #fff;            box-shadow: 0 1px 2px rgba(66,165,245,0.45); }
+.more-buttons-radio-btn.--purple:has(:checked)      { background: rgb(199,84,176);  color: #fff;            box-shadow: 0 1px 2px rgba(199,84,176,0.45); }
+.more-buttons-radio-btn.--light-blue:has(:checked)  { background: rgb(0,176,255);   color: #fff;            box-shadow: 0 1px 2px rgba(0,176,255,0.45); }
+.more-buttons-radio-btn.--cyan:has(:checked)        { background: rgb(0,184,212);   color: #fff;            box-shadow: 0 1px 2px rgba(0,184,212,0.45); }
+.more-buttons-radio-btn.--teal:has(:checked)        { background: rgb(0,191,165);   color: #fff;            box-shadow: 0 1px 2px rgba(0,191,165,0.45); }
+.more-buttons-radio-btn.--light-green:has(:checked) { background: rgb(100,221,23);  color: rgb(30,55,0);    box-shadow: 0 1px 2px rgba(100,221,23,0.45); }
+.more-buttons-radio-btn.--orange:has(:checked)      { background: rgb(255,145,0);   color: rgb(70,35,0);    box-shadow: 0 1px 2px rgba(255,145,0,0.45); }
+.more-buttons-radio-btn.--bright-red:has(:checked)  { background: rgb(255,23,68);   color: #fff;            box-shadow: 0 1px 2px rgba(255,23,68,0.45); }
+.more-buttons-radio-btn.--pink:has(:checked)        { background: rgb(245,0,87);    color: #fff;            box-shadow: 0 1px 2px rgba(245,0,87,0.45); }
+.more-buttons-radio-btn.--deep-purple:has(:checked) { background: rgb(124,77,255);  color: #fff;            box-shadow: 0 1px 2px rgba(124,77,255,0.45); }
+.more-buttons-radio-btn.--grey:has(:checked)        { background: rgb(158,158,158); color: #fff;            box-shadow: 0 1px 2px rgba(158,158,158,0.45); }
+.more-buttons-radio-btn.--step:has(:checked) { background: rgb(14,165,233); color: #fff; box-shadow: 0 1px 2px rgba(14,165,233,0.45); }
 
 .more-buttons-radio-btn-group-row.--invalid,
 .more-buttons-radio-btn-group-column.--invalid {
@@ -321,7 +436,127 @@
   flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
+}
+
+/* ── Integrations: rate-limit panel ───────────────────────────────────────── */
+
+.mb-rate-limit {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--mb-border-subtle);
+  border-radius: 8px;
+  background: var(--mb-bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mb-rate-limit__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mb-rate-limit__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--mb-text);
+}
+
+.mb-rate-limit__refresh {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--mb-text-muted);
+  display: inline-flex;
+  align-items: center;
+}
+
+.mb-rate-limit__refresh:hover {
+  color: var(--mb-text);
+}
+
+.mb-rate-limit__refresh .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.mb-rate-limit__bar {
+  height: 6px;
+  background: var(--mb-bg-disabled);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.mb-rate-limit__fill {
+  height: 100%;
+  background: #16a34a;
+  border-radius: 999px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.mb-rate-limit.--warn .mb-rate-limit__fill { background: #eab308; }
+.mb-rate-limit.--danger .mb-rate-limit__fill { background: #dc2626; }
+
+.mb-rate-limit__meta {
+  font-size: 12px;
+  color: var(--mb-text-muted);
+}
+
+/* ── Capture Entry: light/dark cards ──────────────────────────────────────── */
+
+.mb-capture-entry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.mb-capture-card {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid;
+  min-width: 0;
+}
+
+.mb-capture-card--light {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.mb-capture-card--dark {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+.mb-capture-card__title {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.mb-capture-card__image-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 0;
+}
+
+.mb-capture-card__img {
+  max-width: 100%;
+  max-height: 50vh;
+  height: auto;
+  width: auto;
+  display: block;
+  border-radius: 6px;
 }
 
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
@@ -391,17 +626,227 @@
   border: 1px solid var(--mb-info-border);
 }
 
-/* Incident cards (coloured by impact) */
+/* ── Accent cards (incidents, system updates, admonitions) ───────────────── */
+
 .mb-incident-card {
+  --mb-accent: rgb(158,158,158);
+  --mb-card-bg: color-mix(in srgb, var(--mb-accent) 12%, transparent);
+  --mb-card-border: color-mix(in srgb, var(--mb-accent) 45%, transparent);
+  --mb-card-title: var(--mb-text);
+  --mb-card-edit-fg-hover: #fff;
   margin-bottom: 8px;
-  border-radius: 6px;
-  padding: 8px 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--mb-card-bg);
+  border: 1px solid var(--mb-card-border);
 }
-.mb-incident-card.--red    { background: rgba(239,83,80,0.12);   border: 1px solid rgba(239,83,80,0.45);   }
-.mb-incident-card.--amber  { background: rgba(255,179,0,0.12);   border: 1px solid rgba(255,179,0,0.45);   }
-.mb-incident-card.--green  { background: rgba(102,187,106,0.12); border: 1px solid rgba(102,187,106,0.45); }
-.mb-incident-card.--blue   { background: rgba(66,165,245,0.12);  border: 1px solid rgba(66,165,245,0.45);  }
-.mb-incident-card.--purple { background: rgba(199,84,176,0.12);  border: 1px solid rgba(199,84,176,0.45);  }
+
+.mb-incident-card.--red         { --mb-accent: rgb(239,83,80); }
+.mb-incident-card.--amber       { --mb-accent: rgb(255,179,0);   --mb-card-edit-fg-hover: rgb(60,40,0); }
+.mb-incident-card.--green       { --mb-accent: rgb(102,187,106); }
+.mb-incident-card.--blue        { --mb-accent: rgb(66,165,245); }
+.mb-incident-card.--purple      { --mb-accent: rgb(199,84,176); }
+.mb-incident-card.--light-blue  { --mb-accent: rgb(0,176,255); }
+.mb-incident-card.--cyan        { --mb-accent: rgb(0,184,212); }
+.mb-incident-card.--teal        { --mb-accent: rgb(0,191,165); }
+.mb-incident-card.--light-green { --mb-accent: rgb(100,221,23); --mb-card-edit-fg-hover: rgb(30,55,0); }
+.mb-incident-card.--orange      { --mb-accent: rgb(255,145,0);  --mb-card-edit-fg-hover: rgb(60,30,0); }
+.mb-incident-card.--bright-red  { --mb-accent: rgb(255,23,68); }
+.mb-incident-card.--pink        { --mb-accent: rgb(245,0,87); }
+.mb-incident-card.--deep-purple { --mb-accent: rgb(124,77,255); }
+.mb-incident-card.--grey        { --mb-accent: rgb(158,158,158); }
+.mb-incident-card.--outline {
+  --mb-accent: rgb(158,158,158);
+  --mb-card-bg: transparent;
+}
+.mb-incident-card.--step {
+  --mb-accent: rgb(14,165,233);
+  --mb-card-bg: rgba(240,249,255,0.6);
+  --mb-card-border: rgba(125,211,252,0.7);
+  --mb-card-title: rgb(3,105,161);
+}
+@media (prefers-color-scheme: dark) {
+  .mb-incident-card.--step {
+    --mb-accent: rgb(56,189,248);
+    --mb-card-bg: rgba(12,74,110,0.2);
+    --mb-card-border: rgba(56,189,248,0.35);
+    --mb-card-title: rgb(186,230,253);
+  }
+}
+
+.mb-incident-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.mb-incident-card__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--mb-card-title);
+  letter-spacing: -0.005em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mb-incident-card__title-meta {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--mb-text-muted);
+}
+.mb-incident-card__badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mb-accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mb-incident-card__body {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--mb-text-muted);
+  margin: 0 0 6px 0;
+}
+.mb-incident-card__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+.mb-incident-card__foot.--end {
+  justify-content: flex-end;
+}
+.mb-incident-card__meta {
+  font-size: 0.75rem;
+  color: var(--mb-text-label);
+}
+.mb-incident-card__edit {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--mb-accent);
+  color: var(--mb-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 4px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out, transform 0.05s ease;
+}
+.mb-incident-card__edit:hover {
+  background: var(--mb-accent);
+  color: var(--mb-card-edit-fg-hover);
+}
+.mb-incident-card__edit:active {
+  transform: translateY(1px);
+}
+.mb-incident-card__edit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Admonition insertion zones (hover-reveal) ───────────────────────────── */
+
+/* Inside admonition lists, the insertion zone supplies all vertical spacing —
+   drop the card's own margin to avoid a double gap. */
+[data-section-admonitions] .mb-incident-card,
+[data-sub-admonitions] .mb-incident-card {
+  margin-bottom: 0;
+}
+
+.mb-adm-insert {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 36px;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  position: relative;
+  outline: none;
+}
+.mb-adm-insert::before {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px;
+  top: 50%;
+  border-top: 1px dashed color-mix(in srgb, var(--mb-text-muted) 30%, transparent);
+  transition: border-color 0.2s ease;
+}
+.mb-adm-insert__pill {
+  position: relative;
+  opacity: 0;
+  transform: scale(0.96);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--mb-text-muted);
+  background: var(--mb-bg);
+  border: 1px dashed color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
+  border-radius: 999px;
+  padding: 3px 12px;
+  letter-spacing: 0.02em;
+  transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+  pointer-events: none;
+}
+.mb-adm-insert:hover::before,
+.mb-adm-insert:focus-visible::before {
+  border-top-color: color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
+}
+.mb-adm-insert:hover .mb-adm-insert__pill,
+.mb-adm-insert:focus-visible .mb-adm-insert__pill {
+  opacity: 1;
+  transform: scale(1);
+  color: var(--mb-text);
+  border-color: color-mix(in srgb, var(--mb-text-muted) 80%, transparent);
+}
+.mb-adm-insert:active .mb-adm-insert__pill {
+  transform: scale(0.98);
+}
+
+.mb-adm-empty {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px;
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--mb-text-muted) 40%, transparent);
+  border-radius: 8px;
+  color: var(--mb-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.mb-adm-empty:hover,
+.mb-adm-empty:focus-visible {
+  outline: none;
+  color: var(--mb-text);
+  border-color: color-mix(in srgb, var(--mb-text-muted) 75%, transparent);
+  background: color-mix(in srgb, var(--mb-text-muted) 6%, transparent);
+}
+.mb-adm-empty__icon {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  /* "+" sits below the optical center in most fonts — nudge up to align with text. */
+  transform: translateY(-1px);
+}
 
 .more-buttons-candidates-wrapper {
   display: flex;
@@ -539,6 +984,762 @@
 
 details[open] .more-buttons-advanced-toggle::before {
   transform: rotate(90deg);
+}
+
+/* ── Captures field ───────────────────────────────────────────────────────── */
+
+.more-buttons-captures-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The list of preview rows. Collapses fully when empty so the actions row
+   below it sits flush under the label with no orphaned gap. */
+.more-buttons-captures-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.more-buttons-captures-list:empty {
+  display: none;
+}
+
+.more-buttons-capture-group-label {
+  margin: 4px 0 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mb-text-label);
+}
+
+/* A single capture preview */
+.more-buttons-capture-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--mb-bg-subtle);
+  border: 1px solid var(--mb-border-subtle);
+  border-radius: 8px;
+}
+
+.more-buttons-capture-thumb {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 72px;
+  object-fit: contain;
+  object-position: left center;
+  background: var(--mb-bg);
+  border: 1px solid var(--mb-border-subtle);
+  border-radius: 5px;
+  display: block;
+}
+
+.more-buttons-capture-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Segmented dimension control: [ Height ▾ | 50 ] px */
+.more-buttons-capture-dim {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background: var(--mb-bg-input);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.more-buttons-capture-dim:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+/* Scoped under .more-buttons-overlay-content so these win over the global
+   input[type="number"] / select rules (which would otherwise force width:100%
+   and a full border, blowing out the segmented control). */
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode,
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value {
+  width: auto;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.8125rem;
+  box-shadow: none;
+}
+
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode {
+  border-right: 1px solid var(--mb-border-subtle);
+  cursor: pointer;
+}
+
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value {
+  width: 54px;
+  flex-shrink: 0;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.more-buttons-capture-dim .more-buttons-capture-dim-value::-webkit-outer-spin-button,
+.more-buttons-capture-dim .more-buttons-capture-dim-value::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode:focus,
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value:focus {
+  box-shadow: none;
+}
+
+.more-buttons-capture-dim-unit {
+  padding-right: 8px;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+}
+
+/* 'Auto' mode: the pixel value carries no meaning, so dim and disable it */
+.more-buttons-capture-dim.--auto .more-buttons-capture-dim-value,
+.more-buttons-capture-dim.--auto .more-buttons-capture-dim-unit {
+  opacity: 0.4;
+}
+
+.more-buttons-capture-library {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.more-buttons-capture-library input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.more-buttons-capture-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mb-text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.more-buttons-capture-remove .more-buttons-icon {
+  font-size: 1.15rem;
+}
+
+.more-buttons-capture-remove:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.more-buttons-capture-remove:active {
+  transform: translateY(1px);
+}
+
+/* Actions row: "Add a capture" + the capture-settings disclosure */
+.more-buttons-captures-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+}
+
+.more-buttons-captures-actions .more-buttons-button .more-buttons-icon {
+  font-size: 1.1rem;
+}
+
+/* ── Capture Mode top bar ─────────────────────────────────────────────────────
+ *
+ * A persistent ON-AIR bar pinned to the top of the host page while the user
+ * is in Capture Mode. Inspired by the warm-amber .mb-incident-card.--orange
+ * accent already in this system, but turned up from a 12% tinted card to a
+ * fully committed surface — because this is a mode indicator, not a card.
+ */
+
+/* ── Capture mode bar ─────────────────────────────────────────────────────────
+ * Overlays the top of the host page (does NOT push content down). Hidden by
+ * default; reveals when the cursor hits the top edge of the viewport, and
+ * stays visible while the cursor is over it. A small left-side tab
+ * (.mb-capture-tab) is always visible so the user knows the mode is active.
+ * Slate palette matches the forms; pink (#db2777, the same hue as the
+ * Element-selector button) is reserved as a single accent — armed-state
+ * dot, capture sweep. Light/dark via prefers-color-scheme. */
+
+.mb-capture-bar {
+  /* Reserved space for the always-visible .mb-capture-tab that sits on top
+   * of the bar's left edge. Keep in sync with .mb-capture-tab's intrinsic
+   * size (dot + gap + "Capture mode" label + horizontal padding). */
+  --tab-w: 138px;
+  /* ── Capture mode palette ────────────────────────────────────────────────
+   * The whole palette is derived from a single hue token (--cb-hue) using
+   * color-mix(). To re-skin capture mode in a different colour, change
+   * --cb-hue here (light), in the dark-mode block below, in .mb-capture-tab
+   * and .mb-capture-glow (sibling elements can't inherit), and the matching
+   * literal in scripts/captureElement.js (selector overlay).
+   * Everything else — backgrounds, borders, text, shadow, glow — falls out
+   * of that single value automatically. */
+  --cb-hue: #f59e0b; /* amber-500 */
+
+  --cb-bg:            color-mix(in oklab, var(--cb-hue) 12%, white);
+  --cb-bg-sunken:     color-mix(in oklab, var(--cb-hue) 28%, white);
+  --cb-bg-raised:     color-mix(in oklab, var(--cb-hue)  6%, white);
+  --cb-text:          color-mix(in oklab, var(--cb-hue) 22%, black);
+  --cb-text-muted:    color-mix(in oklab, var(--cb-hue) 45%, black);
+  --cb-text-label:    color-mix(in oklab, var(--cb-hue) 55%, black);
+  --cb-border:        color-mix(in oklab, var(--cb-hue) 45%, white);
+  --cb-border-strong: color-mix(in oklab, var(--cb-hue) 70%, white);
+  --cb-divider:       color-mix(in oklab, var(--cb-hue) 45%, white);
+  --cb-chip-hover:    color-mix(in oklab, var(--cb-hue) 28%, white);
+  --cb-primary-bg:    color-mix(in oklab, var(--cb-hue) 90%, black);
+  --cb-primary-fg:    color-mix(in oklab, var(--cb-hue)  6%, white);
+  --cb-primary-hov:   color-mix(in oklab, var(--cb-hue) 75%, black);
+  --cb-accent:        var(--cb-hue);
+  --cb-accent-soft:   color-mix(in srgb,  var(--cb-hue) 22%, transparent);
+  --cb-shadow-near:   color-mix(in srgb,  var(--cb-hue) 20%, transparent);
+  --cb-shadow-far:    color-mix(in srgb,  var(--cb-hue) 30%, transparent);
+  --cb-glow:          color-mix(in srgb,  var(--cb-hue) 32%, transparent);
+
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 6px 0 calc(var(--tab-w) + 10px);
+  background: var(--cb-bg);
+  color: var(--cb-text);
+  border-bottom: 2px solid var(--cb-border);
+  /* Match the viewport-edge glow's color, blur, and spread so the bar's
+   * own shadow reads as the top edge of the same halo. */
+  box-shadow: 0 24px 32px -12px var(--cb-glow);
+  font-family: RubikVariable, ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.2;
+  transform: translateY(-100%);
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mb-capture-bar {
+    /* Dark mode: same hue, mixed against black instead of white so
+     * everything rolls to low lightness. Only the mix percentages flip;
+     * --cb-hue stays the same. */
+    --cb-bg:            color-mix(in oklab, var(--cb-hue) 88%, black);
+    --cb-bg-sunken:     color-mix(in oklab, var(--cb-hue) 92%, black);
+    --cb-bg-raised:     color-mix(in oklab, var(--cb-hue) 75%, black);
+    --cb-text:          color-mix(in oklab, var(--cb-hue) 12%, white);
+    --cb-text-muted:    color-mix(in oklab, var(--cb-hue) 30%, white);
+    --cb-text-label:    color-mix(in oklab, var(--cb-hue) 50%, white);
+    --cb-border:        color-mix(in oklab, var(--cb-hue) 70%, black);
+    --cb-border-strong: color-mix(in oklab, var(--cb-hue) 55%, black);
+    --cb-divider:       color-mix(in oklab, var(--cb-hue) 80%, black);
+    --cb-chip-hover:    color-mix(in oklab, var(--cb-hue) 75%, black);
+    --cb-primary-bg:    color-mix(in oklab, var(--cb-hue) 30%, white);
+    --cb-primary-fg:    color-mix(in oklab, var(--cb-hue) 88%, black);
+    --cb-primary-hov:   color-mix(in oklab, var(--cb-hue) 12%, white);
+    --cb-shadow-near:   rgba(0, 0, 0, 0.55);
+    --cb-shadow-far:    color-mix(in srgb, var(--cb-hue) 70%, transparent);
+    --cb-glow:          color-mix(in srgb, var(--cb-hue) 42%, transparent);
+  }
+}
+
+.mb-capture-bar.--enter { transform: translateY(0); }
+.mb-capture-bar.--exit {
+  transform: translateY(-100%);
+  transition: transform 220ms cubic-bezier(0.5, 0, 0.75, 0);
+}
+
+.mb-capture-bar.--capturing { opacity: 0.6; pointer-events: none; }
+
+/* Bottom-edge sweep on capture — pink, single accent moment */
+.mb-capture-bar::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cb-accent), transparent);
+  transform: translateX(-100%);
+  pointer-events: none;
+  opacity: 0;
+}
+.mb-capture-bar.--sweep::after {
+  animation: mb-capture-bar-sweep 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes mb-capture-bar-sweep {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+/* Layout primitives */
+.mb-capture-bar__group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mb-capture-bar__divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 8px 0;
+  background: var(--cb-divider);
+}
+
+.mb-capture-bar__spacer { flex: 1; min-width: 8px; }
+
+/* Identity: small dot, title, hint */
+.mb-capture-bar__identity { gap: 10px; }
+
+.mb-capture-bar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cb-accent);
+  transition: background 180ms ease-out, box-shadow 180ms ease-out;
+  flex-shrink: 0;
+}
+
+.mb-capture-bar.--armed .mb-capture-bar__dot {
+  background: var(--cb-accent);
+  box-shadow: 0 0 0 3px var(--cb-accent-soft);
+  animation: mb-capture-bar-dot-armed 1400ms ease-in-out infinite;
+}
+
+@keyframes mb-capture-bar-dot-armed {
+  0%, 100% { box-shadow: 0 0 0 3px var(--cb-accent-soft); }
+  50%      { box-shadow: 0 0 0 5px rgba(219, 39, 119, 0.08); }
+}
+
+.mb-capture-bar__title {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--cb-text);
+  letter-spacing: -0.005em;
+}
+
+.mb-capture-bar__hint {
+  font-size: 0.8125rem;
+  color: var(--cb-text-muted);
+  white-space: nowrap;
+  transition: color 180ms ease-out;
+}
+.mb-capture-bar.--armed .mb-capture-bar__hint {
+  color: var(--cb-accent);
+  font-weight: 500;
+}
+
+/* Resize toggle — ghost chip; filled when on */
+.mb-capture-bar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--cb-border);
+  border-radius: 6px;
+  background: var(--cb-bg);
+  color: var(--cb-text-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out,
+              border-color 120ms ease-out;
+}
+.mb-capture-bar__toggle .more-buttons-icon { font-size: 1rem; }
+.mb-capture-bar__toggle:hover {
+  background: var(--cb-chip-hover);
+  color: var(--cb-text);
+  border-color: var(--cb-border-strong);
+}
+.mb-capture-bar__toggle.--on {
+  background: var(--cb-primary-bg);
+  color: var(--cb-primary-fg);
+  border-color: var(--cb-primary-bg);
+}
+
+/* Padding stepper — inline numeric field */
+.mb-capture-bar__stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 2px;
+  border: 1px solid var(--cb-border);
+  border-radius: 6px;
+  background: var(--cb-bg-sunken);
+}
+.mb-capture-bar__step {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--cb-text-muted);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+.mb-capture-bar__step:hover {
+  background: var(--cb-chip-hover);
+  color: var(--cb-text);
+}
+.mb-capture-bar__step-value {
+  width: 36px;
+  height: 22px;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: var(--cb-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  padding: 0;
+  -moz-appearance: textfield;
+}
+.mb-capture-bar__step-value::-webkit-outer-spin-button,
+.mb-capture-bar__step-value::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.mb-capture-bar__step-unit {
+  margin-left: 2px;
+  padding-right: 6px;
+  font-size: 0.75rem;
+  color: var(--cb-text-label);
+}
+
+/* Save destination — segmented */
+.mb-capture-bar__save-target {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 2px;
+  background: var(--cb-bg-sunken);
+  border: 1px solid var(--cb-border);
+  border-radius: 6px;
+  gap: 0;
+}
+.mb-capture-bar__seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--cb-text-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 120ms ease-out, color 120ms ease-out,
+              box-shadow 120ms ease-out;
+}
+.mb-capture-bar__seg:hover:not(:disabled):not(.--on) {
+  color: var(--cb-text);
+}
+.mb-capture-bar__seg.--on {
+  background: var(--cb-bg);
+  color: var(--cb-text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.mb-capture-bar__seg:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Counter (only visible in form mode) */
+.mb-capture-bar__counter { gap: 6px; }
+.mb-capture-bar__counter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--cb-primary-bg);
+  color: var(--cb-primary-fg);
+  font-weight: 600;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  transform-origin: center;
+}
+.mb-capture-bar__counter-chip.--pulse {
+  animation: mb-capture-bar-counter-pulse 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes mb-capture-bar-counter-pulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.mb-capture-bar__counter-label {
+  font-size: 0.8125rem;
+  color: var(--cb-text-muted);
+}
+
+/* Done button — primary, matches .more-buttons-button */
+.mb-capture-bar__done {
+  height: 28px;
+  padding: 0 14px;
+  background: var(--cb-primary-bg);
+  color: var(--cb-primary-fg);
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+  transition: background 120ms ease-out, transform 0.05s ease;
+}
+.mb-capture-bar__done:hover { background: var(--cb-primary-hov); }
+.mb-capture-bar__done:active { transform: translateY(1px); }
+
+/* Close — icon button, matches form nav-close */
+.mb-capture-bar__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cb-text-muted);
+  cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+.mb-capture-bar__close .more-buttons-icon { font-size: 1.125rem; }
+.mb-capture-bar__close:hover {
+  background: var(--cb-chip-hover);
+  color: #ef4444;
+}
+
+/* "Saved" flash for downloads mode */
+.mb-capture-bar__saved {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--cb-bg-sunken);
+  color: var(--cb-text);
+  border: 1px solid var(--cb-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 200ms ease-out, transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mb-capture-bar__saved.--show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Always-visible left tab — peeks down from the top-left while the full bar
+ * is hidden, so capture mode is never invisible. Hovering it (or hitting the
+ * top edge of the viewport) reveals the full bar; the tab then slips up out
+ * of the way so it doesn't double up with the bar's own identity group. */
+/* Element-selector highlight box — draws around whichever element the
+ * cursor is over while Shift is held. Inherits the same capture-mode hue
+ * so a single value drives every coloured surface in the mode. */
+.mb-capture-selector {
+  --cb-hue: #f59e0b;
+  border: 2px solid var(--cb-hue);
+  background: color-mix(in srgb, var(--cb-hue) 14%, transparent);
+  transition: opacity 140ms ease-out;
+}
+
+/* Viewport-edge glow — a fixed, click-through overlay that draws a warm
+ * inner shadow on the left, right, and bottom edges of the viewport so
+ * capture mode reads as a framed state. The top edge is intentionally
+ * omitted (the bar already shadows that edge). Implemented as three
+ * single-sided inset shadows so corners blend naturally and the middle of
+ * the viewport stays untouched (no overall darkening or vignette). */
+.mb-capture-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483645; /* below the bar (2147483646) and tab (2147483647) */
+  pointer-events: none;
+  /* Locally scoped — the bar's --cb-glow is on a sibling so we re-derive
+   * from the same hue token. Light by default; dark mode below. */
+  --cb-hue: #f59e0b;
+  --cb-glow: color-mix(in srgb, var(--cb-hue) 32%, transparent);
+  box-shadow:
+    inset 24px 0 32px -12px var(--cb-glow), /* left edge */
+    inset -24px 0 32px -12px var(--cb-glow), /* right edge */
+    inset 0 -24px 32px -12px var(--cb-glow); /* bottom edge */
+  opacity: 0;
+  transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: mb-capture-glow-in 320ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes mb-capture-glow-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-color-scheme: dark) {
+  .mb-capture-glow { --cb-glow: color-mix(in srgb, var(--cb-hue) 42%, transparent); }
+}
+.mb-capture-glow.--exit {
+  animation: none;
+  opacity: 0;
+  transition: opacity 200ms cubic-bezier(0.5, 0, 0.75, 0);
+}
+
+/* The tab IS the bar's identity — it is the only "Capture mode" label that
+ * exists. When the bar is hidden, the tab is a small pill peeking down from
+ * the top-left of the viewport. When the bar reveals, the tab morphs to
+ * match the bar's surface (full bar height, no rounding, no shadow) so it
+ * looks like the bar simply extended from the tab. Sharing one timing
+ * function and duration with the bar is what sells the illusion: both
+ * elements traverse their states together. */
+.mb-capture-tab {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483647; /* above the bar so it sits on top while morphing */
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 138px; /* must match .mb-capture-bar's --tab-w */
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 14px;
+  background: var(--cb-bg);
+  color: var(--cb-text);
+  border: 2px solid var(--cb-border);
+  border-top: none;
+  border-left: none;
+  border-bottom-right-radius: 10px;
+  box-shadow: 0 24px 32px -12px var(--cb-glow);
+  font-family: RubikVariable, ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1;
+  cursor: default;
+  /* Match the bar's reveal exactly so the two move as one. */
+  transition: height 240ms cubic-bezier(0.22, 1, 0.36, 1),
+              border-radius 240ms cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 240ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Local copy of the bar's warm palette — the tab is a sibling of the bar,
+ * not a descendant, so the bar's :root-level var()s don't reach it. Kept
+ * deliberately in lockstep with .mb-capture-bar so the two surfaces read
+ * as one continuous object when the tab morphs into the bar's left edge. */
+.mb-capture-tab {
+  /* Mirrors the bar's hue so the tab and bar render as one surface. */
+  --cb-hue:    #f59e0b;
+  --cb-bg:     color-mix(in oklab, var(--cb-hue) 12%, white);
+  --cb-text:   color-mix(in oklab, var(--cb-hue) 22%, black);
+  --cb-border: color-mix(in oklab, var(--cb-hue) 45%, white);
+  --cb-glow:   color-mix(in srgb,  var(--cb-hue) 32%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  .mb-capture-tab {
+    --cb-bg:     color-mix(in oklab, var(--cb-hue) 88%, black);
+    --cb-text:   color-mix(in oklab, var(--cb-hue) 12%, white);
+    --cb-border: color-mix(in oklab, var(--cb-hue) 70%, black);
+    --cb-glow:   color-mix(in srgb,  var(--cb-hue) 42%, transparent);
+  }
+}
+.mb-capture-tab__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cb-hue);
+  flex-shrink: 0;
+  transition: box-shadow 180ms ease-out;
+}
+.mb-capture-tab.--armed .mb-capture-tab__dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-hue) 22%, transparent);
+  animation: mb-capture-bar-dot-armed 1400ms ease-in-out infinite;
+}
+/* Revealed: morph into the bar's left edge. Same height, no rounding, no
+ * shadow, border-bottom matches the bar's bottom border so the seam between
+ * tab and bar disappears. */
+.mb-capture-tab.--in-bar {
+  height: 40px;
+  border-bottom-right-radius: 0;
+  box-shadow: none;
+}
+.mb-capture-tab.--exit {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 220ms cubic-bezier(0.5, 0, 0.75, 0),
+              opacity 160ms ease-out;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .mb-capture-bar,
+  .mb-capture-tab,
+  .mb-capture-bar__dot,
+  .mb-capture-bar__counter-chip,
+  .mb-capture-bar__saved {
+    transition-duration: 0ms;
+    animation: none !important;
+  }
+}
+
+/* Capture overlays (rendered by captureElement.js) — z-indexed above the bar
+ * so the user can still target elements that sit directly under it.
+ * Most styling is inline on the elements; this rule just provides a docking
+ * point for sampleBackgroundColor's "hide my overlay" selector to find. */
+.mb-capture-selector,
+.mb-capture-resize { /* selectors only — actual styles set inline at create time */ }
+
+
+@media (max-width: 600px) {
+  .more-buttons-capture-row {
+    flex-wrap: wrap;
+  }
+  .more-buttons-capture-controls {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
 }
 
 /* ── Report-type table ────────────────────────────────────────────────────── */

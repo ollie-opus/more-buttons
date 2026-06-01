@@ -1,4 +1,4 @@
-import { getFormAction } from './formActions.js';
+import { getFormAction, currentOpener, currentInvocationDescriptor } from './formActions.js';
 import { readRepoText } from './repoClient.js';
 import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
@@ -19,14 +19,226 @@ const renderFns = {
 };
 
 let activeFormCleanup = null;
-const navStack = [];
+let activeNavObserver = null;
+let activeNavbarRefresh = null;
+
+// Browser-style history: a linear list of views plus a cursor into it. Each
+// entry is { opener, label, formName }. `opener` is a stateless replay closure
+// (see formActions.js) that rebuilds the view by re-running createForm.
+// navMode signals how the next createForm should mutate history:
+//   'root'   – fresh entry point (no overlay open): reset history
+//   'push'   – navigating deeper (overlay open): append, dropping forward history
+//   'replay' – back/forward/crumb jump: don't mutate, cursor already positioned
+const history = [];
+let cursor = -1;
+let navMode = 'root';
+
+// Fallback breadcrumb labels when a form's <h2> is empty or still loading.
+const FORM_LABELS = {
+  knowledgeBaseManagement: 'Knowledge Base',
+  captureLibrary: 'Capture Library',
+  captureEntry: 'Capture',
+  systemUpdatesEntry: 'System Updates',
+  systemStatusEntry: 'System Status',
+  guideEntry: 'Guide',
+  editGuideSection: 'Edit Section',
+  editGuideAdmonition: 'Edit Admonition',
+  reportIncident: 'Report Incident',
+  updateIncident: 'Update Incident',
+  logSystemUpdate: 'Log System Update',
+  editSystemUpdate: 'Edit System Update',
+  editDraftSystemUpdate: 'Edit Draft Update',
+};
+
+function resetHistory() {
+  history.length = 0;
+  cursor = -1;
+}
+
+// Replace the opener for the current view. Used when a form mutates its own
+// identity in place (e.g. a "create" form that becomes an "edit" form after
+// saving), so backing into it later replays the right view.
+export function replaceCurrentOpener(opener) {
+  if (cursor >= 0 && history[cursor]) history[cursor].opener = opener;
+}
+
+// Override the breadcrumb label for the current view with a richer name than
+// the form's <h2> (e.g. "Section 1: Manager Steps" or "Step 4"). Locks the
+// label so the heading observer won't revert it to the <h2> text.
+export function setCrumbLabel(label) {
+  if (cursor < 0 || !history[cursor] || !label) return;
+  history[cursor].label = label;
+  history[cursor].labelLocked = true;
+  activeNavbarRefresh?.();
+}
+
+// Jump to a history index by replaying that entry's opener. We deliberately do
+// NOT clean up the current overlay here: re-running the opener calls createForm,
+// which tears down the current overlay itself. That keeps `activeFormCleanup`
+// set during the replay so createForm treats it as in-session navigation.
+// Serialisable snapshot of the current form stack — used by capture mode to
+// auto-reopen the form (and its required parent chain) after capture-mode Done.
+// Entries without a descriptor (forms opened by direct createForm calls rather
+// than via getFormAction) can't be replayed, so we return only the contiguous
+// suffix of descriptor-carrying entries ending at the current cursor.
+export function snapshotFormStack() {
+  if (cursor < 0) return null;
+  const out = [];
+  for (let i = 0; i <= cursor; i++) {
+    const e = history[i];
+    if (!e?.descriptor) {
+      // Reset on every gap so the result is the longest suffix that is fully
+      // replayable in order.
+      out.length = 0;
+      continue;
+    }
+    out.push({ name: e.descriptor.name, args: e.descriptor.args });
+  }
+  return out.length ? out : null;
+}
+
+// Replay a snapshot produced by snapshotFormStack(). Starts fresh: any
+// currently open overlay is torn down and history is reset.
+let replaying = false;
+
+/** True while a form-stack replay is in progress. Lets form actions skip
+ *  destructive setup (e.g. resetting storage to blank initial values) so the
+ *  user's in-flight typing — snapshotted to storage before the replay — can
+ *  hydrate back into the reopened form. */
+export function isFormReplay() {
+  return replaying;
+}
+
+export async function replayFormStack(snapshot) {
+  if (!snapshot?.length) return false;
+  if (activeFormCleanup) { activeFormCleanup(); activeFormCleanup = null; }
+  resetHistory();
+  navMode = 'root';
+  replaying = true;
+  try {
+    for (const entry of snapshot) {
+      const fn = getFormAction(entry.name);
+      if (!fn) return false;
+      await fn(entry.args);
+    }
+  } finally {
+    replaying = false;
+  }
+  return true;
+}
+
+export { navigateBack };
+
+// Read all named input values from a form into a flat dict — mirrors what the
+// generic `save` action writes to storage so a snapshot taken here can be
+// compared against later edits to detect a "dirty" form.
+function readFormValues(formEl) {
+  const data = {};
+  const inputs = formEl.querySelectorAll('input, select, textarea');
+  const checkboxGroups = {};
+  inputs.forEach(i => {
+    if (i.type === 'checkbox' && i.name) {
+      (checkboxGroups[i.name] ??= []).push(i);
+    }
+  });
+  inputs.forEach(input => {
+    if (!input.name) return;
+    if (input.type === 'radio') {
+      if (input.checked) data[input.name] = input.value;
+    } else if (input.type === 'checkbox') {
+      const g = checkboxGroups[input.name];
+      if (g && g.length > 1) {
+        if (!(input.name in data)) data[input.name] = g.filter(b => b.checked).map(b => b.value);
+      } else {
+        data[input.name] = input.checked;
+      }
+    } else {
+      data[input.name] = input.value;
+    }
+  });
+  return data;
+}
+
+function valuesEqual(a, b) {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+}
+
+function isFormDirty(formEl) {
+  const snap = formEl?._initialSnapshot;
+  if (!snap) return false;
+  const cur = readFormValues(formEl);
+  const keys = new Set([...Object.keys(snap), ...Object.keys(cur)]);
+  for (const k of keys) {
+    if (!valuesEqual(snap[k], cur[k])) return true;
+  }
+  return false;
+}
+
+// Returns true if it's safe to navigate away (clean form, no guard, or user
+// confirmed the discard). Call before any in-form action that would tear down
+// or replace the current view.
+export function confirmDiscardIfDirty(formEl) {
+  if (!formEl || !formEl.hasAttribute?.('data-dirty-guard')) return true;
+  if (!isFormDirty(formEl)) return true;
+  return confirm('You have unsaved changes that will be lost if you leave this page. Continue?');
+}
+
+function activeGuardedForm() {
+  // The currently-mounted overlay form, if it opted into the dirty guard.
+  const el = document.querySelector('.more-buttons-overlay form[data-dirty-guard]');
+  return el && el._initialSnapshot ? el : null;
+}
+
+async function navigateTo(index) {
+  if (index < 0 || index >= history.length) return;
+  navMode = 'replay';
+  cursor = index;
+  await history[index].opener();
+}
+
+function navigateBack() {
+  if (cursor > 0) return navigateTo(cursor - 1);
+  return Promise.resolve();
+}
+
+function navigateForward() {
+  if (cursor < history.length - 1) return navigateTo(cursor + 1);
+  return Promise.resolve();
+}
 
 export async function createForm(formName, opener) {
-  navStack.push(opener ?? (() => createForm(formName)));
+  const resolvedOpener = opener ?? currentOpener() ?? (() => createForm(formName));
+  const descriptor = currentInvocationDescriptor();
+  const replaying = navMode === 'replay';
+  const deeper = !!activeFormCleanup;
   if (activeFormCleanup) {
+    // An overlay is already open: tear it down before rendering the new view.
     activeFormCleanup();
     activeFormCleanup = null;
   }
+
+  if (replaying) {
+    // Back/forward/crumb jump: cursor is already positioned; just refresh the
+    // entry's opener so a later replay rebuilds the same view.
+    if (history[cursor]) {
+      history[cursor].opener = resolvedOpener;
+      if (descriptor) history[cursor].descriptor = descriptor;
+    }
+  } else if (deeper) {
+    // Navigating deeper: drop any forward history, then append.
+    history.length = cursor + 1;
+    history.push({ opener: resolvedOpener, label: '', formName, descriptor });
+    cursor = history.length - 1;
+  } else {
+    // Fresh entry point: start a new history.
+    resetHistory();
+    history.push({ opener: resolvedOpener, label: '', formName, descriptor });
+    cursor = 0;
+  }
+  navMode = 'root';
 
   // Inject CSS once via <link> tag
   if (!document.getElementById('more-buttons-overlay-stylesheet')) {
@@ -43,6 +255,9 @@ export async function createForm(formName, opener) {
 
   const content = document.createElement('div');
   content.className = 'more-buttons-overlay-content';
+  // Only animate the intro on a genuine fresh open; in-place navigation
+  // (push/back/forward/crumb) re-mounts this node and would replay the fade.
+  if (!deeper && !replaying) content.classList.add('--animate-in');
   content.setAttribute('role', 'dialog');
   content.setAttribute('aria-modal', 'true');
 
@@ -56,7 +271,9 @@ export async function createForm(formName, opener) {
   // Utility: close overlay + cleanup
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
-      navStack.length = 0;
+      const guarded = activeGuardedForm();
+      if (guarded && !confirmDiscardIfDirty(guarded)) return;
+      resetHistory();
       cleanup();
     }
   };
@@ -64,6 +281,8 @@ export async function createForm(formName, opener) {
   function cleanup() {
     document.removeEventListener('keydown', handleKeyDown);
     document.body.style.overflow = previousBodyOverflow;
+    if (activeNavObserver) { activeNavObserver.disconnect(); activeNavObserver = null; }
+    activeNavbarRefresh = null;
     if (overlay.isConnected) overlay.remove();
     if (activeFormCleanup === cleanup) activeFormCleanup = null;
   }
@@ -121,31 +340,141 @@ export async function createForm(formName, opener) {
     content.style.maxHeight = formEl.dataset.height;
   }
   if (!formEl) {
-    // No form element — wire up action buttons with close + module function support
+    // No form element — delegate action buttons (close / back / module fns).
+    // Delegation (vs per-button binding) keeps working when a form re-renders
+    // its own toolbar after createForm has run.
     const mod = window.__mbActionsModule;
-    content.querySelectorAll('button[data-action]').forEach(btn => {
+    content.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn || !content.contains(btn)) return;
       const steps = btn.getAttribute('data-action').split(',').map(s => s.trim());
-      btn.addEventListener('click', async () => {
-        for (const step of steps) {
-          if (step === 'close') { navStack.length = 0; cleanup(); continue; }
-          if (step === 'back') {
-            navStack.pop();
-            const prev = navStack.pop();
-            cleanup();
-            if (prev) await prev();
-            continue;
-          }
-          let [stepName, stepParam] = step.includes(':') ? step.split(':') : [step, null];
-          const fn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
-          if (fn) { cleanup(); await fn(stepParam); }
-          else { console.warn(`createForm: Unknown action step "${stepName}"`); }
-        }
-      });
+      for (const step of steps) {
+        if (step === 'close') { resetHistory(); cleanup(); continue; }
+        if (step === 'back') { await navigateBack(); continue; }
+        let [stepName, stepParam] = step.includes(':') ? step.split(':') : [step, null];
+        const fn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
+        if (fn) { cleanup(); await fn(stepParam); }
+        else { console.warn(`createForm: Unknown action step "${stepName}"`); }
+      }
     });
     return { overlay, content, formEl: null };
   }
 
   const storageKey = formEl.getAttribute('data-storage-key') || 'defaultStorageKey';
+
+  // Browser-style navbar (back/forward arrows + breadcrumb) for forms that opt
+  // in with data-nav. Sits above the scrolling <form> as a pinned chrome bar.
+  if (formEl.hasAttribute('data-nav')) {
+    const labelFromHeading = () => {
+      const h2 = formEl.querySelector('h2');
+      if (!h2) return '';
+      const clone = h2.cloneNode(true);
+      clone.querySelectorAll('.more-buttons-icon').forEach(el => el.remove());
+      return clone.textContent.trim();
+    };
+    const isPlaceholder = (t) => !t || /^loading/i.test(t) || t === '…';
+    const labelFor = (entry) => entry.label || FORM_LABELS[entry.formName] || entry.formName;
+
+    const renderNavbar = () => {
+      const nav = document.createElement('div');
+      nav.className = 'more-buttons-navbar';
+
+      const arrows = document.createElement('div');
+      arrows.className = 'more-buttons-nav-arrows';
+      [['back', 'arrow_back', cursor <= 0],
+       ['forward', 'arrow_forward', cursor >= history.length - 1]].forEach(([action, icon, disabled]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'more-buttons-nav-arrow';
+        btn.dataset.navAction = action;
+        btn.disabled = disabled;
+        btn.setAttribute('aria-label', action);
+        btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>`;
+        arrows.appendChild(btn);
+      });
+
+      const crumbs = document.createElement('nav');
+      crumbs.className = 'more-buttons-breadcrumb';
+      crumbs.setAttribute('aria-label', 'Breadcrumb');
+      for (let i = 0; i <= cursor; i++) {
+        if (i > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'more-buttons-crumb-sep';
+          sep.textContent = '›';
+          crumbs.appendChild(sep);
+        }
+        const text = labelFor(history[i]);
+        if (i === cursor) {
+          const cur = document.createElement('span');
+          cur.className = 'more-buttons-crumb --current';
+          cur.setAttribute('aria-current', 'page');
+          cur.textContent = text;
+          crumbs.appendChild(cur);
+        } else {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'more-buttons-crumb';
+          btn.dataset.crumbIndex = String(i);
+          btn.textContent = text;
+          crumbs.appendChild(btn);
+        }
+      }
+
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'more-buttons-nav-arrow more-buttons-nav-close';
+      closeBtn.dataset.navAction = 'close';
+      closeBtn.setAttribute('aria-label', 'Close');
+      closeBtn.innerHTML = '<span class="more-buttons-icon">close</span>';
+
+      nav.append(arrows, crumbs, closeBtn);
+      const existing = content.querySelector('.more-buttons-navbar');
+      if (existing) existing.replaceWith(nav);
+      else content.prepend(nav);
+    };
+
+    activeNavbarRefresh = renderNavbar;
+
+    // Resolve this view's label from its heading, falling back to the map.
+    // Skip if an explicit label was locked in (e.g. via setCrumbLabel on replay).
+    const initial = labelFromHeading();
+    if (history[cursor] && !history[cursor].labelLocked) {
+      history[cursor].label = isPlaceholder(initial) ? '' : initial;
+    }
+    renderNavbar();
+
+    // Async titles (e.g. guides set <h2 data-guide-title> after fetch): update
+    // the crumb when the heading resolves, unless an explicit label is locked.
+    const h2 = formEl.querySelector('h2');
+    if (h2) {
+      activeNavObserver = new MutationObserver(() => {
+        if (history[cursor]?.labelLocked) return;
+        const t = labelFromHeading();
+        if (!isPlaceholder(t) && history[cursor] && history[cursor].label !== t) {
+          history[cursor].label = t;
+          renderNavbar();
+        }
+      });
+      activeNavObserver.observe(h2, { childList: true, characterData: true, subtree: true });
+    }
+
+    content.addEventListener('click', async (e) => {
+      const arrow = e.target.closest('[data-nav-action]');
+      if (arrow && content.contains(arrow)) {
+        const action = arrow.dataset.navAction;
+        if (!confirmDiscardIfDirty(formEl)) return;
+        if (action === 'back') await navigateBack();
+        else if (action === 'forward') await navigateForward();
+        else if (action === 'close') { resetHistory(); cleanup(); }
+        return;
+      }
+      const crumb = e.target.closest('[data-crumb-index]');
+      if (crumb && content.contains(crumb)) {
+        if (!confirmDiscardIfDirty(formEl)) return;
+        await navigateTo(parseInt(crumb.dataset.crumbIndex, 10));
+      }
+    });
+  }
 
   // Button actions driven by data-action attribute (comma-separated steps)
   // Domain-specific actions (incident management etc.) are registered via formActions.js
@@ -196,13 +525,8 @@ export async function createForm(formName, opener) {
         resolve();
       });
     }),
-    back: async () => {
-      navStack.pop();
-      const prev = navStack.pop();
-      cleanup();
-      if (prev) await prev();
-    },
-    close: () => { navStack.length = 0; cleanup(); return Promise.resolve(); },
+    back: () => navigateBack(),
+    close: () => { resetHistory(); cleanup(); return Promise.resolve(); },
   };
 
   // Validation: checks required fields and data-maxlength limits
@@ -276,37 +600,37 @@ export async function createForm(formName, opener) {
     input._updateCounter = updateCounter;
   });
 
-  content.querySelectorAll('button[data-action]').forEach(btn => {
+  // Delegated so buttons injected after createForm runs (e.g. a toolbar a form
+  // re-renders into its actions bar) still trigger their actions.
+  content.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn || !content.contains(btn)) return;
+    if (btn.hasAttribute('data-validate') && !validateForm()) return;
+
     const steps = btn.getAttribute('data-action').split(',').map(s => s.trim());
-    const needsValidation = btn.hasAttribute('data-validate');
+    for (const step of steps) {
+      let stepName = step;
+      let stepParam = null;
 
-    btn.addEventListener('click', async () => {
-      if (needsValidation && !validateForm()) return;
+      if (step.includes(':')) {
+        [stepName, stepParam] = step.split(':');
+      }
 
-      for (const step of steps) {
-        let stepName = step;
-        let stepParam = null;
-
-        if (step.includes(':')) {
-          [stepName, stepParam] = step.split(':');
-        }
-
-        if (actionSteps[stepName]) {
-          await actionSteps[stepName](stepParam);
+      if (actionSteps[stepName]) {
+        await actionSteps[stepName](stepParam);
+      } else {
+        const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
+        const registryFn = getFormAction(stepName);
+        if (registryFn) {
+          await registryFn(ctx);
         } else {
-          const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-          const registryFn = getFormAction(stepName);
-          if (registryFn) {
-            await registryFn(ctx);
-          } else {
-            const mod = window.__mbActionsModule;
-            const modFn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
-            if (modFn) await modFn(stepParam);
-            else console.warn(`createForm: Unknown action step "${stepName}"`);
-          }
+          const mod = window.__mbActionsModule;
+          const modFn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
+          if (modFn) await modFn(stepParam);
+          else console.warn(`createForm: Unknown action step "${stepName}"`);
         }
       }
-    });
+    }
   });
 
   // Conditional visibility: data-show-when="name=value" or data-show-when="name"
@@ -640,6 +964,12 @@ export async function createForm(formName, opener) {
     formEl.querySelectorAll('[data-maxlength]').forEach(input => {
       input._updateCounter?.();
     });
+
+    // Snapshot baseline for dirty-guard forms after hydration completes so
+    // later edits can be detected when the user tries to navigate away.
+    if (formEl.hasAttribute('data-dirty-guard')) {
+      formEl._initialSnapshot = readFormValues(formEl);
+    }
   });
 
   // Return handles in case caller wants them

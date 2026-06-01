@@ -1,0 +1,57 @@
+<form data-nav data-dirty-guard id="edit-guide-admonition-form" data-storage-key="moreButtonsEditGuideAdmonition" data-width="80vw" data-height="80vh">
+  <h2 data-guide-admonition-heading>Edit admonition</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Title</label>
+    <input type="text" name="admonitionTitle" placeholder="Title" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Meta</label>
+    <input type="text" name="admonitionMeta" placeholder="Muted note after the title, e.g. (optional)" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Type</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --step"><input type="radio" name="admonitionType" value="step" required /> Step</label>
+      <label class="more-buttons-radio-btn --grey"><input type="radio" name="admonitionType" value="outline" /> Outline</label>
+      <label class="more-buttons-radio-btn --blue"><input type="radio" name="admonitionType" value="note" /> Note</label>
+      <label class="more-buttons-radio-btn --light-blue"><input type="radio" name="admonitionType" value="abstract" /> Abstract</label>
+      <label class="more-buttons-radio-btn --cyan"><input type="radio" name="admonitionType" value="info" /> Info</label>
+      <label class="more-buttons-radio-btn --teal"><input type="radio" name="admonitionType" value="tip" /> Tip</label>
+      <label class="more-buttons-radio-btn --green"><input type="radio" name="admonitionType" value="success" /> Success</label>
+      <label class="more-buttons-radio-btn --light-green"><input type="radio" name="admonitionType" value="question" /> Question</label>
+      <label class="more-buttons-radio-btn --orange"><input type="radio" name="admonitionType" value="warning" /> Warning</label>
+      <label class="more-buttons-radio-btn --red"><input type="radio" name="admonitionType" value="failure" /> Failure</label>
+      <label class="more-buttons-radio-btn --bright-red"><input type="radio" name="admonitionType" value="danger" /> Danger</label>
+      <label class="more-buttons-radio-btn --pink"><input type="radio" name="admonitionType" value="bug" /> Bug</label>
+      <label class="more-buttons-radio-btn --deep-purple"><input type="radio" name="admonitionType" value="example" /> Example</label>
+      <label class="more-buttons-radio-btn --grey"><input type="radio" name="admonitionType" value="quote" /> Quote</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Description</label>
+    <textarea name="admonitionDescription" rows="6" placeholder="Markdown allowed"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Captures</label>
+    <div class="more-buttons-captures-field">
+      <div id="guide-admonition-captures" class="more-buttons-captures-list" data-captures-container></div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group" data-sub-admonitions-row>
+    <label class="more-buttons-label">Sub-admonitions</label>
+    <div>
+      <div data-sub-admonitions></div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="submitEditGuideAdmonition" data-validate>Save</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteGuideAdmonition" data-delete-admonition-btn>Delete</button>
+  </div>
+</form>
