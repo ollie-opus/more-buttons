@@ -62,7 +62,7 @@ async function loadSettings() {
   const s = stored[STORAGE_KEY] ?? {};
   return {
     resizeMode:      !!s.resizeMode,
-    capturePadding:  Math.max(0, parseInt(s.capturePadding ?? 0, 10) || 0),
+    capturePadding:  0,
     downloadPath:    s.downloadPath || 'occ-captures',
     themeDelay:      s.themeDelay ?? 500,
     scale:           2,
@@ -76,7 +76,6 @@ function persistSettings(settings) {
     chrome.storage.local.set({
       [STORAGE_KEY]: {
         resizeMode:     settings.resizeMode,
-        capturePadding: settings.capturePadding,
         downloadPath:   settings.downloadPath,
         themeDelay:     settings.themeDelay,
       },

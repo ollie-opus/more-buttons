@@ -659,7 +659,7 @@ registerFormAction('submitEditGuideSection', async ({ formEl, content, cleanup }
     });
 
     await chrome.storage.local.remove('moreButtonsEditGuideSection');
-    cleanup();
+    await navigateBack();
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
     alert('Failed to save section: ' + e.message);
