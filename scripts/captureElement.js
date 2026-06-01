@@ -222,7 +222,22 @@ function expandWithBackground(src, bgColor, padCssPx, originalCssWidth) {
 // ── Single-frame screenshot ───────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BASE64_LIKE_RE = /^[a-z0-9]{30,}$/i;
+// Charset covering base64, base64url, and plain alphanumeric IDs.
+const ID_CHARSET_RE = /^[A-Za-z0-9_\-+/=]+$/;
+
+// Heuristic: detect opaque IDs (base64/base64url/random tokens) in URL segments
+// without flagging real path words like "knowledge-base" or "admin".
+function looksLikeOpaqueId(s) {
+  if (s.length < 12) return false;
+  if (!ID_CHARSET_RE.test(s)) return false;
+  // Strong signals: base64 padding or non-url-safe chars.
+  if (/[=+/]/.test(s)) return true;
+  // Mixed-case alphanumeric tokens (e.g. "pLFhQgoc8NxyiYiRdGLShEMf").
+  if (/[A-Z]/.test(s) && /[a-z]/.test(s)) return true;
+  // Long all-lower/digit blobs (e.g. legacy hex/base32 IDs).
+  if (s.length >= 24 && /[0-9]/.test(s)) return true;
+  return false;
+}
 
 function deriveFilename(el, forcedTheme, settings) {
   const rawLabel = getElementLabel(el);
@@ -238,7 +253,7 @@ function deriveFilename(el, forcedTheme, settings) {
     .filter(Boolean)
     .map(s => {
       if (UUID_RE.test(s)) return 'uuid';
-      if (BASE64_LIKE_RE.test(s)) return 'id';
+      if (looksLikeOpaqueId(s)) return 'id';
       return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     })
     .filter(Boolean);
