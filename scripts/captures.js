@@ -21,7 +21,7 @@
  *     when it returns, splices the captured rows at that index.
  */
 
-import { registerFormAction } from './formActions.js';
+import { registerFormAction, getFormAction } from './formActions.js';
 import { snapshotFormStack, replayFormStack } from './form.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubPushImageIfNotExists } from './github.js';
@@ -120,11 +120,17 @@ function captureRowHtml(c, i) {
 }
 
 function captureInsertZone(idx) {
-  return `<button type="button" class="mb-adm-insert" data-capture-insert-at="${idx}" aria-label="Insert new capture"><span class="mb-adm-insert__pill">+ Insert New Capture</span></button>`;
+  return `<div class="mb-cap-insert" role="group" aria-label="Insert capture">
+      <button type="button" class="mb-cap-insert__pill" data-capture-insert-at="${idx}">+ Insert New Capture</button>
+      <button type="button" class="mb-cap-insert__pill" data-capture-library-insert-at="${idx}">+ Insert from Library</button>
+    </div>`;
 }
 
 function captureEmptyCta() {
-  return `<button type="button" class="mb-adm-empty" data-capture-insert-at="0"><span class="mb-adm-empty__icon">+</span> Add a capture</button>`;
+  return `<div class="mb-adm-empty-group">
+      <button type="button" class="mb-adm-empty" data-capture-insert-at="0"><span class="mb-adm-empty__icon">+</span> Add a new capture</button>
+      <button type="button" class="mb-adm-empty" data-capture-library-insert-at="0"><span class="mb-adm-empty__icon">+</span> Add from library</button>
+    </div>`;
 }
 
 function applyDimAutoState(sel) {
@@ -191,6 +197,12 @@ export function updateCapturesList(formEl, containerId) {
       runCaptureFlow({ formEl, overlay, insertAtIndex: insertAt, containerId });
     });
   });
+  container.querySelectorAll('[data-capture-library-insert-at]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const insertAt = parseInt(btn.dataset.captureLibraryInsertAt, 10);
+      runLibraryInsertFlow({ formEl, insertAtIndex: insertAt, containerId });
+    });
+  });
 }
 
 // ── Publish ───────────────────────────────────────────────────────────────────
@@ -251,13 +263,19 @@ function persistFormToStorage(formEl) {
 
 // ── Capture flow handoff ─────────────────────────────────────────────────────
 
-function runCaptureFlow({ formEl, overlay, insertAtIndex, containerId }) {
-  const resolvedContainerId = containerId
+// Resolve the captures-list container id for a form, falling back to the known
+// per-form ids when the caller didn't pass one and the element lacks an id.
+function resolveContainerId(formEl, containerId) {
+  return containerId
     || formEl.querySelector('[data-captures-container]')?.id
     || (formEl.querySelector('#log-update-captures') ? 'log-update-captures'
        : formEl.querySelector('#edit-update-captures') ? 'edit-update-captures'
        : formEl.querySelector('#guide-admonition-captures') ? 'guide-admonition-captures'
        : null);
+}
+
+function runCaptureFlow({ formEl, overlay, insertAtIndex, containerId }) {
+  const resolvedContainerId = resolveContainerId(formEl, containerId);
 
   const formStackSnapshot = snapshotFormStack();
   persistFormToStorage(formEl);
@@ -310,4 +328,57 @@ function runCaptureFlow({ formEl, overlay, insertAtIndex, containerId }) {
 // appends a new capture at the end of the list.
 registerFormAction('startCapture', ({ formEl, overlay }) => {
   runCaptureFlow({ formEl, overlay, insertAtIndex: captures.length });
+});
+
+// ── Insert-from-library flow ─────────────────────────────────────────────────
+//
+// "Insert from Library" / "Add from library" open the Capture Library in
+// insert mode (captureLibrary.js → captureEntry.js). Unlike the screenshot
+// flow, the library is a full createForm view that tears down this form's
+// overlay, so we always rebuild the origin form from a snapshot on return.
+//
+// libraryInsertIntent remembers where to splice the chosen capture; it is set
+// when the flow starts and consumed (or overwritten) when it completes.
+let libraryInsertIntent = null;
+
+function runLibraryInsertFlow({ formEl, insertAtIndex, containerId }) {
+  const resolvedContainerId = resolveContainerId(formEl, containerId);
+  // Save in-progress edits so they hydrate back when the origin form replays.
+  persistFormToStorage(formEl);
+  libraryInsertIntent = {
+    snapshot: snapshotFormStack(),
+    // The origin form resets captures from markdown on replay, dropping any
+    // captures added/edited this session. Snapshot the live list so we can
+    // restore the full session state (saved + pending) on return.
+    capturesSnapshot: captures.map(c => ({ ...c })),
+    insertAt: insertAtIndex,
+    containerId: resolvedContainerId,
+  };
+  getFormAction('openCaptureLibrary')?.({ mode: 'insert' });
+}
+
+// Called from captureEntry.js once the user picks a library capture. Rebuilds
+// the origin form, restores the session capture list, then splices the chosen
+// capture at the remembered index.
+registerFormAction('completeLibraryInsert', async ({ capture } = {}) => {
+  const intent = libraryInsertIntent;
+  libraryInsertIntent = null;
+  if (!intent || !capture) return;
+
+  const { snapshot, capturesSnapshot, insertAt, containerId } = intent;
+  if (!snapshot?.length) {
+    console.warn('[MB capture] no form-stack snapshot for library insert — dropping the capture to avoid wrong-form attachment.');
+    return;
+  }
+
+  const ok = await replayFormStack(snapshot);
+  if (!ok) return;
+
+  // Replace the markdown-derived list with the snapshotted session state, then
+  // splice the chosen capture at the index the user clicked (clamped).
+  setExistingCaptures(capturesSnapshot);
+  const idx = Math.max(0, Math.min(insertAt, captures.length));
+  captures.splice(idx, 0, capture);
+  const reopenedFormEl = document.querySelector('.more-buttons-overlay form[data-storage-key]');
+  if (reopenedFormEl) updateCapturesList(reopenedFormEl, containerId);
 });

@@ -815,6 +815,72 @@ button.more-buttons-crumb:hover {
   transform: scale(0.98);
 }
 
+/* Captures insert zone: two independently-clickable pills (screenshot vs
+   library) sharing one dashed-line row. Distinct from .mb-adm-insert above,
+   which is a single full-width button reused by guide admonitions. */
+.mb-cap-insert {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  position: relative;
+}
+.mb-cap-insert::before {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px;
+  top: 50%;
+  border-top: 1px dashed color-mix(in srgb, var(--mb-text-muted) 30%, transparent);
+  transition: border-color 0.2s ease;
+}
+.mb-cap-insert__pill {
+  appearance: none;
+  position: relative;
+  opacity: 0;
+  transform: scale(0.96);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--mb-text-muted);
+  background: var(--mb-bg);
+  border: 1px dashed color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
+  border-radius: 999px;
+  padding: 3px 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+  pointer-events: none;
+}
+.mb-cap-insert:hover::before,
+.mb-cap-insert:focus-within::before {
+  border-top-color: color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
+}
+.mb-cap-insert:hover .mb-cap-insert__pill,
+.mb-cap-insert:focus-within .mb-cap-insert__pill {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.mb-cap-insert__pill:hover,
+.mb-cap-insert__pill:focus-visible {
+  outline: none;
+  color: var(--mb-text);
+  border-color: color-mix(in srgb, var(--mb-text-muted) 80%, transparent);
+  background: color-mix(in srgb, var(--mb-text-muted) 6%, var(--mb-bg));
+}
+.mb-cap-insert__pill:active {
+  transform: scale(0.98);
+}
+
+.mb-adm-empty-group {
+  display: flex;
+  gap: 10px;
+}
+.mb-adm-empty-group .mb-adm-empty {
+  width: auto;
+  flex: 1;
+}
 .mb-adm-empty {
   appearance: none;
   width: 100%;

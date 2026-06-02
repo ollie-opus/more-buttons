@@ -79,9 +79,20 @@ function buildNodes(blobs) {
   return dirToNodes(root);
 }
 
-export async function openCaptureLibrary() {
-  const { formEl } = await createForm('captureLibrary', openCaptureLibrary);
+export async function openCaptureLibrary({ mode } = {}) {
+  const insertMode = mode === 'insert';
+  const opener = () => openCaptureLibrary({ mode });
+  const { formEl } = await createForm('captureLibrary', opener);
   if (!formEl) return;
+
+  // In insert mode the footer "Add a new capture" routes to the standalone
+  // save-to-library flow (which returns to the library, not to the form we
+  // came from), so hide it. form.js moves form-actions onto the parent wrapper.
+  if (insertMode) {
+    (formEl.parentElement ?? formEl)
+      .querySelector('[data-action="startLibraryCapture"]')
+      ?.style.setProperty('display', 'none');
+  }
 
   const panel = formEl.querySelector('[data-capture-library-panel]');
   if (!panel) return;
@@ -117,7 +128,7 @@ export async function openCaptureLibrary() {
     const darkPath = fileEl.dataset.captureDark;
     const label = fileEl.dataset.captureBase;
     if (!lightPath) return; // no light file to preview/override
-    getFormAction('openCaptureEntry')?.({ lightPath, darkPath, label });
+    getFormAction('openCaptureEntry')?.({ lightPath, darkPath, label, mode });
   });
 }
 

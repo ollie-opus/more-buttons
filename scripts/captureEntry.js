@@ -3,13 +3,14 @@ import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
 import { captureCard, captureGrid } from './captureCards.js';
-import { registerFormAction } from './formActions.js';
+import { registerFormAction, getFormAction } from './formActions.js';
 
 // lightPath / darkPath are repo-relative paths like "docs/assets/occ-captures/foo-light-mode.png"
-export async function openCaptureEntry({ lightPath, darkPath, label } = {}) {
+export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}) {
   if (!lightPath) return;
 
-  const opener = () => openCaptureEntry({ lightPath, darkPath, label });
+  const insertMode = mode === 'insert';
+  const opener = () => openCaptureEntry({ lightPath, darkPath, label, mode });
   const { formEl, overlay } = await createForm('captureEntry', opener);
   if (!formEl) return;
 
@@ -47,7 +48,24 @@ export async function openCaptureEntry({ lightPath, darkPath, label } = {}) {
       captureCard({ theme: 'light', title: 'Light mode', src: lightObjectUrl, alt: label ?? 'light mode' }),
       captureCard({ theme: 'dark', title: 'Dark mode', src: darkObjectUrl, alt: `${label ?? 'capture'} (dark)` }),
     ]);
-    actionsEl.innerHTML = `<button type="button" class="more-buttons-button" data-capture-entry-override>Recapture</button>`;
+    actionsEl.innerHTML = insertMode
+      ? `<button type="button" class="more-buttons-button" data-capture-entry-insert>Insert this capture</button>`
+      : `<button type="button" class="more-buttons-button" data-capture-entry-override>Recapture</button>`;
+  }
+
+  // Insert mode: reference the existing library asset (no upload). Strip the
+  // repo "docs/assets/" prefix so the filename matches what buildCaptureLines
+  // expects, then hand off to captures.js to splice it into the origin form.
+  function insertIntoForm() {
+    const STRIP = 'docs/assets/';
+    const stripPrefix = (p) => (p.startsWith(STRIP) ? p.slice(STRIP.length) : p);
+    const lightFilename = stripPrefix(lightPath);
+    const darkFilename = darkPath
+      ? stripPrefix(darkPath)
+      : lightFilename.replace('-light-mode', '-dark-mode');
+    getFormAction('completeLibraryInsert')?.({
+      capture: { lightFilename, darkFilename, dimMode: 'none', dimValue: null },
+    });
   }
 
   function renderCompare() {
@@ -122,7 +140,9 @@ export async function openCaptureEntry({ lightPath, darkPath, label } = {}) {
   // form.js moves .more-buttons-form-actions out of <form> into the content
   // wrapper, so listen on the parent to catch action-button clicks.
   (formEl.parentElement ?? formEl).addEventListener('click', (e) => {
-    if (e.target.closest('[data-capture-entry-override]')) {
+    if (e.target.closest('[data-capture-entry-insert]')) {
+      insertIntoForm();
+    } else if (e.target.closest('[data-capture-entry-override]')) {
       startOverride();
     } else if (e.target.closest('[data-capture-entry-save]')) {
       saveChanges();
