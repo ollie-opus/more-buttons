@@ -8,6 +8,8 @@
 
 **Tech Stack:** Vanilla ES modules (Chrome extension), GitHub Contents API via `repoClient.js`/`github.js`, Node's built-in `node:assert` test runner (`.test.mjs` files run with `node`).
 
+**Execution mode:** Subagent-Driven — use superpowers:subagent-driven-development. Dispatch a fresh subagent per task, two-stage review between tasks. Tasks 1–3 are pure TDD logic; Tasks 4–8 are DOM/network changes verified manually against the live `opus-knowledge-base` repo (use a throwaway guide title for any live-write verification so nothing real is clobbered).
+
 ---
 
 ## File Structure
