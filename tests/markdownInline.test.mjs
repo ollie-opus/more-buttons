@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseInline, renderMarkdown } from '../scripts/markdownInline.js';
+import { parseInline, renderMarkdown, renderHtml } from '../scripts/markdownInline.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -108,6 +108,23 @@ test('parse is idempotent', () => {
   const once = parseInline('**a*b*** plain');
   const twice = parseInline(renderMarkdown(once));
   assert.deepEqual(twice, once);
+});
+test('renderHtml escapes HTML in text', () => {
+  assert.equal(renderHtml([{ type: 'text', value: 'a < b & c > d' }]), 'a &lt; b &amp; c &gt; d');
+});
+test('renderHtml maps marks to tags', () => {
+  assert.equal(renderHtml(parseInline('**b** *i* ^^u^^ ~~s~~ ==h==')),
+    '<strong>b</strong> <em>i</em> <u>u</u> <s>s</s> <mark>h</mark>');
+});
+test('renderHtml link escapes href quotes', () => {
+  assert.equal(renderHtml([{ type: 'link', href: 'http://x?a="b"', children: [{ type: 'text', value: 'go' }] }]),
+    '<a href="http://x?a=&quot;b&quot;">go</a>');
+});
+test('renderHtml maps newlines to <br>', () => {
+  assert.equal(renderHtml([{ type: 'text', value: 'a\nb' }]), 'a<br>b');
+});
+test('renderHtml preserves literal markdown-looking HTML as escaped text', () => {
+  assert.equal(renderHtml([{ type: 'text', value: '<div>raw</div>' }]), '&lt;div&gt;raw&lt;/div&gt;');
 });
 
 console.log(`\n${passed} passed`);

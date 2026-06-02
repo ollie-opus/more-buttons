@@ -103,3 +103,27 @@ export function renderMarkdown(nodes) {
     return d + renderMarkdown(n.children) + d;
   }).join('');
 }
+
+const TAG = {
+  strong: 'strong',
+  em: 'em',
+  underline: 'u',
+  strike: 's',
+  highlight: 'mark',
+};
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/"/g, '&quot;');
+}
+
+export function renderHtml(nodes) {
+  return nodes.map(n => {
+    if (n.type === 'text') return escapeHtml(n.value).replace(/\n/g, '<br>');
+    if (n.type === 'link') return `<a href="${escapeAttr(n.href)}">${renderHtml(n.children)}</a>`;
+    return `<${TAG[n.type]}>${renderHtml(n.children)}</${TAG[n.type]}>`;
+  }).join('');
+}
