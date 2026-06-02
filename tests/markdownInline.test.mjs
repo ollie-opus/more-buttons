@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseInline } from '../scripts/markdownInline.js';
+import { parseInline, renderMarkdown } from '../scripts/markdownInline.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -73,6 +73,41 @@ test('unsupported block markdown passes through', () => {
 });
 test('newlines preserved in text', () => {
   assert.deepEqual(parseInline('a\nb'), [{ type: 'text', value: 'a\nb' }]);
+});
+
+test('renderMarkdown of text', () => {
+  assert.equal(renderMarkdown([{ type: 'text', value: 'hi' }]), 'hi');
+});
+test('renderMarkdown of each mark', () => {
+  assert.equal(renderMarkdown([{ type: 'strong', children: [{ type: 'text', value: 'x' }] }]), '**x**');
+  assert.equal(renderMarkdown([{ type: 'em', children: [{ type: 'text', value: 'x' }] }]), '*x*');
+  assert.equal(renderMarkdown([{ type: 'underline', children: [{ type: 'text', value: 'x' }] }]), '^^x^^');
+  assert.equal(renderMarkdown([{ type: 'strike', children: [{ type: 'text', value: 'x' }] }]), '~~x~~');
+  assert.equal(renderMarkdown([{ type: 'highlight', children: [{ type: 'text', value: 'x' }] }]), '==x==');
+});
+test('renderMarkdown of link', () => {
+  assert.equal(renderMarkdown([{ type: 'link', href: 'http://x', children: [{ type: 'text', value: 'go' }] }]), '[go](http://x)');
+});
+test('round-trip: renderMarkdown(parseInline(md)) === md', () => {
+  for (const md of [
+    'plain text',
+    '**bold** and *italic*',
+    '^^under^^ ~~strike~~ ==hi==',
+    '**a*b***',
+    '[go](http://x)',
+    'a ** b',
+    '****',
+    '- item\n- two',
+    'some_var_name',
+    'line one\nline two',
+  ]) {
+    assert.equal(renderMarkdown(parseInline(md)), md, `failed for: ${JSON.stringify(md)}`);
+  }
+});
+test('parse is idempotent', () => {
+  const once = parseInline('**a*b*** plain');
+  const twice = parseInline(renderMarkdown(once));
+  assert.deepEqual(twice, once);
 });
 
 console.log(`\n${passed} passed`);

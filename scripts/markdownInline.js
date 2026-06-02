@@ -86,3 +86,20 @@ export function parseInline(text) {
   flush();
   return nodes;
 }
+
+const MARK_DELIM = {
+  strong: '**',
+  em: '*',
+  underline: '^^',
+  strike: '~~',
+  highlight: '==',
+};
+
+export function renderMarkdown(nodes) {
+  return nodes.map(n => {
+    if (n.type === 'text') return n.value;
+    if (n.type === 'link') return `[${renderMarkdown(n.children)}](${n.href})`;
+    const d = MARK_DELIM[n.type];
+    return d + renderMarkdown(n.children) + d;
+  }).join('');
+}
