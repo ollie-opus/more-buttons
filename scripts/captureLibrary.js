@@ -1,4 +1,5 @@
-import { createForm } from './form.js';
+import { createForm, snapshotFormStack } from './form.js';
+import { enterCaptureMode } from './captureMode.js';
 import { REPO, authHeader } from './repoClient.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { getFormAction, registerFormAction } from './formActions.js';
@@ -121,3 +122,32 @@ export async function openCaptureLibrary() {
 }
 
 registerFormAction('openCaptureLibrary', openCaptureLibrary);
+
+// "Add a new capture": one-shot Capture Mode → new-capture preview → Save to Library.
+registerFormAction('startLibraryCapture', ({ overlay }) => {
+  const formStackSnapshot = snapshotFormStack();
+  overlay.style.display = 'none';
+  const prevBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = '';
+
+  enterCaptureMode({
+    saveTarget: 'session',
+    maxCaptures: 1,
+    formStackSnapshot,
+    returnTo: {
+      onComplete: (buffer) => {
+        if (!buffer.length) {
+          // User exited capture mode without a shot — restore the library.
+          if (overlay.isConnected) {
+            overlay.style.display = '';
+            document.body.style.overflow = prevBodyOverflow;
+          }
+          return;
+        }
+        // Hand the single capture to the preview page. createForm there tears
+        // down this (hidden) library overlay and pushes a new history entry.
+        getFormAction('openCaptureNew')?.({ capture: buffer[0] });
+      },
+    },
+  });
+});

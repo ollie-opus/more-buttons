@@ -9,6 +9,7 @@ import './systemUpdates.js';
 import './guides.js';
 import './captureLibrary.js';
 import './captureEntry.js';
+import './captureNew.js';
 import './integrations.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';
