@@ -81,3 +81,55 @@ export function replaceNavBlock(tomlText, key, items) {
   }
   return tomlText.slice(0, start) + serialized + tomlText.slice(end + 1);
 }
+
+// Walk/create the section hierarchy for `segments`, then insert or replace the
+// leaf {leafName: value} at the deepest level. Matches existing sections by
+// slug; creates missing ones with a title-cased display name. Mutates + returns.
+// Note: the existing-leaf check is scoped to the deepest section only. If `value`
+// may already exist elsewhere in the tree, call removeByValue first to avoid a duplicate.
+export function insertPath(nodes, segments, leafName, value) {
+  let level = nodes;
+  for (const seg of segments) {
+    const segSlug = slugify(seg);
+    let section = level.find(n => n.children && slugify(n.name) === segSlug);
+    if (!section) {
+      section = { name: titleCaseSegment(segSlug), children: [] };
+      level.push(section);
+    }
+    level = section.children;
+  }
+  const existing = level.find(n => n.value !== undefined && n.value === value);
+  if (existing) existing.name = leafName;
+  else level.push({ name: leafName, value });
+  return nodes;
+}
+
+// Remove ALL leaves whose value === value; prune sections left empty. Mutates + returns.
+export function removeByValue(nodes, value) {
+  const recurse = (level) => {
+    for (let i = level.length - 1; i >= 0; i--) {
+      const n = level[i];
+      if (n.children) {
+        recurse(n.children);
+        if (n.children.length === 0) level.splice(i, 1);
+      } else if (n.value === value) {
+        level.splice(i, 1);
+      }
+    }
+  };
+  recurse(nodes);
+  return nodes;
+}
+
+// Locate a leaf by value; return { segments (slugs), leafName } or null.
+export function findPathOfValue(nodes, value, trail = []) {
+  for (const n of nodes) {
+    if (n.children) {
+      const found = findPathOfValue(n.children, value, [...trail, slugify(n.name)]);
+      if (found) return found;
+    } else if (n.value === value) {
+      return { segments: trail, leafName: n.name };
+    }
+  }
+  return null;
+}

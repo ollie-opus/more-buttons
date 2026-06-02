@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { slugify, titleCaseSegment, parseNavBlock, serializeNav, replaceNavBlock } from '../scripts/navToml.js';
+import { slugify, titleCaseSegment, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue } from '../scripts/navToml.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -76,6 +76,65 @@ test('replaceNavBlock appends an absent block', () => {
   const out = replaceNavBlock(base, 'draft_nav', [{ name: 'A', value: 'pages/a.md' }]);
   assert.ok(out.includes('draft_nav = ['));
   assert.equal(parseNavBlock(out, 'draft_nav').items[0].value, 'pages/a.md');
+});
+
+test('insertPath merges into existing section matched by slug', () => {
+  const items = [{ name: 'Guides', children: [{ name: 'Employees', children: [] }] }];
+  insertPath(items, ['guides', 'employees'], 'Registering an employee', 'pages/registering-an-employee.md');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].children.length, 1);
+  assert.equal(items[0].children[0].children[0].value, 'pages/registering-an-employee.md');
+});
+test('insertPath creates missing sections with title-cased names', () => {
+  const items = [];
+  insertPath(items, ['guides', 'annual-reports'], 'Q1', 'pages/q1.md');
+  assert.equal(items[0].name, 'Guides');
+  assert.equal(items[0].children[0].name, 'Annual Reports');
+  assert.equal(items[0].children[0].children[0].value, 'pages/q1.md');
+});
+test('insertPath with empty segments adds a root leaf', () => {
+  const items = [];
+  insertPath(items, [], 'Top', 'pages/top.md');
+  assert.deepEqual(items, [{ name: 'Top', value: 'pages/top.md' }]);
+});
+test('insertPath replaces an existing leaf by value', () => {
+  const items = [{ name: 'Old name', value: 'pages/x.md' }];
+  insertPath(items, [], 'New name', 'pages/x.md');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, 'New name');
+});
+test('removeByValue removes leaf and prunes empty parents', () => {
+  const items = [{ name: 'Guides', children: [{ name: 'Employees', children: [{ name: 'R', value: 'pages/r.md' }] }] }];
+  removeByValue(items, 'pages/r.md');
+  assert.deepEqual(items, []);
+});
+test('removeByValue keeps siblings', () => {
+  const items = [{ name: 'G', children: [{ name: 'A', value: 'pages/a.md' }, { name: 'B', value: 'pages/b.md' }] }];
+  removeByValue(items, 'pages/a.md');
+  assert.equal(items[0].children.length, 1);
+  assert.equal(items[0].children[0].value, 'pages/b.md');
+});
+test('findPathOfValue returns segments and leaf name', () => {
+  const items = [{ name: 'Guides', children: [{ name: 'Employees', children: [{ name: 'R', value: 'pages/r.md' }] }] }];
+  assert.deepEqual(findPathOfValue(items, 'pages/r.md'), { segments: ['guides', 'employees'], leafName: 'R' });
+});
+test('findPathOfValue returns null when absent', () => {
+  assert.equal(findPathOfValue([], 'pages/none.md'), null);
+});
+
+test('insertPath under a different path leaves the original (caller must removeByValue first)', () => {
+  const items = [{ name: 'A', children: [{ name: 'Leaf', value: 'pages/x.md' }] }];
+  insertPath(items, ['b'], 'Leaf', 'pages/x.md');
+  // Not de-duplicated across paths: both the original and the new leaf exist.
+  assert.equal(items.length, 2);
+  assert.equal(items[0].children[0].value, 'pages/x.md');
+  assert.equal(items[1].name, 'B');
+  assert.equal(items[1].children[0].value, 'pages/x.md');
+});
+test('removeByValue removes all leaves sharing a value', () => {
+  const items = [{ name: 'A', value: 'pages/x.md' }, { name: 'B', value: 'pages/x.md' }];
+  removeByValue(items, 'pages/x.md');
+  assert.deepEqual(items, []);
 });
 
 console.log(`\n${passed} passed`);
