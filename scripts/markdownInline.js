@@ -127,3 +127,47 @@ export function renderHtml(nodes) {
     return `<${TAG[n.type]}>${renderHtml(n.children)}</${TAG[n.type]}>`;
   }).join('');
 }
+
+// Maps editor element tag names back to AST mark types. Includes the synonyms a
+// browser may produce (b/i, del/strike) even though we only ever emit the canonical
+// tags from renderHtml.
+const TAG_TO_TYPE = {
+  strong: 'strong', b: 'strong',
+  em: 'em', i: 'em',
+  u: 'underline',
+  s: 'strike', strike: 'strike', del: 'strike',
+  mark: 'highlight',
+};
+
+export function domToNodes(root) {
+  const out = [];
+  root.childNodes.forEach(child => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      if (child.nodeValue) out.push({ type: 'text', value: child.nodeValue });
+      return;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) return;
+
+    const tag = child.tagName.toLowerCase();
+    if (tag === 'br') { out.push({ type: 'text', value: '\n' }); return; }
+
+    const markType = TAG_TO_TYPE[tag];
+    if (markType) { out.push({ type: markType, children: domToNodes(child) }); return; }
+
+    if (tag === 'a') {
+      out.push({ type: 'link', href: child.getAttribute('href') || '', children: [{ type: 'text', value: child.textContent }] });
+      return;
+    }
+
+    if (tag === 'div' || tag === 'p') {
+      // contenteditable wraps subsequent lines in block elements — treat as newline boundaries.
+      if (out.length) out.push({ type: 'text', value: '\n' });
+      out.push(...domToNodes(child));
+      return;
+    }
+
+    // Unknown element (e.g. pasted span) → unwrap to its contents.
+    out.push(...domToNodes(child));
+  });
+  return out;
+}
