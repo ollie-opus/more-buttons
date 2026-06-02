@@ -2,6 +2,7 @@ import { createForm, snapshotFormStack } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
+import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
 
 // lightPath / darkPath are repo-relative paths like "docs/assets/occ-captures/foo-light-mode.png"
@@ -41,38 +42,22 @@ export async function openCaptureEntry({ lightPath, darkPath, label } = {}) {
 
   let pendingCapture = null; // { lightDataUrl, darkDataUrl }
 
-  function themeCard(theme, title, src, alt) {
-    if (!src) return '';
-    return `
-      <figure class="mb-capture-card mb-capture-card--${theme}">
-        <figcaption class="mb-capture-card__title">${title}</figcaption>
-        <div class="mb-capture-card__image-wrap">
-          <img class="mb-capture-card__img" src="${src}" alt="${alt}">
-        </div>
-      </figure>
-    `;
-  }
-
   function renderPreview() {
-    bodyEl.innerHTML = `
-      <div class="mb-capture-entry-grid">
-        ${themeCard('light', 'Light mode', lightObjectUrl, label ?? 'light mode')}
-        ${themeCard('dark', 'Dark mode', darkObjectUrl, `${label ?? 'capture'} (dark)`)}
-      </div>
-    `;
+    bodyEl.innerHTML = captureGrid([
+      captureCard({ theme: 'light', title: 'Light mode', src: lightObjectUrl, alt: label ?? 'light mode' }),
+      captureCard({ theme: 'dark', title: 'Dark mode', src: darkObjectUrl, alt: `${label ?? 'capture'} (dark)` }),
+    ]);
     actionsEl.innerHTML = `<button type="button" class="more-buttons-button" data-capture-entry-override>Recapture</button>`;
   }
 
   function renderCompare() {
     if (!pendingCapture) return;
-    bodyEl.innerHTML = `
-      <div class="mb-capture-entry-grid">
-        ${themeCard('light', 'Light mode (Old)', lightObjectUrl, 'old light mode')}
-        ${themeCard('dark', 'Dark mode (Old)', darkObjectUrl, 'old dark mode')}
-        ${themeCard('light', 'Light mode (New)', pendingCapture.lightDataUrl, 'new light mode')}
-        ${themeCard('dark', 'Dark mode (New)', pendingCapture.darkDataUrl, 'new dark mode')}
-      </div>
-    `;
+    bodyEl.innerHTML = captureGrid([
+      captureCard({ theme: 'light', title: 'Light mode (Old)', src: lightObjectUrl, alt: 'old light mode' }),
+      captureCard({ theme: 'dark', title: 'Dark mode (Old)', src: darkObjectUrl, alt: 'old dark mode' }),
+      captureCard({ theme: 'light', title: 'Light mode (New)', src: pendingCapture.lightDataUrl, alt: 'new light mode' }),
+      captureCard({ theme: 'dark', title: 'Dark mode (New)', src: pendingCapture.darkDataUrl, alt: 'new dark mode' }),
+    ]);
     actionsEl.innerHTML = `
       <span class="more-buttons-description" data-capture-entry-status hidden></span>
       <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel>Cancel</button>
