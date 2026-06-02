@@ -2,6 +2,7 @@ import { getFormAction, currentOpener, currentInvocationDescriptor } from './for
 import { readRepoText } from './repoClient.js';
 import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
+import { upgradeTextarea } from './richTextEditor.js';
 
 // Render-function contract for renderFns:
 // - Signature: (initialMarkdown, panel). `initialMarkdown` is the freshly-read
@@ -964,6 +965,11 @@ export async function createForm(formName, opener) {
     formEl.querySelectorAll('[data-maxlength]').forEach(input => {
       input._updateCounter?.();
     });
+
+    // Upgrade opted-in Description textareas to the rich-text editor. Runs here,
+    // after hydration set textarea.value, and before the dirty-guard snapshot so
+    // the snapshot still sees the original markdown (no false-dirty).
+    formEl.querySelectorAll('textarea[data-richtext]').forEach(upgradeTextarea);
 
     // Snapshot baseline for dirty-guard forms after hydration completes so
     // later edits can be detected when the user tries to navigate away.
