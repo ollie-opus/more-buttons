@@ -2203,7 +2203,7 @@ details[open] .more-buttons-advanced-toggle::before {
   text-transform: uppercase;
   line-height: 1.4;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: 4px;
   white-space: nowrap;
   /* Tinted fill + accent border, with text mixed toward the theme's text
      colour so it stays legible in both light and dark mode. Same colour
