@@ -16,7 +16,7 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, confirmDiscardIfDirty } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
-import { parseNavBlock, replaceNavBlock, insertPath, slugify } from './navToml.js';
+import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
 import {
   ensureSectionUUIDs, parseSections, buildSectionTree,
   insertSectionUnderParent, moveSectionToParent, deleteSectionByUUID,
@@ -83,6 +83,11 @@ function draftPathOf(livePath) {
 // Title from a path's filename, e.g., 'pages/adding-a-new-employee.md' → 'adding-a-new-employee'
 function guideBaseName(livePath) {
   return livePath.split('/').pop().replace(/\.md$/, '');
+}
+
+// Nav leaf value for the current guide, e.g. 'pages/foo.md' (drops leading docs/).
+function navValueOf(livePath) {
+  return livePath.replace(/^docs\//, '');
 }
 
 // ── Entry form: open + re-render ──────────────────────────────────────────────
@@ -230,6 +235,17 @@ async function createGuideDraft(formEl) {
     );
 
     await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, () => migrated);
+    // Mirror the page's nav location into draft_nav so it shows a Drafting pill.
+    if (btn) btn.textContent = 'Updating navigation…';
+    const value = navValueOf(currentGuide.livePath);
+    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+      const navItems = parseNavBlock(md, 'nav').items;
+      const draftItems = parseNavBlock(md, 'draft_nav').items;
+      removeByValue(draftItems, value);
+      const loc = findPathOfValue(navItems, value);
+      insertPath(draftItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), value);
+      return replaceNavBlock(md, 'draft_nav', draftItems);
+    });
     await renderGuideEntryContent(formEl);
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
@@ -255,6 +271,21 @@ async function publishGuideDraft(formEl) {
     await githubFetchAndPushFile(currentGuide.livePath, s => { if (btn) btn.textContent = s; }, () => draftMarkdown);
     if (btn) btn.textContent = 'Deleting draft…';
     await githubDeleteFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; });
+    // Promote into nav (mirroring its draft_nav location) and drop from draft_nav.
+    if (btn) btn.textContent = 'Updating navigation…';
+    const value = navValueOf(currentGuide.livePath);
+    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+      const navItems = parseNavBlock(md, 'nav').items;
+      const draftItems = parseNavBlock(md, 'draft_nav').items;
+      const loc = findPathOfValue(draftItems, value);
+      if (!findPathOfValue(navItems, value)) {
+        insertPath(navItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), value);
+      }
+      removeByValue(draftItems, value);
+      let out = replaceNavBlock(md, 'nav', navItems);
+      out = replaceNavBlock(out, 'draft_nav', draftItems);
+      return out;
+    });
     await renderGuideEntryContent(formEl);
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
@@ -271,6 +302,13 @@ async function discardGuideDraft(formEl) {
 
   try {
     await githubDeleteFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; });
+    if (btn) btn.textContent = 'Updating navigation…';
+    const value = navValueOf(currentGuide.livePath);
+    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+      const draftItems = parseNavBlock(md, 'draft_nav').items;
+      removeByValue(draftItems, value);
+      return replaceNavBlock(md, 'draft_nav', draftItems);
+    });
     await renderGuideEntryContent(formEl);
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
