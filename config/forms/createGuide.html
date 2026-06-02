@@ -1,0 +1,20 @@
+<form data-nav id="create-guide-form" data-storage-key="moreButtonsCreateGuide" data-width="90vw" data-height="90vh">
+  <h2>Create a new guide</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Title</label>
+    <input type="text" name="guideTitle" required placeholder="Registering an employee" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Path</label>
+    <div class="mb-path-field">
+      <input type="text" name="guidePath" placeholder="guides/employees" />
+      <span class="mb-path-suffix" data-path-suffix>/…md</span>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="submitCreateGuide" data-validate>Create draft</button>
+  </div>
+</form>

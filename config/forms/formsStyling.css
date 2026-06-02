@@ -2333,3 +2333,39 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-rte__popover-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .mb-rte__popover-btn { padding: 5px 12px; border: 1px solid var(--mb-border); border-radius: 6px; background: transparent; color: var(--mb-text); cursor: pointer; }
 .mb-rte__popover-btn.--primary { background-color: #3b82f6; border-color: #3b82f6; color: #fff; }
+
+/* ── Create-guide path field ──────────────────────────────────────────────── */
+.mb-path-field {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background-color: var(--mb-bg-input);
+  overflow: hidden;
+}
+.mb-path-field:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+.more-buttons-overlay-content .mb-path-field input[type="text"] {
+  flex: 1 1 auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  min-width: 0;
+}
+.more-buttons-overlay-content .mb-path-field input[type="text"]:focus {
+  border: none;
+  box-shadow: none;
+}
+.mb-path-suffix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  white-space: nowrap;
+  color: var(--mb-text-placeholder);
+  font-size: 0.875rem;
+  background-color: var(--mb-bg-input);
+  border-left: 1px dashed var(--mb-border);
+}
