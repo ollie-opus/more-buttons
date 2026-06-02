@@ -131,6 +131,10 @@ export async function openKnowledgeBaseManagement() {
         await getFormAction('openCaptureLibrary')?.();
         return;
       }
+      if (e.target.closest('[data-kb-create-guide]')) {
+        await getFormAction('openCreateGuide')?.();
+        return;
+      }
       const sectionRow = e.target.closest('[data-kb-section]');
       if (sectionRow) {
         sectionRow.closest('.mb-kb-node')?.classList.toggle('--collapsed');

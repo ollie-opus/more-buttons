@@ -16,6 +16,7 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, confirmDiscardIfDirty } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
+import { parseNavBlock, replaceNavBlock, insertPath, slugify } from './navToml.js';
 import {
   ensureSectionUUIDs, parseSections, buildSectionTree,
   insertSectionUnderParent, moveSectionToParent, deleteSectionByUUID,
@@ -276,6 +277,91 @@ async function discardGuideDraft(formEl) {
     alert('Failed to discard draft: ' + e.message);
   }
 }
+
+// ── Create a brand-new guide ────────────────────────────────────────────────
+
+registerFormAction('openCreateGuide', async () => {
+  if (!isFormReplay()) {
+    await chrome.storage.local.set({
+      moreButtonsCreateGuide: { guideTitle: '', guidePath: '' },
+    });
+  }
+  const { formEl } = await createForm('createGuide');
+  if (!formEl) return;
+
+  const suffix = formEl.querySelector('[data-path-suffix]');
+  const titleInput = formEl.querySelector('[name="guideTitle"]');
+  const renderSuffix = () => {
+    const slug = slugify(titleInput?.value ?? '');
+    if (suffix) suffix.textContent = slug ? `/${slug}.md` : '/…md';
+  };
+  formEl.addEventListener('input', e => {
+    if (e.target.name === 'guideTitle') renderSuffix();
+  });
+  renderSuffix();
+});
+
+registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
+  const btn = content.querySelector('[data-action="submitCreateGuide"]');
+  const originalText = btn?.textContent;
+  const title = formEl.querySelector('[name="guideTitle"]')?.value.trim() ?? '';
+  const pathRaw = formEl.querySelector('[name="guidePath"]')?.value ?? '';
+  const slug = slugify(title);
+  if (!slug) { alert('Please enter a title.'); return; }
+
+  const segments = pathRaw.split('/').map(s => s.trim()).filter(Boolean);
+  const value = `pages/${slug}.md`;
+  const draftPath = `docs/drafts/${slug}.md`;
+
+  let draftWritten = false;
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  try {
+    // Conflict check: a flat-by-slug file may already be live (in nav) or a draft.
+    const tomlText = await readRepoText('zensical.toml');
+    const nav = parseNavBlock(tomlText, 'nav').items;
+    const liveValues = new Set();
+    (function collect(nodes) {
+      for (const n of nodes) { if (n.children) collect(n.children); else liveValues.add(n.value); }
+    })(nav);
+    if (liveValues.has(value)) {
+      alert(`A live page with the name "${slug}.md" already exists.`);
+      if (btn) { btn.disabled = false; btn.textContent = originalText; }
+      return;
+    }
+    const existingDraft = await readRepoText(draftPath);
+    if (existingDraft) {
+      alert(`A draft named "${slug}.md" already exists. Choose a different title.`);
+      if (btn) { btn.disabled = false; btn.textContent = originalText; }
+      return;
+    }
+
+    // Write the draft file (H1 = title, UUID span injected so the tree renders).
+    if (btn) btn.textContent = 'Creating draft…';
+    await githubFetchAndPushFile(draftPath, s => { if (btn) btn.textContent = s; },
+      () => ensureSectionUUIDs(`# ${title}\n`));
+    draftWritten = true;
+
+    // Add to draft_nav.
+    if (btn) btn.textContent = 'Updating navigation…';
+    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+      const items = parseNavBlock(md, 'draft_nav').items;
+      insertPath(items, segments, title, value);
+      return replaceNavBlock(md, 'draft_nav', items);
+    });
+
+    await chrome.storage.local.remove('moreButtonsCreateGuide');
+    // Behave like an open draft from here on.
+    await getFormAction('openGuideEntry')({ filePath: value, label: title });
+  } catch (e) {
+    if (draftWritten) {
+      // Roll back the orphaned draft file so the user isn't blocked from
+      // retrying (a draft file with no draft_nav entry is invisible + unrecoverable).
+      try { await githubDeleteFile(draftPath, () => {}); } catch { /* best-effort */ }
+    }
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    alert('Failed to create guide: ' + e.message);
+  }
+});
 
 // ── Section editor ────────────────────────────────────────────────────────────
 
