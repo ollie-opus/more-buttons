@@ -187,6 +187,15 @@ export function confirmDiscardIfDirty(formEl) {
   return confirm('You have unsaved changes that will be lost if you leave this page. Continue?');
 }
 
+// Re-establish the dirty-guard baseline to the form's current values. Call
+// after an in-place save that keeps the form mounted (e.g. a create→edit
+// transition) so the just-saved values aren't reported as unsaved changes.
+export function resetDirtyBaseline(formEl) {
+  if (formEl?.hasAttribute?.('data-dirty-guard')) {
+    formEl._initialSnapshot = readFormValues(formEl);
+  }
+}
+
 function activeGuardedForm() {
   // The currently-mounted overlay form, if it opted into the dirty guard.
   const el = document.querySelector('.more-buttons-overlay form[data-dirty-guard]');

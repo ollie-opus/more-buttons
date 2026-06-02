@@ -13,7 +13,7 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, confirmDiscardIfDirty } from './form.js';
+import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, confirmDiscardIfDirty, resetDirtyBaseline } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
@@ -749,6 +749,9 @@ registerFormAction('submitEditGuideSection', async ({ formEl, content, cleanup }
       await chrome.storage.local.set({
         moreButtonsEditGuideSection: { sectionTitle: title, sectionDescription: description, sectionParent: parentUuid },
       });
+      // The section is now committed to the draft; re-baseline the dirty guard so
+      // these just-saved values aren't flagged as unsaved changes on leave.
+      resetDirtyBaseline(formEl);
       if (btn) { btn.disabled = false; btn.textContent = originalText; }
       return;
     }
