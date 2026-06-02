@@ -2,7 +2,7 @@ import { createForm } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { getFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
-import { parseNavBlock } from './navToml.js';
+import { parseNavBlock, slugify } from './navToml.js';
 
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 
@@ -10,18 +10,44 @@ const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 // drafted" — they never show the Drafting pill (Live only).
 const DRAFT_PILL_EXEMPT = new Set(['system-updates.md', 'system-status.md']);
 
-// Tag each tree leaf with Live / Drafting pills based on which repo folders the
-// page's file exists in. draftNames/liveNames are basename sets from
-// docs/drafts and docs/pages.
-function decorateKbPills(panel, draftNames, liveNames) {
+// Merge two lists of normalized nav nodes. Sections are merged by slug of their
+// display name (so nav "Guides" and draft_nav "Guides" combine); leaves are
+// unioned by value (first display name wins).
+function mergeNavNodes(listA, listB) {
+  const out = [];
+  for (const node of [...listA, ...listB]) {
+    if (node.children) {
+      const existing = out.find(n => n.children && slugify(n.name) === slugify(node.name));
+      if (existing) existing.children = mergeNavNodes(existing.children, node.children);
+      else out.push({ name: node.name, children: mergeNavNodes(node.children, []) });
+    } else if (!out.some(n => n.value === node.value)) {
+      out.push({ name: node.name, value: node.value });
+    }
+  }
+  return out;
+}
+
+// Collect every leaf value in a node list into `set`.
+function collectValues(nodes, set) {
+  for (const n of nodes) {
+    if (n.children) collectValues(n.children, set);
+    else set.add(n.value);
+  }
+  return set;
+}
+
+// Tag each tree leaf with Live / Drafting pills. navFiles/draftFiles are sets of
+// nav leaf *values* (e.g. "pages/foo.md"), so no folder listing is needed.
+function decorateKbPills(panel, draftFiles, navFiles) {
   panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
-    const base = (leaf.dataset.kbFile || '').split('/').pop();
-    if (!base) return;
+    const file = leaf.dataset.kbFile || '';
+    const base = file.split('/').pop();
+    if (!file) return;
     const pills = [];
-    if (!DRAFT_PILL_EXEMPT.has(base) && draftNames.has(base)) {
+    if (!DRAFT_PILL_EXEMPT.has(base) && draftFiles.has(file)) {
       pills.push('<span class="mb-kb-pill --drafting">Drafting</span>');
     }
-    if (liveNames.has(base)) {
+    if (navFiles.has(file)) {
       pills.push('<span class="mb-kb-pill --live">Live</span>');
     }
     if (pills.length) {
@@ -60,34 +86,27 @@ export async function openKnowledgeBaseManagement() {
     if (systemPanel) systemPanel.innerHTML = '<p class="more-buttons-description">Loading…</p>';
 
     try {
-      // Nav defines the tree; the two folder listings tell us which pages have
-      // a draft (docs/drafts) and which are live (docs/pages). Listing each
-      // folder once avoids a request per page. Listing failures are non-fatal:
-      // the tree still renders, just without pills.
-      const [tomlText, draftNames, liveNames] = await Promise.all([
-        readRepoText('zensical.toml'),
-        readRepoDir('docs/drafts').catch(() => []),
-        readRepoDir('docs/pages').catch(() => []),
-      ]);
-      const nav = parseNav(tomlText);
-      const draftSet = new Set(draftNames);
-      const liveSet = new Set(liveNames);
+      // One fetch of zensical.toml drives everything: the tree is the union of
+      // nav (live) and draft_nav (in-progress), and pills come from membership
+      // in each set of leaf values — no per-folder listing needed.
+      const tomlText = await readRepoText('zensical.toml');
+      const nav = parseNavBlock(tomlText, 'nav').items;
+      const draftNav = parseNavBlock(tomlText, 'draft_nav').items;
+      const navFiles = collectValues(nav, new Set());
+      const draftFiles = collectValues(draftNav, new Set());
 
       if (livePanel) {
-        const liveItems = nav.filter(item =>
-          typeof item === 'object' && !EXCLUDED_SECTIONS.has(Object.keys(item)[0])
-        );
-        livePanel.innerHTML = renderKbHierarchy(liveItems);
-        decorateKbPills(livePanel, draftSet, liveSet);
+        const guideNav = nav.filter(n => !EXCLUDED_SECTIONS.has(n.name));
+        const merged = mergeNavNodes(guideNav, draftNav);
+        livePanel.innerHTML = renderKbHierarchy(merged);
+        decorateKbPills(livePanel, draftFiles, navFiles);
       }
 
       if (systemPanel) {
-        const systemEntry = nav.find(item =>
-          typeof item === 'object' && Object.keys(item)[0] === 'System'
-        );
+        const systemEntry = nav.find(n => n.name === 'System' && n.children);
         if (systemEntry) {
           systemPanel.innerHTML = renderKbHierarchy([systemEntry]);
-          decorateKbPills(systemPanel, draftSet, liveSet);
+          decorateKbPills(systemPanel, draftFiles, navFiles);
         } else {
           systemPanel.innerHTML = '<p class="more-buttons-description">No system pages found.</p>';
         }
