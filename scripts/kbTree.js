@@ -22,7 +22,7 @@ function renderNode(node) {
     return `<div class="mb-kb-node">
       <button class="mb-kb-node-row" type="button" data-kb-leaf ${attrPairs}>
         <span class="mb-kb-node-icon material-symbols-outlined">description</span>
-        ${escapeHtml(node.label)}
+        <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
       </button>
     </div>`;
   }
@@ -31,7 +31,7 @@ function renderNode(node) {
   return `<div class="mb-kb-node">
     <button class="mb-kb-node-row" type="button" data-kb-section>
       <span class="mb-kb-node-icon mb-kb-arrow material-symbols-outlined">chevron_right</span>
-      ${escapeHtml(node.label)}
+      <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
     </button>
     <div class="mb-kb-node-children">${childrenHtml}</div>
   </div>`;
@@ -56,7 +56,10 @@ export function applySearch(tree, query) {
   }
   tree.setAttribute('data-search-active', '');
   tree.querySelectorAll('[data-kb-leaf]').forEach(btn => {
-    if (btn.textContent.trim().toLowerCase().includes(q)) {
+    // Match the label only — decorations (e.g. pills) live in the row too but
+    // must not count toward search hits.
+    const label = (btn.querySelector('.mb-kb-node-label') ?? btn).textContent;
+    if (label.trim().toLowerCase().includes(q)) {
       let node = btn.closest('.mb-kb-node');
       while (node && tree.contains(node)) {
         node.classList.add('--search-match');

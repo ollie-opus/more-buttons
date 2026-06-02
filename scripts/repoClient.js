@@ -35,6 +35,23 @@ export async function readRepoText(path, { signal } = {}) {
   return res.text();
 }
 
+// List a directory's immediate entries via the contents API. Returns an array
+// of file/dir names (basenames). Returns [] if the directory does not exist
+// (404). Throws on other errors. One API request lists the whole folder, so
+// callers can membership-test many files without a request per file.
+export async function readRepoDir(path, { signal } = {}) {
+  const auth = await authHeader();
+  const res = await fetch(contentsApiUrl(path), {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github+json' },
+    cache: 'no-store',
+    signal,
+  });
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error('GitHub API error: ' + res.status);
+  const json = await res.json();
+  return Array.isArray(json) ? json.map(entry => entry.name) : [];
+}
+
 // Read a binary file via the contents API and return a Blob. Bypasses HTTP
 // caches and the raw.githubusercontent.com CDN (which has ~5min stale
 // windows after writes), so freshly-pushed assets read back immediately.

@@ -2178,6 +2178,44 @@ details[open] .more-buttons-advanced-toggle::before {
   pointer-events: none;
 }
 
+/* The label flex item takes the slack so trailing pills sit hard right */
+.mb-kb-node-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Knowledge Base status pills (Live / Drafting) ─────────────────────────── */
+
+.mb-kb-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mb-kb-pill {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  /* Tinted fill + accent border, with text mixed toward the theme's text
+     colour so it stays legible in both light and dark mode. Same colour
+     approach as the admonition cards. */
+  background: color-mix(in srgb, var(--mb-pill-accent) 18%, var(--mb-bg));
+  border: 1px solid color-mix(in srgb, var(--mb-pill-accent) 45%, transparent);
+  color: color-mix(in srgb, var(--mb-pill-accent) 70%, var(--mb-text));
+}
+
+.mb-kb-pill.--live     { --mb-pill-accent: rgb(102, 187, 106); }
+.mb-kb-pill.--drafting { --mb-pill-accent: rgb(255, 179, 0); }
+
 /* ── Knowledge Base Search ──────────────────────────────────────────────────── */
 
 .mb-kb-search {

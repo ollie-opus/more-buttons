@@ -1,9 +1,33 @@
 import { createForm } from './form.js';
-import { readRepoText } from './repoClient.js';
+import { readRepoText, readRepoDir } from './repoClient.js';
 import { getFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
 
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
+
+// Pages whose draft file is an internal workflow detail, not a "page being
+// drafted" — they never show the Drafting pill (Live only).
+const DRAFT_PILL_EXEMPT = new Set(['system-updates.md', 'system-status.md']);
+
+// Tag each tree leaf with Live / Drafting pills based on which repo folders the
+// page's file exists in. draftNames/liveNames are basename sets from
+// docs/drafts and docs/pages.
+function decorateKbPills(panel, draftNames, liveNames) {
+  panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
+    const base = (leaf.dataset.kbFile || '').split('/').pop();
+    if (!base) return;
+    const pills = [];
+    if (!DRAFT_PILL_EXEMPT.has(base) && draftNames.has(base)) {
+      pills.push('<span class="mb-kb-pill --drafting">Drafting</span>');
+    }
+    if (liveNames.has(base)) {
+      pills.push('<span class="mb-kb-pill --live">Live</span>');
+    }
+    if (pills.length) {
+      leaf.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills">${pills.join('')}</span>`);
+    }
+  });
+}
 
 function parseNav(tomlText) {
   const navIdx = tomlText.indexOf('nav');
@@ -72,23 +96,37 @@ export async function openKnowledgeBaseManagement() {
     if (systemPanel) systemPanel.innerHTML = '<p class="more-buttons-description">Loading…</p>';
 
     try {
-      const tomlText = await readRepoText('zensical.toml');
+      // Nav defines the tree; the two folder listings tell us which pages have
+      // a draft (docs/drafts) and which are live (docs/pages). Listing each
+      // folder once avoids a request per page. Listing failures are non-fatal:
+      // the tree still renders, just without pills.
+      const [tomlText, draftNames, liveNames] = await Promise.all([
+        readRepoText('zensical.toml'),
+        readRepoDir('docs/drafts').catch(() => []),
+        readRepoDir('docs/pages').catch(() => []),
+      ]);
       const nav = parseNav(tomlText);
+      const draftSet = new Set(draftNames);
+      const liveSet = new Set(liveNames);
 
       if (livePanel) {
         const liveItems = nav.filter(item =>
           typeof item === 'object' && !EXCLUDED_SECTIONS.has(Object.keys(item)[0])
         );
         livePanel.innerHTML = renderKbHierarchy(liveItems);
+        decorateKbPills(livePanel, draftSet, liveSet);
       }
 
       if (systemPanel) {
         const systemEntry = nav.find(item =>
           typeof item === 'object' && Object.keys(item)[0] === 'System'
         );
-        systemPanel.innerHTML = systemEntry
-          ? renderKbHierarchy([systemEntry])
-          : '<p class="more-buttons-description">No system pages found.</p>';
+        if (systemEntry) {
+          systemPanel.innerHTML = renderKbHierarchy([systemEntry]);
+          decorateKbPills(systemPanel, draftSet, liveSet);
+        } else {
+          systemPanel.innerHTML = '<p class="more-buttons-description">No system pages found.</p>';
+        }
       }
     } catch {
       if (livePanel) livePanel.innerHTML = '<p class="more-buttons-description">Failed to load articles.</p>';
