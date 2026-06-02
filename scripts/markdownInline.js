@@ -20,8 +20,15 @@ function matchDelim(text, i) {
   return null;
 }
 
+// Lazy first-match: the NEAREST closing marker wins. This keeps adjacent marks
+// independent — `*a* and *b*` parses as two separate emphases, not one spanning the
+// gap (which is what a greedy last-match would do, absorbing the text between).
+// Trade-off (v1 limitation): the shared-endpoint triple `**a*b***` parses as
+// strong["a*b"] + a literal "*" rather than nested strong>em. It still round-trips to
+// the same Markdown, so there is no data loss — only an in-editor rendering quirk for
+// that rare input.
 function findClosing(text, start, marker) {
-  for (let j = text.length - marker.length; j >= start; j--) {
+  for (let j = start; j <= text.length - marker.length; j++) {
     if (text.startsWith(marker, j)) return j;
   }
   return -1;
