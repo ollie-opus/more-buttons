@@ -59,7 +59,8 @@ export function injectAdmonitionUUID(body, uuid) {
  *
  * Header pattern matched per line (title is optional — MkDocs allows
  * `!!! step` for an auto-titled block, in addition to `!!! step "Title"`):
- *   /^(\s*)(\?\?\?|!!!) (<typeRegex source>)(?:\s+"(.*)")?\s*$/
+ *   /^(\s*)(\?\?\?\+?|!!!) (<typeRegex source>)(?:\s+"(.*)")?\s*$/
+ * (prefix is `???`, `???+`, or `!!!`)
  *
  * Body lines are those that start with (header-indent + 4 spaces) or are
  * blank lines within the block. The base-indent + 4-space prefix is stripped
@@ -78,7 +79,7 @@ export function injectAdmonitionUUID(body, uuid) {
 export function parseAdmonitions(markdown, typeRegex, { skipTabBlocks = false } = {}) {
   const lines = markdown.split('\n');
   const results = [];
-  const headerRe = new RegExp(`^(\\s*)(\\?\\?\\?|!!!) (${typeRegex.source})(?:\\s+"(.*)")?\\s*$`);
+  const headerRe = new RegExp(`^(\\s*)(\\?\\?\\?\\+?|!!!) (${typeRegex.source})(?:\\s+"(.*)")?\\s*$`);
   const tabRe = /^(\s*)=== "(.+)"\s*$/;
 
   let i = 0;
@@ -110,7 +111,7 @@ export function parseAdmonitions(markdown, typeRegex, { skipTabBlocks = false } 
     const m = lines[i].match(headerRe);
     if (m) {
       const indent = m[1];       // leading whitespace of the header line
-      const prefix = m[2];       // '???' or '!!!'
+      const prefix = m[2];       // '???', '???+' or '!!!'
       const type   = m[3];       // admonition type string
       const title  = m[4] ?? ''; // quoted title content (empty when title is omitted)
       const bodyIndent = indent + '    '; // 4 more spaces than header
@@ -168,7 +169,7 @@ export function parseAdmonitions(markdown, typeRegex, { skipTabBlocks = false } 
  *       ${body line 2}
  *       ...
  *
- * @param {string} prefix - '???' or '!!!'
+ * @param {string} prefix - '???', '???+' or '!!!'
  * @param {string} type   - Admonition type, e.g. 'feature-release'
  * @param {string} title  - Title string (unquoted). Empty string ⇒ no quoted title.
  * @param {string} body   - Body content with NO leading indent
@@ -255,7 +256,7 @@ function locateBlockByUUID(lines, uuid) {
   // 2. Walk UP from the UUID line to find the nearest ??? / !!! header line
   let headerLine = -1;
   for (let i = uuidLineIdx; i >= 0; i--) {
-    if (/^\s*(\?\?\?|!!!) /.test(lines[i])) {
+    if (/^\s*(\?\?\?\+?|!!!) /.test(lines[i])) {
       headerLine = i;
       break;
     }
