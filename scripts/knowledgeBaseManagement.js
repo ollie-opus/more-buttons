@@ -1,7 +1,8 @@
 import { createForm } from './form.js';
-import { readRepoText, readRepoDir } from './repoClient.js';
+import { readRepoText } from './repoClient.js';
 import { getFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
+import { parseNavBlock } from './navToml.js';
 
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 
@@ -29,58 +30,21 @@ function decorateKbPills(panel, draftNames, liveNames) {
   });
 }
 
-function parseNav(tomlText) {
-  const navIdx = tomlText.indexOf('nav');
-  if (navIdx === -1) return [];
-  const arrStart = tomlText.indexOf('[', navIdx);
-  if (arrStart === -1) return [];
-
-  let depth = 0, arrEnd = -1;
-  for (let i = arrStart; i < tomlText.length; i++) {
-    if (tomlText[i] === '[') depth++;
-    else if (tomlText[i] === ']') { depth--; if (depth === 0) { arrEnd = i; break; } }
-  }
-  if (arrEnd === -1) return [];
-
-  const arrStr = tomlText.slice(arrStart, arrEnd + 1);
-  // Convert TOML inline-table syntax to JSON: "key" = value → "key": value
-  const jsonStr = arrStr
-    .replace(/"(\s*=\s*)/g, '": ')
-    .replace(/,(\s*[}\]])/g, '$1');
-
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    return [];
-  }
-}
-
-// Convert a TOML nav item (string | { name: value }) to a generic kbTree node.
-function navItemToNode(item) {
-  if (typeof item === 'string') {
-    return {
-      kind: 'file',
-      label: item.split('/').pop().replace(/\.md$/, ''),
-      attrs: { 'data-kb-file': item },
-    };
-  }
-  const [displayName, value] = Object.entries(item)[0];
-  if (typeof value === 'string') {
-    return {
-      kind: 'file',
-      label: displayName,
-      attrs: { 'data-kb-file': value, 'data-kb-label': displayName },
-    };
+// Convert a normalized navToml node ({name,value} | {name,children}) to a
+// generic kbTree node.
+function navNodeToKbNode(node) {
+  if (node.children) {
+    return { kind: 'folder', label: node.name, children: node.children.map(navNodeToKbNode) };
   }
   return {
-    kind: 'folder',
-    label: displayName,
-    children: Array.isArray(value) ? value.map(navItemToNode) : [],
+    kind: 'file',
+    label: node.name,
+    attrs: { 'data-kb-file': node.value, 'data-kb-label': node.name },
   };
 }
 
-function renderKbHierarchy(items) {
-  return renderTree(items.map(navItemToNode), { emptyMessage: 'No articles found.' });
+function renderKbHierarchy(nodes) {
+  return renderTree(nodes.map(navNodeToKbNode), { emptyMessage: 'No articles found.' });
 }
 
 export async function openKnowledgeBaseManagement() {
