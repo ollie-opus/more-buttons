@@ -97,7 +97,7 @@ export async function openKnowledgeBaseManagement() {
 
       if (livePanel) {
         const guideNav = nav.filter(n => !EXCLUDED_SECTIONS.has(n.name));
-        const merged = mergeNavNodes(guideNav, draftNav);
+        const merged = mergeNavNodes(guideNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
         livePanel.innerHTML = renderKbHierarchy(merged);
         decorateKbPills(livePanel, draftFiles, navFiles);
       }
