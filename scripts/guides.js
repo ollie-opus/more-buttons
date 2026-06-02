@@ -783,6 +783,18 @@ function rebuildAdmonitionBody(uuid, description, captures, subAdmonitionBlocks)
   return lines.join('\n');
 }
 
+// Collapsible control value ⇄ admonition prefix.
+//   static    → !!!   (always open)
+//   collapsed → ???   (collapsible, closed by default)
+//   expanded  → ???+  (collapsible, open by default)
+const COLLAPSIBLE_TO_PREFIX = { static: '!!!', collapsed: '???', expanded: '???+' };
+function collapsibleToPrefix(value) { return COLLAPSIBLE_TO_PREFIX[value] ?? '!!!'; }
+function prefixToCollapsible(prefix) {
+  if (prefix === '???+') return 'expanded';
+  if (prefix === '???') return 'collapsed';
+  return 'static';
+}
+
 registerFormAction('openCreateGuideAdmonition', async ({ parentSectionUuid, parentAdmonitionUuid, insertAtIndex }) => {
   if (!currentGuide) return;
   resetCaptureState();
@@ -793,6 +805,7 @@ registerFormAction('openCreateGuideAdmonition', async ({ parentSectionUuid, pare
         admonitionMeta: '',
         admonitionType: 'step',
         admonitionDescription: '',
+        admonitionCollapsible: 'static',
       },
     });
   }
@@ -837,6 +850,7 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid }) => {
         admonitionMeta: admMeta,
         admonitionType: adm.type,
         admonitionDescription: description,
+        admonitionCollapsible: prefixToCollapsible(adm.prefix),
       },
     });
   }
@@ -934,6 +948,8 @@ registerFormAction('submitEditGuideAdmonition', async ({ formEl, content, cleanu
     const metaField = formEl.querySelector('[name="admonitionMeta"]')?.value.trim() ?? '';
     const title = joinTitleMeta(titleField, metaField);
     const description = formEl.querySelector('[name="admonitionDescription"]')?.value ?? '';
+    const collapsible = formEl.querySelector('[name="admonitionCollapsible"]:checked')?.value ?? 'static';
+    const prefix = collapsibleToPrefix(collapsible);
     if (!type) { alert('Type is required.'); if (btn) btn.disabled = false; return; }
 
     const mode = formEl.dataset.mode;
@@ -943,7 +959,6 @@ registerFormAction('submitEditGuideAdmonition', async ({ formEl, content, cleanu
 
     if (mode === 'create') {
       const newUuid = generateUUID();
-      const prefix = '!!!';
       const body = rebuildAdmonitionBody(newUuid, description, resolved, []);
       const newBlock = buildAdmonition(prefix, type, title, body);
       const parentSectionUuid = formEl.dataset.parentSectionUuid;
@@ -992,7 +1007,7 @@ registerFormAction('submitEditGuideAdmonition', async ({ formEl, content, cleanu
       const cur = locateGuideAdmonition(md, editUuid);
       if (!cur) return md;
       const body = rebuildAdmonitionBody(editUuid, description, resolved, subBlocks);
-      const newBlock = buildAdmonition(cur.prefix, type, title, body);
+      const newBlock = buildAdmonition(prefix, type, title, body);
       return replaceAdmonitionByUUID(md, editUuid, newBlock);
     });
 
