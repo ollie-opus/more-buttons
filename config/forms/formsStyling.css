@@ -2288,7 +2288,7 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-rte__btn.--active { background-color: var(--mb-border-subtle); color: #3b82f6; }
 .mb-rte__btn .more-buttons-icon { font-size: 18px; }
 
-/* Segmented Edit | Preview tabs (left side of the toolbar). */
+/* Segmented Rich | Markdown tabs (left side of the toolbar). */
 .mb-rte__tabs {
   display: inline-flex;
   gap: 2px;
@@ -2320,11 +2320,42 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-rte__btn:disabled { opacity: 0.4; cursor: default; }
 .mb-rte__btn:disabled:hover { background: transparent; }
 
-/* The textarea is now visible and the source of truth (raw markdown). */
-.mb-rte__input {
+/* The editable rendered surface (Rich mode) — the default WYSIWYG view. */
+.mb-rte__surface {
   display: block;
   width: 100%;
   min-height: 8.5rem; /* ~ old rows="6" */
+  padding: 8px 9px;
+  box-sizing: border-box;
+  border: 1px solid var(--mb-border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--mb-text);
+  background-color: var(--mb-bg-input);
+  outline: none;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.mb-rte__surface:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+.mb-rte__surface:empty::before {
+  content: attr(data-placeholder);
+  color: var(--mb-text-placeholder);
+}
+.mb-rte__surface mark { background-color: #fef08a; color: inherit; }
+.mb-rte__surface u { text-decoration: underline; }
+.mb-rte__surface s { text-decoration: line-through; }
+.mb-rte__surface a { color: #3b82f6; text-decoration: underline; }
+
+/* The raw-markdown textarea (Markdown mode) — hidden until the tab is chosen. */
+.mb-rte__input {
+  display: block;
+  width: 100%;
+  min-height: 8.5rem;
   padding: 8px 9px;
   box-sizing: border-box;
   border: 1px solid var(--mb-border);
@@ -2341,25 +2372,6 @@ details[open] .more-buttons-advanced-toggle::before {
   border-color: #3b82f6;
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
 }
-
-/* Render-only preview pane (shown when Preview tab is active). */
-.mb-rte__preview {
-  min-height: 8.5rem;
-  padding: 8px 9px;
-  border: 1px solid var(--mb-border);
-  border-top: none;
-  border-radius: 0 0 6px 6px;
-  font-size: 0.875rem;
-  color: var(--mb-text);
-  background-color: var(--mb-bg-input);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.mb-rte__preview-empty { color: var(--mb-text-placeholder); }
-.mb-rte__preview mark { background-color: #fef08a; color: inherit; }
-.mb-rte__preview u { text-decoration: underline; }
-.mb-rte__preview s { text-decoration: line-through; }
-.mb-rte__preview a { color: #3b82f6; text-decoration: underline; }
 
 .mb-rte__popover {
   position: absolute;
