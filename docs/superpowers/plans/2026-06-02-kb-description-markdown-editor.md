@@ -8,6 +8,8 @@
 
 **Tech Stack:** Vanilla ES modules (no bundler), MV3 Chrome extension, plain-assert Node test files run with `node tests/<name>.test.mjs`, CSS in `config/forms/formsStyling.css` using `--mb-*` custom properties.
 
+**Execution mode:** Subagent-driven (superpowers:subagent-driven-development) — one fresh subagent per task with a review checkpoint between tasks. Work happens on branch `feat/kb-description-markdown-editor`. Task 5 is manual QA performed by the human, not a subagent.
+
 ---
 
 ## File Structure
