@@ -50,6 +50,28 @@ test('italic over whole bold span wraps, not toggles (inside form)', () => {
     { value: '***foo***', selStart: 1, selEnd: 8 });
 });
 
+// applyMarker — toggle off a marker that wraps the selection THROUGH nested
+// layers (the selection is just the inner word, other markers sit between it
+// and the marker being toggled).
+test('toggle bold off through a nested italic layer (issue 1)', () => {
+  // ***test*** with only `test` selected, click Bold -> remove the bold layer,
+  // leaving the italic: *test*.
+  assert.deepEqual(applyMarker('***test***', 3, 7, '**'),
+    { value: '*test*', selStart: 1, selEnd: 5 });
+});
+test('toggle bold off through a nested underline layer (issue 2)', () => {
+  // **^^test^^** with only `test` selected, click Bold -> remove the outer bold
+  // layer through the inner ^^underline^^: ^^test^^.
+  assert.deepEqual(applyMarker('**^^test^^**', 4, 8, '**'),
+    { value: '^^test^^', selStart: 2, selEnd: 6 });
+});
+test('toggle inner italic off leaves the outer bold', () => {
+  // ***test*** with only `test` selected, click Italic -> remove just the
+  // italic layer, leaving the bold: **test**.
+  assert.deepEqual(applyMarker('***test***', 3, 7, '*'),
+    { value: '**test**', selStart: 2, selEnd: 6 });
+});
+
 // applyMarker — different markers
 test('highlight marker', () => {
   assert.deepEqual(applyMarker('hi', 0, 2, '=='),

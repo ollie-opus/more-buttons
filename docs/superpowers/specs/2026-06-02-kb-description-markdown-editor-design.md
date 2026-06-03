@@ -122,9 +122,13 @@ The textarea is the only persisted state. No mirror, no DOM serialization.
   substring; we do not attempt to merge adjacent identical marks. Output is valid
   markdown that round-trips through `parseInline`.
 - `applyLink` with empty URL → no-op (close popover), matching current behavior.
-- Toggle-off detection is literal/string-based (markers immediately around or at
-  the edges of the selection); ambiguous cases fall back to wrapping. Documented
-  as a v1 limitation.
+- Toggle-off detection walks the stack of markers adjacent to the selection, so
+  a marker can be toggled off even when other markers are nested between it and
+  the selection (e.g. clicking Bold on `test` inside `**^^test^^**` strips the
+  bold, leaving `^^test^^`; clicking Bold on `test` inside `***test***` leaves
+  `*test*`). Longer delimiters that share a leading character (`**` vs `*`) are
+  matched greedily, and only cleanly-mirrored nested pairs are stripped;
+  asymmetric/ambiguous cases fall back to wrapping.
 
 ## Testing
 

@@ -3,10 +3,55 @@
 // value and the selection range to restore. No DOM, no side effects — unit
 // tested in tests/markdownToolbarActions.test.mjs.
 
+// Every delimiter the toolbar can insert. Order matters: longer delimiters that
+// share a leading character ('**' before '*') must come first so the layer
+// scan claims them greedily and never mistakes the inner half of '**' for '*'.
+const MARKERS = ['**', '*', '^^', '~~', '=='];
+
+// Read the run of known markers adjacent to a boundary, nearest-first.
+// dir = -1 walks left from `pos` (markers ending at the boundary);
+// dir = +1 walks right from `pos` (markers starting at the boundary).
+// Returns [{ marker, start, len }] in the order encountered.
+function markerLayers(value, pos, dir) {
+  const layers = [];
+  let i = pos;
+  for (;;) {
+    let hit = null;
+    for (const m of MARKERS) {
+      const start = dir < 0 ? i - m.length : i;
+      if (start < 0 || start + m.length > value.length) continue;
+      if (value.slice(start, start + m.length) === m) {
+        hit = { marker: m, start, len: m.length };
+        break;
+      }
+    }
+    if (!hit) break;
+    layers.push(hit);
+    i += dir * hit.len;
+  }
+  return layers;
+}
+
+// Smallest depth at which `marker` wraps the selection symmetrically on both
+// sides, requiring every shallower layer to mirror so we only strip a cleanly
+// nested pair. `maxStart` (if given) rejects depths where the two marker runs
+// would overlap. Returns -1 when there is no clean match (caller then wraps).
+function matchDepth(left, right, marker, overlapGuard) {
+  const n = Math.min(left.length, right.length);
+  for (let k = 0; k < n; k++) {
+    if (left[k].marker !== right[k].marker) break; // asymmetric nesting -> bail
+    if (overlapGuard && left[k].start + left[k].len > right[k].start) break;
+    if (left[k].marker === marker) return k;
+  }
+  return -1;
+}
+
 // Wrap (or unwrap) the selection in `marker` (e.g. '**', '*', '^^', '~~', '==').
-// - Collapsed selection  -> insert paired markers, caret between them.
-// - Already wrapped       -> strip the markers (toggle off).
-// - Otherwise             -> wrap the selection, keeping the inner text selected.
+// - Collapsed selection -> insert paired markers, caret between them.
+// - Already wrapped      -> strip that marker's layer (toggle off), even when
+//   it wraps the selection THROUGH other nested markers (e.g. bold around
+//   ^^underline^^, or the bold within ***italic+bold***).
+// - Otherwise            -> wrap the selection, keeping the inner text selected.
 export function applyMarker(value, selStart, selEnd, marker) {
   const len = marker.length;
 
@@ -22,38 +67,41 @@ export function applyMarker(value, selStart, selEnd, marker) {
 
   const selected = value.slice(selStart, selEnd);
 
-  // Toggle off: markers immediately OUTSIDE the selection.
-  // Guard: if the char just beyond either matched marker is the same delimiter
-  // unit, we've matched the inner half of a LONGER run (e.g. '*' inside '**');
-  // fall through to wrapping per the design spec.
-  if (
-    value.slice(selStart - len, selStart) === marker &&
-    value.slice(selEnd, selEnd + len) === marker &&
-    value[selStart - len - 1] !== marker[0] &&
-    value[selEnd + len] !== marker[0]
-  ) {
+  // Toggle off when `marker` wraps the selection from OUTSIDE — possibly through
+  // other markers nested between it and the selection. Walk the marker stack out
+  // from each edge and strip the matching layer from both sides.
+  const outLeft = markerLayers(value, selStart, -1);
+  const outRight = markerLayers(value, selEnd, 1);
+  const outDepth = matchDepth(outLeft, outRight, marker);
+  if (outDepth !== -1) {
+    const l = outLeft[outDepth];
+    const r = outRight[outDepth];
     return {
-      value: value.slice(0, selStart - len) + selected + value.slice(selEnd + len),
-      selStart: selStart - len,
-      selEnd: selEnd - len,
+      value:
+        value.slice(0, l.start) +
+        value.slice(l.start + l.len, r.start) +
+        value.slice(r.start + r.len),
+      selStart: selStart - l.len,
+      selEnd: selEnd - l.len,
     };
   }
 
-  // Toggle off: markers INSIDE the selection edges.
-  // Same guard: don't strip if the char just inside either marker is the same
-  // delimiter unit (we'd be splitting a longer run); fall through to wrapping.
-  if (
-    selected.length >= 2 * len &&
-    selected.startsWith(marker) &&
-    selected.endsWith(marker) &&
-    selected[len] !== marker[0] &&
-    selected[selected.length - len - 1] !== marker[0]
-  ) {
-    const inner = selected.slice(len, selected.length - len);
+  // Toggle off when the markers are INSIDE the selection edges (the user
+  // selected the markers too). Same idea, scanning inward from each edge.
+  const inLeft = markerLayers(selected, 0, 1);
+  const inRight = markerLayers(selected, selected.length, -1);
+  const inDepth = matchDepth(inLeft, inRight, marker, true);
+  if (inDepth !== -1) {
+    const l = inLeft[inDepth];
+    const r = inRight[inDepth];
+    const stripped =
+      selected.slice(0, l.start) +
+      selected.slice(l.start + l.len, r.start) +
+      selected.slice(r.start + r.len);
     return {
-      value: value.slice(0, selStart) + inner + value.slice(selEnd),
+      value: value.slice(0, selStart) + stripped + value.slice(selEnd),
       selStart,
-      selEnd: selStart + inner.length,
+      selEnd: selStart + stripped.length,
     };
   }
 
