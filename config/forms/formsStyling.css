@@ -2288,11 +2288,12 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-rte__btn.--active { background-color: var(--mb-border-subtle); color: #3b82f6; }
 .mb-rte__btn .more-buttons-icon { font-size: 18px; }
 
-/* Segmented Rich | Markdown tabs (left side of the toolbar). */
+/* Segmented Rich | Markdown tabs (right side of the toolbar). */
 .mb-rte__tabs {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
+  margin-left: auto;
   border-radius: 6px;
   background-color: var(--mb-border-subtle);
 }
@@ -2311,11 +2312,10 @@ details[open] .more-buttons-advanced-toggle::before {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
-/* Format buttons sit to the right of the tabs. */
+/* Format buttons sit to the left of the tabs. */
 .mb-rte__btns {
   display: flex;
   gap: 2px;
-  margin-left: auto;
 }
 .mb-rte__btn:disabled { opacity: 0.4; cursor: default; }
 .mb-rte__btn:disabled:hover { background: transparent; }
@@ -2350,6 +2350,15 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-rte__surface u { text-decoration: underline; }
 .mb-rte__surface s { text-decoration: line-through; }
 .mb-rte__surface a { color: #3b82f6; text-decoration: underline; }
+.mb-rte__surface code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--mb-code-bg);
+  border: 1px solid var(--mb-border-subtle);
+  color: inherit;
+}
 
 /* The raw-markdown textarea (Markdown mode) — hidden until the tab is chosen. */
 .mb-rte__input {

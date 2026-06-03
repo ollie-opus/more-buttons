@@ -1,22 +1,11 @@
 import { registerFormAction } from './formActions.js';
 import { githubFetchAndPush } from './github.js';
 import { readRepoText } from './repoClient.js';
-import { createForm } from './form.js';
+import { createForm, navigateBack } from './form.js';
 import { renderCard, escapeHtml } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID } from './admonitions.js';
 
 const STATUS_FILE = 'docs/pages/system-status.md';
-
-async function refreshSystemStatusPanels(updatedMarkdown) {
-  const fetchEl = document.querySelector('[data-fetch-path*="system-status"]');
-  if (!fetchEl || !fetchEl._templateHTML) return;
-  const md = updatedMarkdown ?? await readRepoText(STATUS_FILE);
-  fetchEl.innerHTML = fetchEl._templateHTML;
-  fetchEl.querySelectorAll('[data-render]').forEach(panel => {
-    if (panel.dataset.render === 'renderOpenIncidents') renderOpenIncidents(md, panel);
-    else if (panel.dataset.render === 'renderResolvedIncidents') renderResolvedIncidents(md, panel);
-  });
-}
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -428,9 +417,8 @@ registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) 
       resolved:      resolvedValue.replace('T', ' '),
       causation:     formEl.querySelector('[name="causation"]')?.value.trim() ?? '',
     };
-    const updatedMarkdown = await publishNewIncident(incident, status => { btn.textContent = status; });
-    await refreshSystemStatusPanels(updatedMarkdown);
-    cleanup();
+    await publishNewIncident(incident, status => { btn.textContent = status; });
+    await navigateBack();
   } catch (e) {
     btn.textContent = originalText;
     btn.disabled = false;
@@ -505,7 +493,7 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
       causation:     formEl.querySelector('[name="causation"]')?.value.trim() ?? '',
     };
     // UUID-based: try open incidents first, then past incidents
-    const updatedMarkdown = await githubFetchAndPush(
+    await githubFetchAndPush(
       status => { btn.textContent = status; },
       currentMarkdown => {
         // Try open incidents
@@ -521,8 +509,7 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
       }
     );
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
-    await refreshSystemStatusPanels(updatedMarkdown);
-    cleanup();
+    await navigateBack();
   } catch (e) {
     btn.textContent = originalText;
     btn.disabled = false;
@@ -538,10 +525,9 @@ registerFormAction('deleteIncident', async ({ formEl, content, cleanup }) => {
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No incident UUID found');
-    const updatedMarkdown = await publishDeleteIncident(_uuid, status => { btn.textContent = status; });
+    await publishDeleteIncident(_uuid, status => { btn.textContent = status; });
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
-    await refreshSystemStatusPanels(updatedMarkdown);
-    cleanup();
+    await navigateBack();
   } catch (e) {
     btn.textContent = originalText;
     btn.disabled = false;

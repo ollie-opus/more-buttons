@@ -1,7 +1,7 @@
 // Inline Markdown ⇄ AST conversion for the KB Description rich-text editor.
 // AST node shapes:
 //   { type: 'text', value: string }
-//   { type: 'strong'|'em'|'underline'|'strike'|'highlight', children: node[] }
+//   { type: 'strong'|'em'|'underline'|'strike'|'highlight'|'code', children: node[] }
 //   { type: 'link', href: string, children: node[] }
 
 // Delimiter table, ordered so longer markers match before shorter ('***' before
@@ -13,6 +13,7 @@ const DELIMS = [
   ['==', 'highlight'],
   ['^^', 'underline'],
   ['~~', 'strike'],
+  ['`', 'code'],
   ['*', 'em'],
 ];
 
@@ -38,7 +39,7 @@ function findClosing(text, start, marker) {
 }
 
 // [text](url) — no nested brackets in v1; link text is plain.
-function matchLink(text, i) {
+export function matchLink(text, i) {
   if (text[i] !== '[') return null;
   const closeBracket = text.indexOf(']', i + 1);
   if (closeBracket === -1 || text[closeBracket + 1] !== '(') return null;
@@ -137,6 +138,7 @@ const MARK_DELIM = {
   underline: '^^',
   strike: '~~',
   highlight: '==',
+  code: '`',
 };
 
 export function renderMarkdown(nodes) {
@@ -154,6 +156,7 @@ const TAG = {
   underline: 'u',
   strike: 's',
   highlight: 'mark',
+  code: 'code',
 };
 
 function escapeHtml(s) {
@@ -181,6 +184,7 @@ const TAG_TO_TYPE = {
   u: 'underline',
   s: 'strike', strike: 'strike', del: 'strike',
   mark: 'highlight',
+  code: 'code',
 };
 
 export function domToNodes(root) {

@@ -16,6 +16,7 @@ const TAG_MARKER = {
   u: '^^',
   s: '~~', strike: '~~', del: '~~',
   mark: '==',
+  code: '`',
 };
 
 // Walk `root`'s descendants in document order, reconstructing the markdown

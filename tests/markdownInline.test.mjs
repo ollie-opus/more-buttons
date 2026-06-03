@@ -16,10 +16,14 @@ test('italic uses single asterisk only', () => {
 test('underscores stay literal', () => {
   assert.deepEqual(parseInline('some_var_name'), [{ type: 'text', value: 'some_var_name' }]);
 });
-test('underline / strike / highlight', () => {
+test('underline / strike / highlight / code', () => {
   assert.equal(parseInline('^^x^^')[0].type, 'underline');
   assert.equal(parseInline('~~x~~')[0].type, 'strike');
   assert.equal(parseInline('==x==')[0].type, 'highlight');
+  assert.equal(parseInline('`x`')[0].type, 'code');
+});
+test('code renders to a <code> element', () => {
+  assert.equal(renderHtml(parseInline('`npm i`')), '<code>npm i</code>');
 });
 test('bold beats italic (** before *)', () => {
   assert.deepEqual(parseInline('**x**'), [{ type: 'strong', children: [{ type: 'text', value: 'x' }] }]);
@@ -98,6 +102,7 @@ test('renderMarkdown of each mark', () => {
   assert.equal(renderMarkdown([{ type: 'underline', children: [{ type: 'text', value: 'x' }] }]), '^^x^^');
   assert.equal(renderMarkdown([{ type: 'strike', children: [{ type: 'text', value: 'x' }] }]), '~~x~~');
   assert.equal(renderMarkdown([{ type: 'highlight', children: [{ type: 'text', value: 'x' }] }]), '==x==');
+  assert.equal(renderMarkdown([{ type: 'code', children: [{ type: 'text', value: 'x' }] }]), '`x`');
 });
 test('renderMarkdown of link', () => {
   assert.equal(renderMarkdown([{ type: 'link', href: 'http://x', children: [{ type: 'text', value: 'go' }] }]), '[go](http://x)');
@@ -107,6 +112,7 @@ test('round-trip: renderMarkdown(parseInline(md)) === md', () => {
     'plain text',
     '**bold** and *italic*',
     '^^under^^ ~~strike~~ ==hi==',
+    'run `npm i` first',
     '**a*b***',
     '***x***',
     '***^^~~==test==~~^^***',

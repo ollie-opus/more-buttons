@@ -1,5 +1,5 @@
 import { parseInline, renderHtml, markSpans } from './markdownInline.js';
-import { applyMarker, applyLink } from './markdownToolbarActions.js';
+import { applyMarker, applyLink, stripFormatting } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
@@ -8,14 +8,13 @@ import { serialize, serializeWithSelection, placeCaret } from './richEditorMappi
 // when the caret sits inside it). Order matters: it is the nesting order used
 // when several marks are armed at once (outermost first). Matches the old toolbar.
 const MARKS = [
-  { marker: '**', tags: ['strong', 'b'], icon: 'format_bold', label: 'Bold (Ctrl/Cmd+B)' },
-  { marker: '*', tags: ['em', 'i'], icon: 'format_italic', label: 'Italic (Ctrl/Cmd+I)' },
-  { marker: '^^', tags: ['u'], icon: 'format_underlined', label: 'Underline (Ctrl/Cmd+U)' },
+  { marker: '**', tags: ['strong', 'b'], icon: 'format_bold', label: 'Bold' },
+  { marker: '*', tags: ['em', 'i'], icon: 'format_italic', label: 'Italic' },
+  { marker: '^^', tags: ['u'], icon: 'format_underlined', label: 'Underline' },
   { marker: '~~', tags: ['s', 'strike', 'del'], icon: 'strikethrough_s', label: 'Strikethrough' },
   { marker: '==', tags: ['mark'], icon: 'format_ink_highlighter', label: 'Highlight' },
+  { marker: '`', tags: ['code'], icon: 'code', label: 'Code' },
 ];
-
-const SHORTCUT = { b: '**', i: '*', u: '^^' };
 
 export function upgradeTextarea(textarea) {
   if (textarea.dataset.rteReady === '1') return; // idempotent
@@ -27,18 +26,18 @@ export function upgradeTextarea(textarea) {
   const toolbar = document.createElement('div');
   toolbar.className = 'mb-rte__toolbar';
 
-  // Segmented Rich | Markdown tabs (left). Rich is the default editing view.
+  // Format buttons (left).
+  const btnGroup = document.createElement('div');
+  btnGroup.className = 'mb-rte__btns';
+  toolbar.appendChild(btnGroup);
+
+  // Segmented Rich | Markdown tabs (right). Rich is the default editing view.
   const tabs = document.createElement('div');
   tabs.className = 'mb-rte__tabs';
   const richTab = makeTab('Rich', true);
   const mdTab = makeTab('Markdown', false);
   tabs.append(richTab, mdTab);
   toolbar.appendChild(tabs);
-
-  // Format buttons (right).
-  const btnGroup = document.createElement('div');
-  btnGroup.className = 'mb-rte__btns';
-  toolbar.appendChild(btnGroup);
 
   // Editable rendered surface — the WYSIWYG view, visible by default.
   const surface = document.createElement('div');
@@ -71,7 +70,6 @@ export function upgradeTextarea(textarea) {
   attachLinkPopover(rte);
   buildTabs(rte);
   attachSurfaceEvents(rte);
-  attachShortcuts(rte);
   attachSelectionTracking(rte);
   setMode(rte, 'rich', { focus: false }); // initial render, no focus steal during hydration
 
@@ -107,7 +105,7 @@ function renderSurface(rte) {
 // Does the surface hold an emptied mark wrapper? (e.g. the user deleted all the
 // text inside a <strong>, leaving <strong></strong> with the caret in it.)
 function hasEmptyMark(surface) {
-  return [...surface.querySelectorAll('strong,b,em,i,u,s,strike,del,mark')]
+  return [...surface.querySelectorAll('strong,b,em,i,u,s,strike,del,mark,code')]
     .some(el => !el.textContent);
 }
 
@@ -259,9 +257,19 @@ function buildButtons(rte) {
     rte.btnGroup.appendChild(btn);
     rte.buttons.push(btn);
   });
-  const linkBtn = makeBtn('link', 'Link (Ctrl/Cmd+K)', () => rte.openLinkPopover?.());
+  const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());
   rte.btnGroup.appendChild(linkBtn);
   rte.buttons.push(linkBtn);
+
+  const clearBtn = makeBtn('format_clear', 'Clear formatting', () => runStrip(rte));
+  rte.btnGroup.appendChild(clearBtn);
+  rte.buttons.push(clearBtn);
+}
+
+// Strip all inline formatting from the current selection (both modes). No-op on
+// a collapsed selection (stripFormatting returns the value unchanged).
+function runStrip(rte) {
+  runTransform(rte, stripFormatting);
 }
 
 function buildTabs(rte) {
@@ -333,17 +341,6 @@ function attachSurfaceEvents(rte) {
     const a = e.target.closest && e.target.closest('a');
     if (a) e.preventDefault();
   });
-}
-
-function attachShortcuts(rte) {
-  const handler = e => {
-    if (!(e.metaKey || e.ctrlKey)) return;
-    const key = e.key.toLowerCase();
-    if (SHORTCUT[key]) { e.preventDefault(); runMarker(rte, SHORTCUT[key]); }
-    else if (key === 'k') { e.preventDefault(); rte.openLinkPopover?.(); }
-  };
-  rte.surface.addEventListener('keydown', handler);
-  rte.textarea.addEventListener('keydown', handler);
 }
 
 // Keep the toolbar's active states in sync with the caret, and disarm a pending
