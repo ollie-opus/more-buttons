@@ -44,6 +44,20 @@ test('shared-endpoint triple is a v1 limitation (lazy, not nested)', () => {
     { type: 'text', value: '*' },
   ]);
 });
+test('symmetric triple ***x*** nests as bold>italic', () => {
+  // A matched `***…***` run (what stacking Bold then Italic produces) renders as
+  // nested strong>em, unlike the asymmetric `**a*b***` case above.
+  assert.deepEqual(parseInline('***x***'), [{
+    type: 'strong',
+    children: [{ type: 'em', children: [{ type: 'text', value: 'x' }] }],
+  }]);
+});
+test('triple-star wraps a full nested mark stack', () => {
+  // ***^^~~==test==~~^^*** — bold+italic outside, underline/strike/highlight in.
+  assert.equal(
+    renderHtml(parseInline('***^^~~==test==~~^^***')),
+    '<strong><em><u><s><mark>test</mark></s></u></em></strong>');
+});
 test('adjacent same-type marks stay independent', () => {
   // Regression guard: lazy matching must NOT merge two emphases across the gap.
   assert.deepEqual(parseInline('*a* and *b*'), [
@@ -94,6 +108,8 @@ test('round-trip: renderMarkdown(parseInline(md)) === md', () => {
     '**bold** and *italic*',
     '^^under^^ ~~strike~~ ==hi==',
     '**a*b***',
+    '***x***',
+    '***^^~~==test==~~^^***',
     '[go](http://x)',
     'a ** b',
     '****',

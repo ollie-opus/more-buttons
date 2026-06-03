@@ -4,8 +4,11 @@
 //   { type: 'strong'|'em'|'underline'|'strike'|'highlight', children: node[] }
 //   { type: 'link', href: string, children: node[] }
 
-// Delimiter table, ordered so longer markers match before shorter ('**' before '*').
+// Delimiter table, ordered so longer markers match before shorter ('***' before
+// '**' before '*'). '***' is the combined bold+italic run the toolbar produces
+// when Bold and Italic are stacked; it maps to nested strong>em.
 const DELIMS = [
+  ['***', 'strong-em'],
   ['**', 'strong'],
   ['==', 'highlight'],
   ['^^', 'underline'],
@@ -70,7 +73,11 @@ export function parseInline(text) {
       const inner = close === -1 ? '' : text.slice(i + delim.len, close);
       if (close !== -1 && inner.length > 0) {
         flush();
-        nodes.push({ type: delim.type, children: parseInline(inner) });
+        // '***' is sugar for nested strong>em; everything else is a single mark.
+        const children = parseInline(inner);
+        nodes.push(delim.type === 'strong-em'
+          ? { type: 'strong', children: [{ type: 'em', children }] }
+          : { type: delim.type, children });
         i = close + delim.len;
         continue;
       }
