@@ -119,6 +119,7 @@ function setMode(rte, mode) {
     const html = renderHtml(parseInline(rte.textarea.value || ''));
     rte.preview.innerHTML = html || '<span class="mb-rte__preview-empty">Nothing to preview</span>';
   }
+  if (!previewing) rte.textarea.focus();
 }
 
 function attachShortcuts(rte) {
@@ -148,7 +149,10 @@ function attachLinkPopover(rte) {
 
   const textInput = popover.querySelector('[data-link-text]');
   const urlInput = popover.querySelector('[data-link-url]');
-  const close = () => { popover.hidden = true; };
+  const onDocMouseDown = e => {
+    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
+  };
+  const close = () => { popover.hidden = true; document.removeEventListener('mousedown', onDocMouseDown); };
 
   rte.openLinkPopover = () => {
     savedStart = textarea.selectionStart;
@@ -156,6 +160,7 @@ function attachLinkPopover(rte) {
     textInput.value = textarea.value.slice(savedStart, savedEnd);
     urlInput.value = '';
     popover.hidden = false;
+    document.addEventListener('mousedown', onDocMouseDown);
     urlInput.focus();
   };
 
@@ -173,9 +178,6 @@ function attachLinkPopover(rte) {
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-  // Esc / click-outside dismiss.
+  // Esc dismiss (click-outside is wired in openLinkPopover/close).
   popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-  document.addEventListener('mousedown', e => {
-    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
-  });
 }
