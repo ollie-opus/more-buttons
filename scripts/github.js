@@ -3,14 +3,25 @@ import { contentsApiUrl, authHeader } from './repoClient.js';
 
 let _opQueue = Promise.resolve();
 
+// Serialise an operation behind any in-flight ones, returning a promise that
+// carries the op's real result/rejection to the caller. The queue itself is
+// advanced with a swallowed copy: chaining .then() on a *rejected* _opQueue
+// would skip the callback and replay that rejection for every future op, so a
+// single transient failure would otherwise poison all later GitHub work for
+// the rest of the session.
+function _enqueue(run) {
+  const result = _opQueue.then(run);
+  _opQueue = result.catch(() => {});
+  return result;
+}
+
 const ADMONITION_TYPE_BY_FILE = {
   'system-updates.md': /feature-release|new-addition|improvement/,
   'system-status.md':  /status-available|status-disruption|status-outage/,
 };
 
 export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown) {
-  _opQueue = _opQueue.then(() => _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown));
-  return _opQueue;
+  return _enqueue(() => _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown));
 }
 
 async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, retries = 1) {
@@ -71,8 +82,7 @@ export async function githubFetchAndPush(onProgress, buildUpdatedMarkdown) {
  * @param {(s: string) => void} [onProgress]
  */
 export function githubDeleteFile(filePath, onProgress) {
-  _opQueue = _opQueue.then(() => _githubDeleteFile(filePath, onProgress));
-  return _opQueue;
+  return _enqueue(() => _githubDeleteFile(filePath, onProgress));
 }
 
 async function _githubDeleteFile(filePath, onProgress) {
@@ -111,8 +121,7 @@ async function _githubDeleteFile(filePath, onProgress) {
 // doesn't already exist (use githubPushImageIfNotExists for creates).
 // Serialised through _opQueue alongside other push/delete operations.
 export function githubReplaceImage(imagePath, base64Data, onProgress) {
-  _opQueue = _opQueue.then(() => _githubReplaceImage(imagePath, base64Data, onProgress));
-  return _opQueue;
+  return _enqueue(() => _githubReplaceImage(imagePath, base64Data, onProgress));
 }
 
 async function _githubReplaceImage(imagePath, base64Data, onProgress) {

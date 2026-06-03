@@ -1,11 +1,19 @@
-import { parseInline, renderMarkdown, renderHtml, domToNodes } from './markdownInline.js';
+import { parseInline, renderHtml, markSpans } from './markdownInline.js';
+import { applyMarker, applyLink, stripFormatting } from './markdownToolbarActions.js';
+import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
+// Toolbar marks: { marker } is the literal markdown delimiter the toolbar
+// applies (via the pure markdownToolbarActions transforms); { tags } are the
+// rendered HTML tags that mean "this mark is active" (used to light the button
+// when the caret sits inside it). Order matters: it is the nesting order used
+// when several marks are armed at once (outermost first). Matches the old toolbar.
 const MARKS = [
-  { name: 'bold', tag: 'strong', icon: 'format_bold', label: 'Bold (Ctrl/Cmd+B)', key: 'b' },
-  { name: 'italic', tag: 'em', icon: 'format_italic', label: 'Italic (Ctrl/Cmd+I)', key: 'i' },
-  { name: 'underline', tag: 'u', icon: 'format_underlined', label: 'Underline (Ctrl/Cmd+U)', key: 'u' },
-  { name: 'strike', tag: 's', icon: 'strikethrough_s', label: 'Strikethrough' },
-  { name: 'highlight', tag: 'mark', icon: 'format_ink_highlighter', label: 'Highlight' },
+  { marker: '**', tags: ['strong', 'b'], icon: 'format_bold', label: 'Bold' },
+  { marker: '*', tags: ['em', 'i'], icon: 'format_italic', label: 'Italic' },
+  { marker: '^^', tags: ['u'], icon: 'format_underlined', label: 'Underline' },
+  { marker: '~~', tags: ['s', 'strike', 'del'], icon: 'strikethrough_s', label: 'Strikethrough' },
+  { marker: '==', tags: ['mark'], icon: 'format_ink_highlighter', label: 'Highlight' },
+  { marker: '`', tags: ['code'], icon: 'code', label: 'Code' },
 ];
 
 export function upgradeTextarea(textarea) {
@@ -18,6 +26,20 @@ export function upgradeTextarea(textarea) {
   const toolbar = document.createElement('div');
   toolbar.className = 'mb-rte__toolbar';
 
+  // Format buttons (left).
+  const btnGroup = document.createElement('div');
+  btnGroup.className = 'mb-rte__btns';
+  toolbar.appendChild(btnGroup);
+
+  // Segmented Rich | Markdown tabs (right). Rich is the default editing view.
+  const tabs = document.createElement('div');
+  tabs.className = 'mb-rte__tabs';
+  const richTab = makeTab('Rich', true);
+  const mdTab = makeTab('Markdown', false);
+  tabs.append(richTab, mdTab);
+  toolbar.appendChild(tabs);
+
+  // Editable rendered surface — the WYSIWYG view, visible by default.
   const surface = document.createElement('div');
   surface.className = 'mb-rte__surface';
   surface.contentEditable = 'true';
@@ -25,141 +47,324 @@ export function upgradeTextarea(textarea) {
   surface.setAttribute('aria-multiline', 'true');
   if (textarea.placeholder) surface.dataset.placeholder = textarea.placeholder;
 
-  // Initial content from the (already-hydrated) textarea value.
-  surface.innerHTML = renderHtml(parseInline(textarea.value || ''));
+  // The textarea stays the form value / source of truth (raw markdown); hidden
+  // in Rich mode, shown in Markdown mode.
+  textarea.classList.add('mb-rte__input');
 
-  // Hide the textarea but keep it as the form value mirror.
-  textarea.style.display = 'none';
   textarea.parentNode.insertBefore(wrapper, textarea);
   wrapper.appendChild(toolbar);
   wrapper.appendChild(surface);
   wrapper.appendChild(textarea);
 
-  const sync = () => {
-    textarea.value = renderMarkdown(domToNodes(surface));
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  const rte = {
+    textarea, surface, toolbar, btnGroup, richTab, mdTab, buttons: [], mode: 'rich',
+    // Google-Docs-style "armed" formatting for the next typed text when there is
+    // no selection. `pending` = marks to turn ON (wrap the text); `pendingOff` =
+    // marks to turn OFF (escape past the enclosing mark's close), set when you
+    // click a mark the caret is already inside. pendingAnchor is the caret offset
+    // at arm time, so a later selectionchange tells typing-here from navigating-away.
+    pending: new Set(), pendingOff: new Set(), pendingAnchor: 0,
   };
 
-  surface.addEventListener('input', sync);
+  buildButtons(rte);
+  attachLinkPopover(rte);
+  buildTabs(rte);
+  attachSurfaceEvents(rte);
+  attachSelectionTracking(rte);
+  setMode(rte, 'rich', { focus: false }); // initial render, no focus steal during hydration
 
-  // Paste as plain text to keep the DOM clean.
-  surface.addEventListener('paste', e => {
-    e.preventDefault();
-    const text = e.clipboardData.getData('text/plain');
-    document.execCommand('insertText', false, text);
-  });
-
-  // Expose for later tasks (toolbar wiring) and tests.
-  wrapper._rte = { textarea, surface, toolbar, sync };
-  buildToolbar(wrapper._rte);
-  attachLinkPopover(wrapper._rte);
-  return wrapper._rte;
+  wrapper._rte = rte; // expose for tests / later wiring
+  return rte;
 }
 
-function buildToolbar(rte) {
-  const { toolbar, surface } = rte;
-
-  const makeBtn = (icon, label, onClick) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'mb-rte__btn';
-    btn.setAttribute('aria-label', label);
-    btn.title = label;
-    btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>`;
-    btn.addEventListener('mousedown', e => e.preventDefault()); // keep selection
-    btn.addEventListener('click', onClick);
-    return btn;
-  };
-
-  rte.markButtons = {};
-  MARKS.forEach(m => {
-    const btn = makeBtn(m.icon, m.label, () => { toggleMark(surface, m.tag); });
-    btn.dataset.mark = m.tag;
-    rte.markButtons[m.tag] = btn;
-    toolbar.appendChild(btn);
-  });
-
-  // Link button is wired in Task 7; create it now so toolbar order is final.
-  const linkBtn = makeBtn('link', 'Link (Ctrl/Cmd+K)', () => { rte.openLinkPopover?.(); });
-  linkBtn.dataset.mark = 'a';
-  rte.markButtons.a = linkBtn;
-  toolbar.appendChild(linkBtn);
-
-  // Keyboard shortcuts.
-  surface.addEventListener('keydown', e => {
-    if (!(e.metaKey || e.ctrlKey)) return;
-    const key = e.key.toLowerCase();
-    const map = { b: 'strong', i: 'em', u: 'u' };
-    if (map[key]) { e.preventDefault(); toggleMark(surface, map[key]); }
-    else if (key === 'k') { e.preventDefault(); rte.openLinkPopover?.(); }
-  });
-
-  // Active-state reflection.
-  const refresh = () => refreshActive(rte);
-  document.addEventListener('selectionchange', () => {
-    if (surface.contains(document.getSelection()?.anchorNode)) refresh();
-  });
-  surface.addEventListener('keyup', refresh);
-  surface.addEventListener('mouseup', refresh);
+function makeTab(text, active) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'mb-rte__tab' + (active ? ' --active' : '');
+  b.setAttribute('aria-pressed', String(active));
+  b.textContent = text;
+  return b;
 }
 
-// Walk up from node to surface; return the nearest ancestor element matching tagName.
-function closestTag(node, tagName, surface) {
-  let el = node;
-  while (el && el !== surface) {
-    if (el.nodeType === Node.ELEMENT_NODE && el.tagName.toLowerCase() === tagName) return el;
-    el = el.parentNode;
+function makeBtn(icon, label, onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mb-rte__btn';
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+  btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>`;
+  btn.addEventListener('mousedown', e => e.preventDefault()); // keep surface/textarea selection
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function renderSurface(rte) {
+  rte.surface.innerHTML = renderHtml(parseInline(rte.textarea.value || ''));
+}
+
+// Does the surface hold an emptied mark wrapper? (e.g. the user deleted all the
+// text inside a <strong>, leaving <strong></strong> with the caret in it.)
+function hasEmptyMark(surface) {
+  return [...surface.querySelectorAll('strong,b,em,i,u,s,strike,del,mark,code')]
+    .some(el => !el.textContent);
+}
+
+// Sync the hidden textarea from the surface and fire input so the dirty-guard
+// and char counter update. Called on every native edit in the surface.
+function syncFromSurface(rte) {
+  const value = serialize(rte.surface);
+  rte.textarea.value = value;
+  // If the edit left an empty mark wrapper, the DOM is non-canonical: serialize
+  // already drops the empty mark from the value, but the wrapper still holds the
+  // caret, so fresh typing would inherit the (now meaningless) format. Re-render
+  // from the clean source and restore the caret so typing continues unformatted.
+  if (hasEmptyMark(rte.surface)) {
+    const { selStart } = serializeWithSelection(rte.surface, window.getSelection());
+    rte.surface.innerHTML = renderHtml(parseInline(value));
+    placeCaret(rte.surface, selStart, selStart);
   }
-  return null;
+  rte.textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-function unwrap(el) {
-  const parent = el.parentNode;
-  while (el.firstChild) parent.insertBefore(el.firstChild, el);
-  parent.removeChild(el);
-  parent.normalize();
+// Read the current selection as { value, selStart, selEnd } for the active mode.
+function currentSelection(rte) {
+  if (rte.mode === 'markdown') {
+    const ta = rte.textarea;
+    return { value: ta.value, selStart: ta.selectionStart, selEnd: ta.selectionEnd };
+  }
+  return serializeWithSelection(rte.surface, window.getSelection());
 }
 
-function toggleMark(surface, tagName) {
-  const sel = window.getSelection();
-  if (!sel.rangeCount) return;
-  const range = sel.getRangeAt(0);
-  if (!surface.contains(range.commonAncestorContainer)) return;
-
-  const existing = closestTag(range.commonAncestorContainer, tagName, surface);
-  if (existing) {
-    unwrap(existing);
+// Write a transformed value back, restoring selection appropriately per mode.
+function applyResult(rte, res) {
+  rte.textarea.value = res.value;
+  if (rte.mode === 'markdown') {
+    rte.textarea.focus();
+    rte.textarea.setSelectionRange(res.selStart, res.selEnd);
   } else {
-    if (range.collapsed) return; // nothing selected → no-op
-    const el = document.createElement(tagName);
-    try {
-      el.appendChild(range.extractContents());
-      range.insertNode(el);
-      sel.removeAllRanges();
-      const r = document.createRange();
-      r.selectNodeContents(el);
-      sel.addRange(r);
-    } catch (err) {
-      // Selection spans incompatible boundaries — best-effort for v1.
-      return;
+    rte.surface.innerHTML = renderHtml(parseInline(res.value));
+    rte.surface.focus();
+    placeCaret(rte.surface, res.selStart, res.selEnd);
+  }
+  rte.textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  refreshActiveStates(rte);
+}
+
+// Apply a pure string transform (value, selStart, selEnd) -> {value, selStart, selEnd}.
+function runTransform(rte, transform) {
+  clearArmed(rte); // an explicit transform supersedes any armed format
+  const { value, selStart, selEnd } = currentSelection(rte);
+  applyResult(rte, transform(value, selStart, selEnd));
+}
+
+function runMarker(rte, marker) {
+  // Rich mode with no selection: arm/disarm the marker for the next typed text
+  // (Google-Docs style) rather than inserting empty '**' delimiters that would
+  // render as literal asterisks. Markdown mode keeps the raw textarea behaviour
+  // (insert the paired delimiters with the caret between them).
+  if (rte.mode === 'rich') {
+    const { selStart, selEnd } = currentSelection(rte);
+    if (selStart === selEnd) { toggleArmed(rte, marker, selStart); return; }
+  }
+  runTransform(rte, (v, s, e) => applyMarker(v, s, e, marker));
+}
+
+// Clicking a marker with a collapsed caret toggles what the NEXT typed text will
+// be: arm it ON if the caret isn't already inside that mark, or OFF (escape the
+// enclosing mark) if it is. A second click cancels a queued arm. The caret offset
+// is remembered so a later selectionchange can disarm on navigate-away.
+function toggleArmed(rte, marker, anchor) {
+  const mark = MARKS.find(m => m.marker === marker);
+  const tags = selectionMarkTags(rte);
+  const inside = !!mark && mark.tags.some(t => tags.has(t));
+  if (rte.pending.has(marker)) rte.pending.delete(marker);
+  else if (rte.pendingOff.has(marker)) rte.pendingOff.delete(marker);
+  else if (inside) rte.pendingOff.add(marker);
+  else rte.pending.add(marker);
+  rte.pendingAnchor = anchor;
+  rte.surface.focus();
+  refreshActiveStates(rte);
+}
+
+function isArmed(rte) { return rte.pending.size > 0 || rte.pendingOff.size > 0; }
+function clearArmed(rte) { rte.pending.clear(); rte.pendingOff.clear(); }
+
+// The armed-on markers in nesting order (outermost first), per MARKS order.
+function pendingMarkers(rte) {
+  return MARKS.filter(m => rte.pending.has(m.marker)).map(m => m.marker);
+}
+
+// Pure: insert `data` at a collapsed caret with the armed format applied.
+// `addMarkers` (outermost first) wrap the text; for each marker in `offMarkers`
+// that encloses the caret, the insertion point is moved past that mark's closing
+// delimiter so the new text lands OUTSIDE it. Returns { value, selStart, selEnd }.
+export function computeArmedInsertion(value, caret, data, addMarkers, offMarkers) {
+  let insertAt = caret;
+  if (offMarkers && offMarkers.size) {
+    for (const sp of markSpans(value)) {
+      if (offMarkers.has(sp.marker) && sp.open[1] <= insertAt && insertAt <= sp.close[0]) {
+        insertAt = Math.max(insertAt, sp.close[1]);
+      }
     }
   }
-  surface.dispatchEvent(new Event('input', { bubbles: true }));
+  const open = addMarkers.join('');
+  const close = addMarkers.slice().reverse().join('');
+  const pos = insertAt + open.length + data.length;
+  return {
+    value: value.slice(0, insertAt) + open + data + close + value.slice(insertAt),
+    selStart: pos, selEnd: pos,
+  };
 }
 
-function refreshActive(rte) {
-  const sel = window.getSelection();
-  const node = sel?.anchorNode;
-  Object.entries(rte.markButtons).forEach(([tag, btn]) => {
-    const active = node ? !!closestTag(node, tag, rte.surface) : false;
+// Bind the pure computeArmedInsertion to the current armed state.
+function armedInsertion(rte, value, caret, data) {
+  return computeArmedInsertion(value, caret, data, pendingMarkers(rte), rte.pendingOff);
+}
+
+// Light each format button to reflect what the next typed text would be: lit when
+// the caret sits inside that mark (Rich mode) or it's armed on, UNLESS it's armed
+// off (the user just clicked to exit it).
+function refreshActiveStates(rte) {
+  const activeTags = rte.mode === 'rich' ? selectionMarkTags(rte) : new Set();
+  rte.buttons.forEach(btn => {
+    const mark = btn._mark;
+    if (!mark) return; // the link button carries no mark
+    const inside = mark.tags.some(t => activeTags.has(t));
+    const active = (inside || rte.pending.has(mark.marker)) && !rte.pendingOff.has(mark.marker);
     btn.classList.toggle('--active', active);
     btn.setAttribute('aria-pressed', String(active));
   });
 }
 
+// Tag names of every element between the selection anchor and the surface.
+function selectionMarkTags(rte) {
+  const tags = new Set();
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return tags;
+  let node = sel.anchorNode;
+  if (!node || !rte.surface.contains(node)) return tags;
+  while (node && node !== rte.surface) {
+    if (node.nodeType === 1) tags.add(node.tagName.toLowerCase());
+    node = node.parentNode;
+  }
+  return tags;
+}
+
+function buildButtons(rte) {
+  MARKS.forEach(m => {
+    const btn = makeBtn(m.icon, m.label, () => runMarker(rte, m.marker));
+    btn._mark = m;
+    rte.btnGroup.appendChild(btn);
+    rte.buttons.push(btn);
+  });
+  const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());
+  rte.btnGroup.appendChild(linkBtn);
+  rte.buttons.push(linkBtn);
+
+  const clearBtn = makeBtn('format_clear', 'Clear formatting', () => runStrip(rte));
+  rte.btnGroup.appendChild(clearBtn);
+  rte.buttons.push(clearBtn);
+}
+
+// Strip all inline formatting from the current selection (both modes). No-op on
+// a collapsed selection (stripFormatting returns the value unchanged).
+function runStrip(rte) {
+  runTransform(rte, stripFormatting);
+}
+
+function buildTabs(rte) {
+  rte.richTab.addEventListener('click', () => setMode(rte, 'rich'));
+  rte.mdTab.addEventListener('click', () => setMode(rte, 'markdown'));
+}
+
+function setMode(rte, mode, { focus = true } = {}) {
+  // Sync the textarea from the surface before leaving Rich mode so Markdown
+  // mode shows the current value.
+  if (rte.mode === 'rich' && mode === 'markdown') rte.textarea.value = serialize(rte.surface);
+  clearArmed(rte); // arming is a Rich-mode, in-flight state; never carry it across a mode switch
+  rte.mode = mode;
+  const rich = mode === 'rich';
+  rte.richTab.classList.toggle('--active', rich);
+  rte.mdTab.classList.toggle('--active', !rich);
+  rte.richTab.setAttribute('aria-pressed', String(rich));
+  rte.mdTab.setAttribute('aria-pressed', String(!rich));
+  rte.surface.hidden = !rich;
+  rte.textarea.hidden = rich;
+  if (rich) {
+    renderSurface(rte);
+    if (focus) rte.surface.focus();
+  } else if (focus) {
+    rte.textarea.focus();
+  }
+  refreshActiveStates(rte);
+}
+
+function attachSurfaceEvents(rte) {
+  const { surface } = rte;
+
+  // Armed formatting consumes the next typed character(s): apply the armed marks
+  // at the source level (wrapping for arm-on, escaping the enclosing mark for
+  // arm-off) and place the caret so subsequent native typing continues in the
+  // right context. Only plain text insertions consume the armed state;
+  // navigation and deletion leave it for the selectionchange handler to clear.
+  surface.addEventListener('beforeinput', e => {
+    if (!isArmed(rte) || e.inputType !== 'insertText') return;
+    const data = e.data;
+    if (data == null || data === '') return;
+    e.preventDefault();
+    const { value, selStart } = currentSelection(rte);
+    applyResult(rte, armedInsertion(rte, value, selStart, data));
+    clearArmed(rte);
+    refreshActiveStates(rte);
+  });
+
+  surface.addEventListener('input', () => syncFromSurface(rte));
+
+  // Plain-text paste only — no foreign HTML enters the surface. If a format is
+  // armed, the pasted text is wrapped in it.
+  surface.addEventListener('paste', e => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    const { value, selStart, selEnd } = currentSelection(rte);
+    if (isArmed(rte)) {
+      applyResult(rte, armedInsertion(rte, value, selStart, text));
+      clearArmed(rte);
+      refreshActiveStates(rte);
+    } else {
+      const caret = selStart + text.length;
+      applyResult(rte, { value: value.slice(0, selStart) + text + value.slice(selEnd), selStart: caret, selEnd: caret });
+    }
+  });
+
+  // Don't navigate when clicking a link while editing.
+  surface.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a');
+    if (a) e.preventDefault();
+  });
+}
+
+// Keep the toolbar's active states in sync with the caret, and disarm a pending
+// format when the user moves the caret away without typing.
+function attachSelectionTracking(rte) {
+  document.addEventListener('selectionchange', () => {
+    if (rte.mode !== 'rich') return; // Markdown mode: buttons stay off
+    if (isArmed(rte)) {
+      const sel = window.getSelection();
+      const inSurface = sel && sel.anchorNode && rte.surface.contains(sel.anchorNode);
+      if (!inSurface) {
+        clearArmed(rte);
+      } else {
+        const { selStart, selEnd } = currentSelection(rte);
+        if (selStart !== selEnd || selStart !== rte.pendingAnchor) clearArmed(rte);
+      }
+    }
+    refreshActiveStates(rte);
+  });
+}
+
 function attachLinkPopover(rte) {
-  const { surface, toolbar } = rte;
-  let savedRange = null;
+  const { toolbar } = rte;
+  let saved = null; // { value, selStart, selEnd } captured when the popover opens
 
   const popover = document.createElement('div');
   popover.className = 'mb-rte__popover';
@@ -175,23 +380,17 @@ function attachLinkPopover(rte) {
 
   const textInput = popover.querySelector('[data-link-text]');
   const urlInput = popover.querySelector('[data-link-url]');
-
-  const close = () => { popover.hidden = true; };
+  const onDocMouseDown = e => {
+    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
+  };
+  const close = () => { popover.hidden = true; document.removeEventListener('mousedown', onDocMouseDown); };
 
   rte.openLinkPopover = () => {
-    const sel = window.getSelection();
-    if (!sel.rangeCount || !surface.contains(sel.anchorNode)) return;
-    savedRange = sel.getRangeAt(0).cloneRange();
-    const existing = closestTag(sel.anchorNode, 'a', surface);
-    if (existing) {
-      textInput.value = existing.textContent;
-      urlInput.value = existing.getAttribute('href') || '';
-      savedRange.selectNode(existing);
-    } else {
-      textInput.value = savedRange.toString();
-      urlInput.value = '';
-    }
+    saved = currentSelection(rte); // capture before focus moves to the popover inputs
+    textInput.value = saved.value.slice(saved.selStart, saved.selEnd);
+    urlInput.value = '';
     popover.hidden = false;
+    document.addEventListener('mousedown', onDocMouseDown);
     urlInput.focus();
   };
 
@@ -200,24 +399,12 @@ function attachLinkPopover(rte) {
   popover.querySelector('[data-link-insert]').addEventListener('click', () => {
     const url = urlInput.value.trim();
     const text = textInput.value.trim() || url;
-    if (!url || !savedRange) { close(); return; }
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(savedRange);
-    const range = sel.getRangeAt(0);
-    range.deleteContents();
-    const a = document.createElement('a');
-    a.setAttribute('href', url);
-    a.textContent = text;
-    range.insertNode(a);
-    sel.removeAllRanges();
+    if (!url) { close(); return; } // empty URL → no-op
     close();
-    surface.dispatchEvent(new Event('input', { bubbles: true }));
+    clearArmed(rte);
+    applyResult(rte, applyLink(saved.value, saved.selStart, saved.selEnd, text, url));
   });
 
-  // Esc / click-outside dismiss.
+  // Esc dismiss (click-outside is wired in openLinkPopover/close).
   popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-  document.addEventListener('mousedown', e => {
-    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
-  });
 }

@@ -145,7 +145,7 @@ export async function openKnowledgeBaseManagement() {
       if (!fileEl) return;
       const file = fileEl.dataset.kbFile;
       const label = fileEl.dataset.kbLabel;
-      if (file === 'pages/system-updates.md') await createForm('systemUpdatesEntry');
+      if (file === 'pages/system-updates.md') await getFormAction('openSystemUpdatesEntry')?.();
       else if (file === 'pages/system-status.md') await createForm('systemStatusEntry');
       else await getFormAction('openGuideEntry')?.({ filePath: file, label });
     });

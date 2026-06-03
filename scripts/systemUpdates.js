@@ -2,7 +2,7 @@ import { registerFormAction } from './formActions.js';
 import { githubFetchAndPushFile } from './github.js';
 import { readRepoText } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
-import { createForm } from './form.js';
+import { createForm, navigateBack, isFormReplay } from './form.js';
 import { renderCard } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
 import {
@@ -29,6 +29,12 @@ const MONTH_NAMES = [
 ];
 
 // ── Private helpers ───────────────────────────────────────────────────────────
+
+function todayIsoDate() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
 
 function formatUpdateDate(dateStr) {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -325,31 +331,29 @@ export async function deleteDraft(uuid, onProgress) {
   return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid));
 }
 
-// ── Render helpers shared by draft action handlers ────────────────────────────
-
-async function refreshSystemUpdatesPanels(updatedPublishedMarkdown) {
-  const fetchEl = document.querySelector('[data-fetch-path*="system-updates"]');
-  if (!fetchEl || !fetchEl._templateHTML) return;
-  const md = updatedPublishedMarkdown ?? await readRepoText(UPDATES_FILE);
-  fetchEl.innerHTML = fetchEl._templateHTML;
-  fetchEl.querySelectorAll('[data-render]').forEach(panel => {
-    if (panel.dataset.render === 'renderDraftUpdates') renderDraftUpdates(md, panel);
-    else if (panel.dataset.render === 'renderPublishedUpdates') renderPublishedUpdates(md, panel);
-  });
-}
-
 // ── Form action registrations ─────────────────────────────────────────────────
+
+// Opened from the Knowledge Base tree. Registered (rather than reached via a
+// bare createForm) so it carries a replayable descriptor — that lets the
+// form-stack snapshot rebuild it as the parent after a capture-library
+// round-trip, so Back from a child form (e.g. Log Update) returns here instead
+// of dead-ending on a lone root.
+registerFormAction('openSystemUpdatesEntry', () => createForm('systemUpdatesEntry'));
 
 registerFormAction('openLogSystemUpdate', async () => {
   resetCaptureState();
+  // On a genuine fresh open, discard any half-finished entry that was saved to
+  // storage during an earlier capture-mode handoff, so the form starts blank.
+  // Skip during a capture-mode replay, when we WANT those in-flight values back.
+  if (!isFormReplay()) {
+    await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
+  }
   const { formEl: logFormEl } = await createForm('logSystemUpdate');
   if (!logFormEl) return;
+  // Default the (now-empty) date field to today.
   const dateInput = logFormEl.querySelector('[name="updateDate"]');
-  if (dateInput && !dateInput.value) {
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    dateInput.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  }
+  if (dateInput && !dateInput.value) dateInput.value = todayIsoDate();
+  updateCapturesList(logFormEl);
 });
 
 registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup }) => {
@@ -365,11 +369,10 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
 
     const update = { title, date, type, description };
     const resolved = resolveCaptures([...captures]);
-    const updatedMarkdown = await publishNewUpdate(update, resolved, s => { btn.textContent = s; });
+    await publishNewUpdate(update, resolved, s => { btn.textContent = s; });
 
-    await refreshSystemUpdatesPanels(updatedMarkdown);
     resetCaptureState();
-    cleanup();
+    await navigateBack();
   } catch (e) {
     btn.textContent = originalText;
     btn.disabled = false;
@@ -427,14 +430,13 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, content, cleanup }
     const update = { title, date, type, description, uuid: _uuid };
     const resolved = resolveCaptures([...captures]);
     await pushCaptures(resolved, s => { btn.textContent = s; });
-    const updatedMarkdown = await githubFetchAndPushFile(UPDATES_FILE, s => { btn.textContent = s; }, md => {
+    await githubFetchAndPushFile(UPDATES_FILE, s => { btn.textContent = s; }, md => {
       return replaceUpdateInMarkdown(md, _uuid, update, resolved);
     });
 
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    await refreshSystemUpdatesPanels(updatedMarkdown);
     resetCaptureState();
-    cleanup();
+    await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     btn.textContent = originalText;
@@ -452,12 +454,11 @@ registerFormAction('deleteSystemUpdate', async ({ formEl, content, cleanup }) =>
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No update identity found');
 
-    const updatedMarkdown = await githubFetchAndPushFile(UPDATES_FILE, s => { if (btn) btn.textContent = s; }, md => {
+    await githubFetchAndPushFile(UPDATES_FILE, s => { if (btn) btn.textContent = s; }, md => {
       return deleteUpdateFromMarkdown(md, _uuid);
     });
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    await refreshSystemUpdatesPanels(updatedMarkdown);
-    cleanup();
+    await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     if (btn) { btn.textContent = originalText; btn.disabled = false; }
@@ -487,9 +488,8 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup })
     const resolved = resolveCaptures([...captures]);
     await saveNewDraft(update, resolved, s => { btn.textContent = s; });
 
-    await refreshSystemUpdatesPanels();
     resetCaptureState();
-    cleanup();
+    await navigateBack();
   } catch (e) {
     btn.textContent = originalText;
     btn.disabled = false;
@@ -552,9 +552,8 @@ registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content, cleanu
     await saveExistingDraft(_uuid, update, resolved, s => { btn.textContent = s; });
 
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    await refreshSystemUpdatesPanels();
     resetCaptureState();
-    cleanup();
+    await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
     btn.textContent = originalText;
@@ -576,13 +575,12 @@ registerFormAction('publishDraftSystemUpdate', async ({ formEl, content, cleanup
 
     const update = { title, date, type, description };
     const resolved = resolveCaptures([...captures]);
-    const updatedMarkdown = await publishDraft(_uuid, update, resolved, s => { btn.textContent = s; });
+    await publishDraft(_uuid, update, resolved, s => { btn.textContent = s; });
 
     suppress(DRAFT_ENTITY, _uuid);
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    await refreshSystemUpdatesPanels(updatedMarkdown);
     resetCaptureState();
-    cleanup();
+    await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
     btn.textContent = originalText;
@@ -603,8 +601,7 @@ registerFormAction('deleteDraftSystemUpdate', async ({ formEl, content, cleanup 
     await deleteDraft(_uuid, s => { if (btn) btn.textContent = s; });
     suppress(DRAFT_ENTITY, _uuid);
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    await refreshSystemUpdatesPanels();
-    cleanup();
+    await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
     if (btn) { btn.textContent = originalText; btn.disabled = false; }

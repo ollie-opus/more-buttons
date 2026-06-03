@@ -1,15 +1,19 @@
 // Inline Markdown ⇄ AST conversion for the KB Description rich-text editor.
 // AST node shapes:
 //   { type: 'text', value: string }
-//   { type: 'strong'|'em'|'underline'|'strike'|'highlight', children: node[] }
+//   { type: 'strong'|'em'|'underline'|'strike'|'highlight'|'code', children: node[] }
 //   { type: 'link', href: string, children: node[] }
 
-// Delimiter table, ordered so longer markers match before shorter ('**' before '*').
+// Delimiter table, ordered so longer markers match before shorter ('***' before
+// '**' before '*'). '***' is the combined bold+italic run the toolbar produces
+// when Bold and Italic are stacked; it maps to nested strong>em.
 const DELIMS = [
+  ['***', 'strong-em'],
   ['**', 'strong'],
   ['==', 'highlight'],
   ['^^', 'underline'],
   ['~~', 'strike'],
+  ['`', 'code'],
   ['*', 'em'],
 ];
 
@@ -35,7 +39,7 @@ function findClosing(text, start, marker) {
 }
 
 // [text](url) — no nested brackets in v1; link text is plain.
-function matchLink(text, i) {
+export function matchLink(text, i) {
   if (text[i] !== '[') return null;
   const closeBracket = text.indexOf(']', i + 1);
   if (closeBracket === -1 || text[closeBracket + 1] !== '(') return null;
@@ -70,7 +74,11 @@ export function parseInline(text) {
       const inner = close === -1 ? '' : text.slice(i + delim.len, close);
       if (close !== -1 && inner.length > 0) {
         flush();
-        nodes.push({ type: delim.type, children: parseInline(inner) });
+        // '***' is sugar for nested strong>em; everything else is a single mark.
+        const children = parseInline(inner);
+        nodes.push(delim.type === 'strong-em'
+          ? { type: 'strong', children: [{ type: 'em', children }] }
+          : { type: delim.type, children });
         i = close + delim.len;
         continue;
       }
@@ -87,12 +95,50 @@ export function parseInline(text) {
   return nodes;
 }
 
+// Find every matched delimiter pair with its source positions, mirroring
+// parseInline's matching rules (links skipped, lazy nearest close, '***' > '**' >
+// '*'). Nested pairs are included, outer before inner. The toolbar uses these
+// boundaries to split a newly-applied mark so it never spans across an existing
+// mark's edge — which would otherwise produce overlapping, non-nesting markdown.
+export function markSpans(value) {
+  const spans = [];
+  const walk = (text, base) => {
+    let i = 0;
+    while (i < text.length) {
+      if (text[i] === '[') {
+        const link = matchLink(text, i);
+        if (link) { i = link.end; continue; } // skip links; markers in URLs aren't marks
+      }
+      const delim = matchDelim(text, i);
+      if (delim) {
+        const close = findClosing(text, i + delim.len, delim.marker);
+        if (close !== -1 && close > i + delim.len) {
+          spans.push({
+            marker: delim.marker,
+            open: [base + i, base + i + delim.len],
+            close: [base + close, base + close + delim.len],
+          });
+          walk(text.slice(i + delim.len, close), base + i + delim.len);
+          i = close + delim.len;
+          continue;
+        }
+        i += delim.len; // unmatched delimiter → literal text
+        continue;
+      }
+      i++;
+    }
+  };
+  walk(value, 0);
+  return spans;
+}
+
 const MARK_DELIM = {
   strong: '**',
   em: '*',
   underline: '^^',
   strike: '~~',
   highlight: '==',
+  code: '`',
 };
 
 export function renderMarkdown(nodes) {
@@ -110,6 +156,7 @@ const TAG = {
   underline: 'u',
   strike: 's',
   highlight: 'mark',
+  code: 'code',
 };
 
 function escapeHtml(s) {
@@ -137,6 +184,7 @@ const TAG_TO_TYPE = {
   u: 'underline',
   s: 'strike', strike: 'strike', del: 'strike',
   mark: 'highlight',
+  code: 'code',
 };
 
 export function domToNodes(root) {

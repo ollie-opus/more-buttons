@@ -117,6 +117,7 @@ function onGuideEntryClick(e, formEl) {
     if (action === 'create')   { createGuideDraft(formEl);   return; }
     if (action === 'publish')  { publishGuideDraft(formEl);  return; }
     if (action === 'discard')  { discardGuideDraft(formEl);  return; }
+    if (action === 'delete')   { deleteGuide(formEl);        return; }
   }
   // Edit / create section clicks are dispatched via form actions below.
   const editSec = e.target.closest('[data-edit-guide-section]');
@@ -158,7 +159,8 @@ async function renderGuideEntryContent(formEl) {
         left untouched until you publish.
       </p>`;
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button" data-guide-action="create">Create draft</button>`;
+      <button type="button" class="more-buttons-button" data-guide-action="create">Create draft</button>
+      <button type="button" class="more-buttons-button danger" data-guide-action="delete">Delete guide</button>`;
     return;
   }
 
@@ -169,7 +171,7 @@ async function renderGuideEntryContent(formEl) {
   actionsEl.innerHTML = `
     <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}">+ Add new section</button>
     <button type="button" class="more-buttons-button" data-guide-action="publish">Publish draft to live</button>
-    <button type="button" class="more-buttons-button secondary" data-guide-action="discard">Discard draft</button>`;
+    <button type="button" class="more-buttons-button danger" data-guide-action="discard">Discard draft</button>`;
 }
 
 function renderGuideSectionTree(markdown) {
@@ -313,6 +315,41 @@ async function discardGuideDraft(formEl) {
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
     alert('Failed to discard draft: ' + e.message);
+  }
+}
+
+// Permanently delete a guide: removes the live .md from GitHub and drops it from
+// both nav and draft_nav. Only offered from the no-draft entry view, so there is
+// normally no draft file — we still delete it defensively (a no-op on 404) so a
+// stale draft can't linger. Returns to the (refreshed) KB list on success.
+async function deleteGuide(formEl) {
+  if (!currentGuide) return;
+  const label = formEl.dataset.guideLabel || guideBaseName(formEl.dataset.livePath);
+  if (!confirm(`Delete the guide "${label}"?\n\nThis permanently removes the live page from GitHub and from the navigation. This cannot be undone.`)) return;
+  const btn = formEl.parentElement?.querySelector('[data-guide-action="delete"]');
+  const originalText = btn?.textContent;
+  if (btn) btn.disabled = true;
+
+  try {
+    if (btn) btn.textContent = 'Deleting page…';
+    await githubDeleteFile(currentGuide.livePath, s => { if (btn) btn.textContent = s; });
+    await githubDeleteFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; });
+    if (btn) btn.textContent = 'Updating navigation…';
+    const value = navValueOf(currentGuide.livePath);
+    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+      const navItems = parseNavBlock(md, 'nav').items;
+      const draftItems = parseNavBlock(md, 'draft_nav').items;
+      removeByValue(navItems, value);
+      removeByValue(draftItems, value);
+      let out = replaceNavBlock(md, 'nav', navItems);
+      out = replaceNavBlock(out, 'draft_nav', draftItems);
+      return out;
+    });
+    currentGuide = null;
+    await navigateBack();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    alert('Failed to delete guide: ' + e.message);
   }
 }
 
@@ -813,7 +850,7 @@ registerFormAction('deleteGuideSection', async ({ formEl, content, cleanup }) =>
   try {
     await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => deleteSectionByUUID(md, editUuid, { cascade: true }));
     await chrome.storage.local.remove('moreButtonsEditGuideSection');
-    cleanup();
+    await navigateBack();
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
     alert('Failed to delete section: ' + e.message);

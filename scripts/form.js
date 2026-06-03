@@ -231,10 +231,17 @@ export async function createForm(formName, opener) {
   }
 
   if (replaying) {
-    // Back/forward/crumb jump: cursor is already positioned; just refresh the
-    // entry's opener so a later replay rebuilds the same view.
-    if (history[cursor]) {
-      history[cursor].opener = resolvedOpener;
+    // Back/forward/crumb jump: cursor is already positioned. Only adopt a NEW
+    // opener when this createForm was handed an explicit one. Otherwise the
+    // opener already in this slot IS the closure we are currently replaying —
+    // the source of truth — so overwriting it with the ambient form action's
+    // identity (currentOpener) would corrupt the slot. That corruption happens
+    // when a form action calls navigateBack() and the destination's opener is a
+    // bare createForm (not wrapped in getFormAction): activeInvocation still
+    // points at the running action, so the slot would later replay that action
+    // (e.g. re-saving a draft) instead of rebuilding its own view.
+    if (history[cursor] && opener) {
+      history[cursor].opener = opener;
       if (descriptor) history[cursor].descriptor = descriptor;
     }
   } else if (deeper) {

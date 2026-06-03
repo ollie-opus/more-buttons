@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseInline, renderMarkdown, renderHtml } from '../scripts/markdownInline.js';
+import { parseInline, renderMarkdown, renderHtml, markSpans } from '../scripts/markdownInline.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -16,10 +16,14 @@ test('italic uses single asterisk only', () => {
 test('underscores stay literal', () => {
   assert.deepEqual(parseInline('some_var_name'), [{ type: 'text', value: 'some_var_name' }]);
 });
-test('underline / strike / highlight', () => {
+test('underline / strike / highlight / code', () => {
   assert.equal(parseInline('^^x^^')[0].type, 'underline');
   assert.equal(parseInline('~~x~~')[0].type, 'strike');
   assert.equal(parseInline('==x==')[0].type, 'highlight');
+  assert.equal(parseInline('`x`')[0].type, 'code');
+});
+test('code renders to a <code> element', () => {
+  assert.equal(renderHtml(parseInline('`npm i`')), '<code>npm i</code>');
 });
 test('bold beats italic (** before *)', () => {
   assert.deepEqual(parseInline('**x**'), [{ type: 'strong', children: [{ type: 'text', value: 'x' }] }]);
@@ -43,6 +47,20 @@ test('shared-endpoint triple is a v1 limitation (lazy, not nested)', () => {
     { type: 'strong', children: [{ type: 'text', value: 'a*b' }] },
     { type: 'text', value: '*' },
   ]);
+});
+test('symmetric triple ***x*** nests as bold>italic', () => {
+  // A matched `***…***` run (what stacking Bold then Italic produces) renders as
+  // nested strong>em, unlike the asymmetric `**a*b***` case above.
+  assert.deepEqual(parseInline('***x***'), [{
+    type: 'strong',
+    children: [{ type: 'em', children: [{ type: 'text', value: 'x' }] }],
+  }]);
+});
+test('triple-star wraps a full nested mark stack', () => {
+  // ***^^~~==test==~~^^*** — bold+italic outside, underline/strike/highlight in.
+  assert.equal(
+    renderHtml(parseInline('***^^~~==test==~~^^***')),
+    '<strong><em><u><s><mark>test</mark></s></u></em></strong>');
 });
 test('adjacent same-type marks stay independent', () => {
   // Regression guard: lazy matching must NOT merge two emphases across the gap.
@@ -84,6 +102,7 @@ test('renderMarkdown of each mark', () => {
   assert.equal(renderMarkdown([{ type: 'underline', children: [{ type: 'text', value: 'x' }] }]), '^^x^^');
   assert.equal(renderMarkdown([{ type: 'strike', children: [{ type: 'text', value: 'x' }] }]), '~~x~~');
   assert.equal(renderMarkdown([{ type: 'highlight', children: [{ type: 'text', value: 'x' }] }]), '==x==');
+  assert.equal(renderMarkdown([{ type: 'code', children: [{ type: 'text', value: 'x' }] }]), '`x`');
 });
 test('renderMarkdown of link', () => {
   assert.equal(renderMarkdown([{ type: 'link', href: 'http://x', children: [{ type: 'text', value: 'go' }] }]), '[go](http://x)');
@@ -93,7 +112,10 @@ test('round-trip: renderMarkdown(parseInline(md)) === md', () => {
     'plain text',
     '**bold** and *italic*',
     '^^under^^ ~~strike~~ ==hi==',
+    'run `npm i` first',
     '**a*b***',
+    '***x***',
+    '***^^~~==test==~~^^***',
     '[go](http://x)',
     'a ** b',
     '****',
@@ -108,6 +130,23 @@ test('parse is idempotent', () => {
   const once = parseInline('**a*b*** plain');
   const twice = parseInline(renderMarkdown(once));
   assert.deepEqual(twice, once);
+});
+test('markSpans reports matched pairs with source positions', () => {
+  assert.deepEqual(markSpans('**testing** 12345'),
+    [{ marker: '**', open: [0, 2], close: [9, 11] }]);
+});
+test('markSpans reports nested pairs too', () => {
+  // strong wrapping an em: both spans, outer first.
+  assert.deepEqual(markSpans('**a *b* c**'), [
+    { marker: '**', open: [0, 2], close: [9, 11] },
+    { marker: '*', open: [4, 5], close: [6, 7] },
+  ]);
+});
+test('clipped overlap renders as separate, non-overlapping marks', () => {
+  // After clipping, a straddling underline only formats the clean outside part,
+  // so the result is two independent marks (no literal ^^, no overlap).
+  assert.equal(renderHtml(parseInline('**testing** ^^12345^^')),
+    '<strong>testing</strong> <u>12345</u>');
 });
 test('renderHtml escapes HTML in text', () => {
   assert.equal(renderHtml([{ type: 'text', value: 'a < b & c > d' }]), 'a &lt; b &amp; c &gt; d');
