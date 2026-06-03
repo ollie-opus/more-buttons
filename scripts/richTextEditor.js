@@ -1,4 +1,4 @@
-import { parseInline, renderHtml } from './markdownInline.js';
+import { parseInline, renderHtml, markSpans } from './markdownInline.js';
 import { applyMarker, applyLink } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
@@ -59,10 +59,12 @@ export function upgradeTextarea(textarea) {
 
   const rte = {
     textarea, surface, toolbar, btnGroup, richTab, mdTab, buttons: [], mode: 'rich',
-    // Google-Docs-style "armed" formatting: marks the next typed text will get
-    // when there is no selection. pendingAnchor is the caret offset at arm time,
-    // so a later selectionchange can tell typing-here from navigating-away.
-    pending: new Set(), pendingAnchor: 0,
+    // Google-Docs-style "armed" formatting for the next typed text when there is
+    // no selection. `pending` = marks to turn ON (wrap the text); `pendingOff` =
+    // marks to turn OFF (escape past the enclosing mark's close), set when you
+    // click a mark the caret is already inside. pendingAnchor is the caret offset
+    // at arm time, so a later selectionchange tells typing-here from navigating-away.
+    pending: new Set(), pendingOff: new Set(), pendingAnchor: 0,
   };
 
   buildButtons(rte);
@@ -152,58 +154,85 @@ function applyResult(rte, res) {
 
 // Apply a pure string transform (value, selStart, selEnd) -> {value, selStart, selEnd}.
 function runTransform(rte, transform) {
-  rte.pending.clear(); // an explicit transform supersedes any armed format
+  clearArmed(rte); // an explicit transform supersedes any armed format
   const { value, selStart, selEnd } = currentSelection(rte);
   applyResult(rte, transform(value, selStart, selEnd));
 }
 
 function runMarker(rte, marker) {
-  // Rich mode with no selection: arm the marker for the next typed text
+  // Rich mode with no selection: arm/disarm the marker for the next typed text
   // (Google-Docs style) rather than inserting empty '**' delimiters that would
   // render as literal asterisks. Markdown mode keeps the raw textarea behaviour
   // (insert the paired delimiters with the caret between them).
   if (rte.mode === 'rich') {
     const { selStart, selEnd } = currentSelection(rte);
-    if (selStart === selEnd) { togglePending(rte, marker, selStart); return; }
+    if (selStart === selEnd) { toggleArmed(rte, marker, selStart); return; }
   }
   runTransform(rte, (v, s, e) => applyMarker(v, s, e, marker));
 }
 
-// Toggle a marker in the armed set and remember where the caret was, so the
-// next selectionchange can disarm it if the user navigates away without typing.
-function togglePending(rte, marker, anchor) {
+// Clicking a marker with a collapsed caret toggles what the NEXT typed text will
+// be: arm it ON if the caret isn't already inside that mark, or OFF (escape the
+// enclosing mark) if it is. A second click cancels a queued arm. The caret offset
+// is remembered so a later selectionchange can disarm on navigate-away.
+function toggleArmed(rte, marker, anchor) {
+  const mark = MARKS.find(m => m.marker === marker);
+  const tags = selectionMarkTags(rte);
+  const inside = !!mark && mark.tags.some(t => tags.has(t));
   if (rte.pending.has(marker)) rte.pending.delete(marker);
+  else if (rte.pendingOff.has(marker)) rte.pendingOff.delete(marker);
+  else if (inside) rte.pendingOff.add(marker);
   else rte.pending.add(marker);
   rte.pendingAnchor = anchor;
   rte.surface.focus();
   refreshActiveStates(rte);
 }
 
-// The armed markers in nesting order (outermost first), per MARKS order.
+function isArmed(rte) { return rte.pending.size > 0 || rte.pendingOff.size > 0; }
+function clearArmed(rte) { rte.pending.clear(); rte.pendingOff.clear(); }
+
+// The armed-on markers in nesting order (outermost first), per MARKS order.
 function pendingMarkers(rte) {
   return MARKS.filter(m => rte.pending.has(m.marker)).map(m => m.marker);
 }
 
-// Splice `data` into the source at the selection, wrapped in `markers`
-// (outermost first), leaving a collapsed caret inside the wrap.
-function spliceFormatted(value, selStart, selEnd, data, markers) {
-  const open = markers.join('');
-  const close = markers.slice().reverse().join('');
-  const caret = selStart + open.length + data.length;
+// Pure: insert `data` at a collapsed caret with the armed format applied.
+// `addMarkers` (outermost first) wrap the text; for each marker in `offMarkers`
+// that encloses the caret, the insertion point is moved past that mark's closing
+// delimiter so the new text lands OUTSIDE it. Returns { value, selStart, selEnd }.
+export function computeArmedInsertion(value, caret, data, addMarkers, offMarkers) {
+  let insertAt = caret;
+  if (offMarkers && offMarkers.size) {
+    for (const sp of markSpans(value)) {
+      if (offMarkers.has(sp.marker) && sp.open[1] <= insertAt && insertAt <= sp.close[0]) {
+        insertAt = Math.max(insertAt, sp.close[1]);
+      }
+    }
+  }
+  const open = addMarkers.join('');
+  const close = addMarkers.slice().reverse().join('');
+  const pos = insertAt + open.length + data.length;
   return {
-    value: value.slice(0, selStart) + open + data + close + value.slice(selEnd),
-    selStart: caret, selEnd: caret,
+    value: value.slice(0, insertAt) + open + data + close + value.slice(insertAt),
+    selStart: pos, selEnd: pos,
   };
 }
 
-// Light each format button when its mark is armed, or when the caret/selection
-// sits inside that mark in the rendered surface (Rich mode only).
+// Bind the pure computeArmedInsertion to the current armed state.
+function armedInsertion(rte, value, caret, data) {
+  return computeArmedInsertion(value, caret, data, pendingMarkers(rte), rte.pendingOff);
+}
+
+// Light each format button to reflect what the next typed text would be: lit when
+// the caret sits inside that mark (Rich mode) or it's armed on, UNLESS it's armed
+// off (the user just clicked to exit it).
 function refreshActiveStates(rte) {
   const activeTags = rte.mode === 'rich' ? selectionMarkTags(rte) : new Set();
   rte.buttons.forEach(btn => {
     const mark = btn._mark;
     if (!mark) return; // the link button carries no mark
-    const active = rte.pending.has(mark.marker) || mark.tags.some(t => activeTags.has(t));
+    const inside = mark.tags.some(t => activeTags.has(t));
+    const active = (inside || rte.pending.has(mark.marker)) && !rte.pendingOff.has(mark.marker);
     btn.classList.toggle('--active', active);
     btn.setAttribute('aria-pressed', String(active));
   });
@@ -244,7 +273,7 @@ function setMode(rte, mode, { focus = true } = {}) {
   // Sync the textarea from the surface before leaving Rich mode so Markdown
   // mode shows the current value.
   if (rte.mode === 'rich' && mode === 'markdown') rte.textarea.value = serialize(rte.surface);
-  rte.pending.clear(); // arming is a Rich-mode, in-flight state; never carry it across a mode switch
+  clearArmed(rte); // arming is a Rich-mode, in-flight state; never carry it across a mode switch
   rte.mode = mode;
   const rich = mode === 'rich';
   rte.richTab.classList.toggle('--active', rich);
@@ -265,19 +294,19 @@ function setMode(rte, mode, { focus = true } = {}) {
 function attachSurfaceEvents(rte) {
   const { surface } = rte;
 
-  // Armed formatting consumes the next typed character(s): wrap them in the
-  // armed markers at the source level and drop the caret inside the new mark,
-  // so subsequent native typing continues inside it. Only plain text insertions
-  // consume the armed state; navigation and deletion leave it for the
-  // selectionchange handler to clear.
+  // Armed formatting consumes the next typed character(s): apply the armed marks
+  // at the source level (wrapping for arm-on, escaping the enclosing mark for
+  // arm-off) and place the caret so subsequent native typing continues in the
+  // right context. Only plain text insertions consume the armed state;
+  // navigation and deletion leave it for the selectionchange handler to clear.
   surface.addEventListener('beforeinput', e => {
-    if (!rte.pending.size || e.inputType !== 'insertText') return;
+    if (!isArmed(rte) || e.inputType !== 'insertText') return;
     const data = e.data;
     if (data == null || data === '') return;
     e.preventDefault();
-    const { value, selStart, selEnd } = currentSelection(rte);
-    applyResult(rte, spliceFormatted(value, selStart, selEnd, data, pendingMarkers(rte)));
-    rte.pending.clear();
+    const { value, selStart } = currentSelection(rte);
+    applyResult(rte, armedInsertion(rte, value, selStart, data));
+    clearArmed(rte);
     refreshActiveStates(rte);
   });
 
@@ -289,9 +318,9 @@ function attachSurfaceEvents(rte) {
     e.preventDefault();
     const text = (e.clipboardData || window.clipboardData).getData('text/plain');
     const { value, selStart, selEnd } = currentSelection(rte);
-    if (rte.pending.size) {
-      applyResult(rte, spliceFormatted(value, selStart, selEnd, text, pendingMarkers(rte)));
-      rte.pending.clear();
+    if (isArmed(rte)) {
+      applyResult(rte, armedInsertion(rte, value, selStart, text));
+      clearArmed(rte);
       refreshActiveStates(rte);
     } else {
       const caret = selStart + text.length;
@@ -322,14 +351,14 @@ function attachShortcuts(rte) {
 function attachSelectionTracking(rte) {
   document.addEventListener('selectionchange', () => {
     if (rte.mode !== 'rich') return; // Markdown mode: buttons stay off
-    if (rte.pending.size) {
+    if (isArmed(rte)) {
       const sel = window.getSelection();
       const inSurface = sel && sel.anchorNode && rte.surface.contains(sel.anchorNode);
       if (!inSurface) {
-        rte.pending.clear();
+        clearArmed(rte);
       } else {
         const { selStart, selEnd } = currentSelection(rte);
-        if (selStart !== selEnd || selStart !== rte.pendingAnchor) rte.pending.clear();
+        if (selStart !== selEnd || selStart !== rte.pendingAnchor) clearArmed(rte);
       }
     }
     refreshActiveStates(rte);
@@ -375,7 +404,7 @@ function attachLinkPopover(rte) {
     const text = textInput.value.trim() || url;
     if (!url) { close(); return; } // empty URL → no-op
     close();
-    rte.pending.clear();
+    clearArmed(rte);
     applyResult(rte, applyLink(saved.value, saved.selStart, saved.selEnd, text, url));
   });
 
