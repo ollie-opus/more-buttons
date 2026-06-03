@@ -10,6 +10,8 @@
 
 **Design doc:** `docs/superpowers/specs/2026-06-03-kb-description-inline-wysiwyg-design.md`
 
+**Execution mode:** Subagent-driven (superpowers:subagent-driven-development) — a fresh subagent implements each task in order, with a two-stage review (code review + verification) between tasks. Tasks 1–4 are independent of 5–6 but should run in listed order; Task 7 is final verification.
+
 ---
 
 ## File Structure
