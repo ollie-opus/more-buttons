@@ -94,6 +94,43 @@ export function parseInline(text) {
   return nodes;
 }
 
+// Find every matched delimiter pair with its source positions, mirroring
+// parseInline's matching rules (links skipped, lazy nearest close, '***' > '**' >
+// '*'). Nested pairs are included, outer before inner. The toolbar uses these
+// boundaries to split a newly-applied mark so it never spans across an existing
+// mark's edge — which would otherwise produce overlapping, non-nesting markdown.
+export function markSpans(value) {
+  const spans = [];
+  const walk = (text, base) => {
+    let i = 0;
+    while (i < text.length) {
+      if (text[i] === '[') {
+        const link = matchLink(text, i);
+        if (link) { i = link.end; continue; } // skip links; markers in URLs aren't marks
+      }
+      const delim = matchDelim(text, i);
+      if (delim) {
+        const close = findClosing(text, i + delim.len, delim.marker);
+        if (close !== -1 && close > i + delim.len) {
+          spans.push({
+            marker: delim.marker,
+            open: [base + i, base + i + delim.len],
+            close: [base + close, base + close + delim.len],
+          });
+          walk(text.slice(i + delim.len, close), base + i + delim.len);
+          i = close + delim.len;
+          continue;
+        }
+        i += delim.len; // unmatched delimiter → literal text
+        continue;
+      }
+      i++;
+    }
+  };
+  walk(value, 0);
+  return spans;
+}
+
 const MARK_DELIM = {
   strong: '**',
   em: '*',

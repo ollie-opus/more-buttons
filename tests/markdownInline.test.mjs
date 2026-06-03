@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseInline, renderMarkdown, renderHtml } from '../scripts/markdownInline.js';
+import { parseInline, renderMarkdown, renderHtml, markSpans } from '../scripts/markdownInline.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -124,6 +124,23 @@ test('parse is idempotent', () => {
   const once = parseInline('**a*b*** plain');
   const twice = parseInline(renderMarkdown(once));
   assert.deepEqual(twice, once);
+});
+test('markSpans reports matched pairs with source positions', () => {
+  assert.deepEqual(markSpans('**testing** 12345'),
+    [{ marker: '**', open: [0, 2], close: [9, 11] }]);
+});
+test('markSpans reports nested pairs too', () => {
+  // strong wrapping an em: both spans, outer first.
+  assert.deepEqual(markSpans('**a *b* c**'), [
+    { marker: '**', open: [0, 2], close: [9, 11] },
+    { marker: '*', open: [4, 5], close: [6, 7] },
+  ]);
+});
+test('split overlap renders as clean nested marks', () => {
+  // The markdown the toolbar produces when an underline is split across a bold
+  // boundary must parse back to properly nested tags (no literal ^^).
+  assert.equal(renderHtml(parseInline('**testi^^ng^^** ^^12345^^')),
+    '<strong>testi<u>ng</u></strong> <u>12345</u>');
 });
 test('renderHtml escapes HTML in text', () => {
   assert.equal(renderHtml([{ type: 'text', value: 'a < b & c > d' }]), 'a &lt; b &amp; c &gt; d');

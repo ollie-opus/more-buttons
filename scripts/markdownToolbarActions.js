@@ -3,6 +3,8 @@
 // value and the selection range to restore. No DOM, no side effects — unit
 // tested in tests/markdownToolbarActions.test.mjs.
 
+import { markSpans } from './markdownInline.js';
+
 // Every delimiter the toolbar can insert. Order matters: longer delimiters that
 // share a leading character ('**' before '*') must come first so the layer
 // scan claims them greedily and never mistakes the inner half of '**' for '*'.
@@ -105,11 +107,67 @@ export function applyMarker(value, selStart, selEnd, marker) {
     };
   }
 
-  // Wrap, keeping the inner text selected.
+  // Wrap. If the selection crosses an existing mark's boundary, split the new
+  // marker at that boundary so the result stays cleanly nested rather than
+  // overlapping (which markdown — being a tree — cannot represent). Otherwise
+  // wrap the whole selection, keeping the inner text selected.
+  return wrapSelection(value, selStart, selEnd, marker);
+}
+
+// A mark boundary the selection crosses: a matched pair with exactly one of its
+// open/close delimiters inside the selection. That delimiter's [start, end) is a
+// "gap" the new marker must not span — we wrap around it instead.
+function crossingGaps(value, selStart, selEnd) {
+  const gaps = [];
+  for (const sp of markSpans(value)) {
+    const openInside = sp.open[0] >= selStart && sp.open[1] <= selEnd;
+    const closeInside = sp.close[0] >= selStart && sp.close[1] <= selEnd;
+    if (closeInside && !openInside) gaps.push(sp.close); // mark closes mid-selection
+    else if (openInside && !closeInside) gaps.push(sp.open); // mark opens mid-selection
+  }
+  return gaps;
+}
+
+// Wrap `segment` in `marker`, keeping leading/trailing whitespace OUTSIDE the
+// markers (so a mark never wraps a bare space). Whitespace-only → unchanged.
+function wrapSegment(segment, marker) {
+  const lead = segment.length - segment.trimStart().length;
+  const trail = segment.length - segment.trimEnd().length;
+  const core = segment.slice(lead, segment.length - trail);
+  if (!core) return segment;
+  return segment.slice(0, lead) + marker + core + marker + segment.slice(segment.length - trail);
+}
+
+function wrapSelection(value, selStart, selEnd, marker) {
+  const len = marker.length;
+  const gaps = crossingGaps(value, selStart, selEnd);
+
+  // No crossed boundary → plain wrap, inner text kept selected.
+  if (gaps.length === 0) {
+    const selected = value.slice(selStart, selEnd);
+    return {
+      value: value.slice(0, selStart) + marker + selected + marker + value.slice(selEnd),
+      selStart: selStart + len,
+      selEnd: selStart + len + selected.length,
+    };
+  }
+
+  // Rebuild the [selStart, selEnd) region as bare gaps interleaved with wrapped
+  // text segments, in source order.
+  gaps.sort((a, b) => a[0] - b[0]);
+  let mid = '';
+  let cur = selStart;
+  for (const [gapStart, gapEnd] of gaps) {
+    if (gapStart > cur) mid += wrapSegment(value.slice(cur, gapStart), marker);
+    mid += value.slice(gapStart, gapEnd); // the existing marker, left bare
+    cur = gapEnd;
+  }
+  if (cur < selEnd) mid += wrapSegment(value.slice(cur, selEnd), marker);
+
   return {
-    value: value.slice(0, selStart) + marker + selected + marker + value.slice(selEnd),
-    selStart: selStart + len,
-    selEnd: selStart + len + selected.length,
+    value: value.slice(0, selStart) + mid + value.slice(selEnd),
+    selStart,
+    selEnd: selStart + mid.length,
   };
 }
 

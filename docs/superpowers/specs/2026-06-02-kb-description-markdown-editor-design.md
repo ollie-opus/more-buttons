@@ -153,5 +153,16 @@ The textarea is the only persisted state. No mirror, no DOM serialization.
 ## Out of scope (YAGNI)
 
 - Block-level markdown rendering in preview (admonitions, lists, headings).
-- Merging/normalizing adjacent or overlapping marks.
+- Merging/normalizing *adjacent* marks (e.g. collapsing `**a****b**`).
 - Live (always-on) preview — preview is toggle-only by request.
+
+## Follow-up: overlapping marks (implemented)
+
+Originally deferred, then brought into scope. Markdown is a tree, so overlapping
+(non-nesting) marks cannot be represented. When a newly-applied mark would cross
+an existing mark's boundary, the toolbar now **splits** the new mark at that
+boundary so the result is always cleanly nested. `markdownInline.markSpans`
+reports matched-pair source positions; `markdownToolbarActions.wrapSelection`
+wraps each segment between the crossed boundaries (keeping edge whitespace
+outside the markers). Example: underlining `ng** 12345` in `**testing** 12345`
+yields `**testi^^ng^^** ^^12345^^` → `<strong>testi<u>ng</u></strong> <u>12345</u>`.

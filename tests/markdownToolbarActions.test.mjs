@@ -72,6 +72,24 @@ test('toggle inner italic off leaves the outer bold', () => {
     { value: '**test**', selStart: 2, selEnd: 6 });
 });
 
+// applyMarker — overlapping (non-nesting) marks are split at existing mark
+// boundaries so the result is always cleanly nested markdown.
+test('applying a mark across a bold close splits it to stay nested', () => {
+  // **testing** 12345 with `ng** 12345` (7..17) selected, click Underline:
+  // the underline splits into ^^ng^^ inside the bold and ^^12345^^ outside it.
+  assert.deepEqual(applyMarker('**testing** 12345', 7, 17, '^^'),
+    { value: '**testi^^ng^^** ^^12345^^', selStart: 7, selEnd: 25 });
+});
+test('applying a mark across a bold open splits it to stay nested', () => {
+  // 12345 **testing** with `12345 **te` (0..10) selected, click Underline.
+  assert.deepEqual(applyMarker('12345 **testing**', 0, 10, '^^'),
+    { value: '^^12345^^ **^^te^^sting**', selStart: 0, selEnd: 18 });
+});
+test('a mark fully inside the selection just nests (no split)', () => {
+  assert.deepEqual(applyMarker('a **b** c', 0, 9, '^^'),
+    { value: '^^a **b** c^^', selStart: 2, selEnd: 11 });
+});
+
 // applyMarker — different markers
 test('highlight marker', () => {
   assert.deepEqual(applyMarker('hi', 0, 2, '=='),
