@@ -22,6 +22,8 @@ test('collapsed cursor inserts paired markers with caret between', () => {
     { value: '****', selStart: 2, selEnd: 2 });
 });
 test('collapsed cursor mid-text', () => {
+  // The single '*' marker is inserted twice ('a' + '*' + '*' + 'b'): two
+  // single-char markers, NOT a bold '**' delimiter.
   assert.deepEqual(applyMarker('ab', 1, 1, '*'),
     { value: 'a**b', selStart: 2, selEnd: 2 });
 });
@@ -36,6 +38,16 @@ test('toggle off: markers immediately outside selection', () => {
 test('toggle off: selection includes the markers', () => {
   assert.deepEqual(applyMarker('**foo**', 0, 7, '**'),
     { value: 'foo', selStart: 0, selEnd: 3 });
+});
+
+// applyMarker — sub-delimiter must NOT toggle off a longer adjacent marker (fall back to wrapping)
+test('italic inside bold wraps, not toggles (outside form)', () => {
+  assert.deepEqual(applyMarker('**foo**', 2, 5, '*'),
+    { value: '***foo***', selStart: 3, selEnd: 6 });
+});
+test('italic over whole bold span wraps, not toggles (inside form)', () => {
+  assert.deepEqual(applyMarker('**foo**', 0, 7, '*'),
+    { value: '***foo***', selStart: 1, selEnd: 8 });
 });
 
 // applyMarker — different markers

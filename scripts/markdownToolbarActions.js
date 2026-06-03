@@ -23,9 +23,14 @@ export function applyMarker(value, selStart, selEnd, marker) {
   const selected = value.slice(selStart, selEnd);
 
   // Toggle off: markers immediately OUTSIDE the selection.
+  // Guard: if the char just beyond either matched marker is the same delimiter
+  // unit, we've matched the inner half of a LONGER run (e.g. '*' inside '**');
+  // fall through to wrapping per the design spec.
   if (
     value.slice(selStart - len, selStart) === marker &&
-    value.slice(selEnd, selEnd + len) === marker
+    value.slice(selEnd, selEnd + len) === marker &&
+    value[selStart - len - 1] !== marker[0] &&
+    value[selEnd + len] !== marker[0]
   ) {
     return {
       value: value.slice(0, selStart - len) + selected + value.slice(selEnd + len),
@@ -35,10 +40,14 @@ export function applyMarker(value, selStart, selEnd, marker) {
   }
 
   // Toggle off: markers INSIDE the selection edges.
+  // Same guard: don't strip if the char just inside either marker is the same
+  // delimiter unit (we'd be splitting a longer run); fall through to wrapping.
   if (
     selected.length >= 2 * len &&
     selected.startsWith(marker) &&
-    selected.endsWith(marker)
+    selected.endsWith(marker) &&
+    selected[len] !== marker[0] &&
+    selected[selected.length - len - 1] !== marker[0]
   ) {
     const inner = selected.slice(len, selected.length - len);
     return {
