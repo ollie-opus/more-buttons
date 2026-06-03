@@ -612,7 +612,8 @@ Navigate to the Knowledge Base management form that renders a
 - [ ] **Step 3: Confirm the full test suite passes**
 
 Run: `node tests/markdownToolbarActions.test.mjs && node tests/markdownInline.test.mjs`
-Expected: `9 passed` then `24 passed`.
+Expected: `11 passed` then `24 passed`. (Two extra toolbar-action tests were
+added during review to cover the sub-delimiter toggle-off guard.)
 
 ---
 
