@@ -99,10 +99,32 @@ test('a mark fully inside the selection just wraps (no clip)', () => {
   assert.deepEqual(applyMarker('a **b** c', 0, 9, '^^'),
     { value: '^^a **b** c^^', selStart: 2, selEnd: 11 });
 });
-test('a selection cleanly inside a mark still nests', () => {
-  // No boundary is crossed, so wrapping inside an existing mark is fine.
+// applyMarker — PARTIAL nesting is blocked: applying a mark to only part of an
+// existing different mark's rendered text would produce e.g. **test^^ing^^**,
+// which Zensical renders poorly. Such a click is a no-op. Coextensive stacking
+// (the new mark covers ALL of the enclosing mark's text) is still allowed.
+test('partial nesting inside a mark is blocked (no-op)', () => {
+  // **testing**, select just "ing" (6..9), click Underline -> unchanged.
   assert.deepEqual(applyMarker('**testing**', 6, 9, '^^'),
-    { value: '**test^^ing^^**', selStart: 8, selEnd: 11 });
+    { value: '**testing**', selStart: 6, selEnd: 9 });
+});
+test('partial nesting blocked when rendered text remains on the right', () => {
+  // **testing**, select "test" (2..6), click Underline -> unchanged ("ing" would
+  // be left bold-only outside the underline).
+  assert.deepEqual(applyMarker('**testing**', 2, 6, '^^'),
+    { value: '**testing**', selStart: 2, selEnd: 6 });
+});
+test('coextensive stacking is allowed (covers all the mark\'s text)', () => {
+  // **testing**, select all of "testing" (2..9), click Underline -> the underline
+  // covers the whole bold word, so it nests cleanly.
+  assert.deepEqual(applyMarker('**testing**', 2, 9, '^^'),
+    { value: '**^^testing^^**', selStart: 4, selEnd: 11 });
+});
+test('coextensive stacking allowed through an existing nested mark', () => {
+  // ^^**testing**^^, select all of "testing" (4..11) — the selection skips the
+  // inner ** delimiters (not rendered text), so adding italic is coextensive.
+  assert.deepEqual(applyMarker('^^**testing**^^', 4, 11, '*'),
+    { value: '^^***testing***^^', selStart: 5, selEnd: 12 });
 });
 
 // applyMarker — SAME marker partially overlapping a mark MERGES into one clean

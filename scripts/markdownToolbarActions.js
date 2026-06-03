@@ -141,6 +141,11 @@ export function applyMarker(value, selStart, selEnd, marker) {
   const same = toggleSameMarker(value, selStart, selEnd, marker);
   if (same) return same;
 
+  // Block partial nesting (renders poorly in Zensical): do nothing rather than
+  // leave some of the enclosing mark's text outside the new one. Toggles/merges
+  // above have already returned; coextensive stacking falls through to the wrap.
+  if (nestsPartially(value, selStart, selEnd, marker)) return { value, selStart, selEnd };
+
   // Wrap. Markdown is a tree, so it can't represent overlapping marks. If the
   // selection straddles a DIFFERENT mark's boundary, clip it to the clean part
   // outside that mark and wrap only that (we don't split/nest the inside part).
@@ -231,6 +236,36 @@ function toggleSameMarker(value, selStart, selEnd, marker) {
 
   const caret = mergeStart + lead.length + marker.length;
   return { value: newValue, selStart: caret, selEnd: caret + core.length };
+}
+
+// True when wrapping [selStart, selEnd] in `marker` would nest it only PARTLY
+// inside a DIFFERENT existing mark — i.e. that mark keeps RENDERED text outside
+// the new mark on either side (e.g. underlining "ing" in **testing** ->
+// **test^^ing^^**). Markdown can represent this, but Zensical renders it poorly,
+// so the toolbar blocks it. "Rendered" ignores mark delimiters and link syntax,
+// so COEXTENSIVE stacking — where the new mark covers ALL of the enclosing
+// mark's text, e.g. adding italic over the whole word in ^^**testing**^^ — is
+// NOT partial and stays allowed.
+function nestsPartially(value, selStart, selEnd, marker) {
+  const spans = markSpans(value);
+  // Source indices that are delimiters or link syntax, never rendered as text.
+  const structural = new Array(value.length).fill(false);
+  for (const sp of spans) {
+    for (let p = sp.open[0]; p < sp.open[1]; p++) structural[p] = true;
+    for (let p = sp.close[0]; p < sp.close[1]; p++) structural[p] = true;
+  }
+  for (const lk of scanLinks(value)) {
+    structural[lk.textStart - 1] = true;                        // '['
+    for (let p = lk.textEnd; p < lk.end; p++) structural[p] = true; // '](url)'
+  }
+  const renderedBetween = (from, to) => {
+    for (let p = from; p < to; p++) if (!structural[p]) return true;
+    return false;
+  };
+  return spans.some(sp =>
+    sp.marker !== marker &&
+    sp.open[1] <= selStart && selEnd <= sp.close[0] && // selection sits inside this mark
+    (renderedBetween(sp.open[1], selStart) || renderedBetween(selEnd, sp.close[0])));
 }
 
 // Wrap the selection in `marker`, first CLIPPING it out of any mark it only
