@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildSource, serialize, serializeWithSelection } from '../scripts/richEditorMapping.js';
+import { buildSource, serialize, serializeWithSelection, locateOffset } from '../scripts/richEditorMapping.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -97,6 +97,31 @@ test('caret at element child boundary between nodes', () => {
   // caret at root, childIndex 1 -> just after 'a', before '**b**'
   assert.deepEqual(serializeWithSelection(root, sel(root, 1)),
     { value: 'a**b**', selStart: 1, selEnd: 1 });
+});
+
+test('locateOffset into plain text', () => {
+  const t = txt('foo');
+  assert.deepEqual(locateOffset(el('root', t), 2), { node: t, offset: 2 });
+});
+test('locateOffset maps source offset past a marker to text-node start', () => {
+  const t = txt('foo'); // value '**foo**', text starts at source 2
+  const root = el('root', el('strong', t));
+  assert.deepEqual(locateOffset(root, 2), { node: t, offset: 0 });
+  assert.deepEqual(locateOffset(root, 5), { node: t, offset: 3 });
+});
+test('locateOffset in a delimiter gap clamps to next text node start', () => {
+  const foo = txt('foo'); const bar = txt('bar');
+  const root = el('root', el('strong', foo), bar); // '**foo**bar', bar starts at 7
+  // source offset 6 sits inside the closing '**' -> clamp to start of next text
+  assert.deepEqual(locateOffset(root, 6), { node: bar, offset: 0 });
+});
+test('locateOffset past the end returns end of last text node', () => {
+  const t = txt('foo');
+  assert.deepEqual(locateOffset(el('root', t), 99), { node: t, offset: 3 });
+});
+test('locateOffset on empty surface returns root,0', () => {
+  const root = el('root');
+  assert.deepEqual(locateOffset(root, 0), { node: root, offset: 0 });
 });
 
 console.log(`\n${passed} passed`);

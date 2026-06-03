@@ -76,3 +76,35 @@ export function serializeWithSelection(root, selection) {
   if (f === null) f = value.length;
   return { value, selStart: Math.min(a, f), selEnd: Math.max(a, f) };
 }
+
+// Map a source offset to a position in the (freshly rendered) DOM. Valid only
+// right after a render, when the DOM round-trips to the same source string.
+// Walks the text nodes in document order; returns the first text node whose
+// source span reaches `target`, clamped into that node. Offsets sitting in a
+// delimiter/link-syntax gap clamp to the start of the following text node;
+// offsets past the end clamp to the end of the last text node.
+export function locateOffset(root, target) {
+  const texts = [];
+  buildSource(root, (node, start) => texts.push({ node, start, len: node.nodeValue.length }));
+  for (const t of texts) {
+    if (target <= t.start + t.len) {
+      return { node: t.node, offset: Math.max(0, Math.min(target - t.start, t.len)) };
+    }
+  }
+  const last = texts[texts.length - 1];
+  if (last) return { node: last.node, offset: last.len };
+  return { node: root, offset: 0 };
+}
+
+// Apply a selection at the given source offsets to the live document. DOM-only
+// (needs document/window) so it is exercised by manual QA, not unit tests.
+export function placeCaret(root, selStart, selEnd) {
+  const s = locateOffset(root, selStart);
+  const e = locateOffset(root, selEnd);
+  const range = document.createRange();
+  range.setStart(s.node, s.offset);
+  range.setEnd(e.node, e.offset);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
