@@ -40,7 +40,11 @@ export function buildSource(root, onText, onBoundary) {
           out += '\n';
         } else {
           const marker = TAG_MARKER[tag];
-          if (marker) { out += marker; walk(child); out += marker; }
+          // Drop an emptied mark element (no text inside) rather than emit bare
+          // delimiters: an empty <strong> must serialize to '' not '****', which
+          // would corrupt the source and render literally. Happens when the user
+          // deletes all the text inside a mark but the browser keeps the wrapper.
+          if (marker) { if (child.textContent) { out += marker; walk(child); out += marker; } else { walk(child); } }
           else if (tag === 'a') { out += '['; walk(child); out += '](' + (child.getAttribute('href') || '') + ')'; }
           else if (tag === 'div' || tag === 'p') { if (out.length) out += '\n'; walk(child); }
           else { walk(child); } // unknown element -> unwrap to contents

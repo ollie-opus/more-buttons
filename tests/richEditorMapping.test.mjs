@@ -124,4 +124,21 @@ test('locateOffset on empty surface returns root,0', () => {
   assert.deepEqual(locateOffset(root, 0), { node: root, offset: 0 });
 });
 
+// An emptied mark element (e.g. the user deleted all text inside a <strong>)
+// must NOT serialize to bare delimiters '****' — that corrupts the source and
+// renders literally. Empty marks are dropped entirely.
+test('serialize drops an empty mark element (no bare delimiters)', () => {
+  assert.equal(serialize(el('root', el('strong'))), '');
+  assert.equal(serialize(el('root', el('strong', txt('')))), '');
+});
+test('serialize drops empty mark but keeps siblings', () => {
+  assert.equal(serialize(el('root', txt('a'), el('strong'), txt('b'))), 'ab');
+});
+test('serialize keeps non-empty marks (regression)', () => {
+  assert.equal(serialize(el('root', el('strong', txt('x')))), '**x**');
+});
+test('serialize drops nested empty marks', () => {
+  assert.equal(serialize(el('root', el('strong', el('em')))), '');
+});
+
 console.log(`\n${passed} passed`);
