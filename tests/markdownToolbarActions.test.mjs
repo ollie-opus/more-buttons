@@ -72,22 +72,29 @@ test('toggle inner italic off leaves the outer bold', () => {
     { value: '**test**', selStart: 2, selEnd: 6 });
 });
 
-// applyMarker — overlapping (non-nesting) marks are split at existing mark
-// boundaries so the result is always cleanly nested markdown.
-test('applying a mark across a bold close splits it to stay nested', () => {
+// applyMarker — a selection that straddles an existing mark's boundary is
+// CLIPPED to the clean part outside that mark (markdown can't represent
+// overlap, and we don't want to nest the inside part either).
+test('applying a mark across a bold close clips to the outside part', () => {
   // **testing** 12345 with `ng** 12345` (7..17) selected, click Underline:
-  // the underline splits into ^^ng^^ inside the bold and ^^12345^^ outside it.
+  // only the part after the bold close is underlined; the bold is left intact.
   assert.deepEqual(applyMarker('**testing** 12345', 7, 17, '^^'),
-    { value: '**testi^^ng^^** ^^12345^^', selStart: 7, selEnd: 25 });
+    { value: '**testing** ^^12345^^', selStart: 14, selEnd: 19 });
 });
-test('applying a mark across a bold open splits it to stay nested', () => {
-  // 12345 **testing** with `12345 **te` (0..10) selected, click Underline.
+test('applying a mark across a bold open clips to the outside part', () => {
+  // 12345 **testing** with `12345 **te` (0..10) selected, click Underline:
+  // only the part before the bold open is underlined.
   assert.deepEqual(applyMarker('12345 **testing**', 0, 10, '^^'),
-    { value: '^^12345^^ **^^te^^sting**', selStart: 0, selEnd: 18 });
+    { value: '^^12345^^ **testing**', selStart: 2, selEnd: 7 });
 });
-test('a mark fully inside the selection just nests (no split)', () => {
+test('a mark fully inside the selection just wraps (no clip)', () => {
   assert.deepEqual(applyMarker('a **b** c', 0, 9, '^^'),
     { value: '^^a **b** c^^', selStart: 2, selEnd: 11 });
+});
+test('a selection cleanly inside a mark still nests', () => {
+  // No boundary is crossed, so wrapping inside an existing mark is fine.
+  assert.deepEqual(applyMarker('**testing**', 6, 9, '^^'),
+    { value: '**test^^ing^^**', selStart: 8, selEnd: 11 });
 });
 
 // applyMarker — different markers

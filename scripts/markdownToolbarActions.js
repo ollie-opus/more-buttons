@@ -107,67 +107,43 @@ export function applyMarker(value, selStart, selEnd, marker) {
     };
   }
 
-  // Wrap. If the selection crosses an existing mark's boundary, split the new
-  // marker at that boundary so the result stays cleanly nested rather than
-  // overlapping (which markdown — being a tree — cannot represent). Otherwise
-  // wrap the whole selection, keeping the inner text selected.
+  // Wrap. Markdown is a tree, so it can't represent overlapping marks. If the
+  // selection straddles an existing mark's boundary, clip it to the clean part
+  // outside that mark and wrap only that (we don't split/nest the inside part).
   return wrapSelection(value, selStart, selEnd, marker);
 }
 
-// A mark boundary the selection crosses: a matched pair with exactly one of its
-// open/close delimiters inside the selection. That delimiter's [start, end) is a
-// "gap" the new marker must not span — we wrap around it instead.
-function crossingGaps(value, selStart, selEnd) {
-  const gaps = [];
+// Wrap the selection in `marker`, first CLIPPING it out of any mark it only
+// partially covers so we never produce overlapping markdown. Leading/trailing
+// whitespace is excluded from the markers. e.g. underlining `ing** 12345` in
+// `**testing** 12345` formats only the part outside the bold ->
+// `**testing** ^^12345^^` (the `ing` inside the bold is left untouched).
+function wrapSelection(value, selStart, selEnd, marker) {
+  let start = selStart;
+  let end = selEnd;
+
+  // For each matched pair with exactly one delimiter inside the selection (a
+  // crossed boundary), drop the side of the selection that sits inside that mark.
   for (const sp of markSpans(value)) {
     const openInside = sp.open[0] >= selStart && sp.open[1] <= selEnd;
     const closeInside = sp.close[0] >= selStart && sp.close[1] <= selEnd;
-    if (closeInside && !openInside) gaps.push(sp.close); // mark closes mid-selection
-    else if (openInside && !closeInside) gaps.push(sp.open); // mark opens mid-selection
-  }
-  return gaps;
-}
-
-// Wrap `segment` in `marker`, keeping leading/trailing whitespace OUTSIDE the
-// markers (so a mark never wraps a bare space). Whitespace-only → unchanged.
-function wrapSegment(segment, marker) {
-  const lead = segment.length - segment.trimStart().length;
-  const trail = segment.length - segment.trimEnd().length;
-  const core = segment.slice(lead, segment.length - trail);
-  if (!core) return segment;
-  return segment.slice(0, lead) + marker + core + marker + segment.slice(segment.length - trail);
-}
-
-function wrapSelection(value, selStart, selEnd, marker) {
-  const len = marker.length;
-  const gaps = crossingGaps(value, selStart, selEnd);
-
-  // No crossed boundary → plain wrap, inner text kept selected.
-  if (gaps.length === 0) {
-    const selected = value.slice(selStart, selEnd);
-    return {
-      value: value.slice(0, selStart) + marker + selected + marker + value.slice(selEnd),
-      selStart: selStart + len,
-      selEnd: selStart + len + selected.length,
-    };
+    if (closeInside && !openInside) start = Math.max(start, sp.close[1]);
+    else if (openInside && !closeInside) end = Math.min(end, sp.open[0]);
   }
 
-  // Rebuild the [selStart, selEnd) region as bare gaps interleaved with wrapped
-  // text segments, in source order.
-  gaps.sort((a, b) => a[0] - b[0]);
-  let mid = '';
-  let cur = selStart;
-  for (const [gapStart, gapEnd] of gaps) {
-    if (gapStart > cur) mid += wrapSegment(value.slice(cur, gapStart), marker);
-    mid += value.slice(gapStart, gapEnd); // the existing marker, left bare
-    cur = gapEnd;
-  }
-  if (cur < selEnd) mid += wrapSegment(value.slice(cur, selEnd), marker);
+  // Trim whitespace so the markers never wrap a bare space.
+  while (start < end && /\s/.test(value[start])) start++;
+  while (end > start && /\s/.test(value[end - 1])) end--;
 
+  // Nothing cleanly formattable (e.g. the selection sat entirely inside a mark's
+  // delimiters) → leave the value untouched.
+  if (start >= end) return { value, selStart, selEnd };
+
+  const core = value.slice(start, end);
   return {
-    value: value.slice(0, selStart) + mid + value.slice(selEnd),
-    selStart,
-    selEnd: selStart + mid.length,
+    value: value.slice(0, start) + marker + core + marker + value.slice(end),
+    selStart: start + marker.length,
+    selEnd: start + marker.length + core.length,
   };
 }
 

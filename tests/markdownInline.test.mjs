@@ -136,11 +136,11 @@ test('markSpans reports nested pairs too', () => {
     { marker: '*', open: [4, 5], close: [6, 7] },
   ]);
 });
-test('split overlap renders as clean nested marks', () => {
-  // The markdown the toolbar produces when an underline is split across a bold
-  // boundary must parse back to properly nested tags (no literal ^^).
-  assert.equal(renderHtml(parseInline('**testi^^ng^^** ^^12345^^')),
-    '<strong>testi<u>ng</u></strong> <u>12345</u>');
+test('clipped overlap renders as separate, non-overlapping marks', () => {
+  // After clipping, a straddling underline only formats the clean outside part,
+  // so the result is two independent marks (no literal ^^, no overlap).
+  assert.equal(renderHtml(parseInline('**testing** ^^12345^^')),
+    '<strong>testing</strong> <u>12345</u>');
 });
 test('renderHtml escapes HTML in text', () => {
   assert.equal(renderHtml([{ type: 'text', value: 'a < b & c > d' }]), 'a &lt; b &amp; c &gt; d');

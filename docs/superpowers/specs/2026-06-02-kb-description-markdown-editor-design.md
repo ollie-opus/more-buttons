@@ -156,13 +156,17 @@ The textarea is the only persisted state. No mirror, no DOM serialization.
 - Merging/normalizing *adjacent* marks (e.g. collapsing `**a****b**`).
 - Live (always-on) preview — preview is toggle-only by request.
 
-## Follow-up: overlapping marks (implemented)
+## Follow-up: overlapping marks (clipped, not supported)
 
-Originally deferred, then brought into scope. Markdown is a tree, so overlapping
-(non-nesting) marks cannot be represented. When a newly-applied mark would cross
-an existing mark's boundary, the toolbar now **splits** the new mark at that
-boundary so the result is always cleanly nested. `markdownInline.markSpans`
-reports matched-pair source positions; `markdownToolbarActions.wrapSelection`
-wraps each segment between the crossed boundaries (keeping edge whitespace
-outside the markers). Example: underlining `ng** 12345` in `**testing** 12345`
-yields `**testi^^ng^^** ^^12345^^` → `<strong>testi<u>ng</u></strong> <u>12345</u>`.
+Markdown is a tree, so overlapping (non-nesting) marks cannot be represented, and
+the zensical frontend does not support them. Rather than split/nest a straddling
+mark, the toolbar **clips** it: when the selection only partially covers an
+existing mark (crosses one of its boundaries), the new mark is applied to just
+the clean portion *outside* that mark; the inside portion is left untouched.
+`markdownInline.markSpans` reports matched-pair source positions;
+`markdownToolbarActions.wrapSelection` walks them, clips the selection past any
+crossed boundary, trims edge whitespace, and wraps what remains. Example:
+underlining `ing** 12345` in `**testing** 12345` yields `**testing** ^^12345^^`
+→ `<strong>testing</strong> <u>12345</u>`. A selection lying entirely inside a
+mark does not cross a boundary, so it still nests normally
+(`**test^^ing^^**`); a selection covering only a mark's delimiters is a no-op.
