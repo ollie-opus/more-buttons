@@ -55,3 +55,24 @@ export function buildSource(root, onText, onBoundary) {
 
 // Convenience: just the markdown string (used to sync the textarea on input).
 export function serialize(root) { return buildSource(root); }
+
+// Translate a DOM Selection (anchor/focus) into source offsets within the
+// reconstructed markdown string. Handles text-node anchors (offset = chars into
+// the node) and element anchors (offset = child index). Returns the normalized
+// { value, selStart<=selEnd }. If a boundary is not found (detached node), it
+// falls back to the end of the value.
+export function serializeWithSelection(root, selection) {
+  let a = null, f = null;
+  const onText = (node, srcStart) => {
+    if (selection.anchorNode === node && node.nodeType === TEXT_NODE) a = srcStart + selection.anchorOffset;
+    if (selection.focusNode === node && node.nodeType === TEXT_NODE) f = srcStart + selection.focusOffset;
+  };
+  const onBoundary = (parent, idx, srcLen) => {
+    if (selection.anchorNode === parent && parent.nodeType !== TEXT_NODE && selection.anchorOffset === idx) a = srcLen;
+    if (selection.focusNode === parent && parent.nodeType !== TEXT_NODE && selection.focusOffset === idx) f = srcLen;
+  };
+  const value = buildSource(root, onText, onBoundary);
+  if (a === null) a = value.length;
+  if (f === null) f = value.length;
+  return { value, selStart: Math.min(a, f), selEnd: Math.max(a, f) };
+}
