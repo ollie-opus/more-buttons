@@ -52,9 +52,12 @@ All save handlers route nested-component navigation through the shared save-gate
 | Role | Colour | Icon | Notes |
 |---|---|---|---|
 | **Save-state** (dynamic) | blue ⇄ green | `cloud_upload` ⇄ `cloud_done` | Bound to form dirty state |
+| **Working** (transient) | amber | `sync` (spinning) | Shown on Save + Publish buttons while a commit runs; carries the progress messages |
 | **Publish** | indigo | `publish` | Always clickable; uses existing save-gate confirm when dirty |
-| **Delete / Discard** | red (`danger`) | — | Unchanged |
+| **Delete / Discard** | red (`danger`) | — | Unchanged; keeps plain-text progress |
 | **Create / start** (e.g. `Create draft`) | blue (`info`, static) | — | Hub action, not dirty-bound |
+
+**Working/busy state:** while a Save or Publish button commits to GitHub it enters an amber state with a spinning `sync` icon that carries the existing progress messages ("Pushing…", "Updating navigation…"). The full save flow is therefore **blue "Save to draft" → amber working → green "Draft saved"**; Publish is **indigo → amber → navigates away**. Delete/Discard/Create-draft keep their current plain-text progress (out of scope for amber).
 
 Non-KB forms keep the existing dark default primary — this work does not touch them.
 
