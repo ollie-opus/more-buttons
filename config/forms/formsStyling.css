@@ -2213,6 +2213,8 @@ details[open] .more-buttons-advanced-toggle::before {
 
 .mb-kb-pill.--live     { --mb-pill-accent: rgb(102, 187, 106); }
 .mb-kb-pill.--drafting { --mb-pill-accent: rgb(255, 179, 0); }
+.mb-kb-pill.--resized  { --mb-pill-accent: rgb(255, 179, 0); }  /* same yellow as Drafting */
+.mb-kb-pill.--padded   { --mb-pill-accent: rgb(66, 165, 245); } /* Material blue */
 
 /* ── Knowledge Base Search ──────────────────────────────────────────────────── */
 
