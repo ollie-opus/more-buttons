@@ -142,7 +142,6 @@ registerFormAction('startLibraryCapture', ({ overlay }) => {
   document.body.style.overflow = '';
 
   enterCaptureMode({
-    saveTarget: 'session',
     maxCaptures: 1,
     formStackSnapshot,
     returnTo: {

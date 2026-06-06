@@ -208,7 +208,7 @@ export function resetDirtyBaseline(formEl) {
 }
 
 // Wire a `[data-save-state]` button to the form's dirty state. Clean/saved →
-// disabled green "saved" pill; dirty or create-mode → clickable blue "unsaved"
+// neutral grey disabled button; dirty or create-mode → clickable green "unsaved"
 // button. The form-actions bar is relocated under the overlay content, so the
 // button is a sibling of the form (formEl.parentElement), not a descendant.
 // Exposes formEl._refreshSaveState() so save handlers can re-sync after a commit.
@@ -223,11 +223,13 @@ export function bindSaveStateButton(formEl) {
   const render = () => {
     // Create-mode forms have no saved baseline yet → always "unsaved".
     const unsaved = formEl.dataset.mode === 'create' || isFormDirty(formEl);
-    btn.classList.remove('busy');
-    btn.classList.toggle('info', unsaved);
-    btn.classList.toggle('success', !unsaved);
+    // Unsaved → clickable green outline (`.success`). Saved → plain disabled
+    // button (no accent class) so it settles into the neutral grey "default"
+    // disabled style rather than a green "confirm" pill.
+    btn.classList.remove('busy', 'info');
+    btn.classList.toggle('success', unsaved);
     btn.disabled = !unsaved;
-    const icon = unsaved ? 'cloud_upload' : 'cloud_done';
+    const icon = unsaved ? 'outbound' : 'check_circle';
     const label = unsaved ? unsavedLabel : savedLabel;
     btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>${label}`;
   };
@@ -247,7 +249,7 @@ export function bindSaveStateButton(formEl) {
 }
 
 // Put a save/publish button into the amber "working" state while a GitHub
-// commit runs: disabled, amber, spinning sync icon, and a progress message.
+// commit runs: disabled, amber, spinning change_circle icon, and a progress message.
 // The icon is built once (so the spin doesn't restart on each message tick) and
 // only the message span updates on subsequent calls.
 export function setButtonBusy(btn, message) {
@@ -256,7 +258,7 @@ export function setButtonBusy(btn, message) {
   if (!btn.classList.contains('busy')) {
     btn.classList.remove('info', 'success', 'publish', 'danger', 'secondary');
     btn.classList.add('busy');
-    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">sync</span><span data-busy-msg></span>';
+    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">change_circle</span><span data-busy-msg></span>';
   }
   const msgEl = btn.querySelector('[data-busy-msg]');
   if (msgEl) msgEl.textContent = message;

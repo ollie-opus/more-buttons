@@ -158,8 +158,8 @@ async function renderGuideEntryContent(formEl) {
         left untouched until you publish.
       </p>`;
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button info" data-guide-action="create">Create draft</button>
-      <button type="button" class="more-buttons-button danger" data-guide-action="delete">Delete guide</button>`;
+      <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">add</span>Create draft</button>
+      <button type="button" class="more-buttons-button danger" data-guide-action="delete"><span class="more-buttons-icon">delete</span>Delete guide</button>`;
     return;
   }
 
@@ -168,9 +168,9 @@ async function renderGuideEntryContent(formEl) {
   const treeHtml = renderGuideSectionTree(draftMarkdown);
   contentEl.innerHTML = treeHtml;
   actionsEl.innerHTML = `
-    <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}">+ Add new section</button>
-    <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">publish</span>Publish draft to live</button>
-    <button type="button" class="more-buttons-button danger" data-guide-action="discard">Discard draft</button>`;
+    <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
+    <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
+    <button type="button" class="more-buttons-button danger" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
 }
 
 function renderGuideSectionTree(markdown) {

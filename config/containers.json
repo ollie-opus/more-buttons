@@ -141,10 +141,6 @@
     "context": "popup"
   },
   {
-    "id": "popup-element-capture",
-    "context": "popup"
-  },
-  {
     "id": "popup-knowledge-base",
     "context": "popup"
   }

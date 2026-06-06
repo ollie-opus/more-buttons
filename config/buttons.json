@@ -520,21 +520,6 @@
     "action": "uninstallAllNonSystemReportTypes"
   },
   {
-    "id": "mb-element-selector-btn",
-    "displayText": "Element selector",
-    "hoverText": "Selects elements",
-    "icon": "deployed_code_alert",
-    "fillColor": "#db2777",
-    "textColor": "white",
-    "border": "none",
-    "pageMatch": {
-      "mode": "or",
-      "keywords": ["/"]
-    },
-    "containerId": "popup-element-capture",
-    "action": "enterCaptureMode"
-  },
-  {
     "id": "mb-manage-knowledge-base-btn",
     "displayText": "Manage knowledge base",
     "hoverText": "Management tools for the knowledge base",

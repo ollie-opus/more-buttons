@@ -103,6 +103,9 @@ function createToggleButton(button, { resolveColor, isDarkMode }) {
 }
 
 async function renderPopupButtons() {
+  const versionEl = document.getElementById("mb-popup-version");
+  if (versionEl) versionEl.textContent = "v" + chrome.runtime.getManifest().version;
+
   const [{ createButton }, { pageMatchesUrl, resolveColor, isDarkMode }] = await Promise.all([
     import(chrome.runtime.getURL('scripts/buttons.js')),
     import(chrome.runtime.getURL('scripts/utils.js')),
@@ -117,6 +120,15 @@ async function renderPopupButtons() {
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const url = tab?.url ?? "";
+
+  // Read the master switch before building the body so a disabled popup never
+  // flashes its hidden buttons on open.
+  const root = document.querySelector(".mb-popup");
+  const applyEnabledState = (isEnabled) => root?.classList.toggle("--disabled", !isEnabled);
+  const initialEnabled = await new Promise(resolve =>
+    chrome.storage.local.get("moreButtonsActive", d => resolve(d.moreButtonsActive !== false))
+  );
+  applyEnabledState(initialEnabled);
 
   const dispatch = (action) => {
     const [actionName, ...params] = action.split(':');
@@ -136,10 +148,20 @@ async function renderPopupButtons() {
     .filter(c => c.context === "popup")
     .map(c => c.id);
 
+  // The master enable/disable switch is hoisted out of its container and pinned
+  // to the top, above the divider. It stays visible at all times; everything
+  // else lives in the body and hides while the extension is off.
+  const masterToggle = popupButtons.find(b => b.toggle?.storageKey === "moreButtonsActive");
+
+  const powerControl = document.getElementById("mb-popup-power-control");
+  if (masterToggle && powerControl) {
+    powerControl.appendChild(createToggleButton(masterToggle, { resolveColor, isDarkMode }));
+  }
+
   const wrapper = document.getElementById("popup-buttons-container");
 
   for (const containerId of popupContainerIds) {
-    const group = popupButtons.filter(b => b.containerId === containerId);
+    const group = popupButtons.filter(b => b.containerId === containerId && b !== masterToggle);
     if (!group.length) continue;
 
     const groupEl = document.createElement("div");
@@ -155,6 +177,15 @@ async function renderPopupButtons() {
     wrapper.appendChild(groupEl);
   }
 
+  // Keep the shell in sync when the switch is flipped: while the extension is
+  // off, every other button is hidden (they can't act on the page), leaving
+  // just the switch and an explanatory note. Storage-driven so it tracks the
+  // toggle's own click handler and changes made from any other surface.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && "moreButtonsActive" in changes) {
+      applyEnabledState(changes.moreButtonsActive.newValue !== false);
+    }
+  });
 }
 
 renderPopupButtons();

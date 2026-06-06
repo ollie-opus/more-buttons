@@ -49,8 +49,8 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
       captureCard({ theme: 'dark', title: 'Dark mode', src: darkObjectUrl, alt: `${label ?? 'capture'} (dark)` }),
     ]);
     actionsEl.innerHTML = insertMode
-      ? `<button type="button" class="more-buttons-button" data-capture-entry-insert>Insert this capture</button>`
-      : `<button type="button" class="more-buttons-button" data-capture-entry-override>Recapture</button>`;
+      ? `<button type="button" class="more-buttons-button" data-capture-entry-insert><span class="more-buttons-icon">add</span>Insert this capture</button>`
+      : `<button type="button" class="more-buttons-button" data-capture-entry-override><span class="more-buttons-icon">swap_vertical_circle</span>Recapture</button>`;
   }
 
   // Insert mode: reference the existing library asset (no upload). Strip the
@@ -78,8 +78,8 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
     ]);
     actionsEl.innerHTML = `
       <span class="more-buttons-description" data-capture-entry-status hidden></span>
-      <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel>Cancel</button>
-      <button type="button" class="more-buttons-button" data-capture-entry-save>Save Changes</button>
+      <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+      <button type="button" class="more-buttons-button success" data-capture-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
     `;
   }
 
@@ -90,7 +90,6 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
     document.body.style.overflow = '';
 
     enterCaptureMode({
-      saveTarget: 'session',
       maxCaptures: 1,
       formStackSnapshot,
       returnTo: {

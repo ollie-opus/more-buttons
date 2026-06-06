@@ -1,13 +1,33 @@
 <!doctype html>
 <html>
   <head>
-    <title>More Buttons Toggle</title>
-    <link rel="stylesheet" href="config/forms/formsStyling.css">
-    <link rel="stylesheet" href="popup.css">
+    <meta charset="utf-8" />
+    <title>More Buttons</title>
+    <link rel="stylesheet" href="config/forms/formsStyling.css" />
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <h1>More Buttons [WIP]</h1>
-    <div id="popup-buttons-container"></div>
+    <div class="mb-popup">
+      <header class="mb-popup__header">
+        <div class="mb-popup__brand">
+          <h1 class="mb-popup__title">More Buttons</h1>
+        </div>
+        <span class="mb-popup__version" id="mb-popup-version"></span>
+      </header>
+
+      <div class="mb-popup__power-control" id="mb-popup-power-control"></div>
+
+      <hr class="mb-popup__divider" />
+
+      <div class="mb-popup__body" id="mb-popup-body">
+        <div id="popup-buttons-container"></div>
+      </div>
+
+      <p class="mb-popup__disabled-note" id="mb-popup-disabled-note">
+        <span class="material-symbols-outlined" aria-hidden="true">visibility_off</span>
+        <span>All buttons are hidden while More Buttons is disabled.</span>
+      </p>
+    </div>
     <script src="popup.js"></script>
   </body>
 </html>

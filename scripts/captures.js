@@ -96,7 +96,6 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
   document.body.style.overflow = '';
 
   enterCaptureMode({
-    saveTarget: 'session',
     formStackSnapshot,
     returnTo: {
       onComplete: async (sessionBuffer) => {

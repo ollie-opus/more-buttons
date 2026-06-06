@@ -12,27 +12,18 @@
   --mb-text-placeholder: #94a3b8;
   --mb-border:           #cbd5e1;
   --mb-border-subtle:    #e2e8f0;
-  --mb-radio-bg:         #e2e8f0;
-  --mb-radio-hover:      #cbd5e1;
-  --mb-radio-checked-bg: #0f172a;
+  --mb-radio-checked-bg: #0f172a;  /* shared by side-nav + tab active states */
   --mb-radio-checked-fg: #ffffff;
-  --mb-btn-bg:           #0f172a;
-  --mb-btn-fg:           #ffffff;
-  --mb-btn-hover:        #1e293b;
-  --mb-btn-2-bg:         #e2e8f0;
-  --mb-btn-2-fg:         #0f172a;
-  --mb-btn-2-hover:      #cbd5e1;
-  --mb-btn-success-bg:    #16a34a;
-  --mb-btn-success-hover: #15803d;
-  --mb-btn-success-fg:    #ffffff;
-  --mb-btn-info-btn-bg:   #2563eb;
-  --mb-btn-info-btn-hover:#1d4ed8;
-  --mb-btn-info-btn-fg:   #ffffff;
-  --mb-btn-publish-bg:    #c026d3;
-  --mb-btn-publish-hover: #a21caf;
-  --mb-btn-publish-fg:    #ffffff;
-  --mb-btn-busy-bg:       #b45309;
-  --mb-btn-busy-fg:       #ffffff;
+  /* Button accents. Each is legible as label text on this surface and doubles
+     as the 1px outline and the solid hover fill (the admonition-card edit-button
+     language). Tuned so none glare as a full-saturation block on white. */
+  --mb-acc-default:  #1e293b;  /* slate ink — primary commit actions  */
+  --mb-acc-neutral:  #64748b;  /* quiet secondary — close / cancel     */
+  --mb-acc-info:     #2563eb;  /* blue — publish to live               */
+  --mb-acc-success:  #15803d;  /* green — save / saved confirmation    */
+  --mb-acc-danger:   #dc2626;  /* red — destructive                    */
+  --mb-acc-busy:     #b45309;  /* amber — commit in flight             */
+  --mb-acc-on:       #ffffff;  /* label colour when a button fills      */
   --mb-info-bg:          #e2f3ff;
   --mb-info-border:      #bfdbfe;
   --mb-heading:          #0f172a;
@@ -58,16 +49,17 @@
     --mb-text-placeholder: #475569;
     --mb-border:           #475569;
     --mb-border-subtle:    #334155;
-    --mb-radio-bg:         #334155;
-    --mb-radio-hover:      #475569;
     --mb-radio-checked-bg: #f1f5f9;
     --mb-radio-checked-fg: #0f172a;
-    --mb-btn-bg:           #f1f5f9;
-    --mb-btn-fg:           #0f172a;
-    --mb-btn-hover:        #e2e8f0;
-    --mb-btn-2-bg:         #334155;
-    --mb-btn-2-fg:         #e2e8f0;
-    --mb-btn-2-hover:      #475569;
+    /* Accents lighten so they read against the dark panel; the fill flips to
+       dark text via --mb-acc-on. */
+    --mb-acc-default:  #e2e8f0;
+    --mb-acc-neutral:  #94a3b8;
+    --mb-acc-info:     #60a5fa;
+    --mb-acc-success:  #4ade80;
+    --mb-acc-danger:   #f87171;
+    --mb-acc-busy:     #fbbf24;
+    --mb-acc-on:       #0f172a;
     --mb-info-bg:          rgba(30, 58, 138, 0.25);
     --mb-info-border:      #1d4ed8;
     --mb-heading:          #f1f5f9;
@@ -190,7 +182,7 @@
 }
 
 .more-buttons-nav-arrow:hover:not(:disabled) {
-  background: var(--mb-btn-2-bg);
+  background: var(--mb-border-subtle);
   color: var(--mb-text);
 }
 
@@ -205,8 +197,8 @@
 }
 
 .more-buttons-nav-close:hover:not(:disabled) {
-  background: var(--mb-btn-2-bg);
-  color: #ef4444;
+  background: var(--mb-border-subtle);
+  color: var(--mb-text);
 }
 
 .more-buttons-breadcrumb {
@@ -238,7 +230,7 @@
 
 button.more-buttons-crumb:hover {
   color: var(--mb-text);
-  background: var(--mb-btn-2-bg);
+  background: var(--mb-border-subtle);
 }
 
 .more-buttons-crumb.--current {
@@ -367,17 +359,21 @@ button.more-buttons-crumb:hover {
 }
 
 .more-buttons-radio-btn {
+  --mb-acc: var(--mb-acc-default);
   display: inline-flex;
   align-items: center;
-  padding: 7px 12px;
-  border-radius: 6px;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid var(--mb-border);
+  border-radius: 7px;
   cursor: pointer;
-  background: var(--mb-radio-bg);
-  color: var(--mb-text);
+  background: transparent;
+  color: var(--mb-text-muted);
   font-size: 0.875rem;
   font-weight: 500;
   white-space: nowrap;
-  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+  transition: background-color 0.14s ease-out, border-color 0.14s ease-out,
+    color 0.14s ease-out, box-shadow 0.14s ease-out;
   user-select: none;
 }
 
@@ -388,32 +384,45 @@ button.more-buttons-crumb:hover {
   pointer-events: none;
 }
 
+/* Unselected hover: a soft neutral wash, mirroring the secondary button. */
 .more-buttons-radio-btn:hover {
-  background: var(--mb-radio-hover);
+  background: color-mix(in srgb, var(--mb-text-muted) 12%, transparent);
+  border-color: var(--mb-text-muted);
+  color: var(--mb-text);
 }
 
+/* Selected: the admonition-card treatment — a faint accent tint, a full-colour
+   accent edge (border + inset ring make a crisp ~2px rule with no layout
+   shift), and legible body text. Each colour variant only swaps --mb-acc; the
+   plain group falls back to the slate default. The selected pill previews the
+   card it produces. Placed after :hover so it wins at equal specificity. */
 .more-buttons-radio-btn:has(:checked) {
-  background: var(--mb-radio-checked-bg);
-  color: var(--mb-radio-checked-fg);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.35);
+  background: color-mix(in srgb, var(--mb-acc) 15%, transparent);
+  border-color: var(--mb-acc);
+  box-shadow: inset 0 0 0 1px var(--mb-acc);
+  color: var(--mb-text);
 }
 
-/* Coloured variants — unselected inherits standard style, colour only applies when checked */
-.more-buttons-radio-btn.--green:has(:checked)       { background: rgb(102,187,106); color: #fff;            box-shadow: 0 1px 2px rgba(102,187,106,0.45); }
-.more-buttons-radio-btn.--amber:has(:checked)       { background: rgb(255,179,0);   color: rgb(80,50,0);    box-shadow: 0 1px 2px rgba(255,179,0,0.45); }
-.more-buttons-radio-btn.--red:has(:checked)         { background: rgb(239,83,80);   color: #fff;            box-shadow: 0 1px 2px rgba(239,83,80,0.45); }
-.more-buttons-radio-btn.--blue:has(:checked)        { background: rgb(66,165,245);  color: #fff;            box-shadow: 0 1px 2px rgba(66,165,245,0.45); }
-.more-buttons-radio-btn.--purple:has(:checked)      { background: rgb(199,84,176);  color: #fff;            box-shadow: 0 1px 2px rgba(199,84,176,0.45); }
-.more-buttons-radio-btn.--light-blue:has(:checked)  { background: rgb(0,176,255);   color: #fff;            box-shadow: 0 1px 2px rgba(0,176,255,0.45); }
-.more-buttons-radio-btn.--cyan:has(:checked)        { background: rgb(0,184,212);   color: #fff;            box-shadow: 0 1px 2px rgba(0,184,212,0.45); }
-.more-buttons-radio-btn.--teal:has(:checked)        { background: rgb(0,191,165);   color: #fff;            box-shadow: 0 1px 2px rgba(0,191,165,0.45); }
-.more-buttons-radio-btn.--light-green:has(:checked) { background: rgb(100,221,23);  color: rgb(30,55,0);    box-shadow: 0 1px 2px rgba(100,221,23,0.45); }
-.more-buttons-radio-btn.--orange:has(:checked)      { background: rgb(255,145,0);   color: rgb(70,35,0);    box-shadow: 0 1px 2px rgba(255,145,0,0.45); }
-.more-buttons-radio-btn.--bright-red:has(:checked)  { background: rgb(255,23,68);   color: #fff;            box-shadow: 0 1px 2px rgba(255,23,68,0.45); }
-.more-buttons-radio-btn.--pink:has(:checked)        { background: rgb(245,0,87);    color: #fff;            box-shadow: 0 1px 2px rgba(245,0,87,0.45); }
-.more-buttons-radio-btn.--deep-purple:has(:checked) { background: rgb(124,77,255);  color: #fff;            box-shadow: 0 1px 2px rgba(124,77,255,0.45); }
-.more-buttons-radio-btn.--grey:has(:checked)        { background: rgb(158,158,158); color: #fff;            box-shadow: 0 1px 2px rgba(158,158,158,0.45); }
-.more-buttons-radio-btn.--step:has(:checked) { background: rgb(14,165,233); color: #fff; box-shadow: 0 1px 2px rgba(14,165,233,0.45); }
+.more-buttons-radio-btn:has(:checked):hover {
+  background: color-mix(in srgb, var(--mb-acc) 22%, transparent);
+}
+
+/* Colour accents — the same hues as the admonition cards (.mb-incident-card). */
+.more-buttons-radio-btn.--green       { --mb-acc: rgb(102,187,106); }
+.more-buttons-radio-btn.--amber       { --mb-acc: rgb(255,179,0); }
+.more-buttons-radio-btn.--red         { --mb-acc: rgb(239,83,80); }
+.more-buttons-radio-btn.--blue        { --mb-acc: rgb(66,165,245); }
+.more-buttons-radio-btn.--purple      { --mb-acc: rgb(199,84,176); }
+.more-buttons-radio-btn.--light-blue  { --mb-acc: rgb(0,176,255); }
+.more-buttons-radio-btn.--cyan        { --mb-acc: rgb(0,184,212); }
+.more-buttons-radio-btn.--teal        { --mb-acc: rgb(0,191,165); }
+.more-buttons-radio-btn.--light-green { --mb-acc: rgb(100,221,23); }
+.more-buttons-radio-btn.--orange      { --mb-acc: rgb(255,145,0); }
+.more-buttons-radio-btn.--bright-red  { --mb-acc: rgb(255,23,68); }
+.more-buttons-radio-btn.--pink        { --mb-acc: rgb(245,0,87); }
+.more-buttons-radio-btn.--deep-purple { --mb-acc: rgb(124,77,255); }
+.more-buttons-radio-btn.--grey        { --mb-acc: rgb(158,158,158); }
+.more-buttons-radio-btn.--step        { --mb-acc: rgb(14,165,233); }
 
 .more-buttons-radio-btn-group-row.--invalid,
 .more-buttons-radio-btn-group-column.--invalid {
@@ -572,110 +581,109 @@ button.more-buttons-crumb:hover {
 
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
 
+/* Buttons in the admonition-card edit-button language. By default a button is a
+   neutral ghost: transparent, a hairline border, a muted label, and a soft wash
+   on hover. There is no "primary" weight. Semantic variants opt into a colour
+   (save → green, publish → blue, delete → red): a faint tinted fill, a
+   colour-matched outline and an accent label that inverts to a solid fill on
+   hover. Each variant only swaps --mb-acc. */
 .more-buttons-button {
-  padding: 8px 13px;
-  border: none;
-  border-radius: 6px;
+  --mb-acc: var(--mb-acc-neutral);
+  --mb-acc-fill-fg: var(--mb-acc-on);
+  appearance: none;
+  padding: 7px 14px;
+  border: 1px solid var(--mb-border);
+  border-radius: 7px;
   cursor: pointer;
-  background: var(--mb-btn-bg);
-  color: var(--mb-btn-fg);
-  font-size: 0.875rem;
-  font-weight: 500;
+  background: transparent;
+  color: var(--mb-text-muted);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.35);
-  transition: background-color 0.12s ease, box-shadow 0.12s ease,
-    transform 0.05s ease;
+  justify-content: center;
+  gap: 5px;
+  transition: background-color 0.14s ease-out, border-color 0.14s ease-out,
+    color 0.14s ease-out, transform 0.05s ease;
 }
 
+/* Neutral hover: a soft wash, never a solid fill. */
 .more-buttons-button:hover {
-  background: var(--mb-btn-hover);
-  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.4);
-  align-self: flex-start;
+  background: color-mix(in srgb, var(--mb-acc-neutral) 14%, transparent);
+  border-color: var(--mb-acc-neutral);
+  color: var(--mb-text);
 }
 
 .more-buttons-button:active {
   transform: translateY(1px);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.35);
 }
 
-.more-buttons-button.secondary {
-  background: var(--mb-btn-2-bg);
-  color: var(--mb-btn-2-fg);
-  box-shadow: none;
-  align-self: flex-start;
+.more-buttons-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mb-acc) 55%, transparent);
+  outline-offset: 2px;
 }
 
-.more-buttons-button.secondary:hover {
-  background: var(--mb-btn-2-hover);
+/* Icons ride the 0.8125rem label, not the 1.25rem inline default; the negative
+   margin tucks the glyph toward the text edge so the button stays compact. */
+.more-buttons-button .more-buttons-icon {
+  font-size: 1.25rem;
+  margin-left: -2px;
+  /* Icons render at ~20px — matching Material Symbols' opsz 20 so the outlines
+     are optically tuned to the rendered size. Repeat FILL 1 since this replaces
+     the base rule's font-variation-settings wholesale rather than merging. */
+  font-variation-settings: 'FILL' 1, 'opsz' 20;
 }
 
+/* Semantic colour variants. `.secondary` is intentionally absent here: it is
+   now just an alias of the neutral default for existing markup. */
+.more-buttons-button.info     { --mb-acc: var(--mb-acc-info); }
+.more-buttons-button.success  { --mb-acc: var(--mb-acc-success); }
+.more-buttons-button.publish  { --mb-acc: var(--mb-acc-info); }
+.more-buttons-button.danger   { --mb-acc: var(--mb-acc-danger); }
+
+.more-buttons-button.info,
+.more-buttons-button.success,
+.more-buttons-button.publish,
 .more-buttons-button.danger {
-  background: #ef4444;
-  color: #ffffff;
-  align-self: flex-start;
+  background: color-mix(in srgb, var(--mb-acc) 11%, transparent);
+  border-color: color-mix(in srgb, var(--mb-acc) 48%, transparent);
+  color: var(--mb-acc);
 }
 
+.more-buttons-button.info:hover,
+.more-buttons-button.success:hover,
+.more-buttons-button.publish:hover,
 .more-buttons-button.danger:hover {
-  background: #dc2626;
+  background: var(--mb-acc);
+  border-color: var(--mb-acc);
+  color: var(--mb-acc-fill-fg);
 }
 
-.more-buttons-button.success {
-  background: var(--mb-btn-success-bg);
-  color: var(--mb-btn-success-fg);
-  align-self: flex-start;
-}
-
-.more-buttons-button.success:hover {
-  background: var(--mb-btn-success-hover);
-}
-
-/* The saved/clean state is disabled but keeps its green colour, only slightly
-   dimmed so it still reads as non-interactive. Higher specificity than the
-   generic rule below, so it wins regardless of source order. */
+/* The saved/clean state: disabled but settled into a calm filled-green
+   confirmation rather than a dimmed action. Higher specificity than the
+   generic disabled rule below, so it wins regardless of source order. */
 .more-buttons-button.success:disabled {
-  opacity: 0.7;
+  opacity: 1;
   cursor: default;
-  background: var(--mb-btn-success-bg);
-  color: var(--mb-btn-success-fg);
+  background: color-mix(in srgb, var(--mb-acc-success) 16%, transparent);
+  border-color: color-mix(in srgb, var(--mb-acc-success) 40%, transparent);
+  color: var(--mb-acc-success);
 }
 
-.more-buttons-button.info {
-  background: var(--mb-btn-info-btn-bg);
-  color: var(--mb-btn-info-btn-fg);
-  align-self: flex-start;
-}
-
-.more-buttons-button.info:hover {
-  background: var(--mb-btn-info-btn-hover);
-}
-
-.more-buttons-button.publish {
-  background: var(--mb-btn-publish-bg);
-  color: var(--mb-btn-publish-fg);
-  align-self: flex-start;
-}
-
-.more-buttons-button.publish:hover {
-  background: var(--mb-btn-publish-hover);
-}
-
-/* Amber "working" state shown while a save/publish commit is in flight. Stays
-   amber even though the button is disabled. */
+/* Amber "working" state while a save/publish commit is in flight. Filled (not
+   outlined) so it clearly reads as active even though the button is disabled. */
 .more-buttons-button.busy,
-.more-buttons-button.busy:hover {
-  background: var(--mb-btn-busy-bg);
-  color: var(--mb-btn-busy-fg);
-  cursor: progress;
-  align-self: flex-start;
-}
-
+.more-buttons-button.busy:hover,
 .more-buttons-button.busy:disabled {
-  opacity: 0.7;
+  --mb-acc: var(--mb-acc-busy);
+  opacity: 1;
   cursor: progress;
-  background: var(--mb-btn-busy-bg);
-  color: var(--mb-btn-busy-fg);
+  background: var(--mb-acc-busy);
+  border-color: var(--mb-acc-busy);
+  color: var(--mb-acc-on);
 }
 
 @keyframes more-buttons-spin {
@@ -1571,49 +1579,7 @@ details[open] .more-buttons-advanced-toggle::before {
   color: var(--cb-text-label);
 }
 
-/* Save destination — segmented */
-.mb-capture-bar__save-target {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 2px;
-  background: var(--cb-bg-sunken);
-  border: 1px solid var(--cb-border);
-  border-radius: 6px;
-  gap: 0;
-}
-.mb-capture-bar__seg {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 10px;
-  border: none;
-  background: transparent;
-  color: var(--cb-text-muted);
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background 120ms ease-out, color 120ms ease-out,
-              box-shadow 120ms ease-out;
-}
-.mb-capture-bar__seg:hover:not(:disabled):not(.--on) {
-  color: var(--cb-text);
-}
-.mb-capture-bar__seg.--on {
-  background: var(--cb-bg);
-  color: var(--cb-text);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-}
-.mb-capture-bar__seg:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* Counter (only visible in form mode) */
+/* Counter */
 .mb-capture-bar__counter { gap: 6px; }
 .mb-capture-bar__counter-chip {
   display: inline-flex;
@@ -1681,28 +1647,6 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-capture-bar__close:hover {
   background: var(--cb-chip-hover);
   color: #ef4444;
-}
-
-/* "Saved" flash for downloads mode */
-.mb-capture-bar__saved {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  background: var(--cb-bg-sunken);
-  color: var(--cb-text);
-  border: 1px solid var(--cb-border);
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  pointer-events: none;
-  opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity 200ms ease-out, transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.mb-capture-bar__saved.--show {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 /* Always-visible left tab — peeks down from the top-left while the full bar
@@ -1848,8 +1792,7 @@ details[open] .more-buttons-advanced-toggle::before {
   .mb-capture-bar,
   .mb-capture-tab,
   .mb-capture-bar__dot,
-  .mb-capture-bar__counter-chip,
-  .mb-capture-bar__saved {
+  .mb-capture-bar__counter-chip {
     transition-duration: 0ms;
     animation: none !important;
   }
@@ -2455,8 +2398,37 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-rte__field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8rem; color: var(--mb-text-label); }
 .mb-rte__field input { width: 100%; padding: 6px 8px; border: 1px solid var(--mb-border); border-radius: 6px; box-sizing: border-box; background-color: var(--mb-bg-input); color: var(--mb-text); }
 .mb-rte__popover-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.mb-rte__popover-btn { padding: 5px 12px; border: 1px solid var(--mb-border); border-radius: 6px; background: transparent; color: var(--mb-text); cursor: pointer; }
-.mb-rte__popover-btn.--primary { background-color: #3b82f6; border-color: #3b82f6; color: #fff; }
+/* Same outline-that-fills language as the form-action buttons: the cancel
+   button is a neutral ghost, the primary (Insert/Apply) carries the info
+   accent and fills solid on hover. */
+.mb-rte__popover-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mb-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: background-color 0.14s ease-out, border-color 0.14s ease-out,
+    color 0.14s ease-out;
+}
+.mb-rte__popover-btn:hover {
+  background: color-mix(in srgb, var(--mb-text-muted) 14%, transparent);
+  border-color: var(--mb-text-muted);
+  color: var(--mb-text);
+}
+.mb-rte__popover-btn.--primary {
+  background: color-mix(in srgb, var(--mb-acc-info) 11%, transparent);
+  border-color: color-mix(in srgb, var(--mb-acc-info) 48%, transparent);
+  color: var(--mb-acc-info);
+}
+.mb-rte__popover-btn.--primary:hover {
+  background: var(--mb-acc-info);
+  border-color: var(--mb-acc-info);
+  color: var(--mb-acc-on);
+}
 
 /* ── Create-guide path field ──────────────────────────────────────────────── */
 .mb-path-field {

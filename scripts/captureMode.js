@@ -8,9 +8,8 @@
  *   - returnTo context (form to reopen on exit)
  *
  * Driven by:
- *   - Pink "Element selector" button → enterCaptureMode({ saveTarget: 'downloads' })
  *   - Components "+ Insert New Capture" (runComponentCaptureFlow) →
- *       enterCaptureMode({ saveTarget: 'session', returnTo: { ... } })
+ *       enterCaptureMode({ returnTo: { ... } })
  *
  * Exits:
  *   - Done button (or capture limit reached) → returnTo.onComplete(buffer): commit.
@@ -88,7 +87,7 @@ function persistSettings(settings) {
 
 // ── Bar construction ─────────────────────────────────────────────────────────
 
-function buildBar({ settings, saveTarget, hasReturnTo }) {
+function buildBar({ settings }) {
   const bar = document.createElement('div');
   bar.className = 'mb-capture-bar';
   bar.setAttribute('role', 'toolbar');
@@ -118,29 +117,12 @@ function buildBar({ settings, saveTarget, hasReturnTo }) {
       </div>
     </div>
 
-    <div class="mb-capture-bar__divider" aria-hidden="true"></div>
-
-    <div class="mb-capture-bar__group mb-capture-bar__save-target" role="radiogroup" aria-label="Save destination">
-      <button type="button" class="mb-capture-bar__seg ${saveTarget === 'session' ? '--on' : ''}"
-        data-bar-save="session" ${hasReturnTo ? '' : 'disabled title="Open a form first"'}
-        role="radio" aria-checked="${saveTarget === 'session' ? 'true' : 'false'}">
-        Form
-      </button>
-      <button type="button" class="mb-capture-bar__seg ${saveTarget === 'downloads' ? '--on' : ''}"
-        data-bar-save="downloads"
-        role="radio" aria-checked="${saveTarget === 'downloads' ? 'true' : 'false'}">
-        Downloads
-      </button>
-    </div>
-
     <div class="mb-capture-bar__spacer"></div>
 
     <div class="mb-capture-bar__group mb-capture-bar__counter" data-bar-counter hidden>
       <span class="mb-capture-bar__counter-chip" data-bar-counter-chip>0</span>
       <span class="mb-capture-bar__counter-label">captured</span>
     </div>
-
-    <span class="mb-capture-bar__saved" data-bar-saved hidden>Saved</span>
 
     <button type="button" class="mb-capture-bar__done" data-bar-done>Done</button>
 
@@ -155,8 +137,6 @@ function buildBar({ settings, saveTarget, hasReturnTo }) {
 
 /**
  * @param {Object} opts
- * @param {'downloads' | 'session'} [opts.saveTarget] — initial save destination.
- *   Defaults to 'downloads' if no returnTo, 'session' if returnTo is set.
  * @param {Object} [opts.returnTo]
  * @param {Function} [opts.returnTo.onComplete] — invoked with the session buffer
  *   on exit. Restoring the form / re-rendering the captures list is the
@@ -188,15 +168,9 @@ export async function enterCaptureMode(opts = {}) {
   const restored = opts.__restored ?? null;
   if (restored?.settings) Object.assign(settings, restored.settings);
   const hasReturnTo = !!opts.returnTo;
-  // formAllowed gates the Form save-target button. A restored form-mode
-  // session has no live returnTo (the closure died with the old JS context),
-  // but we still allow Form mode so subsequent captures buffer; on Done the
-  // cold-exit branch replays the form via the persisted snapshot.
-  const formAllowed = hasReturnTo || (restored?.saveTarget === 'session' && restored?.wasFormMode);
-  const saveTarget = opts.saveTarget ?? restored?.saveTarget ?? (hasReturnTo ? 'session' : 'downloads');
 
   ensureStylesheet();
-  const bar = buildBar({ settings, saveTarget, hasReturnTo: formAllowed });
+  const bar = buildBar({ settings });
   // Always-visible left tab — peeks below the hidden bar so the user knows
   // capture mode is active and has a hover target to reveal the full bar.
   const tab = document.createElement('div');
@@ -299,8 +273,6 @@ export async function enterCaptureMode(opts = {}) {
     sessionBuffer,
     returnTo: opts.returnTo ?? null,
     bar,
-    saveTarget,
-    hasReturnTo: formAllowed,
     wasFormMode: hasReturnTo || !!restored?.wasFormMode,
     formStackSnapshot: opts.formStackSnapshot ?? restored?.formStackSnapshot ?? null,
     maxCaptures: typeof opts.maxCaptures === 'number' && opts.maxCaptures > 0 ? opts.maxCaptures : null,
@@ -317,7 +289,6 @@ export async function enterCaptureMode(opts = {}) {
         downloadPath:   settings.downloadPath,
         themeDelay:     settings.themeDelay,
       },
-      saveTarget: ctx.saveTarget,
       wasFormMode: ctx.wasFormMode,
       formStackSnapshot: ctx.formStackSnapshot,
       sessionBuffer: sessionBuffer.slice(),
@@ -330,15 +301,10 @@ export async function enterCaptureMode(opts = {}) {
   const $ = sel => bar.querySelector(sel);
   const counterEl = $('[data-bar-counter]');
   const counterChip = $('[data-bar-counter-chip]');
-  const savedChip = $('[data-bar-saved]');
 
   function refreshCounter() {
-    if (ctx.saveTarget === 'session' && formAllowed) {
-      counterEl.hidden = false;
-      counterChip.textContent = String(sessionBuffer.length);
-    } else {
-      counterEl.hidden = true;
-    }
+    counterEl.hidden = false;
+    counterChip.textContent = String(sessionBuffer.length);
   }
   refreshCounter();
 
@@ -367,22 +333,6 @@ export async function enterCaptureMode(opts = {}) {
   $('[data-bar-padding-dec]').addEventListener('click', () => setPadding(settings.capturePadding - 1));
   $('[data-bar-padding-inc]').addEventListener('click', () => setPadding(settings.capturePadding + 1));
   $('[data-bar-padding]').addEventListener('input', e => setPadding(e.target.value));
-
-  bar.querySelectorAll('[data-bar-save]').forEach(seg => {
-    seg.addEventListener('click', () => {
-      if (seg.disabled) return;
-      const next = seg.dataset.barSave;
-      if (next === ctx.saveTarget) return;
-      ctx.saveTarget = next;
-      bar.querySelectorAll('[data-bar-save]').forEach(s => {
-        const on = s.dataset.barSave === next;
-        s.classList.toggle('--on', on);
-        s.setAttribute('aria-checked', on ? 'true' : 'false');
-      });
-      refreshCounter();
-      persistSession(snapshotForSession());
-    });
-  });
 
   // Done = commit (onComplete); ✕ close = cancel (onCancel, if the caller
   // provided one — otherwise it falls back to onComplete for back-compat).
@@ -458,29 +408,22 @@ export async function enterCaptureMode(opts = {}) {
   }
 
   function handleCapture(light, dark) {
-    if (ctx.saveTarget === 'session' && formAllowed) {
-      sessionBuffer.push({
-        lightDataUrl: light.dataUrl,
-        lightFilename: light.filename,
-        darkDataUrl: dark.dataUrl,
-        darkFilename: dark.filename,
-        dimMode: 'height',
-        dimValue: 50,
-        addToLibrary: true,
-      });
-      refreshCounter();
-      pulseCounter();
-      persistSession(snapshotForSession());
-      if (ctx.maxCaptures && sessionBuffer.length >= ctx.maxCaptures) {
-        sweepBottomBorder();
-        exitCaptureMode();
-        return;
-      }
-    } else {
-      // Downloads: hand each PNG to background.js.
-      chrome.runtime.sendMessage({ type: 'downloadFile', dataUrl: light.dataUrl, filename: light.filename }, () => {});
-      chrome.runtime.sendMessage({ type: 'downloadFile', dataUrl: dark.dataUrl,  filename: dark.filename }, () => {});
-      flashSaved();
+    sessionBuffer.push({
+      lightDataUrl: light.dataUrl,
+      lightFilename: light.filename,
+      darkDataUrl: dark.dataUrl,
+      darkFilename: dark.filename,
+      dimMode: 'height',
+      dimValue: 50,
+      addToLibrary: true,
+    });
+    refreshCounter();
+    pulseCounter();
+    persistSession(snapshotForSession());
+    if (ctx.maxCaptures && sessionBuffer.length >= ctx.maxCaptures) {
+      sweepBottomBorder();
+      exitCaptureMode();
+      return;
     }
     sweepBottomBorder();
   }
@@ -490,16 +433,6 @@ export async function enterCaptureMode(opts = {}) {
     // force reflow so the class re-add re-triggers the animation
     void counterChip.offsetWidth;
     counterChip.classList.add('--pulse');
-  }
-  function flashSaved() {
-    savedChip.hidden = false;
-    savedChip.classList.remove('--show');
-    void savedChip.offsetWidth;
-    savedChip.classList.add('--show');
-    setTimeout(() => {
-      savedChip.classList.remove('--show');
-      setTimeout(() => { savedChip.hidden = true; }, 250);
-    }, 1100);
   }
   function sweepBottomBorder() {
     bar.classList.remove('--sweep');
@@ -588,7 +521,6 @@ export async function restoreCaptureMode() {
   const snap = readSession();
   if (!snap?.active) return;
   enterCaptureMode({
-    saveTarget: snap.saveTarget,
     __restored: snap,
   });
 }

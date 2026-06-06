@@ -33,13 +33,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.type === 'downloadFile') {
-    chrome.downloads.download({ url: msg.dataUrl, filename: msg.filename, saveAs: false, conflictAction: 'overwrite' }, () => {
-      sendResponse({ ok: true });
-    });
-    return true;
-  }
-
   if (msg.type === 'captureTab') {
     const { scale, devicePixelRatio = 1, forcedTheme, themeDelay = 0 } = msg;
     const tabId = sender.tab.id;

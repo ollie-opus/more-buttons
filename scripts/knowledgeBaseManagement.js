@@ -172,8 +172,8 @@ async function renderKnowledgeBaseManagement() {
     <h2>GitHub not connected</h2>
     <p class="more-buttons-description">Please add a GitHub PAT in Integrations to use this feature.</p>
     <div class="more-buttons-form-actions">
-      <button type="button" class="more-buttons-button" id="mb-open-integrations">Open Integrations</button>
-      <button type="button" class="more-buttons-button secondary" id="mb-close-not-connected">Close</button>
+      <button type="button" class="more-buttons-button" id="mb-open-integrations"><span class="more-buttons-icon">extension</span>Open integrations</button>
+      <button type="button" class="more-buttons-button secondary" id="mb-close-not-connected"><span class="more-buttons-icon">close</span>Close</button>
     </div>`;
   overlay.appendChild(content);
   document.body.appendChild(overlay);

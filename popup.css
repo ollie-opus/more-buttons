@@ -1,10 +1,47 @@
-body {
-  min-width: 320px;
-  padding: 8px;
-  margin: 0;
-  font-family: RubikVariable, ui-sans-serif, system-ui, sans-serif;
+/* ── Tokens ───────────────────────────────────────────────────────────────────
+ * The popup is a standalone extension document, so it can't borrow the Forms
+ * overlay's scoped variables. We mirror the same slate system here (see
+ * config/forms/formsStyling.css) so the popup shell reads as part of the same
+ * product. Light/dark follow the OS, exactly like Forms. */
+:root {
+  --mb-bg:            #ffffff;
+  --mb-bg-subtle:     #f8fafc;
+  --mb-text:          #0f172a;
+  --mb-text-muted:    #475569;
+  --mb-text-label:    #64748b;
+  --mb-border:        #cbd5e1;
+  --mb-border-subtle: #e2e8f0;
+  --mb-heading:       #0f172a;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mb-bg:            #1e293b;
+    --mb-bg-subtle:     #0f172a;
+    --mb-text:          #f1f5f9;
+    --mb-text-muted:    #94a3b8;
+    --mb-text-label:    #94a3b8;
+    --mb-border:        #475569;
+    --mb-border-subtle: #334155;
+    --mb-heading:       #f1f5f9;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-width: 320px;
+  max-width: 360px;
+  margin: 0;
+  background: var(--mb-bg);
+  color: var(--mb-text);
+  /* RubikVariable is the host app's font and never loads here, so the popup
+     renders on the system stack; hierarchy comes from weight + size. */
+  font-family: RubikVariable, ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+}
+
+/* ── Material Symbols (the toggle and shell icons depend on this) ──────────── */
 @font-face {
   font-family: "Material Symbols Outlined";
   font-style: normal;
@@ -30,9 +67,101 @@ body {
   user-select: none;
 }
 
-#popup-buttons-container {
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+.mb-popup {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 14px;
+  padding: 14px 16px 16px;
+  animation: mb-popup-in 0.16s ease-out;
+}
+
+@keyframes mb-popup-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.mb-popup__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mb-popup__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.mb-popup__title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+  color: var(--mb-heading);
+  white-space: nowrap;
+}
+
+.mb-popup__version {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--mb-text-label);
+  background: var(--mb-bg-subtle);
+  border: 1px solid var(--mb-border-subtle);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* ── Master switch (always visible, sits above the divider) ───────────────── */
+.mb-popup__power-control {
+  display: flex;
+}
+
+.mb-popup__divider {
+  margin: 0;
+  height: 0;
+  border: none;
+  border-top: 1px solid var(--mb-border-subtle);
+}
+
+/* ── Body (action buttons; hidden when the extension is off) ──────────────── */
+.mb-popup__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── Disabled note ────────────────────────────────────────────────────────── */
+.mb-popup__disabled-note {
+  display: none;
+  margin: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px dashed var(--mb-border);
+  border-radius: 9px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--mb-text-muted);
+}
+
+.mb-popup__disabled-note .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--mb-text-label);
+  flex-shrink: 0;
+}
+
+/* ── Off state: hide every other button (divider stays), show the note ────── */
+.mb-popup.--disabled .mb-popup__body {
+  display: none;
+}
+
+.mb-popup.--disabled .mb-popup__disabled-note {
+  display: flex;
 }
