@@ -3,6 +3,7 @@ import { enterCaptureMode } from './captureMode.js';
 import { REPO, authHeader } from './repoClient.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { getFormAction, registerFormAction } from './formActions.js';
+import { MANIFEST_PATH, readCaptureMeta, captureMetaPills } from './captureMeta.js';
 
 const CAPTURE_ROOT = 'docs/assets/occ-captures';
 
@@ -16,7 +17,8 @@ async function listCaptureTree() {
   });
   if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
   const data = await res.json();
-  return (data.tree ?? []).filter(e => e.type === 'blob' && e.path.startsWith(CAPTURE_ROOT + '/'));
+  return (data.tree ?? []).filter(e =>
+    e.type === 'blob' && e.path.startsWith(CAPTURE_ROOT + '/') && e.path !== MANIFEST_PATH);
 }
 
 // Build hierarchical nodes from a flat list of blob paths.
@@ -79,6 +81,17 @@ function buildNodes(blobs) {
   return dirToNodes(root);
 }
 
+// Append RESIZED / PADDED pills to each capture leaf from the manifest. Mirrors
+// decorateKbPills in knowledgeBaseManagement.js. Keyed by the leaf's light path.
+function decorateCapturePills(panel, meta) {
+  panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
+    const lightPath = leaf.dataset.captureLight;
+    if (!lightPath) return;
+    const html = captureMetaPills(meta[lightPath]);
+    if (html) leaf.insertAdjacentHTML('beforeend', html);
+  });
+}
+
 export async function openCaptureLibrary({ mode } = {}) {
   const insertMode = mode === 'insert';
   const opener = () => openCaptureLibrary({ mode });
@@ -108,6 +121,9 @@ export async function openCaptureLibrary({ mode } = {}) {
 
   const nodes = buildNodes(blobs);
   panel.innerHTML = renderTree(nodes, { emptyMessage: 'No captures found.' });
+
+  const captureMeta = await readCaptureMeta();
+  decorateCapturePills(panel, captureMeta);
 
   formEl.addEventListener('input', e => {
     const searchEl = e.target.closest('.mb-kb-search');
