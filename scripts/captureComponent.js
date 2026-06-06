@@ -9,7 +9,7 @@
  * re-renders from markdown.
  */
 
-import { createForm, navigateBack, resetDirtyBaseline } from './form.js';
+import { createForm, navigateBack, resetDirtyBaseline, setButtonBusy } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
@@ -87,9 +87,8 @@ function readContainerRef(formEl) {
 registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => {
   const { handler, container, index } = readContainerRef(formEl);
   if (!handler) return;
-  const btn = content?.querySelector('[data-action="submitEditCaptureComponent"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const btn = content?.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
   try {
     const mode = formEl.querySelector('[name="dimMode"]')?.value ?? 'none';
     const rawVal = parseInt(formEl.querySelector('[name="dimValue"]')?.value, 10);
@@ -101,12 +100,12 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
       const next = components.slice();
       next[index] = { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue } };
       return next;
-    }, s => { if (btn) btn.textContent = s; });
+    }, s => setButtonBusy(btn, s));
 
-    await chrome.storage.local.remove('moreButtonsEditCaptureComponent');
-    await navigateBack();
+    resetDirtyBaseline(formEl);
+    formEl._refreshSaveState?.();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    formEl._refreshSaveState?.();
     alert('Failed to save capture: ' + e.message);
   }
 });
