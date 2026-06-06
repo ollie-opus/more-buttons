@@ -2,7 +2,7 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { githubFetchAndPushFile } from './github.js';
 import { readRepoText } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
-import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, resetDirtyBaseline } from './form.js';
+import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { renderCard } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
 import { pushCaptures } from './captures.js';
@@ -508,28 +508,25 @@ registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   }
 });
 
-registerFormAction('submitEditSystemUpdate', async ({ formEl, content, cleanup }) => {
-  const btn = content.querySelector('[data-action="submitEditSystemUpdate"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+registerFormAction('submitEditSystemUpdate', async ({ formEl, content }) => {
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No update identity found');
 
     const { title, date, type, description } = readUpdateFormFields(formEl);
-    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); formEl._refreshSaveState?.(); return; }
 
-    await githubFetchAndPushFile(UPDATES_FILE, s => { btn.textContent = s; }, md => {
+    await githubFetchAndPushFile(UPDATES_FILE, s => setButtonBusy(btn, s), md => {
       const body = rebuildUpdateBody(md, _uuid, description);
       return replaceUpdateInMarkdown(md, _uuid, { title, date, type, uuid: _uuid, description: body }, []);
     });
 
-    await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    await navigateBack();
+    resetDirtyBaseline(formEl);
+    formEl._refreshSaveState?.();
   } catch (e) {
-    await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    btn.textContent = originalText;
-    btn.disabled = false;
+    formEl._refreshSaveState?.();
     alert('Failed to save update: ' + e.message);
   }
 });
