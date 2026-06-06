@@ -5,11 +5,11 @@
  *   - installSelector({ onPick, onArmedChange }) → cleanup
  *       Installs hover overlay + Shift+click listener. The controller
  *       decides when to tear it down (mode exit, mid-capture pause).
- *   - screenshotElement(el, { theme, customRect, settings }) → { dataUrl, filename }
+ *   - screenshotElement(el, { theme, customRect, settings }) → { dataUrl, filename, appliedPadding }
  *       One screenshot. Light+dark pairs are two awaits in the controller.
  *   - enterResizeMode(el, settings, onConfirm, onCancel)
- *       Draggable selection box overlay. Calls onConfirm(rect) on Enter,
- *       onCancel() on Esc.
+ *       Draggable selection box overlay. Calls onConfirm(rect, resized) on
+ *       Enter, onCancel() on Esc.
  *
  * No module-level lifecycle. The controller owns mode state.
  */
@@ -266,8 +266,9 @@ function deriveFilename(el, forcedTheme, settings) {
 /**
  * Single screenshot. The controller calls this once per theme.
  *
- * @returns {Promise<{ dataUrl: string, filename: string } | null>}
+ * @returns {Promise<{ dataUrl: string, filename: string, appliedPadding: number } | null>}
  *   null if the underlying screenshot failed (e.g. CDP attach refused).
+ *   appliedPadding is the padding actually applied (0 if none / no sampleable bg).
  */
 export async function screenshotElement(el, { theme, customRect = null, settings }) {
   const scale = Math.max(1, parseFloat(settings.scale) || 2);
@@ -333,11 +334,12 @@ export async function screenshotElement(el, { theme, customRect = null, settings
 
   const maskedDataUrl = !customRect ? await applyBorderRadiusMask(response.dataUrl, el) : response.dataUrl;
   const originalWidth = customRect ? customRect.width : el.getBoundingClientRect().width;
-  const finalDataUrl = (padding > 0 && sampledBgColor)
-    ? await expandWithBackground(maskedDataUrl, sampledBgColor, padding, originalWidth)
+  const appliedPadding = (padding > 0 && sampledBgColor) ? padding : 0;
+  const finalDataUrl = appliedPadding
+    ? await expandWithBackground(maskedDataUrl, sampledBgColor, appliedPadding, originalWidth)
     : maskedDataUrl;
 
-  return { dataUrl: finalDataUrl, filename: deriveFilename(el, theme, settings) };
+  return { dataUrl: finalDataUrl, filename: deriveFilename(el, theme, settings), appliedPadding };
 }
 
 /**
@@ -464,7 +466,7 @@ export function enterResizeMode(el, _settings, onConfirm, onCancel) {
       e.stopPropagation();
       teardown();
       if (document.activeElement) document.activeElement.blur();
-      onConfirm?.({ ...box });
+      onConfirm?.({ ...box }, dimensionsChanged(initRect, box));
     }
   }
 

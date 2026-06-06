@@ -365,18 +365,18 @@ export async function enterCaptureMode(opts = {}) {
     selectorCleanup = null;
     bar.classList.add('--capturing');
 
-    const finishCapture = (light, dark) => {
+    const finishCapture = (light, dark, resized) => {
       if (!light || !dark) return;
-      handleCapture(light, dark);
+      handleCapture(light, dark, resized);
     };
 
     try {
       if (settings.resizeMode) {
         await new Promise(resolve => {
-          enterResizeMode(target, settings, async rect => {
+          enterResizeMode(target, settings, async (rect, resized) => {
             const light = await screenshotElement(target, { theme: 'light', customRect: rect, settings });
             const dark  = await screenshotElement(target, { theme: 'dark',  customRect: rect, settings });
-            finishCapture(light, dark);
+            finishCapture(light, dark, resized);
             resolve();
           }, () => resolve());
         });
@@ -388,7 +388,7 @@ export async function enterCaptureMode(opts = {}) {
         await new Promise(r => setTimeout(r, 100));
         const light = await screenshotElement(target, { theme: 'light', settings });
         const dark  = await screenshotElement(target, { theme: 'dark',  settings });
-        finishCapture(light, dark);
+        finishCapture(light, dark, false);
       }
     } finally {
       capturing = false;
@@ -407,12 +407,14 @@ export async function enterCaptureMode(opts = {}) {
     }
   }
 
-  function handleCapture(light, dark) {
+  function handleCapture(light, dark, resized) {
     sessionBuffer.push({
       lightDataUrl: light.dataUrl,
       lightFilename: light.filename,
       darkDataUrl: dark.dataUrl,
       darkFilename: dark.filename,
+      resized: !!resized,
+      padding: light.appliedPadding || 0,
       dimMode: 'height',
       dimValue: 50,
       addToLibrary: true,
