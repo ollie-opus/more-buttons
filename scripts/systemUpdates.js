@@ -455,29 +455,27 @@ registerFormAction('openLogSystemUpdate', async () => {
   logFormEl.addEventListener('click', onComponentEditorClick);
 });
 
-registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup }) => {
+registerFormAction('submitLogSystemUpdate', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-action="submitLogSystemUpdate"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+  const snap = snapshotButton(btn);
+  if (btn) btn.disabled = true;
   try {
     const title = formEl.querySelector('[name="updateTitle"]')?.value.trim() ?? '';
     const date = formEl.querySelector('[name="updateDate"]')?.value ?? '';
     const type = formEl.querySelector('[name="updateType"]:checked')?.value;
     const description = formEl.querySelector('[name="description"]')?.value.trim() ?? '';
-    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); restoreButton(btn, snap); return; }
 
     const update = { title, date, type, description, uuid: generateUUID() };
-    await publishNewUpdate(update, [], s => { btn.textContent = s; });
+    await publishNewUpdate(update, [], s => setButtonBusy(btn, s));
 
     await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
-    // Continue into the edit form so components (admonitions + more captures)
-    // can be added to the just-published update. Repoint this slot at the list
-    // so Back returns there, not the blank log form.
+    // Continue into the edit form so components can be added to the just-published
+    // update. Repoint this slot at the list so Back returns there.
     replaceCurrentOpener('openSystemUpdatesEntry');
     await getFormAction('openEditSystemUpdate')({ uuid: update.uuid });
   } catch (e) {
-    btn.textContent = originalText;
-    btn.disabled = false;
+    restoreButton(btn, snap);
     alert('Failed to publish update: ' + e.message);
   }
 });
@@ -562,16 +560,16 @@ function readUpdateFormFields(formEl) {
   return { title, date, type, description };
 }
 
-registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup }) => {
+registerFormAction('saveDraftSystemUpdate', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-action="saveDraftSystemUpdate"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+  const snap = snapshotButton(btn);
+  if (btn) btn.disabled = true;
   try {
     const { title, date, type, description } = readUpdateFormFields(formEl);
-    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); restoreButton(btn, snap); return; }
 
     const update = { title, date, type, description, uuid: generateUUID() };
-    await saveNewDraft(update, [], s => { btn.textContent = s; });
+    await saveNewDraft(update, [], s => setButtonBusy(btn, s));
 
     await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
     // Continue into the draft edit form to add components. Repoint this slot at
@@ -579,8 +577,7 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup })
     replaceCurrentOpener('openSystemUpdatesEntry');
     await getFormAction('openEditDraftSystemUpdate')({ uuid: update.uuid });
   } catch (e) {
-    btn.textContent = originalText;
-    btn.disabled = false;
+    restoreButton(btn, snap);
     alert('Failed to save draft: ' + e.message);
   }
 });
