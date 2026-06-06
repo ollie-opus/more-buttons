@@ -2,6 +2,7 @@ import { createForm, snapshotFormStack } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
+import { writeCaptureMeta } from './captureMeta.js';
 import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 
@@ -125,6 +126,10 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
       if (darkPath && pendingCapture.darkDataUrl) {
         await githubReplaceImage(darkPath, pendingCapture.darkDataUrl.split(',')[1], setStatus);
       }
+      await writeCaptureMeta(
+        [{ lightPath, resized: !!pendingCapture.resized, padding: pendingCapture.padding || 0 }],
+        setStatus,
+      );
       setStatus('Saved. Refreshing preview…');
       pendingCapture = null;
       await loadRepoImages();
