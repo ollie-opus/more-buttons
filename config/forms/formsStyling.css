@@ -973,64 +973,6 @@ button.more-buttons-crumb:hover {
   transform: scale(0.98);
 }
 
-/* Captures insert zone: two independently-clickable pills (screenshot vs
-   library) sharing one dashed-line row. Distinct from .mb-adm-insert above,
-   which is a single full-width button reused by guide admonitions. */
-.mb-cap-insert {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  height: 36px;
-  position: relative;
-}
-.mb-cap-insert::before {
-  content: "";
-  position: absolute;
-  left: 8px; right: 8px;
-  top: 50%;
-  border-top: 1px dashed color-mix(in srgb, var(--mb-text-muted) 30%, transparent);
-  transition: border-color 0.2s ease;
-}
-.mb-cap-insert__pill {
-  appearance: none;
-  position: relative;
-  opacity: 0;
-  transform: scale(0.96);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  color: var(--mb-text-muted);
-  background: var(--mb-bg);
-  border: 1px dashed color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
-  border-radius: 999px;
-  padding: 3px 12px;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
-  pointer-events: none;
-}
-.mb-cap-insert:hover::before,
-.mb-cap-insert:focus-within::before {
-  border-top-color: color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
-}
-.mb-cap-insert:hover .mb-cap-insert__pill,
-.mb-cap-insert:focus-within .mb-cap-insert__pill {
-  opacity: 1;
-  transform: scale(1);
-  pointer-events: auto;
-}
-.mb-cap-insert__pill:hover,
-.mb-cap-insert__pill:focus-visible {
-  outline: none;
-  color: var(--mb-text);
-  border-color: color-mix(in srgb, var(--mb-text-muted) 80%, transparent);
-  background: color-mix(in srgb, var(--mb-text-muted) 6%, var(--mb-bg));
-}
-.mb-cap-insert__pill:active {
-  transform: scale(0.98);
-}
-
 .mb-adm-empty-group {
   display: flex;
   gap: 10px;
@@ -1070,6 +1012,71 @@ button.more-buttons-crumb:hover {
   line-height: 1;
   /* "+" sits below the optical center in most fonts — nudge up to align with text. */
   transform: translateY(-1px);
+}
+
+/* Segmented dimension control: [ Height ▾ | 50 ] px (capture-component editor) */
+.more-buttons-capture-dim {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background: var(--mb-bg-input);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.more-buttons-capture-dim:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+/* Scoped under .more-buttons-overlay-content so these win over the global
+   input[type="number"] / select rules (which would otherwise force width:100%
+   and a full border, blowing out the segmented control). */
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode,
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value {
+  width: auto;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.8125rem;
+  box-shadow: none;
+}
+
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode {
+  border-right: 1px solid var(--mb-border-subtle);
+  cursor: pointer;
+}
+
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value {
+  width: 54px;
+  flex-shrink: 0;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.more-buttons-capture-dim .more-buttons-capture-dim-value::-webkit-outer-spin-button,
+.more-buttons-capture-dim .more-buttons-capture-dim-value::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode:focus,
+.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value:focus {
+  box-shadow: none;
+}
+
+.more-buttons-capture-dim-unit {
+  padding-right: 8px;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+}
+
+/* 'Auto' mode: the pixel value carries no meaning, so dim and disable it */
+.more-buttons-capture-dim.--auto .more-buttons-capture-dim-value,
+.more-buttons-capture-dim.--auto .more-buttons-capture-dim-unit {
+  opacity: 0.4;
 }
 
 .more-buttons-candidates-wrapper {
@@ -1208,187 +1215,6 @@ button.more-buttons-crumb:hover {
 
 details[open] .more-buttons-advanced-toggle::before {
   transform: rotate(90deg);
-}
-
-/* ── Captures field ───────────────────────────────────────────────────────── */
-
-.more-buttons-captures-field {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-/* The list of preview rows. Collapses fully when empty so the actions row
-   below it sits flush under the label with no orphaned gap. */
-.more-buttons-captures-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.more-buttons-captures-list:empty {
-  display: none;
-}
-
-.more-buttons-capture-group-label {
-  margin: 4px 0 0;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--mb-text-label);
-}
-
-/* A single capture preview */
-.more-buttons-capture-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
-  background: var(--mb-bg-subtle);
-  border: 1px solid var(--mb-border-subtle);
-  border-radius: 8px;
-}
-
-.more-buttons-capture-thumb {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 72px;
-  object-fit: contain;
-  object-position: left center;
-  background: var(--mb-bg);
-  border: 1px solid var(--mb-border-subtle);
-  border-radius: 5px;
-  display: block;
-}
-
-.more-buttons-capture-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-/* Segmented dimension control: [ Height ▾ | 50 ] px */
-.more-buttons-capture-dim {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  border: 1px solid var(--mb-border);
-  border-radius: 6px;
-  background: var(--mb-bg-input);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.more-buttons-capture-dim:focus-within {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
-}
-
-/* Scoped under .more-buttons-overlay-content so these win over the global
-   input[type="number"] / select rules (which would otherwise force width:100%
-   and a full border, blowing out the segmented control). */
-.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode,
-.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value {
-  width: auto;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  font-size: 0.8125rem;
-  box-shadow: none;
-}
-
-.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode {
-  border-right: 1px solid var(--mb-border-subtle);
-  cursor: pointer;
-}
-
-.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value {
-  width: 54px;
-  flex-shrink: 0;
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.more-buttons-capture-dim .more-buttons-capture-dim-value::-webkit-outer-spin-button,
-.more-buttons-capture-dim .more-buttons-capture-dim-value::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-mode:focus,
-.more-buttons-overlay-content .more-buttons-capture-dim .more-buttons-capture-dim-value:focus {
-  box-shadow: none;
-}
-
-.more-buttons-capture-dim-unit {
-  padding-right: 8px;
-  font-size: 0.8125rem;
-  color: var(--mb-text-muted);
-}
-
-/* 'Auto' mode: the pixel value carries no meaning, so dim and disable it */
-.more-buttons-capture-dim.--auto .more-buttons-capture-dim-value,
-.more-buttons-capture-dim.--auto .more-buttons-capture-dim-unit {
-  opacity: 0.4;
-}
-
-.more-buttons-capture-library {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8125rem;
-  color: var(--mb-text-muted);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.more-buttons-capture-library input {
-  margin: 0;
-  cursor: pointer;
-}
-
-.more-buttons-capture-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--mb-text-muted);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.more-buttons-capture-remove .more-buttons-icon {
-  font-size: 1.15rem;
-}
-
-.more-buttons-capture-remove:hover {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-}
-
-.more-buttons-capture-remove:active {
-  transform: translateY(1px);
-}
-
-/* Actions row: "Add a capture" + the capture-settings disclosure */
-.more-buttons-captures-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px 12px;
-}
-
-.more-buttons-captures-actions .more-buttons-button .more-buttons-icon {
-  font-size: 1.1rem;
 }
 
 /* ── Capture Mode top bar ─────────────────────────────────────────────────────
@@ -1955,16 +1781,6 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-capture-selector,
 .mb-capture-resize { /* selectors only — actual styles set inline at create time */ }
 
-
-@media (max-width: 600px) {
-  .more-buttons-capture-row {
-    flex-wrap: wrap;
-  }
-  .more-buttons-capture-controls {
-    margin-left: 0;
-    flex-wrap: wrap;
-  }
-}
 
 /* ── Report-type table ────────────────────────────────────────────────────── */
 

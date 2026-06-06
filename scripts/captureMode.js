@@ -9,7 +9,7 @@
  *
  * Driven by:
  *   - Pink "Element selector" button → enterCaptureMode({ saveTarget: 'downloads' })
- *   - Form "Add a capture" button (startCapture action) →
+ *   - Components "+ Insert New Capture" (runComponentCaptureFlow) →
  *       enterCaptureMode({ saveTarget: 'session', returnTo: { ... } })
  *
  * Exits:
@@ -561,24 +561,6 @@ export async function enterCaptureMode(opts = {}) {
         console.error('[captureMode] returnTo.onComplete threw:', e);
       }
       return;
-    }
-
-    // Cold exit: a hard nav (e.g. /sites → /sites/uuid) killed the original
-    // JS context, so capture mode was rehydrated from sessionStorage and has
-    // no live returnTo. Replay the persisted form stack to bring the
-    // originating form back, then push the buffered captures into it.
-    if (!cancelled && ctx.wasFormMode && ctx.formStackSnapshot?.length) {
-      const captures = sessionBuffer.slice();
-      Promise.all([
-        import(chrome.runtime.getURL('scripts/form.js')),
-        import(chrome.runtime.getURL('scripts/captures.js')),
-      ]).then(async ([formMod, capturesMod]) => {
-        const ok = await formMod.replayFormStack?.(ctx.formStackSnapshot);
-        if (!ok || !captures.length) return;
-        capturesMod.captures.push(...captures);
-        const reopenedFormEl = document.querySelector('.more-buttons-overlay form[data-storage-key]');
-        if (reopenedFormEl) capturesMod.updateCapturesList(reopenedFormEl);
-      }).catch(e => console.error('[captureMode] cold-exit auto-reopen failed:', e));
     }
   }
 
