@@ -158,7 +158,7 @@ async function renderGuideEntryContent(formEl) {
         left untouched until you publish.
       </p>`;
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button" data-guide-action="create">Create draft</button>
+      <button type="button" class="more-buttons-button info" data-guide-action="create">Create draft</button>
       <button type="button" class="more-buttons-button danger" data-guide-action="delete">Delete guide</button>`;
     return;
   }
@@ -169,7 +169,7 @@ async function renderGuideEntryContent(formEl) {
   contentEl.innerHTML = treeHtml;
   actionsEl.innerHTML = `
     <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}">+ Add new section</button>
-    <button type="button" class="more-buttons-button" data-guide-action="publish">Publish draft to live</button>
+    <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">publish</span>Publish draft to live</button>
     <button type="button" class="more-buttons-button danger" data-guide-action="discard">Discard draft</button>`;
 }
 
@@ -258,24 +258,24 @@ async function publishGuideDraft(formEl) {
   if (!currentGuide) return;
   if (!confirm('Publish this draft to live? This overwrites the live page.')) return;
   const btn = formEl.parentElement?.querySelector('[data-guide-action="publish"]');
-  const originalText = btn?.textContent;
+  const snap = snapshotButton(btn);
   if (btn) btn.disabled = true;
 
   try {
-    if (btn) btn.textContent = 'Reading draft…';
+    setButtonBusy(btn, 'Reading draft…');
     const draftMarkdown = await readRepoText(currentGuide.draftPath);
     if (!draftMarkdown) {
       alert('Draft not found at ' + currentGuide.draftPath);
-      if (btn) { btn.disabled = false; btn.textContent = originalText; }
+      restoreButton(btn, snap);
       return;
     }
-    await githubFetchAndPushFile(currentGuide.livePath, s => { if (btn) btn.textContent = s; }, () => draftMarkdown);
-    if (btn) btn.textContent = 'Deleting draft…';
-    await githubDeleteFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; });
+    await githubFetchAndPushFile(currentGuide.livePath, s => setButtonBusy(btn, s), () => draftMarkdown);
+    setButtonBusy(btn, 'Deleting draft…');
+    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
     // Promote into nav (mirroring its draft_nav location) and drop from draft_nav.
-    if (btn) btn.textContent = 'Updating navigation…';
+    setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
-    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
       const navItems = parseNavBlock(md, 'nav').items;
       const draftItems = parseNavBlock(md, 'draft_nav').items;
       const loc = findPathOfValue(draftItems, value);
@@ -289,7 +289,7 @@ async function publishGuideDraft(formEl) {
     });
     await renderGuideEntryContent(formEl);
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to publish draft: ' + e.message);
   }
 }
