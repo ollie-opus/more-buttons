@@ -3,7 +3,7 @@ import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
 import { writeCaptureMeta } from './captureMeta.js';
-import { captureCard, captureGrid } from './captureCards.js';
+import { captureCard, captureGrid, capturePathField, captureBasePath } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 
 // Cold-DOM hand-off for the recapture round-trip. While the user hunts for an
@@ -34,6 +34,9 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
   const actionsEl = contentEl.querySelector('[data-capture-entry-actions]');
   if (titleEl && label) titleEl.textContent = label;
 
+  // Theme-agnostic, root-relative path shown read-only above the previews.
+  const displayPath = captureBasePath(lightPath);
+
   // We fetch each image via the contents API (readRepoBlob) instead of using
   // assetCdnUrl, because raw.githubusercontent.com has a ~5 minute Fastly
   // cache window — a freshly-overridden capture would keep showing the old
@@ -56,10 +59,12 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
   let pendingCapture = null; // { lightDataUrl, darkDataUrl }
 
   function renderPreview() {
-    bodyEl.innerHTML = captureGrid([
-      captureCard({ theme: 'light', title: 'Light mode', src: lightObjectUrl, alt: label ?? 'light mode' }),
-      captureCard({ theme: 'dark', title: 'Dark mode', src: darkObjectUrl, alt: `${label ?? 'capture'} (dark)` }),
-    ]);
+    bodyEl.innerHTML =
+      capturePathField({ label: 'Capture path', value: displayPath }) +
+      captureGrid([
+        captureCard({ theme: 'light', title: 'Light mode', src: lightObjectUrl, alt: label ?? 'light mode' }),
+        captureCard({ theme: 'dark', title: 'Dark mode', src: darkObjectUrl, alt: `${label ?? 'capture'} (dark)` }),
+      ]);
     actionsEl.innerHTML = insertMode
       ? `<button type="button" class="more-buttons-button" data-capture-entry-insert><span class="more-buttons-icon">add</span>Insert this capture</button>`
       : `<button type="button" class="more-buttons-button" data-capture-entry-override><span class="more-buttons-icon">swap_vertical_circle</span>Recapture</button>`;
@@ -82,12 +87,14 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
 
   function renderCompare() {
     if (!pendingCapture) return;
-    bodyEl.innerHTML = captureGrid([
-      captureCard({ theme: 'light', title: 'Light mode (Old)', src: lightObjectUrl, alt: 'old light mode' }),
-      captureCard({ theme: 'dark', title: 'Dark mode (Old)', src: darkObjectUrl, alt: 'old dark mode' }),
-      captureCard({ theme: 'light', title: 'Light mode (New)', src: pendingCapture.lightDataUrl, alt: 'new light mode' }),
-      captureCard({ theme: 'dark', title: 'Dark mode (New)', src: pendingCapture.darkDataUrl, alt: 'new dark mode' }),
-    ]);
+    bodyEl.innerHTML =
+      capturePathField({ label: 'Capture path', value: displayPath }) +
+      captureGrid([
+        captureCard({ theme: 'light', title: 'Light mode (Old)', src: lightObjectUrl, alt: 'old light mode' }),
+        captureCard({ theme: 'dark', title: 'Dark mode (Old)', src: darkObjectUrl, alt: 'old dark mode' }),
+        captureCard({ theme: 'light', title: 'Light mode (New)', src: pendingCapture.lightDataUrl, alt: 'new light mode' }),
+        captureCard({ theme: 'dark', title: 'Dark mode (New)', src: pendingCapture.darkDataUrl, alt: 'new dark mode' }),
+      ]);
     actionsEl.innerHTML = `
       <span class="more-buttons-description" data-capture-entry-status hidden></span>
       <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
