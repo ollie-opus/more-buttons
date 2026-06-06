@@ -1037,10 +1037,14 @@ registerFormAction('openCreateGuideAdmonition', async ({ container, insertAtInde
   const heading = formEl.querySelector('[data-guide-admonition-heading]');
   if (heading) heading.textContent = 'Add admonition';
 
-  // Hide Delete (lives in the moved form-actions) + Components list in create mode
-  // (components can only be added once the admonition itself exists).
+  // Hide Delete (lives in the moved form-actions); it only applies once the
+  // admonition itself exists.
   formEl.parentElement?.querySelector('[data-delete-admonition-btn]')?.style.setProperty('display', 'none');
-  formEl.querySelector('[data-components-row]')?.style.setProperty('display', 'none');
+  // Components visible in create mode; adding one routes through the save-gate,
+  // which splices this admonition into its parent and flips to edit in place.
+  formEl.dataset.componentContainerKind = 'guide-admonition';
+  renderComponents(formEl.querySelector('[data-admonition-components]'), [], false);
+  formEl._componentSaver = () => saveAdmonitionForComponent(formEl);
 
   formEl.addEventListener('click', onComponentEditorClick);
   wireAdmonitionTypeToggle(formEl, 'step');
@@ -1074,6 +1078,7 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
   formEl.dataset.editUuid = uuid;
   formEl.dataset.componentContainerKind = 'guide-admonition';
   formEl.dataset.containerFile = containerFile;
+  formEl._componentSaver = () => saveAdmonitionForComponent(formEl);
 
   const heading = formEl.querySelector('[data-guide-admonition-heading]');
   if (heading) heading.textContent = `Edit admonition`;
@@ -1121,64 +1126,111 @@ function wireAdmonitionTypeToggle(formEl, initialType) {
   applyAdmonitionTypeState(formEl, initialType);
 }
 
-registerFormAction('submitEditGuideAdmonition', async ({ formEl, content, cleanup }) => {
+// Read the admonition form's header fields into a normalized shape.
+function readAdmonitionFields(formEl) {
+  const type = formEl.querySelector('[name="admonitionType"]:checked')?.value;
+  const titleField = type === 'step' ? '' : (formEl.querySelector('[name="admonitionTitle"]')?.value.trim() ?? '');
+  const metaField = formEl.querySelector('[name="admonitionMeta"]')?.value.trim() ?? '';
+  const title = joinTitleMeta(titleField, metaField);
+  const description = formEl.querySelector('[name="admonitionDescription"]')?.value ?? '';
+  const collapsible = formEl.querySelector('[name="admonitionCollapsible"]:checked')?.value ?? 'static';
+  return { type, title, description, prefix: collapsibleToPrefix(collapsible) };
+}
+
+// Build the new admonition and splice it into its parent container at the chosen
+// index. Returns { newUuid, file } or null (validation failed).
+async function persistNewAdmonition(formEl, onProgress = () => {}) {
+  const { type, title, description, prefix } = readAdmonitionFields(formEl);
+  if (!type) { alert('Type is required.'); return null; }
+  const newUuid = generateUUID();
+  const newAdm = { prefix, type, title, body: buildComponentBody(newUuid, description, []) };
+  const container = {
+    kind: formEl.dataset.parentKind,
+    uuid: formEl.dataset.parentUuid,
+    file: formEl.dataset.parentFile,
+  };
+  const insertAtRaw = formEl.dataset.insertAtIndex;
+  const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
+  await githubFetchAndPushFile(container.file, onProgress, md => {
+    const { description: pDesc, components } = readContainerComponents(md, container);
+    const idx = (insertAt != null && insertAt >= 0 && insertAt <= components.length) ? insertAt : components.length;
+    const next = components.slice();
+    next.splice(idx, 0, { kind: 'admonition', adm: newAdm });
+    return writeContainerBody(md, container, pDesc, next);
+  });
+  return { newUuid, file: container.file };
+}
+
+// Rewrite an existing admonition's header + description, preserving its
+// committed sub-components.
+async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
+  const { type, title, description, prefix } = readAdmonitionFields(formEl);
+  if (!type) { alert('Type is required.'); return null; }
+  const editUuid = formEl.dataset.editUuid;
+  const file = formEl.dataset.containerFile || currentGuide?.draftPath;
+  const draftMarkdown = await readRepoText(file);
+  if (!locateGuideAdmonition(draftMarkdown, editUuid)) { alert('Admonition no longer exists.'); return null; }
+  await githubFetchAndPushFile(file, onProgress, md => {
+    if (!locateGuideAdmonition(md, editUuid)) return md;
+    const { components } = readContainerComponents(md, { kind: 'guide-admonition', uuid: editUuid });
+    const body = buildComponentBody(editUuid, description, components);
+    return replaceAdmonitionByUUID(md, editUuid, buildAdmonition(prefix, type, title, body));
+  });
+  return { editUuid, file };
+}
+
+// Flip an admonition create form into an edit-of-new-admonition form in place
+// (gate path only — the plain Save button still navigates back).
+async function transitionAdmonitionCreateToEdit(formEl, newUuid, file) {
+  formEl.dataset.mode = 'edit';
+  formEl.dataset.editUuid = newUuid;
+  formEl.dataset.componentContainerKind = 'guide-admonition';
+  formEl.dataset.containerFile = file;
+  replaceCurrentOpener(() => getFormAction('openEditGuideAdmonition')({ uuid: newUuid, file }));
+  const heading = formEl.querySelector('[data-guide-admonition-heading]');
+  if (heading) heading.textContent = 'Edit admonition';
+  formEl.parentElement?.querySelector('[data-delete-admonition-btn]')?.style.removeProperty('display');
+  formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
+  const listEl = formEl.querySelector('[data-admonition-components]');
+  renderComponents(listEl, [], false);
+  setOpenComponentEditor({ formEl, listEl, container: { kind: 'guide-admonition', uuid: newUuid, file } });
+  await chrome.storage.local.set({
+    moreButtonsEditGuideAdmonition: {
+      admonitionTitle: formEl.querySelector('[name="admonitionTitle"]')?.value ?? '',
+      admonitionMeta: formEl.querySelector('[name="admonitionMeta"]')?.value ?? '',
+      admonitionType: formEl.querySelector('[name="admonitionType"]:checked')?.value ?? 'step',
+      admonitionDescription: formEl.querySelector('[name="admonitionDescription"]')?.value ?? '',
+      admonitionCollapsible: formEl.querySelector('[name="admonitionCollapsible"]:checked')?.value ?? 'static',
+    },
+  });
+  resetDirtyBaseline(formEl);
+}
+
+// Persist the admonition form for the save-gate. create → splice into parent +
+// transition in place; dirty edit → rewrite + rebaseline. Returns { container,
+// formEl } or null.
+async function saveAdmonitionForComponent(formEl) {
+  if (formEl.dataset.mode === 'create') {
+    const res = await persistNewAdmonition(formEl);
+    if (!res) return null;
+    await transitionAdmonitionCreateToEdit(formEl, res.newUuid, res.file);
+    return { container: { kind: 'guide-admonition', uuid: res.newUuid, file: res.file }, formEl };
+  }
+  const res = await persistAdmonitionEdit(formEl);
+  if (!res) return null;
+  resetDirtyBaseline(formEl);
+  return { container: { kind: 'guide-admonition', uuid: res.editUuid, file: res.file }, formEl };
+}
+
+registerFormAction('submitEditGuideAdmonition', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-action="submitEditGuideAdmonition"]');
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
   try {
-    const type = formEl.querySelector('[name="admonitionType"]:checked')?.value;
-    // Step admonitions are auto-titled — ignore any title for them.
-    const titleField = type === 'step' ? '' : (formEl.querySelector('[name="admonitionTitle"]')?.value.trim() ?? '');
-    const metaField = formEl.querySelector('[name="admonitionMeta"]')?.value.trim() ?? '';
-    const title = joinTitleMeta(titleField, metaField);
-    const description = formEl.querySelector('[name="admonitionDescription"]')?.value ?? '';
-    const collapsible = formEl.querySelector('[name="admonitionCollapsible"]:checked')?.value ?? 'static';
-    const prefix = collapsibleToPrefix(collapsible);
-    if (!type) { alert('Type is required.'); if (btn) btn.disabled = false; return; }
-
-    const mode = formEl.dataset.mode;
-    const editUuid = formEl.dataset.editUuid;
-
-    if (mode === 'create') {
-      // Build the new admonition (its own body is just description — no
-      // components yet) and splice it as a component into the parent at the
-      // chosen component index.
-      const newUuid = generateUUID();
-      const newAdm = { prefix, type, title, body: buildComponentBody(newUuid, description, []) };
-      const container = {
-        kind: formEl.dataset.parentKind,
-        uuid: formEl.dataset.parentUuid,
-        file: formEl.dataset.parentFile,
-      };
-      const insertAtRaw = formEl.dataset.insertAtIndex;
-      const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
-
-      await githubFetchAndPushFile(container.file, s => { if (btn) btn.textContent = s; }, md => {
-        const { description: pDesc, components } = readContainerComponents(md, container);
-        const idx = (insertAt != null && insertAt >= 0 && insertAt <= components.length) ? insertAt : components.length;
-        const next = components.slice();
-        next.splice(idx, 0, { kind: 'admonition', adm: newAdm });
-        return writeContainerBody(md, container, pDesc, next);
-      });
-      await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
-      await navigateBack();
-      return;
-    }
-
-    // Edit mode: update this admonition's heading + description; preserve its
-    // existing components (sub-admonitions + captures, re-read fresh).
-    const file = formEl.dataset.containerFile || currentGuide?.draftPath;
-    const container = { kind: 'guide-admonition', uuid: editUuid, file };
-    const draftMarkdown = await readRepoText(file);
-    if (!locateGuideAdmonition(draftMarkdown, editUuid)) { alert('Admonition no longer exists.'); cleanup(); return; }
-
-    await githubFetchAndPushFile(file, s => { if (btn) btn.textContent = s; }, md => {
-      if (!locateGuideAdmonition(md, editUuid)) return md;
-      const { components } = readContainerComponents(md, container);
-      const body = buildComponentBody(editUuid, description, components);
-      return replaceAdmonitionByUUID(md, editUuid, buildAdmonition(prefix, type, title, body));
-    });
-
+    const res = formEl.dataset.mode === 'create'
+      ? await persistNewAdmonition(formEl, s => { if (btn) btn.textContent = s; })
+      : await persistAdmonitionEdit(formEl, s => { if (btn) btn.textContent = s; });
+    if (!res) { if (btn) { btn.disabled = false; btn.textContent = originalText; } return; }
     await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
     await navigateBack();
   } catch (e) {
