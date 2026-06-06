@@ -1,7 +1,7 @@
 import { createForm, navigateBack } from './form.js';
 import { pushCaptures } from './captures.js';
 import { githubPathExists } from './github.js';
-import { captureCard, captureGrid } from './captureCards.js';
+import { captureCard, captureGrid, capturePathField, captureBasePath } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
 
 // `capture` is one entry from Capture Mode's session buffer: it carries
@@ -23,10 +23,12 @@ export async function openCaptureNew({ capture } = {}) {
   const saveBtn = contentEl.querySelector('[data-capture-new-save]');
   const cancelBtn = contentEl.querySelector('[data-capture-new-cancel]');
 
-  bodyEl.innerHTML = captureGrid([
-    captureCard({ theme: 'light', title: 'Light mode', src: capture.lightDataUrl, alt: 'light mode' }),
-    captureCard({ theme: 'dark', title: 'Dark mode', src: capture.darkDataUrl, alt: 'dark mode' }),
-  ]);
+  bodyEl.innerHTML =
+    capturePathField({ label: 'Proposed capture path', value: captureBasePath(capture.lightFilename) }) +
+    captureGrid([
+      captureCard({ theme: 'light', title: 'Light mode', src: capture.lightDataUrl, alt: 'light mode' }),
+      captureCard({ theme: 'dark', title: 'Dark mode', src: capture.darkDataUrl, alt: 'dark mode' }),
+    ]);
 
   const setStatus = (msg) => {
     if (!statusEl) return;
