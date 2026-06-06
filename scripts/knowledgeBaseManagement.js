@@ -1,6 +1,6 @@
 import { createForm } from './form.js';
 import { readRepoText } from './repoClient.js';
-import { getFormAction } from './formActions.js';
+import { getFormAction, registerFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { parseNavBlock, slugify } from './navToml.js';
 
@@ -73,10 +73,10 @@ function renderKbHierarchy(nodes) {
   return renderTree(nodes.map(navNodeToKbNode), { emptyMessage: 'No articles found.' });
 }
 
-export async function openKnowledgeBaseManagement() {
+async function renderKnowledgeBaseManagement() {
   const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
   if (moreButtonsIntegrations?.githubPAT) {
-    const { formEl } = await createForm('knowledgeBaseManagement', openKnowledgeBaseManagement);
+    const { formEl } = await createForm('knowledgeBaseManagement', openKnowledgeBaseManagement, { rootEntry: true });
     if (!formEl) return;
 
     const livePanel = formEl.querySelector('[data-kb-panel="guides"]');
@@ -187,4 +187,16 @@ export async function openKnowledgeBaseManagement() {
     cleanup();
     getFormAction('openIntegrations')?.();
   });
+}
+
+registerFormAction('openKnowledgeBaseManagement', renderKnowledgeBaseManagement);
+
+// Public entry point (the buttons.json action + the back-nav opener). Routes
+// through the form-action registry so the KB view is opened with a serialisable
+// descriptor. Without it, snapshotFormStack/replayFormStack — which only replay
+// the contiguous descriptor-carrying suffix of the stack — drop the root
+// "Knowledge Base" crumb whenever a capture / library round-trip rebuilds the
+// form stack (e.g. inserting a capture from the library while editing a section).
+export function openKnowledgeBaseManagement() {
+  return getFormAction('openKnowledgeBaseManagement')();
 }

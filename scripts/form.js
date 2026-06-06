@@ -230,7 +230,12 @@ function navigateForward() {
   return Promise.resolve();
 }
 
-export async function createForm(formName, opener) {
+// `rootEntry: true` marks this open as a fresh top-level launch (e.g. the
+// "Manage Knowledge Base" popup button). Such a launch must reset the history
+// even when an overlay is already open from an in-flight stack — otherwise the
+// open overlay makes `deeper` true and the root form is appended as a new crumb
+// (KB › guide › section › KB) instead of restarting the trail.
+export async function createForm(formName, opener, { rootEntry = false } = {}) {
   const resolvedOpener = opener ?? currentOpener() ?? (() => createForm(formName));
   const descriptor = currentInvocationDescriptor();
   const replaying = navMode === 'replay';
@@ -255,13 +260,14 @@ export async function createForm(formName, opener) {
       history[cursor].opener = opener;
       if (descriptor) history[cursor].descriptor = descriptor;
     }
-  } else if (deeper) {
+  } else if (deeper && !rootEntry) {
     // Navigating deeper: drop any forward history, then append.
     history.length = cursor + 1;
     history.push({ opener: resolvedOpener, label: '', formName, descriptor });
     cursor = history.length - 1;
   } else {
-    // Fresh entry point: start a new history.
+    // Fresh entry point (no overlay open, or a forced root launch): start a
+    // new history.
     resetHistory();
     history.push({ opener: resolvedOpener, label: '', formName, descriptor });
     cursor = 0;
@@ -285,7 +291,7 @@ export async function createForm(formName, opener) {
   content.className = 'more-buttons-overlay-content';
   // Only animate the intro on a genuine fresh open; in-place navigation
   // (push/back/forward/crumb) re-mounts this node and would replay the fade.
-  if (!deeper && !replaying) content.classList.add('--animate-in');
+  if ((!deeper || rootEntry) && !replaying) content.classList.add('--animate-in');
   content.setAttribute('role', 'dialog');
   content.setAttribute('aria-modal', 'true');
 
