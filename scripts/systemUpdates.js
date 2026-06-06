@@ -2,13 +2,10 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { githubFetchAndPushFile } from './github.js';
 import { readRepoText } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
-import { createForm, navigateBack, isFormReplay, replaceCurrentOpener } from './form.js';
+import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, resetDirtyBaseline } from './form.js';
 import { renderCard } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
-import {
-  captures, resetCaptureState,
-  updateCapturesList, resolveCaptures, pushCaptures,
-} from './captures.js';
+import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
 import { parseComponents, buildComponentBody } from './components.js';
 import {
@@ -140,10 +137,45 @@ function mountUpdateComponentsEditor(formEl, { uuid, file, kind, components }) {
   formEl.dataset.editUuid = uuid;
   formEl.dataset.componentContainerKind = kind;
   formEl.dataset.containerFile = file;
+  formEl.dataset.mode = 'edit';
+  formEl._componentSaver = () => saveUpdateForComponent(formEl);
   const listEl = formEl.querySelector('[data-update-components]');
   renderComponents(listEl, components, false); // updates don't number steps
   setOpenComponentEditor({ formEl, listEl, container: { kind, uuid, file } });
   formEl.addEventListener('click', onComponentEditorClick);
+}
+
+// Save-gate saver for the Log form: persist as a DRAFT, navigate into the draft
+// editor, and continue the child flow there. Returns { container, formEl } or null.
+async function saveLogUpdateForComponent(formEl) {
+  const { title, date, type, description } = readUpdateFormFields(formEl);
+  if (!title || !date || !type) { alert('Please fill in all required fields.'); return null; }
+  const uuid = generateUUID();
+  await saveNewDraft({ title, date, type, description, uuid }, [], () => {});
+  await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
+  // Returning from a child should land on the updates list, not the blank log form.
+  replaceCurrentOpener(() => getFormAction('openSystemUpdatesEntry')());
+  await getFormAction('openEditDraftSystemUpdate')({ uuid });
+  const newFormEl = document.querySelector('.more-buttons-overlay form[data-storage-key]');
+  return { container: { kind: 'system-draft', uuid, file: DRAFTS_FILE }, formEl: newFormEl };
+}
+
+// Save-gate saver for the (already-saved) update + draft editors: rewrite the
+// block's header + leading description, preserving committed components.
+async function saveUpdateForComponent(formEl) {
+  const { title, date, type, description } = readUpdateFormFields(formEl);
+  if (!title || !date || !type) { alert('Please fill in all required fields.'); return null; }
+  const uuid = formEl.dataset.editUuid;
+  const kind = formEl.dataset.componentContainerKind; // 'system-update' | 'system-draft'
+  const file = formEl.dataset.containerFile;
+  await githubFetchAndPushFile(file, () => {}, md => {
+    const body = rebuildUpdateBody(md, uuid, description);
+    return kind === 'system-update'
+      ? replaceUpdateInMarkdown(md, uuid, { title, date, type, uuid, description: body }, [])
+      : replaceDraftInMarkdown(md, uuid, { title, date, type, description: body }, []);
+  });
+  resetDirtyBaseline(formEl);
+  return { container: { kind, uuid, file }, formEl };
 }
 
 // description (the form's leading text) + the container's current components →
@@ -403,19 +435,24 @@ export async function deleteDraft(uuid, onProgress) {
 registerFormAction('openSystemUpdatesEntry', () => createForm('systemUpdatesEntry'));
 
 registerFormAction('openLogSystemUpdate', async () => {
-  resetCaptureState();
-  // On a genuine fresh open, discard any half-finished entry that was saved to
-  // storage during an earlier capture-mode handoff, so the form starts blank.
-  // Skip during a capture-mode replay, when we WANT those in-flight values back.
+  // On a genuine fresh open, discard any half-finished entry saved to storage
+  // during an earlier capture-mode handoff. Skip during a capture-mode replay.
   if (!isFormReplay()) {
     await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
   }
   const { formEl: logFormEl } = await createForm('logSystemUpdate');
   if (!logFormEl) return;
-  // Default the (now-empty) date field to today.
   const dateInput = logFormEl.querySelector('[name="updateDate"]');
   if (dateInput && !dateInput.value) dateInput.value = todayIsoDate();
-  updateCapturesList(logFormEl);
+
+  // Unified Components: the log form is create-mode; adding a component routes
+  // through the save-gate, which saves a draft then continues in the draft editor.
+  logFormEl.dataset.mode = 'create';
+  logFormEl.dataset.componentContainerKind = 'system-draft';
+  logFormEl.dataset.componentNoun = 'update';
+  renderComponents(logFormEl.querySelector('[data-update-components]'), [], false);
+  logFormEl._componentSaver = () => saveLogUpdateForComponent(logFormEl);
+  logFormEl.addEventListener('click', onComponentEditorClick);
 });
 
 registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup }) => {
@@ -430,10 +467,8 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description, uuid: generateUUID() };
-    const resolved = resolveCaptures([...captures]);
-    await publishNewUpdate(update, resolved, s => { btn.textContent = s; });
+    await publishNewUpdate(update, [], s => { btn.textContent = s; });
 
-    resetCaptureState();
     await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
     // Continue into the edit form so components (admonitions + more captures)
     // can be added to the just-published update. Repoint this slot at the list
@@ -539,10 +574,8 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup })
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
     const update = { title, date, type, description, uuid: generateUUID() };
-    const resolved = resolveCaptures([...captures]);
-    await saveNewDraft(update, resolved, s => { btn.textContent = s; });
+    await saveNewDraft(update, [], s => { btn.textContent = s; });
 
-    resetCaptureState();
     await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
     // Continue into the draft edit form to add components. Repoint this slot at
     // the list so Back returns there, not the blank log form.
