@@ -22,6 +22,17 @@
   --mb-btn-2-bg:         #e2e8f0;
   --mb-btn-2-fg:         #0f172a;
   --mb-btn-2-hover:      #cbd5e1;
+  --mb-btn-success-bg:    #16a34a;
+  --mb-btn-success-hover: #15803d;
+  --mb-btn-success-fg:    #ffffff;
+  --mb-btn-info-btn-bg:   #2563eb;
+  --mb-btn-info-btn-hover:#1d4ed8;
+  --mb-btn-info-btn-fg:   #ffffff;
+  --mb-btn-publish-bg:    #4f46e5;
+  --mb-btn-publish-hover: #4338ca;
+  --mb-btn-publish-fg:    #ffffff;
+  --mb-btn-busy-bg:       #f59e0b;
+  --mb-btn-busy-fg:       #1f2937;
   --mb-info-bg:          #e2f3ff;
   --mb-info-border:      #bfdbfe;
   --mb-heading:          #0f172a;
@@ -608,6 +619,72 @@ button.more-buttons-crumb:hover {
 
 .more-buttons-button.danger:hover {
   background: #dc2626;
+}
+
+.more-buttons-button.success {
+  background: var(--mb-btn-success-bg);
+  color: var(--mb-btn-success-fg);
+  align-self: flex-start;
+}
+
+.more-buttons-button.success:hover {
+  background: var(--mb-btn-success-hover);
+}
+
+/* The saved/clean state is intentionally disabled but must stay solid green,
+   not the generic faded `:disabled` look. Higher specificity than the generic
+   rule below, so it wins regardless of source order. */
+.more-buttons-button.success:disabled {
+  opacity: 1;
+  cursor: default;
+  background: var(--mb-btn-success-bg);
+  color: var(--mb-btn-success-fg);
+}
+
+.more-buttons-button.info {
+  background: var(--mb-btn-info-btn-bg);
+  color: var(--mb-btn-info-btn-fg);
+  align-self: flex-start;
+}
+
+.more-buttons-button.info:hover {
+  background: var(--mb-btn-info-btn-hover);
+}
+
+.more-buttons-button.publish {
+  background: var(--mb-btn-publish-bg);
+  color: var(--mb-btn-publish-fg);
+  align-self: flex-start;
+}
+
+.more-buttons-button.publish:hover {
+  background: var(--mb-btn-publish-hover);
+}
+
+/* Amber "working" state shown while a save/publish commit is in flight. Stays
+   amber even though the button is disabled. */
+.more-buttons-button.busy,
+.more-buttons-button.busy:hover {
+  background: var(--mb-btn-busy-bg);
+  color: var(--mb-btn-busy-fg);
+  cursor: progress;
+  align-self: flex-start;
+}
+
+.more-buttons-button.busy:disabled {
+  opacity: 1;
+  cursor: progress;
+  background: var(--mb-btn-busy-bg);
+  color: var(--mb-btn-busy-fg);
+}
+
+@keyframes more-buttons-spin {
+  to { transform: rotate(360deg); }
+}
+
+.more-buttons-icon--spin {
+  display: inline-block;
+  animation: more-buttons-spin 0.9s linear infinite;
 }
 
 .more-buttons-button:disabled {
