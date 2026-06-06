@@ -617,56 +617,52 @@ registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
   }
 });
 
-registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content, cleanup }) => {
-  const btn = content.querySelector('[data-action="saveDraftEditSystemUpdate"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content }) => {
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No draft identity found');
 
     const { title, date, type, description } = readUpdateFormFields(formEl);
-    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); formEl._refreshSaveState?.(); return; }
 
-    await githubFetchAndPushFile(DRAFTS_FILE, s => { btn.textContent = s; }, md => {
+    await githubFetchAndPushFile(DRAFTS_FILE, s => setButtonBusy(btn, s), md => {
       const body = rebuildUpdateBody(md, _uuid, description);
       return replaceDraftInMarkdown(md, _uuid, { title, date, type, description: body }, []);
     });
 
-    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    await navigateBack();
+    resetDirtyBaseline(formEl);
+    formEl._refreshSaveState?.();
   } catch (e) {
-    await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    btn.textContent = originalText;
-    btn.disabled = false;
+    formEl._refreshSaveState?.();
     alert('Failed to save draft: ' + e.message);
   }
 });
 
-registerFormAction('publishDraftSystemUpdate', async ({ formEl, content, cleanup }) => {
+registerFormAction('publishDraftSystemUpdate', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-action="publishDraftSystemUpdate"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+  const snap = snapshotButton(btn);
+  if (btn) btn.disabled = true;
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No draft identity found');
 
     const { title, date, type, description } = readUpdateFormFields(formEl);
-    if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
+    if (!title || !date || !type) { alert('Please fill in all required fields.'); restoreButton(btn, snap); return; }
 
     // Preserve the draft body's committed components; only the header + leading
     // description come from the form.
     const draftMd = await readRepoText(DRAFTS_FILE);
     const body = rebuildUpdateBody(draftMd, _uuid, description);
-    await publishDraft(_uuid, { title, date, type, description: body }, [], s => { btn.textContent = s; });
+    await publishDraft(_uuid, { title, date, type, description: body }, [], s => setButtonBusy(btn, s));
 
     suppress(DRAFT_ENTITY, _uuid);
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
     await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    btn.textContent = originalText;
-    btn.disabled = false;
+    restoreButton(btn, snap);
     alert('Failed to publish draft: ' + e.message);
   }
 });
