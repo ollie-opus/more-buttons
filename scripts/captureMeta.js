@@ -46,3 +46,31 @@ export function captureMetaPills(meta) {
   if (!pills.length) return '';
   return `<span class="mb-kb-pills">${pills.join('')}</span>`;
 }
+
+/**
+ * Read and parse the manifest. Returns {} if the file is missing or unparseable
+ * (readRepoText returns '' on 404). Never throws — a metadata read failure must
+ * not break the library.
+ */
+export async function readCaptureMeta() {
+  try {
+    const text = await readRepoText(MANIFEST_PATH);
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Apply a batch of upserts to the manifest on GitHub. No-op for an empty batch.
+ * Reuses githubFetchAndPushFile (read-modify-write with sha, 409 retry, queued)
+ * so the modify happens against server-fresh content.
+ */
+export async function writeCaptureMeta(upserts, onProgress) {
+  if (!upserts || !upserts.length) return;
+  await githubFetchAndPushFile(MANIFEST_PATH, onProgress, (currentText) => {
+    let manifest = {};
+    try { manifest = currentText ? JSON.parse(currentText) : {}; } catch { manifest = {}; }
+    return JSON.stringify(applyMetaUpserts(manifest, upserts), null, 2) + '\n';
+  });
+}
