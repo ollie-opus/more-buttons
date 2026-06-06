@@ -340,6 +340,16 @@ export async function screenshotElement(el, { theme, customRect = null, settings
   return { dataUrl: finalDataUrl, filename: deriveFilename(el, theme, settings) };
 }
 
+/**
+ * Did the user actually change the capture's size? Compares the initial element
+ * rect against the final resize box, width/height only (rounded so sub-pixel
+ * layout jitter doesn't count). Position changes do not count as a resize.
+ */
+export function dimensionsChanged(initRect, box) {
+  return Math.round(box.width) !== Math.round(initRect.width)
+      || Math.round(box.height) !== Math.round(initRect.height);
+}
+
 // ── Resize mode (draggable box) ───────────────────────────────────────────────
 
 function applyDelta(handle, startBox, dx, dy) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { applyMetaUpserts, captureMetaPills } from '../scripts/captureMeta.js';
+import { dimensionsChanged } from '../scripts/captureElement.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -66,6 +67,24 @@ test('captureMetaPills renders a padded pill with the px value', () => {
 test('captureMetaPills renders both pills, resized before padded', () => {
   const html = captureMetaPills({ resized: true, padding: 16 });
   assert.ok(html.indexOf('--resized') < html.indexOf('--padded'));
+});
+
+// ── dimensionsChanged ─────────────────────────────────────────────────────────
+test('dimensionsChanged is false when width and height are unchanged', () => {
+  assert.equal(dimensionsChanged({ width: 100, height: 50 }, { width: 100, height: 50 }), false);
+});
+test('dimensionsChanged ignores sub-pixel jitter (rounds)', () => {
+  assert.equal(dimensionsChanged({ width: 100.2, height: 50.4 }, { width: 100.1, height: 49.6 }), false);
+});
+test('dimensionsChanged is true when width changes', () => {
+  assert.equal(dimensionsChanged({ width: 100, height: 50 }, { width: 140, height: 50 }), true);
+});
+test('dimensionsChanged is true when height changes', () => {
+  assert.equal(dimensionsChanged({ width: 100, height: 50 }, { width: 100, height: 80 }), true);
+});
+test('dimensionsChanged ignores position-only differences', () => {
+  // box carries top/left too, but only size counts
+  assert.equal(dimensionsChanged({ width: 100, height: 50 }, { width: 100, height: 50, top: 999, left: 7 }), false);
 });
 
 console.log(`\n${passed} passed`);
