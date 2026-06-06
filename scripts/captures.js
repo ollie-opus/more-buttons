@@ -58,9 +58,15 @@ export async function pushCaptures(list = [], onProgress) {
   const upserts = [];
   for (const c of list) {
     if (!c.lightDataUrl) continue;
-    await githubPushImageIfNotExists(`docs/assets/${c.lightFilename}`, c.lightDataUrl.split(',')[1], onProgress);
+    const created = await githubPushImageIfNotExists(`docs/assets/${c.lightFilename}`, c.lightDataUrl.split(',')[1], onProgress);
     await githubPushImageIfNotExists(`docs/assets/${c.darkFilename}`, c.darkDataUrl.split(',')[1], onProgress);
-    upserts.push({ lightPath: `docs/assets/${c.lightFilename}`, resized: !!c.resized, padding: c.padding || 0 });
+    // Only record metadata for captures we actually created. If the light PNG
+    // already existed we skipped overwriting it — so we must also leave its
+    // manifest entry untouched rather than clobber it with this capture's
+    // (possibly different) resized/padding values.
+    if (created) {
+      upserts.push({ lightPath: `docs/assets/${c.lightFilename}`, resized: !!c.resized, padding: c.padding || 0 });
+    }
   }
   await writeCaptureMeta(upserts, onProgress);
 }

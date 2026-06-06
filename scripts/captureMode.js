@@ -330,8 +330,8 @@ export async function enterCaptureMode(opts = {}) {
     persistSettings(settings);
     persistSession(snapshotForSession());
   }
-  $('[data-bar-padding-dec]').addEventListener('click', () => setPadding(settings.capturePadding - 1));
-  $('[data-bar-padding-inc]').addEventListener('click', () => setPadding(settings.capturePadding + 1));
+  $('[data-bar-padding-dec]').addEventListener('click', () => setPadding(settings.capturePadding - 5));
+  $('[data-bar-padding-inc]').addEventListener('click', () => setPadding(settings.capturePadding + 5));
   $('[data-bar-padding]').addEventListener('input', e => setPadding(e.target.value));
 
   // Done = commit (onComplete); ✕ close = cancel (onCancel, if the caller
@@ -397,6 +397,7 @@ export async function enterCaptureMode(opts = {}) {
       if (active === ctx) {
         selectorCleanup = installSelector({
           onPick,
+          getPadding: () => settings.capturePadding,
           onArmedChange: armed => {
             bar.classList.toggle('--armed', armed);
             tab.classList.toggle('--armed', armed);
@@ -445,6 +446,7 @@ export async function enterCaptureMode(opts = {}) {
   // ── Initial selector install ──────────────────────────────────────────────
   selectorCleanup = installSelector({
     onPick,
+    getPadding: () => settings.capturePadding,
     onArmedChange: armed => {
       bar.classList.toggle('--armed', armed);
       tab.classList.toggle('--armed', armed);

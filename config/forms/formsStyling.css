@@ -686,6 +686,23 @@ button.more-buttons-crumb:hover {
   color: var(--mb-acc-on);
 }
 
+/* Amber "blocked" warning state — shares the busy amber fill so it reads as the
+   same held/non-go colour, but static (no spinner) and not-allowed since the
+   action genuinely can't proceed. Used by the new-capture page when the target
+   capture already exists in the library. Higher specificity than both the
+   generic disabled rule and `.success:disabled`, so it wins regardless of which
+   variant class the button started with. */
+.more-buttons-button.warn,
+.more-buttons-button.warn:hover,
+.more-buttons-button.warn:disabled {
+  --mb-acc: var(--mb-acc-busy);
+  opacity: 1;
+  cursor: not-allowed;
+  background: var(--mb-acc-busy);
+  border-color: var(--mb-acc-busy);
+  color: var(--mb-acc-on);
+}
+
 @keyframes more-buttons-spin {
   to { transform: rotate(360deg); }
 }
@@ -1660,6 +1677,17 @@ details[open] .more-buttons-advanced-toggle::before {
   --cb-hue: #f59e0b;
   border: 2px solid var(--cb-hue);
   background: color-mix(in srgb, var(--cb-hue) 14%, transparent);
+  transition: opacity 140ms ease-out;
+}
+
+/* Padding ring — a faint secondary border tracing where the captured padding
+ * will land, sitting `padding` px outside the selector box. Same capture-mode
+ * hue, dashed + low-opacity so it reads as a soft outer boundary rather than a
+ * second hard edge. No fill so the highlighted element stays unobscured. */
+.mb-capture-padding-ring {
+  --cb-hue: #f59e0b;
+  border: 1px dashed color-mix(in srgb, var(--cb-hue) 55%, transparent);
+  background: transparent;
   transition: opacity 140ms ease-out;
 }
 

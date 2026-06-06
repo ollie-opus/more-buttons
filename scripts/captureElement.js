@@ -16,7 +16,7 @@
 
 // ── Hover + Shift-arm selector ────────────────────────────────────────────────
 
-export function installSelector({ onPick, onArmedChange }) {
+export function installSelector({ onPick, onArmedChange, getPadding }) {
   const overlay = document.createElement('div');
   overlay.className = 'mb-capture-selector';
   Object.assign(overlay.style, {
@@ -26,7 +26,19 @@ export function installSelector({ onPick, onArmedChange }) {
     zIndex: '2147483647', boxSizing: 'border-box',
     display: 'none',
   });
+  // Faint secondary border tracing where the captured padding will land —
+  // sits `padding` CSS px outside the element rect, mirroring the expansion
+  // expandWithBackground() applies to the final screenshot. Same hue token,
+  // styling from CSS (.mb-capture-padding-ring).
+  const ring = document.createElement('div');
+  ring.className = 'mb-capture-padding-ring';
+  Object.assign(ring.style, {
+    position: 'fixed', pointerEvents: 'none',
+    zIndex: '2147483646', boxSizing: 'border-box',
+    display: 'none',
+  });
   // Mount on <html> so Turbo's <body> swap doesn't sweep it.
+  document.documentElement.appendChild(ring);
   document.documentElement.appendChild(overlay);
 
   let armed = false;
@@ -36,6 +48,7 @@ export function installSelector({ onPick, onArmedChange }) {
     // Highlight box only exists while Shift is held — otherwise the page is
     // unobstructed and the user can interact with it normally.
     overlay.style.display = armed ? 'block' : 'none';
+    if (!armed) ring.style.display = 'none';
     onArmedChange?.(armed);
   }
 
@@ -46,6 +59,17 @@ export function installSelector({ onPick, onArmedChange }) {
       top: r.top + 'px', left: r.left + 'px',
       width: r.width + 'px', height: r.height + 'px',
     });
+    // Trace the padding region only when a positive padding is configured.
+    const pad = Math.max(0, getPadding?.() || 0);
+    if (pad > 0) {
+      Object.assign(ring.style, {
+        top: (r.top - pad) + 'px', left: (r.left - pad) + 'px',
+        width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px',
+        display: 'block',
+      });
+    } else {
+      ring.style.display = 'none';
+    }
   }
 
   function onMove(e) {
@@ -100,6 +124,7 @@ export function installSelector({ onPick, onArmedChange }) {
     document.removeEventListener('keyup', onKeyUp, true);
     window.removeEventListener('blur', onBlur);
     overlay.remove();
+    ring.remove();
   };
 }
 
@@ -120,7 +145,7 @@ function sampleBackgroundColor(el) {
   ];
 
   // Hide our overlays so they don't shadow elementFromPoint.
-  const overlays = document.querySelectorAll('.mb-capture-selector, .mb-capture-bar, .mb-capture-tab, .mb-capture-resize');
+  const overlays = document.querySelectorAll('.mb-capture-selector, .mb-capture-padding-ring, .mb-capture-bar, .mb-capture-tab, .mb-capture-resize');
   const prevDisplay = [];
   overlays.forEach((o, i) => { prevDisplay[i] = o.style.display; o.style.display = 'none'; });
   const colors = points.map(([x, y]) => {
@@ -305,7 +330,7 @@ export async function screenshotElement(el, { theme, customRect = null, settings
   // the inset edge glow, bar, tab, and selector box don't bleed into the PNG
   // for elements near the viewport edge.
   const hiddenOverlays = document.querySelectorAll(
-    '.mb-capture-glow, .mb-capture-bar, .mb-capture-tab, .mb-capture-selector, .mb-capture-resize'
+    '.mb-capture-glow, .mb-capture-bar, .mb-capture-tab, .mb-capture-selector, .mb-capture-padding-ring, .mb-capture-resize'
   );
   const prevOverlayDisplay = [];
   hiddenOverlays.forEach((o, i) => {

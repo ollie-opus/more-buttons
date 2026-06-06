@@ -1,5 +1,6 @@
 import { createForm, navigateBack } from './form.js';
 import { pushCaptures } from './captures.js';
+import { githubPathExists } from './github.js';
 import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
 
@@ -33,7 +34,30 @@ export async function openCaptureNew({ capture } = {}) {
     statusEl.textContent = msg;
   };
 
+  // A new capture writes to docs/assets/<lightFilename>, derived purely from
+  // the element + page path + theme — padding/resize are NOT in the name. So
+  // recapturing the same element resolves to the same path. The save flow is
+  // create-only (it never overwrites an existing PNG or its metadata), which
+  // would make a save silently no-op. Detect that up front and block the save
+  // with an in-button warning instead of letting it look like it succeeded.
+  const lightPath = `docs/assets/${capture.lightFilename}`;
+  let alreadyExists = false;
+
+  function markAlreadyExists() {
+    alreadyExists = true;
+    if (!saveBtn) return;
+    saveBtn.disabled = true;
+    saveBtn.classList.remove('success');
+    saveBtn.classList.add('warn');
+    saveBtn.innerHTML =
+      '<span class="more-buttons-icon">warning</span>Capture already exists';
+    saveBtn.title =
+      'A capture for this element already exists in the library. ' +
+      'Delete it from the library first to recapture.';
+  }
+
   async function save() {
+    if (alreadyExists) return;
     if (saveBtn) saveBtn.disabled = true;
     if (cancelBtn) cancelBtn.disabled = true;
     try {
@@ -51,6 +75,18 @@ export async function openCaptureNew({ capture } = {}) {
     if (e.target.closest('[data-capture-new-save]')) save();
     else if (e.target.closest('[data-capture-new-cancel]')) navigateBack();
   });
+
+  // Probe for an existing capture while the preview renders. Disable save until
+  // we know, so a quick click can't push before the check resolves. A failed
+  // probe (offline/auth) leaves save enabled — pushCaptures stays create-only,
+  // so the worst case is a no-op, never a clobber.
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    if (await githubPathExists(lightPath)) markAlreadyExists();
+    else if (saveBtn) saveBtn.disabled = false;
+  } catch {
+    if (saveBtn) saveBtn.disabled = false;
+  }
 }
 
 registerFormAction('openCaptureNew', openCaptureNew);

@@ -152,7 +152,22 @@ async function _githubReplaceImage(imagePath, base64Data, onProgress) {
   }
 }
 
+// Lightweight existence probe — true if the path is present in the repo, false
+// on 404. Used to warn before a create flow that would otherwise silently skip
+// an existing file. Read-only, so no need to serialise through _opQueue.
+export async function githubPathExists(imagePath) {
+  const auth = await authHeader();
+  const res = await fetch(contentsApiUrl(imagePath), {
+    headers: { 'Authorization': auth },
+    cache: 'no-store',
+  });
+  if (res.ok) return true;
+  if (res.status === 404) return false;
+  throw new Error(`GitHub API error: ${res.status}`);
+}
+
 // base64Data — raw Base64 string (no data-URI prefix; strip with dataUrl.split(',')[1])
+// Returns true if the file was created, false if it already existed (skipped).
 export async function githubPushImageIfNotExists(imagePath, base64Data, onProgress) {
   const auth = await authHeader();
 
@@ -160,7 +175,7 @@ export async function githubPushImageIfNotExists(imagePath, base64Data, onProgre
     headers: { 'Authorization': auth },
     cache: 'no-store',
   });
-  if (checkRes.ok) return; // already exists — skip
+  if (checkRes.ok) return false; // already exists — skip
   if (checkRes.status !== 404) throw new Error(`GitHub API error: ${checkRes.status}`);
 
   onProgress?.(`Uploading ${imagePath.split('/').pop()}...`);
@@ -176,4 +191,5 @@ export async function githubPushImageIfNotExists(imagePath, base64Data, onProgre
     const err = await putRes.json();
     throw new Error(err.message || `GitHub API error: ${putRes.status}`);
   }
+  return true;
 }
