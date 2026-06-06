@@ -207,6 +207,68 @@ export function resetDirtyBaseline(formEl) {
   }
 }
 
+// Wire a `[data-save-state]` button to the form's dirty state. Clean/saved →
+// disabled green "saved" pill; dirty or create-mode → clickable blue "unsaved"
+// button. The form-actions bar is relocated under the overlay content, so the
+// button is a sibling of the form (formEl.parentElement), not a descendant.
+// Exposes formEl._refreshSaveState() so save handlers can re-sync after a commit.
+export function bindSaveStateButton(formEl) {
+  if (!formEl) return;
+  const btn = formEl.parentElement?.querySelector('[data-save-state]')
+    || formEl.querySelector('[data-save-state]');
+  if (!btn) return;
+  const savedLabel = btn.dataset.savedLabel || 'Draft saved';
+  const unsavedLabel = btn.dataset.unsavedLabel || 'Save to draft';
+
+  const render = () => {
+    // Create-mode forms have no saved baseline yet → always "unsaved".
+    const unsaved = formEl.dataset.mode === 'create' || isFormDirty(formEl);
+    btn.classList.remove('busy');
+    btn.classList.toggle('info', unsaved);
+    btn.classList.toggle('success', !unsaved);
+    btn.disabled = !unsaved;
+    const icon = unsaved ? 'cloud_upload' : 'cloud_done';
+    const label = unsaved ? unsavedLabel : savedLabel;
+    btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>${label}`;
+  };
+
+  formEl._refreshSaveState = render;
+  formEl.addEventListener('input', render);
+  formEl.addEventListener('change', render);
+  render();
+}
+
+// Put a save/publish button into the amber "working" state while a GitHub
+// commit runs: disabled, amber, spinning sync icon, and a progress message.
+// The icon is built once (so the spin doesn't restart on each message tick) and
+// only the message span updates on subsequent calls.
+export function setButtonBusy(btn, message) {
+  if (!btn) return;
+  btn.disabled = true;
+  if (!btn.classList.contains('busy')) {
+    btn.classList.remove('info', 'success', 'publish', 'danger', 'secondary');
+    btn.classList.add('busy');
+    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">sync</span><span data-busy-msg></span>';
+  }
+  const msgEl = btn.querySelector('[data-busy-msg]');
+  if (msgEl) msgEl.textContent = message;
+  else btn.textContent = message;
+}
+
+// Capture/restore a button's look so a non-dynamic (publish) button can be put
+// back after a busy state on error. Dynamic save buttons use _refreshSaveState
+// instead.
+export function snapshotButton(btn) {
+  return btn ? { html: btn.innerHTML, className: btn.className } : null;
+}
+
+export function restoreButton(btn, snap) {
+  if (!btn || !snap) return;
+  btn.className = snap.className;
+  btn.innerHTML = snap.html;
+  btn.disabled = false;
+}
+
 function activeGuardedForm() {
   // The currently-mounted overlay form, if it opted into the dirty guard.
   const el = document.querySelector('.more-buttons-overlay form[data-dirty-guard]');
@@ -1009,6 +1071,8 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     if (formEl.hasAttribute('data-dirty-guard')) {
       formEl._initialSnapshot = readFormValues(formEl);
     }
+    // Wire the informational save-state button (no-op for forms without one).
+    bindSaveStateButton(formEl);
   });
 
   // Return handles in case caller wants them
