@@ -8,6 +8,8 @@
 
 **Tech Stack:** Vanilla ES modules (Chrome MV3 extension, no build step). Tests are plain `.mjs` files using `node:assert/strict`, run with `node tests/<file>.test.mjs`. GitHub Contents API for storage. Pure logic is unit-tested; chrome/DOM/network glue is verified manually by loading the extension.
 
+**Execution mode:** Subagent-driven (superpowers:subagent-driven-development) — a fresh subagent implements each task in order, with a two-stage review between tasks. Tasks 1, 2, 3, 4, 6, 7, 8, 9 are fully automatable (code + `node` checks). Tasks 5 and 10 contain manual Chrome-load verification steps that must be handed back to the human operator rather than run by a subagent.
+
 ---
 
 ## File Structure
