@@ -631,11 +631,11 @@ button.more-buttons-crumb:hover {
   background: var(--mb-btn-success-hover);
 }
 
-/* The saved/clean state is intentionally disabled but must stay solid green,
-   not the generic faded `:disabled` look. Higher specificity than the generic
-   rule below, so it wins regardless of source order. */
+/* The saved/clean state is disabled but keeps its green colour, only slightly
+   dimmed so it still reads as non-interactive. Higher specificity than the
+   generic rule below, so it wins regardless of source order. */
 .more-buttons-button.success:disabled {
-  opacity: 1;
+  opacity: 0.7;
   cursor: default;
   background: var(--mb-btn-success-bg);
   color: var(--mb-btn-success-fg);
@@ -672,7 +672,7 @@ button.more-buttons-crumb:hover {
 }
 
 .more-buttons-button.busy:disabled {
-  opacity: 1;
+  opacity: 0.7;
   cursor: progress;
   background: var(--mb-btn-busy-bg);
   color: var(--mb-btn-busy-fg);
@@ -690,6 +690,10 @@ button.more-buttons-crumb:hover {
 .more-buttons-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  /* No hover-darken or active press-down feedback on disabled buttons. The
+     `disabled` attribute already blocks the click; this removes the visual
+     cues (so a disabled save/busy button reads as truly non-interactive). */
+  pointer-events: none;
 }
 
 /* ── Info / list boxes ────────────────────────────────────────────────────── */
