@@ -1,4 +1,4 @@
-<form data-nav id="edit-draft-system-update-form" data-storage-key="moreButtonsEditDraftSystemUpdate" data-width="90vw" data-height="90vh">
+<form data-nav data-dirty-guard id="edit-draft-system-update-form" data-storage-key="moreButtonsEditDraftSystemUpdate" data-width="90vw" data-height="90vh">
   <h2>Edit Draft</h2>
 
   <div class="more-buttons-form-group">
@@ -25,10 +25,10 @@
     <textarea name="description" rows="4"></textarea>
   </div>
 
-  <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Captures</label>
-    <div class="more-buttons-captures-field">
-      <div id="edit-update-captures" class="more-buttons-captures-list" data-captures-container></div>
+  <div class="more-buttons-form-group" data-components-row>
+    <label class="more-buttons-label">Components</label>
+    <div>
+      <div data-update-components></div>
     </div>
   </div>
 

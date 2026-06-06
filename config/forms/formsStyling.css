@@ -758,8 +758,166 @@ button.more-buttons-crumb:hover {
 /* Inside admonition lists, the insertion zone supplies all vertical spacing —
    drop the card's own margin to avoid a double gap. */
 [data-section-admonitions] .mb-incident-card,
-[data-sub-admonitions] .mb-incident-card {
+[data-sub-admonitions] .mb-incident-card,
+[data-section-components] .mb-incident-card,
+[data-admonition-components] .mb-incident-card {
   margin-bottom: 0;
+}
+
+/* ── Unified Components list ──────────────────────────────────────────────── */
+
+/* "+ Insert Component" trigger between cards — hover-reveal pill on a dashed line. */
+.mb-insert-component {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 36px;
+  position: relative;
+}
+.mb-insert-component::before {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px;
+  top: 50%;
+  border-top: 1px dashed color-mix(in srgb, var(--mb-text-muted) 30%, transparent);
+  transition: border-color 0.2s ease;
+}
+.mb-insert-component__btn {
+  appearance: none;
+  position: relative;
+  opacity: 0;
+  transform: scale(0.96);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--mb-text-muted);
+  background: var(--mb-bg);
+  border: 1px dashed color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
+  border-radius: 999px;
+  padding: 3px 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+.mb-insert-component:hover::before,
+.mb-insert-component:focus-within::before {
+  border-top-color: color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
+}
+.mb-insert-component:hover .mb-insert-component__btn,
+.mb-insert-component:focus-within .mb-insert-component__btn {
+  opacity: 1;
+  transform: scale(1);
+  color: var(--mb-text);
+  border-color: color-mix(in srgb, var(--mb-text-muted) 80%, transparent);
+}
+.mb-insert-component__btn:hover,
+.mb-insert-component__btn:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--mb-text-muted) 6%, var(--mb-bg));
+}
+
+/* Empty-state: a single, always-visible prominent insert button. */
+.mb-insert-component__empty {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px;
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--mb-text-muted) 40%, transparent);
+  border-radius: 8px;
+  color: var(--mb-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.mb-insert-component__empty:hover,
+.mb-insert-component__empty:focus-visible {
+  outline: none;
+  color: var(--mb-text);
+  border-color: color-mix(in srgb, var(--mb-text-muted) 75%, transparent);
+  background: color-mix(in srgb, var(--mb-text-muted) 6%, transparent);
+}
+
+/* Capture component card thumbnail. */
+.mb-component-card__thumb-row { display: flex; }
+.mb-component-card__thumb {
+  max-height: 64px;
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--mb-text-muted) 20%, transparent);
+}
+
+/* Popup insert menu (Admonition / Capture ▸ submenu). */
+.mb-popup-menu {
+  position: fixed;
+  z-index: 2147483600;
+  min-width: 210px;
+  background: var(--mb-bg);
+  border: 1px solid color-mix(in srgb, var(--mb-text-muted) 25%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  font-size: 0.8125rem;
+}
+.mb-popup-menu__item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--mb-text);
+  font-size: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+}
+.mb-popup-menu__item:hover,
+.mb-popup-menu__item:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--mb-text-muted) 12%, transparent);
+}
+.mb-popup-menu__chev { color: var(--mb-text-muted); font-size: 1rem; line-height: 1; }
+.mb-popup-submenu {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  margin-left: 6px;
+  min-width: 210px;
+  background: var(--mb-bg);
+  border: 1px solid color-mix(in srgb, var(--mb-text-muted) 25%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: none;
+  flex-direction: column;
+  z-index: 1;
+}
+/* Transparent bridge spanning the margin gap between the parent item and the
+   submenu. As a descendant of the --has-sub item it keeps the parent :hover
+   alive while the cursor crosses the gap, so the submenu doesn't flicker shut. */
+.mb-popup-submenu::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  width: 8px;
+}
+.mb-popup-menu__item--has-sub:hover .mb-popup-submenu,
+.mb-popup-menu__item--has-sub:focus-within .mb-popup-submenu,
+.mb-popup-menu__item--has-sub.--sub-open .mb-popup-submenu {
+  display: flex;
 }
 
 .mb-adm-insert {

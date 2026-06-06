@@ -28,6 +28,7 @@ import { githubPushImageIfNotExists } from './github.js';
 import { assetCdnUrl } from './repoClient.js';
 import { escapeHtml } from './cardRenderer.js';
 import { generateUUID } from './admonitions.js';
+import { getComponentContainer } from './componentContainers.js';
 
 // ── Module-level capture state ────────────────────────────────────────────────
 export const captures = [];
@@ -229,6 +230,75 @@ export async function pushCaptures(list = [], onProgress) {
   }
 }
 
+// ── Components: capture acquisition that commits immediately ───────────────────
+//
+// In the unified "Components" list, a capture lives in the markdown like an
+// admonition — adding it commits straight to the container's draft. These flows
+// acquire a capture (screenshot or library), upload any new image bytes, then
+// ask the container (via the componentContainers registry) to splice a capture
+// component into its ordered list at `insertAt`. The open editor then re-renders.
+
+async function commitCapturesIntoContainer(container, insertAt, capList) {
+  const handler = getComponentContainer(container.kind);
+  if (!handler) return;
+  const resolved = resolveCaptures(capList);
+  await pushCaptures(resolved);
+  const caps = resolved.map(c => ({
+    lightFilename: c.lightFilename,
+    darkFilename: c.darkFilename,
+    dimMode: c.dimMode ?? 'height',
+    dimValue: c.dimMode === 'none' ? null : (c.dimValue ?? 50),
+  }));
+  await handler.mutate(container, (components) => {
+    const idx = Math.max(0, Math.min(insertAt, components.length));
+    const next = components.slice();
+    next.splice(idx, 0, ...caps.map(cap => ({ kind: 'capture', cap })));
+    return next;
+  });
+}
+
+// "Create a new capture" → screenshot → upload → splice into the container at idx.
+export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }) {
+  const formStackSnapshot = snapshotFormStack();
+  overlay.style.display = 'none';
+  const prevBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = '';
+
+  enterCaptureMode({
+    saveTarget: 'session',
+    formStackSnapshot,
+    returnTo: {
+      onComplete: async (sessionBuffer) => {
+        if (formEl.isConnected) {
+          overlay.style.display = '';
+          document.body.style.overflow = prevBodyOverflow;
+          if (sessionBuffer.length) await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+          return;
+        }
+        // Cold path: the form was torn down by a hard nav. Replay it, then commit.
+        if (!formStackSnapshot?.length || !sessionBuffer.length) return;
+        const ok = await replayFormStack(formStackSnapshot);
+        if (ok) await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+      },
+      // ✕ / Esc: discard everything captured this session and just re-show the
+      // form. Nothing is committed to the draft (immediate-save means a commit
+      // would otherwise be irreversible from here).
+      onCancel: () => {
+        if (formEl.isConnected) {
+          overlay.style.display = '';
+          document.body.style.overflow = prevBodyOverflow;
+        }
+      },
+    },
+  });
+}
+
+// "Add from library" → pick a library capture → splice into the container at idx.
+export function runComponentLibraryInsert({ container, insertAt }) {
+  componentLibraryIntent = { snapshot: snapshotFormStack(), container, insertAt };
+  getFormAction('openCaptureLibrary')?.({ mode: 'insert' });
+}
+
 function persistFormToStorage(formEl) {
   const storageKey = formEl?.dataset?.storageKey;
   if (!storageKey) return;
@@ -341,6 +411,11 @@ registerFormAction('startCapture', ({ formEl, overlay }) => {
 // when the flow starts and consumed (or overwritten) when it completes.
 let libraryInsertIntent = null;
 
+// componentLibraryIntent is the Design-B equivalent for the unified Components
+// list: instead of splicing into the module captures[] array, it commits the
+// chosen capture straight into a container's markdown (see commitCapturesIntoContainer).
+let componentLibraryIntent = null;
+
 function runLibraryInsertFlow({ formEl, insertAtIndex, containerId }) {
   const resolvedContainerId = resolveContainerId(formEl, containerId);
   // Save in-progress edits so they hydrate back when the origin form replays.
@@ -361,6 +436,17 @@ function runLibraryInsertFlow({ formEl, insertAtIndex, containerId }) {
 // the origin form, restores the session capture list, then splices the chosen
 // capture at the remembered index.
 registerFormAction('completeLibraryInsert', async ({ capture } = {}) => {
+  // Design-B (Components) path: commit the chosen capture into the container.
+  if (componentLibraryIntent) {
+    const intent = componentLibraryIntent;
+    componentLibraryIntent = null;
+    if (!capture || !intent.snapshot?.length) return;
+    const ok = await replayFormStack(intent.snapshot);
+    if (!ok) return;
+    await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
+    return;
+  }
+
   const intent = libraryInsertIntent;
   libraryInsertIntent = null;
   if (!intent || !capture) return;

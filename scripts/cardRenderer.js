@@ -25,3 +25,22 @@ export function renderCard({ colour, title, badge, description, meta, btnAttr, b
     </div>
   </div>`;
 }
+
+// A capture rendered as a card matching the admonition cards: neutral/grey,
+// "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
+// unified Components list. `thumbSrc` is the light-mode image (CDN url for an
+// existing capture, or a data: url for a freshly-captured pending one).
+// `btnAttr` wires the Edit button (e.g. 'data-edit-component="2"').
+export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit' }) {
+  return `
+  <div class="mb-incident-card --grey mb-component-card--capture">
+    <div class="mb-incident-card__head">
+      <strong class="mb-incident-card__title">Capture</strong>
+      <span class="mb-incident-card__badge">Capture</span>
+    </div>
+    ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><img class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" alt="" loading="lazy" /></div>` : ''}
+    <div class="mb-incident-card__foot --end">
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+    </div>
+  </div>`;
+}

@@ -44,6 +44,7 @@ const FORM_LABELS = {
   guideEntry: 'Guide',
   editGuideSection: 'Edit Section',
   editGuideAdmonition: 'Edit Admonition',
+  editCaptureComponent: 'Edit Capture',
   reportIncident: 'Report Incident',
   updateIncident: 'Update Incident',
   logSystemUpdate: 'Log System Update',

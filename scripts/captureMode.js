@@ -12,8 +12,11 @@
  *   - Form "Add a capture" button (startCapture action) →
  *       enterCaptureMode({ saveTarget: 'session', returnTo: { ... } })
  *
- * Exits (all equivalent — they all run returnTo.onComplete(buffer) if set):
- *   - Esc, ✕ close button, Done button, second invocation of enterCaptureMode.
+ * Exits:
+ *   - Done button (or capture limit reached) → returnTo.onComplete(buffer): commit.
+ *   - ✕ close button / Esc → returnTo.onCancel() if provided (discard), else
+ *     falls back to onComplete(buffer) for callers that don't distinguish.
+ *   - A second invocation of enterCaptureMode also exits (commit semantics).
  *
  * Persistence:
  *   - Settings (resize mode, padding, etc.) → chrome.storage.local (long-lived).
@@ -381,8 +384,10 @@ export async function enterCaptureMode(opts = {}) {
     });
   });
 
-  $('[data-bar-done]').addEventListener('click', () => exitCaptureMode());
-  $('[data-bar-close]').addEventListener('click', () => exitCaptureMode());
+  // Done = commit (onComplete); ✕ close = cancel (onCancel, if the caller
+  // provided one — otherwise it falls back to onComplete for back-compat).
+  $('[data-bar-done]').addEventListener('click', () => exitCaptureMode(false));
+  $('[data-bar-close]').addEventListener('click', () => exitCaptureMode(true));
 
   // ── Esc handler (controller-level) ────────────────────────────────────────
   // Resize mode owns Esc while its overlay is mounted — let that handler
@@ -391,7 +396,7 @@ export async function enterCaptureMode(opts = {}) {
     if (e.key !== 'Escape') return;
     if (document.querySelector('.mb-capture-resize')) return;
     e.stopPropagation();
-    exitCaptureMode();
+    exitCaptureMode(true); // Esc = cancel, same as the ✕ close button.
   }
   document.addEventListener('keydown', onKey, true);
 
@@ -513,7 +518,9 @@ export async function enterCaptureMode(opts = {}) {
   });
 
   // ── Exit ──────────────────────────────────────────────────────────────────
-  function exitCaptureMode() {
+  // `cancelled` is true when the user dismissed via ✕ / Esc (discard intent)
+  // and false on Done / limit-reached (commit intent).
+  function exitCaptureMode(cancelled = false) {
     if (active !== ctx) return;
     active = null;
 
@@ -530,6 +537,18 @@ export async function enterCaptureMode(opts = {}) {
     setTimeout(() => { bar.remove(); tab.remove(); glow.remove(); }, 220);
 
     clearSession();
+
+    // Cancelled (✕ / Esc) with a cancel handler: re-show the form without
+    // committing the buffered captures. Callers that don't supply onCancel keep
+    // the legacy behaviour (cancel falls through to onComplete below).
+    if (cancelled && opts.returnTo?.onCancel) {
+      try {
+        opts.returnTo.onCancel();
+      } catch (e) {
+        console.error('[captureMode] returnTo.onCancel threw:', e);
+      }
+      return;
+    }
 
     // Hot-ish exit: returnTo closure is still alive (entered capture mode in
     // this JS context, no hard nav since). The closure handles re-showing the
@@ -548,7 +567,7 @@ export async function enterCaptureMode(opts = {}) {
     // JS context, so capture mode was rehydrated from sessionStorage and has
     // no live returnTo. Replay the persisted form stack to bring the
     // originating form back, then push the buffered captures into it.
-    if (ctx.wasFormMode && ctx.formStackSnapshot?.length) {
+    if (!cancelled && ctx.wasFormMode && ctx.formStackSnapshot?.length) {
       const captures = sessionBuffer.slice();
       Promise.all([
         import(chrome.runtime.getURL('scripts/form.js')),

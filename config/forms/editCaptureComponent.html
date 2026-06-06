@@ -1,0 +1,23 @@
+<form data-nav data-dirty-guard id="edit-capture-component-form" data-storage-key="moreButtonsEditCaptureComponent" data-width="90vw" data-height="90vh">
+  <h2>Edit capture</h2>
+
+  <div data-capture-component-preview></div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Dimension</label>
+    <div class="more-buttons-capture-dim" data-capture-component-dim>
+      <select class="more-buttons-capture-dim-mode" name="dimMode">
+        <option value="height">Height</option>
+        <option value="width">Width</option>
+        <option value="none">Auto</option>
+      </select>
+      <input class="more-buttons-capture-dim-value" type="number" name="dimValue" value="50" min="1" />
+      <span class="more-buttons-capture-dim-unit">px</span>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="submitEditCaptureComponent">Save</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteCaptureComponent">Delete</button>
+  </div>
+</form>

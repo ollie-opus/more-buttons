@@ -1,14 +1,20 @@
-import { registerFormAction } from './formActions.js';
+import { registerFormAction, getFormAction } from './formActions.js';
 import { githubFetchAndPushFile } from './github.js';
 import { readRepoText } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
-import { createForm, navigateBack, isFormReplay } from './form.js';
+import { createForm, navigateBack, isFormReplay, replaceCurrentOpener } from './form.js';
 import { renderCard } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
 import {
-  captures, resetCaptureState, setExistingCaptures,
-  parseExistingCaptures, updateCapturesList, resolveCaptures, pushCaptures,
+  captures, resetCaptureState,
+  updateCapturesList, resolveCaptures, pushCaptures,
 } from './captures.js';
+import { registerComponentContainer } from './componentContainers.js';
+import { parseComponents, buildComponentBody } from './components.js';
+import {
+  makeContainerHandler, GUIDE_ADMONITION_TYPES_RE,
+  renderComponents, onComponentEditorClick, setOpenComponentEditor,
+} from './guides.js';
 
 const DRAFT_ENTITY = 'systemUpdateDrafts';
 
@@ -90,6 +96,62 @@ export function buildUpdateBlock(update, captures = []) {
     : injectAdmonitionUUID(bodyContent, uuid);
 
   return buildAdmonition('???', update.type, fullTitleString, bodyWithUUID);
+}
+
+// ── Components container (an update block's body holds an ordered list) ────────
+//
+// In the unified model an update's body is a Components list (captures +
+// guide-style admonitions), exactly like a guide section. These read/write fns
+// operate on the markdown of the update's file (UPDATES_FILE or DRAFTS_FILE) —
+// the file itself is carried on the container and applied by makeContainerHandler.
+// Locating/parsing is identical for published and draft updates (parseUpdateBlocks
+// === parseDraftBlocks), so both kinds share one handler, differing only in file.
+
+function readUpdateComponents(md, uuid) {
+  const block = parseUpdateBlocks(md).find(u => u.uuid === uuid);
+  return parseComponents(block ? block.body : '', GUIDE_ADMONITION_TYPES_RE);
+}
+
+function writeUpdateBody(md, uuid, description, components) {
+  const block = parseUpdateBlocks(md).find(u => u.uuid === uuid);
+  if (!block) return md;
+  // parseUpdateBlocks yields the *display* date ("5th June 2026"); buildUpdateBlock
+  // re-formats from ISO, so convert back before round-tripping.
+  const di = parseDateStr(block.date);
+  const isoDate = di
+    ? `${di.year}-${String(di.month).padStart(2, '0')}-${String(di.day).padStart(2, '0')}`
+    : block.date;
+  // buildComponentBody embeds the uuid span; buildUpdateBlock then sees it and
+  // skips re-injection. captures=[] because captures now live inside the body.
+  const body = buildComponentBody(uuid, description, components);
+  return replaceUpdateInMarkdown(
+    md, uuid,
+    { type: block.type, title: block.title, date: isoDate, uuid, description: body },
+    [],
+  );
+}
+
+registerComponentContainer('system-update', makeContainerHandler(readUpdateComponents, writeUpdateBody));
+registerComponentContainer('system-draft',  makeContainerHandler(readUpdateComponents, writeUpdateBody));
+
+// Mounts the unified Components list onto an opened update edit form and wires
+// the shared click delegation (insert / edit-admonition / edit-capture).
+function mountUpdateComponentsEditor(formEl, { uuid, file, kind, components }) {
+  formEl.dataset.editUuid = uuid;
+  formEl.dataset.componentContainerKind = kind;
+  formEl.dataset.containerFile = file;
+  const listEl = formEl.querySelector('[data-update-components]');
+  renderComponents(listEl, components, false); // updates don't number steps
+  setOpenComponentEditor({ formEl, listEl, container: { kind, uuid, file } });
+  formEl.addEventListener('click', onComponentEditorClick);
+}
+
+// description (the form's leading text) + the container's current components →
+// the update block's rebuilt body. Components are re-read fresh so any committed
+// during this edit session are preserved.
+function rebuildUpdateBody(md, uuid, description) {
+  const { components } = readUpdateComponents(md, uuid);
+  return buildComponentBody(uuid, description, components);
 }
 
 // ── Month/Year heading management ─────────────────────────────────────────────
@@ -367,12 +429,17 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
     const description = formEl.querySelector('[name="description"]')?.value.trim() ?? '';
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
-    const update = { title, date, type, description };
+    const update = { title, date, type, description, uuid: generateUUID() };
     const resolved = resolveCaptures([...captures]);
     await publishNewUpdate(update, resolved, s => { btn.textContent = s; });
 
     resetCaptureState();
-    await navigateBack();
+    await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
+    // Continue into the edit form so components (admonitions + more captures)
+    // can be added to the just-published update. Repoint this slot at the list
+    // so Back returns there, not the blank log form.
+    replaceCurrentOpener(() => getFormAction('openSystemUpdatesEntry')());
+    await getFormAction('openEditSystemUpdate')({ uuid: update.uuid });
   } catch (e) {
     btn.textContent = originalText;
     btn.disabled = false;
@@ -382,13 +449,10 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
 
 registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   const markdown = await readRepoText(UPDATES_FILE);
-  const updates = parseUpdateBlocks(markdown);
-  const update = updates.find(u => u.uuid === uuid);
+  const update = parseUpdateBlocks(markdown).find(u => u.uuid === uuid);
   if (!update) { alert('Entry not found.'); return; }
 
-  resetCaptureState();
-  setExistingCaptures(parseExistingCaptures(update.body ?? ''));
-
+  const { description, components } = parseComponents(update.body ?? '', GUIDE_ADMONITION_TYPES_RE);
   const dateInfo = parseDateStr(update.date);
   const isoDate = dateInfo
     ? `${dateInfo.year}-${String(dateInfo.month).padStart(2,'0')}-${String(dateInfo.day).padStart(2,'0')}`
@@ -399,17 +463,13 @@ registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
       updateTitle: update.title,
       updateDate:  isoDate,
       updateType:  update.type,
-      description: (update.body ?? '')
-        .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
-        .replace(/\n?\s*!\[\]\(\.\.\/assets\/[^)]+#only-(light|dark)\)\{[^}]*\}/g, '')
-        .trim(),
+      description,
     }
   });
 
   const { formEl: editFormEl } = await createForm('editSystemUpdate');
   if (editFormEl) {
-    editFormEl.dataset.editUuid = update.uuid;
-    updateCapturesList(editFormEl);
+    mountUpdateComponentsEditor(editFormEl, { uuid, file: UPDATES_FILE, kind: 'system-update', components });
   }
 });
 
@@ -421,21 +481,15 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, content, cleanup }
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No update identity found');
 
-    const title = formEl.querySelector('[name="updateTitle"]')?.value.trim() ?? '';
-    const date = formEl.querySelector('[name="updateDate"]')?.value ?? '';
-    const type = formEl.querySelector('[name="updateType"]:checked')?.value;
-    const description = formEl.querySelector('[name="description"]')?.value.trim() ?? '';
+    const { title, date, type, description } = readUpdateFormFields(formEl);
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
-    const update = { title, date, type, description, uuid: _uuid };
-    const resolved = resolveCaptures([...captures]);
-    await pushCaptures(resolved, s => { btn.textContent = s; });
     await githubFetchAndPushFile(UPDATES_FILE, s => { btn.textContent = s; }, md => {
-      return replaceUpdateInMarkdown(md, _uuid, update, resolved);
+      const body = rebuildUpdateBody(md, _uuid, description);
+      return replaceUpdateInMarkdown(md, _uuid, { title, date, type, uuid: _uuid, description: body }, []);
     });
 
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    resetCaptureState();
     await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
@@ -484,12 +538,16 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup })
     const { title, date, type, description } = readUpdateFormFields(formEl);
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
-    const update = { title, date, type, description };
+    const update = { title, date, type, description, uuid: generateUUID() };
     const resolved = resolveCaptures([...captures]);
     await saveNewDraft(update, resolved, s => { btn.textContent = s; });
 
     resetCaptureState();
-    await navigateBack();
+    await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
+    // Continue into the draft edit form to add components. Repoint this slot at
+    // the list so Back returns there, not the blank log form.
+    replaceCurrentOpener(() => getFormAction('openSystemUpdatesEntry')());
+    await getFormAction('openEditDraftSystemUpdate')({ uuid: update.uuid });
   } catch (e) {
     btn.textContent = originalText;
     btn.disabled = false;
@@ -505,13 +563,10 @@ registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
     alert('Failed to load drafts.');
     return;
   }
-  const drafts = parseDraftBlocks(draftsMarkdown);
-  const update = drafts.find(u => u.uuid === uuid);
+  const update = parseDraftBlocks(draftsMarkdown).find(u => u.uuid === uuid);
   if (!update) { alert('Draft not found.'); return; }
 
-  resetCaptureState();
-  setExistingCaptures(parseExistingCaptures(update.body ?? ''));
-
+  const { description, components } = parseComponents(update.body ?? '', GUIDE_ADMONITION_TYPES_RE);
   const dateInfo = parseDateStr(update.date);
   const isoDate = dateInfo
     ? `${dateInfo.year}-${String(dateInfo.month).padStart(2,'0')}-${String(dateInfo.day).padStart(2,'0')}`
@@ -522,17 +577,13 @@ registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
       updateTitle: update.title,
       updateDate:  isoDate,
       updateType:  update.type,
-      description: (update.body ?? '')
-        .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
-        .replace(/\n?\s*!\[\]\(\.\.\/assets\/[^)]+#only-(light|dark)\)\{[^}]*\}/g, '')
-        .trim(),
+      description,
     }
   });
 
   const { formEl: editFormEl } = await createForm('editDraftSystemUpdate');
   if (editFormEl) {
-    editFormEl.dataset.editUuid = update.uuid;
-    updateCapturesList(editFormEl);
+    mountUpdateComponentsEditor(editFormEl, { uuid, file: DRAFTS_FILE, kind: 'system-draft', components });
   }
 });
 
@@ -547,12 +598,12 @@ registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content, cleanu
     const { title, date, type, description } = readUpdateFormFields(formEl);
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
-    const update = { title, date, type, description, uuid: _uuid };
-    const resolved = resolveCaptures([...captures]);
-    await saveExistingDraft(_uuid, update, resolved, s => { btn.textContent = s; });
+    await githubFetchAndPushFile(DRAFTS_FILE, s => { btn.textContent = s; }, md => {
+      const body = rebuildUpdateBody(md, _uuid, description);
+      return replaceDraftInMarkdown(md, _uuid, { title, date, type, description: body }, []);
+    });
 
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    resetCaptureState();
     await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
@@ -573,13 +624,14 @@ registerFormAction('publishDraftSystemUpdate', async ({ formEl, content, cleanup
     const { title, date, type, description } = readUpdateFormFields(formEl);
     if (!title || !date || !type) { alert('Please fill in all required fields.'); btn.disabled = false; return; }
 
-    const update = { title, date, type, description };
-    const resolved = resolveCaptures([...captures]);
-    await publishDraft(_uuid, update, resolved, s => { btn.textContent = s; });
+    // Preserve the draft body's committed components; only the header + leading
+    // description come from the form.
+    const draftMd = await readRepoText(DRAFTS_FILE);
+    const body = rebuildUpdateBody(draftMd, _uuid, description);
+    await publishDraft(_uuid, { title, date, type, description: body }, [], s => { btn.textContent = s; });
 
     suppress(DRAFT_ENTITY, _uuid);
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    resetCaptureState();
     await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');

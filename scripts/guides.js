@@ -14,7 +14,7 @@
 
 import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, confirmDiscardIfDirty, resetDirtyBaseline } from './form.js';
-import { readRepoText } from './repoClient.js';
+import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
 import {
@@ -29,16 +29,15 @@ import {
   deleteAdmonitionByUUID,
   splitTitleMeta, joinTitleMeta,
 } from './admonitions.js';
-import {
-  captures, resetCaptureState, setExistingCaptures,
-  parseExistingCaptures, updateCapturesList, resolveCaptures, pushCaptures,
-  stripCaptureLines, buildCaptureLines,
-} from './captures.js';
-import { escapeHtml } from './cardRenderer.js';
+import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
+import { escapeHtml, captureComponentCard } from './cardRenderer.js';
+import { parseComponents, buildComponentBody } from './components.js';
+import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
+import { openInsertMenu } from './insertMenu.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const GUIDE_ADMONITION_TYPES_RE =
+export const GUIDE_ADMONITION_TYPES_RE =
   /step|outline|note|abstract|info|tip|success|question|warning|failure|danger|bug|example|quote/;
 
 const ADMONITION_TYPE_LABELS = {
@@ -474,7 +473,6 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid }) => {
   const draftMarkdown = await readRepoText(currentGuide.draftPath);
   const parent = parentUuid ? locateSectionByUUID(draftMarkdown, parentUuid) : null;
 
-  resetCaptureState();
   if (!isFormReplay()) {
     await chrome.storage.local.set({
       moreButtonsEditGuideSection: {
@@ -490,20 +488,22 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid }) => {
   formEl.dataset.mode = 'create';
   formEl.dataset.parentUuid = parentUuid ?? '';
   formEl.dataset.editUuid = '';
+  formEl.dataset.componentContainerKind = 'guide-section';
+  formEl.dataset.containerFile = currentGuide.draftPath;
 
   // Heading text.
   const heading = formEl.querySelector('[data-guide-section-heading]');
   if (heading) heading.textContent = 'Add section';
 
-  // Hide Delete (lives in the moved form-actions) + admonitions list in create mode.
+  // Hide Delete (lives in the moved form-actions) + Components list in create mode
+  // (you can't add components to a section that doesn't exist yet).
   formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.setProperty('display', 'none');
-  formEl.querySelector('[data-admonitions-row]')?.style.setProperty('display', 'none');
+  formEl.querySelector('[data-components-row]')?.style.setProperty('display', 'none');
 
   // Populate parent dropdown.
   populateParentDropdown(formEl, draftMarkdown, null /* editing uuid */, parent ? parent.level + 1 : 2);
 
-  // Wire up admonition click delegation (still attach for future use — admonition list is hidden in create mode).
-  formEl.addEventListener('click', onSectionEditorClick);
+  formEl.addEventListener('click', onComponentEditorClick);
 });
 
 registerFormAction('openEditGuideSection', async ({ uuid }) => {
@@ -513,9 +513,8 @@ registerFormAction('openEditGuideSection', async ({ uuid }) => {
   if (!section) { alert('Section not found.'); return; }
 
   const { descriptionMarkdown } = readSectionDescription(draftMarkdown, uuid);
-  const { description, admonitions } = splitSectionBody(descriptionMarkdown);
+  const { description, components } = parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE);
 
-  resetCaptureState();
   const { title } = buildSectionTree(draftMarkdown);
   const parentDefault = section.level === 1
     ? ''
@@ -536,6 +535,8 @@ registerFormAction('openEditGuideSection', async ({ uuid }) => {
   formEl.dataset.mode = 'edit';
   formEl.dataset.editUuid = uuid;
   formEl.dataset.editLevel = String(section.level);
+  formEl.dataset.componentContainerKind = 'guide-section';
+  formEl.dataset.containerFile = currentGuide.draftPath;
 
   // Heading + visible controls based on level.
   const treeMatch = buildSectionTree(draftMarkdown).sections.find(s => s.uuid === uuid);
@@ -552,31 +553,13 @@ registerFormAction('openEditGuideSection', async ({ uuid }) => {
 
   populateParentDropdown(formEl, draftMarkdown, uuid, section.level);
 
-  // Render admonition cards.
-  renderSectionAdmonitionCards(formEl, admonitions, uuid);
+  // Render the unified component list (admonitions + captures, in order).
+  const listEl = formEl.querySelector('[data-section-components]');
+  renderComponents(listEl, components);
+  openComponentEditor = { formEl, listEl, container: { kind: 'guide-section', uuid, file: currentGuide.draftPath } };
 
-  formEl.addEventListener('click', onSectionEditorClick);
+  formEl.addEventListener('click', onComponentEditorClick);
 });
-
-function onSectionEditorClick(e) {
-  const formEl = e.currentTarget;
-  const editAdm = e.target.closest('[data-edit-guide-admonition]');
-  if (editAdm) {
-    if (!confirmDiscardIfDirty(formEl)) return;
-    getFormAction('openEditGuideAdmonition')?.({ uuid: editAdm.dataset.editGuideAdmonition });
-    return;
-  }
-  const insertZone = e.target.closest('[data-insert-at]');
-  if (insertZone) {
-    if (!confirmDiscardIfDirty(formEl)) return;
-    const insertAtIndex = parseInt(insertZone.dataset.insertAt, 10);
-    getFormAction('openCreateGuideAdmonition')?.({
-      parentSectionUuid: formEl.dataset.editUuid,
-      insertAtIndex,
-    });
-    return;
-  }
-}
 
 function populateParentDropdown(formEl, draftMarkdown, editingUuid, editingLevel) {
   const select = formEl.querySelector('[data-section-parent-select]');
@@ -607,98 +590,181 @@ function findH2ParentUuid(markdown, h3Uuid) {
   return '';
 }
 
-// ── Section body: split description from admonitions (and rebuild) ───────────
+// ── Component containers (sections & admonitions) ────────────────────────────
+//
+// A "container" is { kind: 'guide-section' | 'guide-admonition', uuid }. Its
+// body holds an ordered list of components (admonitions + captures). In the
+// immediate-save model, captures are committed to the markdown like admonitions,
+// so the body itself is the source of truth for component order.
 
-function splitSectionBody(descriptionMarkdown) {
-  // Within a section's description text, sub-admonitions live at indent 0
-  // (since section descriptions have no parent indent).
-  // We extract immediate-child admonitions, with tab-aware parsing so that
-  // admonitions inside `=== "Tab"` content blocks stay in the description.
-  const admonitions = parseAdmonitions(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE, { skipTabBlocks: true })
-    .filter(a => a.indent === '');
-
-  if (admonitions.length === 0) {
-    return { description: descriptionMarkdown.trim(), admonitions: [] };
-  }
-
-  // Build a "description-only" view by removing admonition blocks from the original.
-  const lines = descriptionMarkdown.split('\n');
-  const removedRanges = admonitions.map(a => ({ start: a.headerLine, end: a.endLine }));
-  removedRanges.sort((x, y) => y.start - x.start); // descending
-  let descLines = lines.slice();
-  for (const { start, end } of removedRanges) {
-    // Eat one trailing blank if present.
-    let extEnd = end;
-    if (descLines[extEnd] === '') extEnd++;
-    descLines.splice(start, extEnd - start);
-  }
-  // Trim trailing blanks from description.
-  while (descLines.length > 0 && descLines[descLines.length - 1] === '') descLines.pop();
-  // Also trim leading blanks after a span line, etc.
-  while (descLines.length > 0 && descLines[0] === '') descLines.shift();
-
-  // Also strip capture image references from description — captures are
-  // re-emitted into the immediate admonition body during rebuild, but a
-  // section's "Description" textarea doesn't show captures (captures live
-  // inside admonitions, not sections). For now, we leave any stray top-level
-  // captures in place (they'd be markdown the user can edit directly).
-  return { description: descLines.join('\n'), admonitions };
+function readSectionComponents(md, uuid) {
+  const { descriptionMarkdown } = readSectionDescription(md, uuid);
+  return parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE);
+}
+function writeSectionBody(md, uuid, description, components) {
+  const sec = locateSectionByUUID(md, uuid);
+  if (!sec) return md;
+  const body = buildComponentBody(null, description, components);
+  return replaceSectionByUUID(md, uuid, buildSection(sec.level, sec.title, uuid, body));
+}
+function readAdmonitionComponents(md, uuid) {
+  const adm = locateGuideAdmonition(md, uuid);
+  return parseComponents(adm ? adm.body : '', GUIDE_ADMONITION_TYPES_RE);
+}
+function writeAdmonitionBody(md, uuid, description, components) {
+  const adm = locateGuideAdmonition(md, uuid);
+  if (!adm) return md;
+  const body = buildComponentBody(uuid, description, components);
+  return replaceAdmonitionByUUID(md, uuid, buildAdmonition(adm.prefix, adm.type, adm.title, body));
 }
 
-function rebuildSectionBody(descriptionText, admonitionsBlocks) {
-  // descriptionText is raw markdown from the textarea; admonitionsBlocks is
-  // an array of full admonition block strings (no outer indent).
-  const parts = [];
-  const desc = descriptionText.trim();
-  if (desc.length) parts.push(desc);
-  for (const block of admonitionsBlocks) {
-    parts.push(block.trim());
-  }
-  return parts.join('\n\n');
+// Generic accessors dispatch through the componentContainers registry by kind,
+// so non-guide containers (e.g. system updates) plug in their own read/write
+// without guides.js importing them (which would cycle).
+function readContainerComponents(md, container) {
+  return getComponentContainer(container.kind).readComponents(md, container.uuid);
 }
+function writeContainerBody(md, container, description, components) {
+  return getComponentContainer(container.kind).writeBody(md, container.uuid, description, components);
+}
+
+// The currently-open component editor (section / admonition / system-update
+// form), tracked so an immediate-commit capture or admonition insert can
+// re-render its list in place. `container` carries { kind, uuid, file }.
+let openComponentEditor = null;
+export function setOpenComponentEditor(ed) { openComponentEditor = ed; }
+
+async function rerenderOpenComponentEditor() {
+  const ed = openComponentEditor;
+  if (!ed?.formEl?.isConnected) return;
+  const md = await readRepoText(ed.container.file);
+  const { components } = readContainerComponents(md, ed.container);
+  renderComponents(ed.listEl, components, ed.container.kind === 'guide-section');
+}
+
+// Builds a file-aware container handler for the registry. `mutate(container, …)`
+// reads the container's file, transforms its ordered component list, writes it
+// back as one commit, then re-renders the open editor. Exported so
+// systemUpdates.js can register its own kinds with the same machinery.
+export function makeContainerHandler(readComponents, writeBody) {
+  return {
+    readComponents,
+    writeBody,
+    mutate: async (container, transform, onProgress) => {
+      await githubFetchAndPushFile(container.file, onProgress || (() => {}), md => {
+        const { description, components } = readComponents(md, container.uuid);
+        const next = transform(components, description) || components;
+        return writeBody(md, container.uuid, description, next);
+      });
+      await rerenderOpenComponentEditor();
+    },
+  };
+}
+registerComponentContainer('guide-section', makeContainerHandler(readSectionComponents, writeSectionBody));
+registerComponentContainer('guide-admonition', makeContainerHandler(readAdmonitionComponents, writeAdmonitionBody));
 
 // Step admonitions are auto-numbered per section (the count resets each section)
 // on the published site. Returns the 1-indexed step number of `uuid` among the
 // step admonitions immediately within its owning section, or null when `uuid`
 // isn't a top-level section step (nested sub-admonition steps aren't numbered).
+// Capture components do not affect the count.
 function sectionStepNumber(markdown, uuid) {
   for (const sec of parseSections(markdown)) {
     const { descriptionMarkdown } = readSectionDescription(markdown, sec.uuid);
-    const { admonitions } = splitSectionBody(descriptionMarkdown);
+    const { components } = parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE);
     let n = 0;
-    for (const a of admonitions) {
-      if (a.type === 'step') n++;
-      if (a.uuid === uuid) return a.type === 'step' ? n : null;
+    for (const c of components) {
+      if (c.kind !== 'admonition') continue;
+      if (c.adm.type === 'step') n++;
+      if (c.adm.uuid === uuid) return c.adm.type === 'step' ? n : null;
     }
   }
   return null;
 }
 
-function insertionZone(idx, label = 'Insert New Admonition') {
-  return `<button type="button" class="mb-adm-insert" data-insert-at="${idx}" aria-label="${escapeHtml(label)}"><span class="mb-adm-insert__pill">+ ${escapeHtml(label)}</span></button>`;
+// ── Component list rendering ─────────────────────────────────────────────────
+
+function insertComponentTrigger(idx) {
+  return `<div class="mb-insert-component" data-insert-component-at="${idx}"><button type="button" class="mb-insert-component__btn">+ Insert Component</button></div>`;
 }
 
-function emptyAdmonitionCta(label) {
-  return `<button type="button" class="mb-adm-empty" data-insert-at="0"><span class="mb-adm-empty__icon">+</span> ${escapeHtml(label)}</button>`;
+function captureComponentCardFor(cap, index) {
+  return captureComponentCard({
+    thumbSrc: assetCdnUrl('docs/assets/' + cap.lightFilename),
+    btnAttr: `data-edit-component="${index}"`,
+  });
 }
 
-function renderSectionAdmonitionCards(formEl, admonitions, _sectionUuid) {
-  const container = formEl.querySelector('[data-section-admonitions]');
-  if (!container) return;
-  if (admonitions.length === 0) {
-    container.innerHTML = emptyAdmonitionCta('Add admonition');
+// Renders an ordered component list (admonitions + captures) interleaved with
+// "+ Insert Component" triggers. Step admonitions are numbered in document order
+// when `numberSteps` is set (section level only — sub-admonition steps aren't
+// numbered, matching the published site). Captures never affect numbering.
+export function renderComponents(listEl, components, numberSteps = true) {
+  if (!listEl) return;
+  if (components.length === 0) {
+    listEl.innerHTML = `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
-  // Number step admonitions in document order (per-section sequence).
-  let stepN = 0;
   const parts = [];
-  admonitions.forEach((a, i) => {
-    parts.push(insertionZone(i));
-    const n = a.type === 'step' ? ++stepN : null;
-    parts.push(admonitionCard(a, n));
+  let stepN = 0;
+  components.forEach((c, i) => {
+    parts.push(insertComponentTrigger(i));
+    if (c.kind === 'admonition') {
+      const n = (numberSteps && c.adm.type === 'step') ? ++stepN : null;
+      parts.push(admonitionCard(c.adm, n));
+    } else {
+      parts.push(captureComponentCardFor(c.cap, i));
+    }
   });
-  parts.push(insertionZone(admonitions.length));
-  container.innerHTML = parts.join('');
+  parts.push(insertComponentTrigger(components.length));
+  listEl.innerHTML = parts.join('');
+}
+
+// Shared click delegation for both the section and admonition editors. The
+// container kind is read off the form (set when the editor opens).
+export function onComponentEditorClick(e) {
+  const formEl = e.currentTarget;
+  const container = {
+    kind: formEl.dataset.componentContainerKind,
+    uuid: formEl.dataset.editUuid,
+    file: formEl.dataset.containerFile || currentGuide?.draftPath,
+  };
+
+  const editAdm = e.target.closest('[data-edit-guide-admonition]');
+  if (editAdm) {
+    if (!confirmDiscardIfDirty(formEl)) return;
+    getFormAction('openEditGuideAdmonition')?.({ uuid: editAdm.dataset.editGuideAdmonition, file: container.file });
+    return;
+  }
+
+  const editCap = e.target.closest('[data-edit-component]');
+  if (editCap) {
+    if (!confirmDiscardIfDirty(formEl)) return;
+    openCaptureComponentEditor(container, parseInt(editCap.dataset.editComponent, 10));
+    return;
+  }
+
+  const insert = e.target.closest('[data-insert-component-at]');
+  if (insert) {
+    if (!confirmDiscardIfDirty(formEl)) return;
+    const idx = parseInt(insert.dataset.insertComponentAt, 10);
+    const overlay = formEl.closest('.more-buttons-overlay');
+    const anchor = insert.querySelector('.mb-insert-component__btn') || insert;
+    openInsertMenu(anchor, idx, {
+      admonition: (i) => getFormAction('openCreateGuideAdmonition')?.({ container, insertAtIndex: i }),
+      captureNew: (i) => runComponentCaptureFlow({ container, insertAt: i, formEl, overlay }),
+      captureLibrary: (i) => runComponentLibraryInsert({ container, insertAt: i }),
+    });
+    return;
+  }
+}
+
+async function openCaptureComponentEditor(container, index) {
+  const md = await readRepoText(container.file);
+  const { components } = readContainerComponents(md, container);
+  const c = components[index];
+  if (!c || c.kind !== 'capture') return;
+  getFormAction('openEditCaptureComponent')?.({ container, index, cap: c.cap });
 }
 
 function admonitionCard(adm, stepNumber = null) {
@@ -774,8 +840,10 @@ registerFormAction('submitEditGuideSection', async ({ formEl, content, cleanup }
       // blank create form.
       replaceCurrentOpener(() => getFormAction('openEditGuideSection')({ uuid: newUuid }));
       formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.removeProperty('display');
-      formEl.querySelector('[data-admonitions-row]')?.style.removeProperty('display');
-      renderSectionAdmonitionCards(formEl, [], newUuid);
+      formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
+      const listEl = formEl.querySelector('[data-section-components]');
+      renderComponents(listEl, []);
+      openComponentEditor = { formEl, listEl, container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath } };
       // Refresh dropdown options against the latest draft.
       const refreshed = await readRepoText(currentGuide.draftPath);
       const newTreeMatch = buildSectionTree(refreshed).sections.find(s => s.uuid === newUuid);
@@ -793,14 +861,11 @@ registerFormAction('submitEditGuideSection', async ({ formEl, content, cleanup }
       return;
     }
 
-    // Edit mode: preserve existing admonitions; potentially move parent.
+    // Edit mode: preserve existing components (admonitions + captures); the
+    // description comes from the form. Optionally move parent.
     const draftMarkdown = await readRepoText(currentGuide.draftPath);
     const section = locateSectionByUUID(draftMarkdown, editUuid);
     if (!section) { alert('Section no longer exists.'); cleanup(); return; }
-    const { descriptionMarkdown } = readSectionDescription(draftMarkdown, editUuid);
-    const { admonitions } = splitSectionBody(descriptionMarkdown);
-    const admonitionBlocks = admonitions.map(a => buildAdmonition(a.prefix, a.type, a.title, a.body));
-    const newBody = rebuildSectionBody(description, admonitionBlocks);
 
     // Determine whether parent changed (only for non-Title sections — Title
     // is the root and cannot be moved).
@@ -813,7 +878,10 @@ registerFormAction('submitEditGuideSection', async ({ formEl, content, cleanup }
     const parentChanged = section.level !== 1 && (currentParentUuid ?? null) !== (requestedParent ?? null);
 
     await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => {
-      // Replace section's owned content (header + UUID span + body).
+      // Rebuild the section body: form description + existing components (re-read
+      // fresh so any components committed during this edit session are kept).
+      const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
+      const newBody = buildComponentBody(null, description, components);
       let updated = replaceSectionByUUID(md, editUuid, buildSection(section.level, title, editUuid, newBody));
       // If parent changed, re-locate and move (also re-levels heading prefix).
       if (parentChanged) {
@@ -876,77 +944,6 @@ function locateGuideAdmonition(markdown, uuid) {
   return null;
 }
 
-/**
- * Returns immediate child admonitions of a parent admonition body.
- */
-function parseSubAdmonitions(parentBody) {
-  return parseAdmonitions(parentBody, GUIDE_ADMONITION_TYPES_RE, { skipTabBlocks: true })
-    .filter(a => a.indent === '');
-}
-
-function splitAdmonitionBody(adm) {
-  // Returns { description, captures, subAdmonitions }
-  const body = adm.body ?? '';
-  const subs = parseSubAdmonitions(body);
-
-  // Remove sub-admonition ranges from the body first, leaving only THIS
-  // admonition's own content. Captures and description are then derived from
-  // that — otherwise captures nested inside sub-admonitions would surface in
-  // (and on save, be hoisted up into) the parent.
-  const lines = body.split('\n');
-  const removed = subs.map(a => ({ start: a.headerLine, end: a.endLine }));
-  removed.sort((a, b) => b.start - a.start);
-  let descLines = lines.slice();
-  for (const { start, end } of removed) {
-    let extEnd = end;
-    if (descLines[extEnd] === '') extEnd++;
-    descLines.splice(start, extEnd - start);
-  }
-  const ownBody = descLines.join('\n');
-
-  const captures = parseExistingCaptures(ownBody);
-
-  let desc = ownBody;
-  // Remove UUID span line.
-  desc = desc.replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '');
-  // Remove capture image lines.
-  desc = stripCaptureLines(desc);
-  desc = desc.trim();
-
-  return { description: desc, captures, subAdmonitions: subs };
-}
-
-function rebuildAdmonitionBody(uuid, description, captures, subAdmonitionBlocks) {
-  // Canonical admonition body shape (matching the existing system-updates
-  // pattern via injectAdmonitionUUID + buildAdmonition):
-  //   <span data-uuid="…"></span>
-  //   description line 1
-  //   description line 2
-  //
-  //   ![](capture#light)...
-  //   ![](capture#dark)...
-  //
-  //   !!! note "Sub-admonition"
-  //       …
-  //
-  // No blank between the span and the first description line; one blank
-  // before each capture and each sub-admonition.
-  const lines = [buildSectionUUIDSpan(uuid)];
-  const desc = (description ?? '').trim();
-  if (desc.length) {
-    lines.push(desc);
-  }
-  const captureLines = buildCaptureLines(captures);
-  if (captureLines.length) {
-    lines.push(...captureLines);
-  }
-  for (const block of subAdmonitionBlocks) {
-    lines.push('');
-    lines.push(block.trim());
-  }
-  return lines.join('\n');
-}
-
 // Collapsible control value ⇄ admonition prefix.
 //   static    → !!!   (always open)
 //   collapsed → ???   (collapsible, closed by default)
@@ -959,9 +956,8 @@ function prefixToCollapsible(prefix) {
   return 'static';
 }
 
-registerFormAction('openCreateGuideAdmonition', async ({ parentSectionUuid, parentAdmonitionUuid, insertAtIndex }) => {
-  if (!currentGuide) return;
-  resetCaptureState();
+registerFormAction('openCreateGuideAdmonition', async ({ container, insertAtIndex }) => {
+  if (!container?.file) return;
   if (!isFormReplay()) {
     await chrome.storage.local.set({
       moreButtonsEditGuideAdmonition: {
@@ -977,35 +973,34 @@ registerFormAction('openCreateGuideAdmonition', async ({ parentSectionUuid, pare
   const { formEl } = await createForm('editGuideAdmonition');
   if (!formEl) return;
   formEl.dataset.mode = 'create';
-  formEl.dataset.parentSectionUuid = parentSectionUuid ?? '';
-  formEl.dataset.parentAdmonitionUuid = parentAdmonitionUuid ?? '';
+  // Parent container this admonition will be spliced into (kind/uuid/file).
+  formEl.dataset.parentKind = container.kind;
+  formEl.dataset.parentUuid = container.uuid;
+  formEl.dataset.parentFile = container.file;
   formEl.dataset.insertAtIndex = insertAtIndex == null ? '' : String(insertAtIndex);
   formEl.dataset.editUuid = '';
 
   const heading = formEl.querySelector('[data-guide-admonition-heading]');
   if (heading) heading.textContent = 'Add admonition';
 
-  // Hide Delete (lives in the moved form-actions) + sub-admonitions list in create mode.
+  // Hide Delete (lives in the moved form-actions) + Components list in create mode
+  // (components can only be added once the admonition itself exists).
   formEl.parentElement?.querySelector('[data-delete-admonition-btn]')?.style.setProperty('display', 'none');
-  formEl.querySelector('[data-sub-admonitions-row]')?.style.setProperty('display', 'none');
+  formEl.querySelector('[data-components-row]')?.style.setProperty('display', 'none');
 
-  formEl.addEventListener('click', onAdmonitionEditorClick);
+  formEl.addEventListener('click', onComponentEditorClick);
   wireAdmonitionTypeToggle(formEl, 'step');
-
-  updateCapturesList(formEl, 'guide-admonition-captures');
 });
 
-registerFormAction('openEditGuideAdmonition', async ({ uuid }) => {
-  if (!currentGuide) return;
-  const draftMarkdown = await readRepoText(currentGuide.draftPath);
+registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
+  const containerFile = file || currentGuide?.draftPath;
+  if (!containerFile) return;
+  const draftMarkdown = await readRepoText(containerFile);
   const adm = locateGuideAdmonition(draftMarkdown, uuid);
   if (!adm) { alert('Admonition not found.'); return; }
 
-  const { description, captures, subAdmonitions } = splitAdmonitionBody(adm);
+  const { description, components } = parseComponents(adm.body, GUIDE_ADMONITION_TYPES_RE);
   const { title: admTitle, meta: admMeta } = splitTitleMeta(adm.title);
-
-  resetCaptureState();
-  setExistingCaptures(captures);
 
   if (!isFormReplay()) {
     await chrome.storage.local.set({
@@ -1023,14 +1018,19 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid }) => {
   if (!formEl) return;
   formEl.dataset.mode = 'edit';
   formEl.dataset.editUuid = uuid;
+  formEl.dataset.componentContainerKind = 'guide-admonition';
+  formEl.dataset.containerFile = containerFile;
 
   const heading = formEl.querySelector('[data-guide-admonition-heading]');
   if (heading) heading.textContent = `Edit admonition`;
 
   // Breadcrumb: "Step N" for top-level steps (+ any meta note), else "Type: Title".
+  // Step numbering is a guide-section concept; outside a guide draft (e.g. an
+  // admonition inside a system update) there are no numbered steps.
+  const inGuideDraft = !!currentGuide && containerFile === currentGuide.draftPath;
   let crumb;
   if (adm.type === 'step') {
-    const n = sectionStepNumber(draftMarkdown, uuid);
+    const n = inGuideDraft ? sectionStepNumber(draftMarkdown, uuid) : null;
     crumb = n != null ? `Step ${n}` : 'Step';
     if (admMeta) crumb += ` ${admMeta}`;
   } else {
@@ -1039,32 +1039,15 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid }) => {
   }
   setCrumbLabel(crumb);
 
-  formEl.addEventListener('click', onAdmonitionEditorClick);
+  formEl.addEventListener('click', onComponentEditorClick);
   wireAdmonitionTypeToggle(formEl, adm.type);
 
-  renderSubAdmonitionCards(formEl, subAdmonitions);
-  updateCapturesList(formEl, 'guide-admonition-captures');
+  // Render the unified component list (sub-admonitions + captures, in order).
+  // Sub-admonition steps aren't numbered (matches the published site + breadcrumb).
+  const listEl = formEl.querySelector('[data-admonition-components]');
+  renderComponents(listEl, components, false);
+  openComponentEditor = { formEl, listEl, container: { kind: 'guide-admonition', uuid, file: containerFile } };
 });
-
-function onAdmonitionEditorClick(e) {
-  const formEl = e.currentTarget;
-  const editAdm = e.target.closest('[data-edit-guide-admonition]');
-  if (editAdm) {
-    if (!confirmDiscardIfDirty(formEl)) return;
-    getFormAction('openEditGuideAdmonition')?.({ uuid: editAdm.dataset.editGuideAdmonition });
-    return;
-  }
-  const insertZone = e.target.closest('[data-insert-at]');
-  if (insertZone) {
-    if (!confirmDiscardIfDirty(formEl)) return;
-    const insertAtIndex = parseInt(insertZone.dataset.insertAt, 10);
-    getFormAction('openCreateGuideAdmonition')?.({
-      parentAdmonitionUuid: formEl.dataset.editUuid,
-      insertAtIndex,
-    });
-    return;
-  }
-}
 
 // Step admonitions are auto-titled by the docs theme (any title is ignored), so
 // disable + clear the Title input while Step is selected. Meta stays editable —
@@ -1084,24 +1067,7 @@ function wireAdmonitionTypeToggle(formEl, initialType) {
   applyAdmonitionTypeState(formEl, initialType);
 }
 
-function renderSubAdmonitionCards(formEl, subAdmonitions) {
-  const container = formEl.querySelector('[data-sub-admonitions]');
-  if (!container) return;
-  if (subAdmonitions.length === 0) {
-    container.innerHTML = emptyAdmonitionCta('Add sub-admonition');
-    return;
-  }
-  const parts = [];
-  subAdmonitions.forEach((a, i) => {
-    parts.push(insertionZone(i, 'Insert New Sub-admonition'));
-    parts.push(admonitionCard(a));
-  });
-  parts.push(insertionZone(subAdmonitions.length, 'Insert New Sub-admonition'));
-  container.innerHTML = parts.join('');
-}
-
 registerFormAction('submitEditGuideAdmonition', async ({ formEl, content, cleanup }) => {
-  if (!currentGuide) return;
   const btn = content.querySelector('[data-action="submitEditGuideAdmonition"]');
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
@@ -1118,61 +1084,45 @@ registerFormAction('submitEditGuideAdmonition', async ({ formEl, content, cleanu
 
     const mode = formEl.dataset.mode;
     const editUuid = formEl.dataset.editUuid;
-    const resolved = resolveCaptures([...captures]);
-    await pushCaptures(resolved, s => { if (btn) btn.textContent = s; });
 
     if (mode === 'create') {
+      // Build the new admonition (its own body is just description — no
+      // components yet) and splice it as a component into the parent at the
+      // chosen component index.
       const newUuid = generateUUID();
-      const body = rebuildAdmonitionBody(newUuid, description, resolved, []);
-      const newBlock = buildAdmonition(prefix, type, title, body);
-      const parentSectionUuid = formEl.dataset.parentSectionUuid;
-      const parentAdmonitionUuid = formEl.dataset.parentAdmonitionUuid;
+      const newAdm = { prefix, type, title, body: buildComponentBody(newUuid, description, []) };
+      const container = {
+        kind: formEl.dataset.parentKind,
+        uuid: formEl.dataset.parentUuid,
+        file: formEl.dataset.parentFile,
+      };
       const insertAtRaw = formEl.dataset.insertAtIndex;
       const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
-      const spliceInto = (arr) => {
-        if (insertAt != null && insertAt >= 0 && insertAt <= arr.length) arr.splice(insertAt, 0, newBlock);
-        else arr.push(newBlock);
-      };
 
-      await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => {
-        if (parentAdmonitionUuid) {
-          const parent = locateGuideAdmonition(md, parentAdmonitionUuid);
-          if (!parent) return md;
-          const { description: pDesc, captures: pCaps, subAdmonitions: pSubs } = splitAdmonitionBody(parent);
-          const subBlocks = pSubs.map(a => buildAdmonition(a.prefix, a.type, a.title, a.body));
-          spliceInto(subBlocks);
-          const pBody = rebuildAdmonitionBody(parentAdmonitionUuid, pDesc, pCaps, subBlocks);
-          const rebuiltParent = buildAdmonition(parent.prefix, parent.type, parent.title, pBody);
-          return replaceAdmonitionByUUID(md, parentAdmonitionUuid, rebuiltParent);
-        }
-        // Insert into a section: rebuild the section with the new block spliced.
-        const sec = locateSectionByUUID(md, parentSectionUuid);
-        if (!sec) return md;
-        const { descriptionMarkdown } = readSectionDescription(md, parentSectionUuid);
-        const { description: desc, admonitions } = splitSectionBody(descriptionMarkdown);
-        const existingBlocks = admonitions.map(a => buildAdmonition(a.prefix, a.type, a.title, a.body));
-        spliceInto(existingBlocks);
-        const newBody = rebuildSectionBody(desc, existingBlocks);
-        return replaceSectionByUUID(md, parentSectionUuid, buildSection(sec.level, sec.title, parentSectionUuid, newBody));
+      await githubFetchAndPushFile(container.file, s => { if (btn) btn.textContent = s; }, md => {
+        const { description: pDesc, components } = readContainerComponents(md, container);
+        const idx = (insertAt != null && insertAt >= 0 && insertAt <= components.length) ? insertAt : components.length;
+        const next = components.slice();
+        next.splice(idx, 0, { kind: 'admonition', adm: newAdm });
+        return writeContainerBody(md, container, pDesc, next);
       });
       await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
       await navigateBack();
       return;
     }
 
-    // Edit mode: preserve existing sub-admonitions.
-    const draftMarkdown = await readRepoText(currentGuide.draftPath);
-    const adm = locateGuideAdmonition(draftMarkdown, editUuid);
-    if (!adm) { alert('Admonition no longer exists.'); cleanup(); return; }
-    const { subAdmonitions } = splitAdmonitionBody(adm);
-    const subBlocks = subAdmonitions.map(a => buildAdmonition(a.prefix, a.type, a.title, a.body));
+    // Edit mode: update this admonition's heading + description; preserve its
+    // existing components (sub-admonitions + captures, re-read fresh).
+    const file = formEl.dataset.containerFile || currentGuide?.draftPath;
+    const container = { kind: 'guide-admonition', uuid: editUuid, file };
+    const draftMarkdown = await readRepoText(file);
+    if (!locateGuideAdmonition(draftMarkdown, editUuid)) { alert('Admonition no longer exists.'); cleanup(); return; }
 
-    await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => {
-      const cur = locateGuideAdmonition(md, editUuid);
-      if (!cur) return md;
-      const body = rebuildAdmonitionBody(editUuid, description, resolved, subBlocks);
-      const newBlock = buildAdmonition(prefix, type, title, body);
-      return replaceAdmonitionByUUID(md, editUuid, newBlock);
+    await githubFetchAndPushFile(file, s => { if (btn) btn.textContent = s; }, md => {
+      if (!locateGuideAdmonition(md, editUuid)) return md;
+      const { components } = readContainerComponents(md, container);
+      const body = buildComponentBody(editUuid, description, components);
+      return replaceAdmonitionByUUID(md, editUuid, buildAdmonition(prefix, type, title, body));
     });
 
     await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
@@ -1184,15 +1134,16 @@ registerFormAction('submitEditGuideAdmonition', async ({ formEl, content, cleanu
 });
 
 registerFormAction('deleteGuideAdmonition', async ({ formEl, content, cleanup }) => {
-  if (!currentGuide) return;
   const editUuid = formEl.dataset.editUuid;
   if (!editUuid) return;
+  const file = formEl.dataset.containerFile || currentGuide?.draftPath;
+  if (!file) return;
   if (!confirm('Delete this admonition? This also removes any sub-admonitions inside it.')) return;
   const btn = content.querySelector('[data-action="deleteGuideAdmonition"]');
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
   try {
-    await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => deleteAdmonitionByUUID(md, editUuid));
+    await githubFetchAndPushFile(file, s => { if (btn) btn.textContent = s; }, md => deleteAdmonitionByUUID(md, editUuid));
     await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
     await navigateBack();
   } catch (e) {
