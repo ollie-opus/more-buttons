@@ -15,6 +15,7 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { snapshotFormStack, replayFormStack } from './form.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubPushImageIfNotExists } from './github.js';
+import { writeCaptureMeta } from './captureMeta.js';
 import { generateUUID } from './admonitions.js';
 import { getComponentContainer } from './componentContainers.js';
 
@@ -54,11 +55,14 @@ export function resolveCaptures(list) {
 }
 
 export async function pushCaptures(list = [], onProgress) {
+  const upserts = [];
   for (const c of list) {
     if (!c.lightDataUrl) continue;
     await githubPushImageIfNotExists(`docs/assets/${c.lightFilename}`, c.lightDataUrl.split(',')[1], onProgress);
     await githubPushImageIfNotExists(`docs/assets/${c.darkFilename}`, c.darkDataUrl.split(',')[1], onProgress);
+    upserts.push({ lightPath: `docs/assets/${c.lightFilename}`, resized: !!c.resized, padding: c.padding || 0 });
   }
+  await writeCaptureMeta(upserts, onProgress);
 }
 
 // ── Components: capture acquisition that commits immediately ───────────────────
