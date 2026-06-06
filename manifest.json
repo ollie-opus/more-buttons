@@ -23,6 +23,7 @@
         "scripts/admonitions.js",
         "scripts/sections.js",
         "scripts/captures.js",
+        "scripts/captureMeta.js",
         "scripts/form.js",
         "scripts/formActions.js",
         "scripts/github.js",
