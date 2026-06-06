@@ -232,9 +232,17 @@ export function bindSaveStateButton(formEl) {
     btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>${label}`;
   };
 
+  // While a commit is in flight the button is `.busy` (amber, disabled). Ignore
+  // field edits during that window so render() doesn't strip the busy state and
+  // re-enable the button — otherwise the user could click Save again mid-commit
+  // and spawn a second concurrent write. The handler's explicit
+  // _refreshSaveState() call (which is `render` itself) still settles the button
+  // to green/blue once the commit finishes.
+  const onEdit = () => { if (!btn.classList.contains('busy')) render(); };
+
   formEl._refreshSaveState = render;
-  formEl.addEventListener('input', render);
-  formEl.addEventListener('change', render);
+  formEl.addEventListener('input', onEdit);
+  formEl.addEventListener('change', onEdit);
   render();
 }
 
