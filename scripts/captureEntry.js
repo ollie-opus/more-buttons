@@ -1,10 +1,21 @@
-import { createForm, snapshotFormStack } from './form.js';
+import { createForm, snapshotFormStack, replayFormStack } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
 import { writeCaptureMeta } from './captureMeta.js';
 import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
+
+// Cold-DOM hand-off for the recapture round-trip. While the user hunts for an
+// element in Capture Mode they can navigate to other pages; a Turbo navigation
+// swaps <body>, which detaches this form's DOM even though the JS context (and
+// captureMode's returnTo closure) survives. In that case we replay the form
+// stack to rebuild the entry from scratch and stash the freshly captured buffer
+// here so the rebuilt openCaptureEntry can resume straight into the compare
+// view instead of the plain preview. Keyed by lightPath so a rebuilt entry only
+// consumes the hand-off meant for it. (Mirrors runComponentCaptureFlow's cold
+// path in captures.js — the working pattern the component editors already use.)
+let pendingRecapture = null; // { lightPath, capture } | null
 
 // lightPath / darkPath are repo-relative paths like "docs/assets/occ-captures/foo-light-mode.png"
 export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}) {
@@ -94,14 +105,34 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
       maxCaptures: 1,
       formStackSnapshot,
       returnTo: {
-        onComplete: (buffer) => {
+        onComplete: async (buffer) => {
+          // Hot path: same JS context AND the form is still in the document
+          // (capture happened on this page, no navigation). Re-show the
+          // overlay in place and jump to compare.
           if (formEl.isConnected) {
             overlay.style.display = '';
             document.body.style.overflow = prevBodyOverflow;
+            if (buffer.length) {
+              pendingCapture = buffer[0];
+              renderCompare();
+            }
+            return;
           }
-          if (buffer.length) {
-            pendingCapture = buffer[0];
-            renderCompare();
+          // Cold-DOM path: a Turbo navigation swapped <body> and detached this
+          // form. Rebuild the form stack from the serialisable snapshot, then
+          // hand the buffer to the rebuilt entry (via pendingRecapture) so it
+          // resumes in the compare view.
+          if (!buffer.length || !formStackSnapshot?.length) return;
+          pendingRecapture = { lightPath, capture: buffer[0] };
+          await replayFormStack(formStackSnapshot);
+        },
+        // ✕ / Esc: re-show the form untouched when it's still here; after a
+        // navigation there's nothing in the DOM to re-show (matches the
+        // component flow's cancel semantics).
+        onCancel: () => {
+          if (formEl.isConnected) {
+            overlay.style.display = '';
+            document.body.style.overflow = prevBodyOverflow;
           }
         },
       },
@@ -158,7 +189,16 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
 
   bodyEl.innerHTML = '<p class="more-buttons-description">Loading…</p>';
   await loadRepoImages();
-  renderPreview();
+
+  // If a recapture round-trip detached this form and we just replayed it to get
+  // back here, resume straight into the compare view with the buffered capture.
+  if (pendingRecapture && pendingRecapture.lightPath === lightPath) {
+    pendingCapture = pendingRecapture.capture;
+    pendingRecapture = null;
+    renderCompare();
+  } else {
+    renderPreview();
+  }
 }
 
 registerFormAction('openCaptureEntry', openCaptureEntry);
