@@ -57,11 +57,21 @@ function resetHistory() {
   cursor = -1;
 }
 
-// Replace the opener for the current view. Used when a form mutates its own
-// identity in place (e.g. a "create" form that becomes an "edit" form after
-// saving), so backing into it later replays the right view.
-export function replaceCurrentOpener(opener) {
-  if (cursor >= 0 && history[cursor]) history[cursor].opener = opener;
+// Replace the current view's identity in place. Used when a form mutates itself
+// (e.g. a "create" form that becomes an "edit" form after saving) so navigating
+// back into it — OR replaying it after a capture-mode / library round-trip —
+// rebuilds the new view, not the old one.
+//
+// Takes the form-action name + args rather than a raw closure so the live opener
+// closure and the serialisable descriptor are derived from one source and stay
+// in lockstep. Updating only one of them silently breaks the other: a stale
+// descriptor makes snapshotFormStack/replayFormStack reopen the pre-transition
+// view (e.g. a "create" form that then re-creates a duplicate on save), while a
+// stale opener breaks plain back-navigation.
+export function replaceCurrentOpener(name, args) {
+  if (cursor < 0 || !history[cursor]) return;
+  history[cursor].opener = () => getFormAction(name)(args);
+  history[cursor].descriptor = { name, args };
 }
 
 // Override the breadcrumb label for the current view with a richer name than

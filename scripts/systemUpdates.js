@@ -154,7 +154,7 @@ async function saveLogUpdateForComponent(formEl) {
   await saveNewDraft({ title, date, type, description, uuid }, [], () => {});
   await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
   // Returning from a child should land on the updates list, not the blank log form.
-  replaceCurrentOpener(() => getFormAction('openSystemUpdatesEntry')());
+  replaceCurrentOpener('openSystemUpdatesEntry');
   await getFormAction('openEditDraftSystemUpdate')({ uuid });
   const newFormEl = document.querySelector('.more-buttons-overlay form[data-storage-key]');
   return { container: { kind: 'system-draft', uuid, file: DRAFTS_FILE }, formEl: newFormEl };
@@ -473,7 +473,7 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content, cleanup })
     // Continue into the edit form so components (admonitions + more captures)
     // can be added to the just-published update. Repoint this slot at the list
     // so Back returns there, not the blank log form.
-    replaceCurrentOpener(() => getFormAction('openSystemUpdatesEntry')());
+    replaceCurrentOpener('openSystemUpdatesEntry');
     await getFormAction('openEditSystemUpdate')({ uuid: update.uuid });
   } catch (e) {
     btn.textContent = originalText;
@@ -579,7 +579,7 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content, cleanup })
     await chrome.storage.local.remove('moreButtonsLogSystemUpdate');
     // Continue into the draft edit form to add components. Repoint this slot at
     // the list so Back returns there, not the blank log form.
-    replaceCurrentOpener(() => getFormAction('openSystemUpdatesEntry')());
+    replaceCurrentOpener('openSystemUpdatesEntry');
     await getFormAction('openEditDraftSystemUpdate')({ uuid: update.uuid });
   } catch (e) {
     btn.textContent = originalText;

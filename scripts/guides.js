@@ -865,7 +865,7 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   formEl.dataset.mode = 'edit';
   formEl.dataset.editUuid = newUuid;
   formEl.dataset.editLevel = String(level);
-  replaceCurrentOpener(() => getFormAction('openEditGuideSection')({ uuid: newUuid }));
+  replaceCurrentOpener('openEditGuideSection', { uuid: newUuid });
   formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.removeProperty('display');
   formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
   const listEl = formEl.querySelector('[data-section-components]');
@@ -1186,7 +1186,7 @@ async function transitionAdmonitionCreateToEdit(formEl, newUuid, file) {
   formEl.dataset.editUuid = newUuid;
   formEl.dataset.componentContainerKind = 'guide-admonition';
   formEl.dataset.containerFile = file;
-  replaceCurrentOpener(() => getFormAction('openEditGuideAdmonition')({ uuid: newUuid, file }));
+  replaceCurrentOpener('openEditGuideAdmonition', { uuid: newUuid, file });
   const heading = formEl.querySelector('[data-guide-admonition-heading]');
   if (heading) heading.textContent = 'Edit admonition';
   formEl.parentElement?.querySelector('[data-delete-admonition-btn]')?.style.removeProperty('display');
