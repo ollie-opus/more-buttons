@@ -168,7 +168,7 @@ function valuesEqual(a, b) {
   return a === b;
 }
 
-function isFormDirty(formEl) {
+export function isFormDirty(formEl) {
   const snap = formEl?._initialSnapshot;
   if (!snap) return false;
   const cur = readFormValues(formEl);
