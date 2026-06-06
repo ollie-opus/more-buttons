@@ -13,7 +13,7 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, confirmDiscardIfDirty, resetDirtyBaseline } from './form.js';
+import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline } from './form.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
@@ -495,10 +495,12 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid }) => {
   const heading = formEl.querySelector('[data-guide-section-heading]');
   if (heading) heading.textContent = 'Add section';
 
-  // Hide Delete (lives in the moved form-actions) + Components list in create mode
-  // (you can't add components to a section that doesn't exist yet).
+  // Hide Delete (lives in the moved form-actions) in create mode.
   formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.setProperty('display', 'none');
-  formEl.querySelector('[data-components-row]')?.style.setProperty('display', 'none');
+  // Components are visible in create mode now; adding one routes through the
+  // save-gate, which persists the section first.
+  renderComponents(formEl.querySelector('[data-section-components]'), []);
+  formEl._componentSaver = () => saveSectionForComponent(formEl);
 
   // Populate parent dropdown.
   populateParentDropdown(formEl, draftMarkdown, null /* editing uuid */, parent ? parent.level + 1 : 2);
@@ -537,6 +539,7 @@ registerFormAction('openEditGuideSection', async ({ uuid }) => {
   formEl.dataset.editLevel = String(section.level);
   formEl.dataset.componentContainerKind = 'guide-section';
   formEl.dataset.containerFile = currentGuide.draftPath;
+  formEl._componentSaver = () => saveSectionForComponent(formEl);
 
   // Heading + visible controls based on level.
   const treeMatch = buildSectionTree(draftMarkdown).sections.find(s => s.uuid === uuid);
@@ -720,40 +723,94 @@ export function renderComponents(listEl, components, numberSteps = true) {
   listEl.innerHTML = parts.join('');
 }
 
-// Shared click delegation for both the section and admonition editors. The
-// container kind is read off the form (set when the editor opens).
-export function onComponentEditorClick(e) {
-  const formEl = e.currentTarget;
-  const container = {
+// ── The component save-gate ──────────────────────────────────────────────────
+//
+// Every child-component navigation (insert a new component, or open an existing
+// one for edit) goes through beginChildNavigation. If the parent form is unsaved
+// (create mode) or has unsaved field edits (dirty), it confirms and persists via
+// the form's attached `_componentSaver()` before running the child flow. Savers
+// return { container, formEl } — formEl may differ if saving navigated to a new
+// form (e.g. log-update → draft editor).
+
+const CONTAINER_NOUN = {
+  'guide-section': 'section',
+  'guide-admonition': 'admonition',
+  'system-update': 'update',
+  'system-draft': 'draft',
+};
+
+function componentNoun(formEl) {
+  return formEl.dataset.componentNoun || CONTAINER_NOUN[formEl.dataset.componentContainerKind] || 'item';
+}
+
+// The saved container identity carried on a form (valid only once saved).
+function containerFromForm(formEl) {
+  return {
     kind: formEl.dataset.componentContainerKind,
     uuid: formEl.dataset.editUuid,
     file: formEl.dataset.containerFile || currentGuide?.draftPath,
   };
+}
+
+// Ensure the form's container is persisted before navigating to a child.
+// Returns { container, formEl } or null (user cancelled / validation failed).
+async function ensureContainerReady(formEl) {
+  const needsSave = formEl.dataset.mode === 'create' || isFormDirty(formEl);
+  if (!needsSave) return { container: containerFromForm(formEl), formEl };
+  const noun = componentNoun(formEl);
+  const msg = formEl.dataset.mode === 'create'
+    ? `This ${noun} hasn’t been saved yet. Save it to continue?`
+    : `You have unsaved changes. Save them to continue?`;
+  if (!confirm(msg)) return null;
+  const saver = formEl._componentSaver;
+  if (typeof saver !== 'function') { console.warn('[MB] form has no _componentSaver'); return null; }
+  return await saver();
+}
+
+async function beginChildNavigation(formEl, action) {
+  const ready = await ensureContainerReady(formEl);
+  if (!ready) return;
+  await runChildAction(ready.container, ready.formEl, action);
+}
+
+async function runChildAction(container, formEl, action) {
+  const overlay = formEl.closest('.more-buttons-overlay');
+  if (action.type === 'insert') {
+    if (action.kind === 'admonition') getFormAction('openCreateGuideAdmonition')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
+    else if (action.kind === 'capture-library') runComponentLibraryInsert({ container, insertAt: action.insertAt });
+  } else if (action.type === 'edit-admonition') {
+    getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
+  } else if (action.type === 'edit-capture') {
+    openCaptureComponentEditor(container, action.index);
+  }
+}
+
+// Shared click delegation for every component editor (section / admonition /
+// system-update). Routes all child navigation through the save-gate.
+export function onComponentEditorClick(e) {
+  const formEl = e.currentTarget;
 
   const editAdm = e.target.closest('[data-edit-guide-admonition]');
   if (editAdm) {
-    if (!confirmDiscardIfDirty(formEl)) return;
-    getFormAction('openEditGuideAdmonition')?.({ uuid: editAdm.dataset.editGuideAdmonition, file: container.file });
+    beginChildNavigation(formEl, { type: 'edit-admonition', uuid: editAdm.dataset.editGuideAdmonition });
     return;
   }
 
   const editCap = e.target.closest('[data-edit-component]');
   if (editCap) {
-    if (!confirmDiscardIfDirty(formEl)) return;
-    openCaptureComponentEditor(container, parseInt(editCap.dataset.editComponent, 10));
+    beginChildNavigation(formEl, { type: 'edit-capture', index: parseInt(editCap.dataset.editComponent, 10) });
     return;
   }
 
   const insert = e.target.closest('[data-insert-component-at]');
   if (insert) {
-    if (!confirmDiscardIfDirty(formEl)) return;
     const idx = parseInt(insert.dataset.insertComponentAt, 10);
-    const overlay = formEl.closest('.more-buttons-overlay');
     const anchor = insert.querySelector('.mb-insert-component__btn') || insert;
     openInsertMenu(anchor, idx, {
-      admonition: (i) => getFormAction('openCreateGuideAdmonition')?.({ container, insertAtIndex: i }),
-      captureNew: (i) => runComponentCaptureFlow({ container, insertAt: i, formEl, overlay }),
-      captureLibrary: (i) => runComponentLibraryInsert({ container, insertAt: i }),
+      admonition: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'admonition', insertAt: i }),
+      captureNew: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-new', insertAt: i }),
+      captureLibrary: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-library', insertAt: i }),
     });
     return;
   }
@@ -800,96 +857,93 @@ function admonitionCard(adm, stepNumber = null) {
 
 // ── Submit / delete section ──────────────────────────────────────────────────
 
-registerFormAction('submitEditGuideSection', async ({ formEl, content, cleanup }) => {
+// Flip an in-place section create form into an edit-of-new-section form: point
+// its history slot at the saved section, reveal Delete + Components, render the
+// (empty) component list, refresh heading/crumb/parent dropdown, and re-baseline
+// the dirty guard. Shared by the Save button and the component save-gate.
+async function transitionSectionCreateToEdit(formEl, newUuid, level, title, description, parentUuid) {
+  formEl.dataset.mode = 'edit';
+  formEl.dataset.editUuid = newUuid;
+  formEl.dataset.editLevel = String(level);
+  replaceCurrentOpener(() => getFormAction('openEditGuideSection')({ uuid: newUuid }));
+  formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.removeProperty('display');
+  formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
+  const listEl = formEl.querySelector('[data-section-components]');
+  renderComponents(listEl, []);
+  setOpenComponentEditor({ formEl, listEl, container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath } });
+  const refreshed = await readRepoText(currentGuide.draftPath);
+  const newTreeMatch = buildSectionTree(refreshed).sections.find(s => s.uuid === newUuid);
+  const heading = formEl.querySelector('[data-guide-section-heading]');
+  if (heading) heading.textContent = newTreeMatch ? `Edit ${newTreeMatch.label.toLowerCase()}` : 'Edit section';
+  if (newTreeMatch?.visualLabel) setCrumbLabel(newTreeMatch.visualLabel);
+  populateParentDropdown(formEl, refreshed, newUuid, level);
+  await chrome.storage.local.set({
+    moreButtonsEditGuideSection: { sectionTitle: title, sectionDescription: description, sectionParent: parentUuid },
+  });
+  resetDirtyBaseline(formEl);
+}
+
+// Persist the section form. create → insert + transition-in-place; dirty edit →
+// rewrite body (+ optional parent move) + rebaseline. Returns { container,
+// formEl } or null (validation failed). Used by the Save button and the gate.
+async function saveSectionForComponent(formEl, onProgress = () => {}) {
+  const title = formEl.querySelector('[name="sectionTitle"]')?.value.trim() ?? '';
+  const description = formEl.querySelector('[name="sectionDescription"]')?.value ?? '';
+  const parentUuid = formEl.querySelector('[name="sectionParent"]')?.value ?? '';
+  if (!title) { alert('Title is required.'); return null; }
+
+  if (formEl.dataset.mode === 'create') {
+    let level = 2;
+    if (parentUuid) {
+      const draftNow = await readRepoText(currentGuide.draftPath);
+      const par = locateSectionByUUID(draftNow, parentUuid);
+      if (par) level = Math.min(3, par.level + 1);
+    }
+    let newUuid;
+    await githubFetchAndPushFile(currentGuide.draftPath, onProgress, md => {
+      const result = insertSectionUnderParent(md, parentUuid || null, level, title, description.trim());
+      newUuid = result.uuid;
+      return result.markdown;
+    });
+    await transitionSectionCreateToEdit(formEl, newUuid, level, title, description, parentUuid);
+    return { container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath }, formEl };
+  }
+
+  const editUuid = formEl.dataset.editUuid;
+  const draftMarkdown = await readRepoText(currentGuide.draftPath);
+  const section = locateSectionByUUID(draftMarkdown, editUuid);
+  if (!section) { alert('Section no longer exists.'); return null; }
+  const currentParentUuid = section.level === 2
+    ? (buildSectionTree(draftMarkdown).title?.uuid ?? null)
+    : (section.level === 3 ? findH2ParentUuid(draftMarkdown, editUuid) || null : null);
+  const requestedParent = parentUuid || null;
+  const parentChanged = section.level !== 1 && (currentParentUuid ?? null) !== (requestedParent ?? null);
+
+  await githubFetchAndPushFile(currentGuide.draftPath, onProgress, md => {
+    const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
+    const newBody = buildComponentBody(null, description, components);
+    let updated = replaceSectionByUUID(md, editUuid, buildSection(section.level, title, editUuid, newBody));
+    if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
+    return updated;
+  });
+  resetDirtyBaseline(formEl);
+  return { container: { kind: 'guide-section', uuid: editUuid, file: currentGuide.draftPath }, formEl };
+}
+
+registerFormAction('submitEditGuideSection', async ({ formEl, content }) => {
   if (!currentGuide) return;
   const btn = content.querySelector('[data-action="submitEditGuideSection"]');
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
+  const wasCreate = formEl.dataset.mode === 'create';
   try {
-    const title = formEl.querySelector('[name="sectionTitle"]')?.value.trim() ?? '';
-    const description = formEl.querySelector('[name="sectionDescription"]')?.value ?? '';
-    const parentUuid = formEl.querySelector('[name="sectionParent"]')?.value ?? '';
-    if (!title) { alert('Title is required.'); if (btn) btn.disabled = false; return; }
-
-    const mode = formEl.dataset.mode;
-    const editUuid = formEl.dataset.editUuid;
-
-    if (mode === 'create') {
-      // Determine level: parent.level + 1. Parent '' means Title (h1) → level 2.
-      let level = 2;
-      if (parentUuid) {
-        const draftNow = await readRepoText(currentGuide.draftPath);
-        const par = locateSectionByUUID(draftNow, parentUuid);
-        if (par) level = Math.min(3, par.level + 1);
-      }
-      let newUuid;
-      await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => {
-        const result = insertSectionUnderParent(md, parentUuid || null, level, title, description.trim());
-        newUuid = result.uuid;
-        return result.markdown;
-      });
-
-      // Transition this modal into edit mode in-place (no overlay flash, no
-      // second history entry). The form stays open; user can immediately add
-      // admonitions or close out.
-      formEl.dataset.mode = 'edit';
-      formEl.dataset.editUuid = newUuid;
-      formEl.dataset.editLevel = String(level);
-      // The modal just became an edit-of-new-section in place; point its back
-      // entry at the saved section so returning from a child lands here, not the
-      // blank create form.
-      replaceCurrentOpener(() => getFormAction('openEditGuideSection')({ uuid: newUuid }));
-      formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.removeProperty('display');
-      formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
-      const listEl = formEl.querySelector('[data-section-components]');
-      renderComponents(listEl, []);
-      openComponentEditor = { formEl, listEl, container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath } };
-      // Refresh dropdown options against the latest draft.
-      const refreshed = await readRepoText(currentGuide.draftPath);
-      const newTreeMatch = buildSectionTree(refreshed).sections.find(s => s.uuid === newUuid);
-      const heading = formEl.querySelector('[data-guide-section-heading]');
-      if (heading) heading.textContent = newTreeMatch ? `Edit ${newTreeMatch.label.toLowerCase()}` : 'Edit section';
-      if (newTreeMatch?.visualLabel) setCrumbLabel(newTreeMatch.visualLabel);
-      populateParentDropdown(formEl, refreshed, newUuid, level);
-      await chrome.storage.local.set({
-        moreButtonsEditGuideSection: { sectionTitle: title, sectionDescription: description, sectionParent: parentUuid },
-      });
-      // The section is now committed to the draft; re-baseline the dirty guard so
-      // these just-saved values aren't flagged as unsaved changes on leave.
-      resetDirtyBaseline(formEl);
+    const result = await saveSectionForComponent(formEl, s => { if (btn) btn.textContent = s; });
+    if (!result) { if (btn) { btn.disabled = false; btn.textContent = originalText; } return; }
+    if (wasCreate) {
+      // Transitioned to edit-in-place; stay open so the user can add components.
       if (btn) { btn.disabled = false; btn.textContent = originalText; }
       return;
     }
-
-    // Edit mode: preserve existing components (admonitions + captures); the
-    // description comes from the form. Optionally move parent.
-    const draftMarkdown = await readRepoText(currentGuide.draftPath);
-    const section = locateSectionByUUID(draftMarkdown, editUuid);
-    if (!section) { alert('Section no longer exists.'); cleanup(); return; }
-
-    // Determine whether parent changed (only for non-Title sections — Title
-    // is the root and cannot be moved).
-    const currentParentUuid = section.level === 2
-      ? (buildSectionTree(draftMarkdown).title?.uuid ?? null)
-      : (section.level === 3
-          ? findH2ParentUuid(draftMarkdown, editUuid) || null
-          : null);
-    const requestedParent = parentUuid || null;
-    const parentChanged = section.level !== 1 && (currentParentUuid ?? null) !== (requestedParent ?? null);
-
-    await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => {
-      // Rebuild the section body: form description + existing components (re-read
-      // fresh so any components committed during this edit session are kept).
-      const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
-      const newBody = buildComponentBody(null, description, components);
-      let updated = replaceSectionByUUID(md, editUuid, buildSection(section.level, title, editUuid, newBody));
-      // If parent changed, re-locate and move (also re-levels heading prefix).
-      if (parentChanged) {
-        updated = moveSectionToParent(updated, editUuid, requestedParent);
-      }
-      return updated;
-    });
-
     await chrome.storage.local.remove('moreButtonsEditGuideSection');
     await navigateBack();
   } catch (e) {
