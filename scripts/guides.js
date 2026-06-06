@@ -1204,32 +1204,29 @@ async function transitionAdmonitionCreateToEdit(formEl, newUuid, file) {
 // Persist the admonition form for the save-gate. create → splice into parent +
 // transition in place; dirty edit → rewrite + rebaseline. Returns { container,
 // formEl } or null.
-async function saveAdmonitionForComponent(formEl) {
+async function saveAdmonitionForComponent(formEl, onProgress = () => {}) {
   if (formEl.dataset.mode === 'create') {
-    const res = await persistNewAdmonition(formEl);
+    const res = await persistNewAdmonition(formEl, onProgress);
     if (!res) return null;
     await transitionAdmonitionCreateToEdit(formEl, res.newUuid, res.file);
     return { container: { kind: 'guide-admonition', uuid: res.newUuid, file: res.file }, formEl };
   }
-  const res = await persistAdmonitionEdit(formEl);
+  const res = await persistAdmonitionEdit(formEl, onProgress);
   if (!res) return null;
   resetDirtyBaseline(formEl);
   return { container: { kind: 'guide-admonition', uuid: res.editUuid, file: res.file }, formEl };
 }
 
 registerFormAction('submitEditGuideAdmonition', async ({ formEl, content }) => {
-  const btn = content.querySelector('[data-action="submitEditGuideAdmonition"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
   try {
-    const res = formEl.dataset.mode === 'create'
-      ? await persistNewAdmonition(formEl, s => { if (btn) btn.textContent = s; })
-      : await persistAdmonitionEdit(formEl, s => { if (btn) btn.textContent = s; });
-    if (!res) { if (btn) { btn.disabled = false; btn.textContent = originalText; } return; }
-    await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
-    await navigateBack();
+    const res = await saveAdmonitionForComponent(formEl, s => setButtonBusy(btn, s));
+    if (!res) { formEl._refreshSaveState?.(); return; }
+    // create→edit transition or in-place edit both leave the form mounted; show green.
+    formEl._refreshSaveState?.();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    formEl._refreshSaveState?.();
     alert('Failed to save admonition: ' + e.message);
   }
 });
