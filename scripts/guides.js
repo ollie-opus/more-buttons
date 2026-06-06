@@ -13,7 +13,7 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline } from './form.js';
+import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
@@ -932,22 +932,17 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
 
 registerFormAction('submitEditGuideSection', async ({ formEl, content }) => {
   if (!currentGuide) return;
-  const btn = content.querySelector('[data-action="submitEditGuideSection"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
-  const wasCreate = formEl.dataset.mode === 'create';
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
   try {
-    const result = await saveSectionForComponent(formEl, s => { if (btn) btn.textContent = s; });
-    if (!result) { if (btn) { btn.disabled = false; btn.textContent = originalText; } return; }
-    if (wasCreate) {
-      // Transitioned to edit-in-place; stay open so the user can add components.
-      if (btn) { btn.disabled = false; btn.textContent = originalText; }
-      return;
-    }
-    await chrome.storage.local.remove('moreButtonsEditGuideSection');
-    await navigateBack();
+    const result = await saveSectionForComponent(formEl, s => setButtonBusy(btn, s));
+    // Validation failed → re-render the button to its live state and bail.
+    if (!result) { formEl._refreshSaveState?.(); return; }
+    // Saved in place (create→edit transition or in-place edit): stay open so the
+    // save-state button can report "Draft saved" (green).
+    formEl._refreshSaveState?.();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    formEl._refreshSaveState?.();
     alert('Failed to save section: ' + e.message);
   }
 });
