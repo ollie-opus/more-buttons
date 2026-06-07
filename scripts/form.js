@@ -144,7 +144,7 @@ export { navigateBack };
 // Read all named input values from a form into a flat dict — mirrors what the
 // generic `save` action writes to storage so a snapshot taken here can be
 // compared against later edits to detect a "dirty" form.
-function readFormValues(formEl) {
+export function readFormValues(formEl) {
   const data = {};
   const inputs = formEl.querySelectorAll('input, select, textarea');
   const checkboxGroups = {};
