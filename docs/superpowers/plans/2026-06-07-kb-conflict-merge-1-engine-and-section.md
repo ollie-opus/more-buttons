@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-07-kb-form-conflict-merge-design.md`
 
+**Execution mode:** Subagent-driven (chosen by the user). Use the
+`superpowers:subagent-driven-development` skill — dispatch a fresh subagent per task,
+two-stage review between tasks. Steps use checkbox syntax for tracking.
+
 ---
 
 ## File Structure
