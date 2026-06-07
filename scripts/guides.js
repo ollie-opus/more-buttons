@@ -32,7 +32,7 @@ import {
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { escapeHtml, captureComponentCard } from './cardRenderer.js';
-import { parseComponents, buildComponentBody } from './components.js';
+import { parseComponents, buildComponentBody, ensureCaptureUUIDs } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 
@@ -231,9 +231,11 @@ async function createGuideDraft(formEl) {
       return;
     }
 
-    const migrated = ensureAdmonitionUUIDs(
-      ensureSectionUUIDs(liveMarkdown),
-      GUIDE_ADMONITION_TYPES_RE,
+    const migrated = ensureCaptureUUIDs(
+      ensureAdmonitionUUIDs(
+        ensureSectionUUIDs(liveMarkdown),
+        GUIDE_ADMONITION_TYPES_RE,
+      ),
     );
 
     await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, () => migrated);
