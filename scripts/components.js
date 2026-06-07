@@ -106,7 +106,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     ...adms.map(adm => ({ kind: 'admonition', adm, startLine: adm.headerLine, endLine: adm.endLine })),
     ...topCaptures.map(c => ({
       kind: 'capture',
-      cap: { lightFilename: c.lightFilename, darkFilename: c.darkFilename, dimMode: c.dimMode, dimValue: c.dimValue },
+      cap: { uuid: c.uuid ?? null, lightFilename: c.lightFilename, darkFilename: c.darkFilename, dimMode: c.dimMode, dimValue: c.dimValue },
       startLine: c.startLine,
       endLine: c.endLine,
     })),
