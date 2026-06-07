@@ -14,6 +14,7 @@ import { readRepoBlob } from './repoClient.js';
 import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
 import { getComponentContainer } from './componentContainers.js';
+import { mergeSave } from './mergeSave.js';
 
 function applyDimAuto(formEl) {
   const dim = formEl.querySelector('[data-capture-component-dim]');
@@ -89,19 +90,42 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
   if (!handler) return;
   const btn = content?.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
+
+  // Normalize the form so dimValue is '' whenever the mode is 'none' — this
+  // keeps `cur` and `fresh` equal for an untouched auto capture (no false
+  // conflict). The number input is disabled in 'none' mode but still reports
+  // its stale .value to readFormValues, so blank it explicitly.
+  const modeSel = formEl.querySelector('[name="dimMode"]');
+  const valInput = formEl.querySelector('[name="dimValue"]');
+  if (modeSel?.value === 'none' && valInput) valInput.value = '';
+
   try {
-    const mode = formEl.querySelector('[name="dimMode"]')?.value ?? 'none';
-    const rawVal = parseInt(formEl.querySelector('[name="dimValue"]')?.value, 10);
-    const dimValue = mode === 'none' ? null : (Number.isFinite(rawVal) && rawVal > 0 ? rawVal : 50);
-
-    await handler.mutate(container, (components) =>
-      components.map(c =>
-        (c.kind === 'capture' && c.cap.uuid === uuid)
-          ? { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue } }
-          : c),
-      s => setButtonBusy(btn, s));
-
-    resetDirtyBaseline(formEl);
+    await mergeSave({
+      formEl,
+      file: container.file,
+      onProgress: s => setButtonBusy(btn, s),
+      fieldSpecs: [
+        { name: 'dimMode', type: 'scalar', label: 'Dimension mode' },
+        { name: 'dimValue', type: 'scalar', label: 'Dimension value' },
+      ],
+      readFresh: md => {
+        const { components } = handler.readComponents(md, container.uuid);
+        const cap = components.find(c => c.kind === 'capture' && c.cap.uuid === uuid)?.cap;
+        const mode = cap?.dimMode ?? 'none';
+        return { dimMode: mode, dimValue: mode === 'none' ? '' : String(cap?.dimValue ?? '') };
+      },
+      build: (md, resolved) => {
+        const { description, components } = handler.readComponents(md, container.uuid);
+        const mode = resolved.dimMode ?? 'none';
+        const raw = parseInt(resolved.dimValue, 10);
+        const dimValue = mode === 'none' ? null : (Number.isFinite(raw) && raw > 0 ? raw : 50);
+        const next = components.map(c =>
+          (c.kind === 'capture' && c.cap.uuid === uuid)
+            ? { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue } }
+            : c);
+        return handler.writeBody(md, container.uuid, description, next);
+      },
+    });
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
