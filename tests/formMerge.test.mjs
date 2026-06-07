@@ -84,4 +84,61 @@ test('ConflictNeeded carries the conflicts array', () => {
   assert.deepEqual(e.conflicts, [{ field: 'x' }]);
 });
 
+const ORDER_SPEC = [{ name: 'componentOrder', type: 'orderedUuidList', label: 'Component order' }];
+const order = (snap, cur, fresh, resolutions) =>
+  mergeFields({ componentOrder: snap }, { componentOrder: cur }, { componentOrder: fresh }, ORDER_SPEC, resolutions);
+
+test('orderedUuidList: you did not reorder → take fresh order (their add wins)', () => {
+  const { resolved, conflicts } = order('A,B', 'A,B', 'A,B,C');
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'A,B,C');
+});
+
+test('orderedUuidList: you did not reorder, they deleted → fresh wins', () => {
+  const { resolved, conflicts } = order('A,B,C', 'A,B,C', 'A,C');
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'A,C');
+});
+
+test('orderedUuidList: only you reordered → your order', () => {
+  const { resolved, conflicts } = order('A,B,C', 'C,B,A', 'A,B,C');
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'C,B,A');
+});
+
+test('orderedUuidList: only you reordered + they added → your order, new slotted at fresh position', () => {
+  const { resolved, conflicts } = order('A,B', 'B,A', 'A,B,C');
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'B,C,A');
+});
+
+test('orderedUuidList: you reordered, they only deleted one of yours → your order minus deleted', () => {
+  const { resolved, conflicts } = order('A,B,C', 'C,B,A', 'A,C');
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'C,A');
+});
+
+test('orderedUuidList: both reordered the same way → no conflict', () => {
+  const { resolved, conflicts } = order('A,B,C', 'C,B,A', 'C,B,A');
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'C,B,A');
+});
+
+test('orderedUuidList: both reordered differently → one conflict with array mine/theirs', () => {
+  const { resolved, conflicts } = order('A,B,C', 'B,A,C', 'C,B,A');
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].field, 'componentOrder');
+  assert.deepEqual(conflicts[0].theirs, ['C', 'B', 'A']);
+  assert.deepEqual(conflicts[0].mine, ['B', 'A', 'C']);
+  assert.equal('componentOrder' in resolved, false);
+});
+
+test('orderedUuidList: recorded choice mine applies while fresh stable; re-prompts when it moves', () => {
+  const stable = order('A,B,C', 'B,A,C', 'C,B,A', { componentOrder: { choice: 'mine', theirsShown: ['C', 'B', 'A'] } });
+  assert.equal(stable.conflicts.length, 0);
+  assert.equal(stable.resolved.componentOrder, 'B,A,C');
+  const moved = order('A,B,C', 'B,A,C', 'C,A,B', { componentOrder: { choice: 'mine', theirsShown: ['C', 'B', 'A'] } });
+  assert.equal(moved.conflicts.length, 1);
+});
+
 console.log(`\n${passed} passed`);

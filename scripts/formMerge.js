@@ -35,23 +35,80 @@ export function mergeFields(snap = {}, cur = {}, fresh = {}, fieldSpecs = [], re
   const conflicts = [];
 
   for (const spec of fieldSpecs) {
-    const { name, label } = spec;
-    const s = snap[name];
-    const c = cur[name];
-    const f = fresh[name];
-
-    if (scalarEqual(c, s)) { resolved[name] = f; continue; }   // untouched → theirs
-    if (scalarEqual(f, s)) { resolved[name] = c; continue; }   // only you → yours
-    if (scalarEqual(f, c)) { resolved[name] = c; continue; }   // same edit → fine
-
-    // true collision — honour a recorded choice only if theirs hasn't moved since.
-    const r = resolutions[name];
-    if (r && scalarEqual(f, r.theirsShown)) {
-      resolved[name] = r.choice === 'mine' ? c : f;
+    if (spec.type === 'orderedUuidList') {
+      mergeOrderedUuidList(spec, snap, cur, fresh, resolutions, resolved, conflicts);
       continue;
     }
-    conflicts.push({ field: name, label, mine: c, theirs: f });
+    mergeScalar(spec, snap, cur, fresh, resolutions, resolved, conflicts);
   }
 
   return { resolved, conflicts };
+}
+
+function mergeScalar(spec, snap, cur, fresh, resolutions, resolved, conflicts) {
+  const { name, label } = spec;
+  const s = snap[name];
+  const c = cur[name];
+  const f = fresh[name];
+
+  if (scalarEqual(c, s)) { resolved[name] = f; return; }   // untouched → theirs
+  if (scalarEqual(f, s)) { resolved[name] = c; return; }   // only you → yours
+  if (scalarEqual(f, c)) { resolved[name] = c; return; }   // same edit → fine
+
+  // true collision — honour a recorded choice only if theirs hasn't moved since.
+  const r = resolutions[name];
+  if (r && scalarEqual(f, r.theirsShown)) {
+    resolved[name] = r.choice === 'mine' ? c : f;
+    return;
+  }
+  conflicts.push({ field: name, label, mine: c, theirs: f });
+}
+
+const splitUuids = v => String(v ?? '').split(',').filter(Boolean);
+const arraysEqual = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * `mergeMine` = your order, filtered to fresh membership, with fresh-new UUIDs
+ * inserted after their surviving fresh-predecessors.
+ */
+function mergeMine(B, F) {
+  const freshSet = new Set(F), bSet = new Set(B);
+  const out = B.filter(u => freshSet.has(u)); // your order, deletions dropped
+  F.forEach((u, i) => {
+    if (bSet.has(u)) return; // not new
+    // Insert after the nearest fresh-predecessor that already survives in `out`.
+    let insertAt = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = out.indexOf(F[j]);
+      if (idx !== -1) { insertAt = idx + 1; break; }
+    }
+    out.splice(insertAt, 0, u);
+  });
+  return out;
+}
+
+function commonOrder(order, otherSet) {
+  return order.filter(u => otherSet.has(u));
+}
+
+function mergeOrderedUuidList(spec, snap, cur, fresh, resolutions, resolved, conflicts) {
+  const { name, label } = spec;
+  const A = splitUuids(snap[name]), B = splitUuids(cur[name]), F = splitUuids(fresh[name]);
+  const snapSet = new Set(A), freshSet = new Set(F);
+
+  const youReordered = !arraysEqual(A, B);
+  const theyReordered = !arraysEqual(commonOrder(A, freshSet), commonOrder(F, snapSet));
+
+  if (!youReordered) { resolved[name] = F.join(','); return; }
+
+  const mine = mergeMine(B, F);
+  if (!theyReordered || arraysEqual(mine, F)) { resolved[name] = mine.join(','); return; }
+
+  // Both reordered differently → conflict.
+  const r = resolutions[name];
+  if (r && arraysEqual(F, splitUuids((r.theirsShown ?? []).join(',')))) {
+    resolved[name] = (r.choice === 'mine' ? mine : F).join(',');
+    return;
+  }
+  conflicts.push({ field: name, label, mine, theirs: F });
 }
