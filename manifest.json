@@ -83,7 +83,10 @@
         "scripts/components.js",
         "scripts/componentContainers.js",
         "scripts/insertMenu.js",
-        "scripts/captureComponent.js"
+        "scripts/captureComponent.js",
+        "scripts/formMerge.js",
+        "scripts/conflictResolver.js",
+        "scripts/mergeSave.js"
       ],
       "matches": ["https://cloud.opus-safety.co.uk/*"]
     },
