@@ -218,8 +218,21 @@ This is feature work with open UX/design decisions, so **don't jump to code**:
   before Plan 2 if you don't want to keep building on `main`.
 - Plan 1 Task 7 (manual browser verification) was being done by the user; the motivating
   scenarios (clean non-conflicting merge, true title conflict + resolver, the raw-variant
-  save bug) passed. Remaining Task-7 checks: "components untouched by a title edit" and
-  "edit-vs-delete guard", plus the final whole-implementation review.
+  save bug) passed. Remaining Task-7 checks if you want full coverage: "components untouched
+  by a title edit" and "edit-vs-delete guard".
+- **Final whole-implementation review is done.** It found one real bug — `rehydrateFields`
+  didn't re-render the rich-text *surface* (only the hidden textarea), so a merged
+  description could be silently re-clobbered on the next keystroke. **Fixed** via
+  `syncSurfaceFromTextarea` (commit `a5e0f67`). Two follow-ups were left open and you may
+  want to fold them into Plan 2/3:
+  - **Resolver has no cancel/abort path** (minor): `showConflictResolver` only resolves once
+    every field is chosen; if the user abandons the form mid-resolution the `mergeSave`
+    `await` never settles and the save button stays busy. Add a Cancel that rejects, and have
+    `mergeSave` restore the save-state button. This matters more once reorder adds an
+    order-conflict row.
+  - **`parentChanged` from a pre-read** (low severity, accepted): computed before the fresh
+    fetch; a concurrent section move could make it stale. `moveSectionToParent` is ~idempotent
+    so it's noted, not fixed.
 - Unrelated uncommitted working-tree changes exist (`background.js`,
   `scripts/captureElement.js`, `scripts/captureMode.js`) — not part of this effort; leave
   them alone.
