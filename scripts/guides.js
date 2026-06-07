@@ -1260,20 +1260,67 @@ async function persistNewAdmonition(formEl, onProgress = () => {}) {
   return { newUuid, file: container.file };
 }
 
-// Rewrite an existing admonition's header + description, preserving its
-// committed sub-components.
+// Rewrite an existing admonition's header + description through the merge engine,
+// preserving its committed sub-components and honouring an in-flight reorder.
 async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
-  const { type, title, description, prefix } = readAdmonitionFields(formEl);
+  const { type } = readAdmonitionFields(formEl);
   if (!type) { alert('Type is required.'); return null; }
   const editUuid = formEl.dataset.editUuid;
   const file = formEl.dataset.containerFile || currentGuide?.draftPath;
   const draftMarkdown = await readRepoText(file);
   if (!locateGuideAdmonition(draftMarkdown, editUuid)) { alert('Admonition no longer exists.'); return null; }
-  await githubFetchAndPushFile(file, onProgress, md => {
-    if (!locateGuideAdmonition(md, editUuid)) return md;
-    const { components } = readContainerComponents(md, { kind: 'guide-admonition', uuid: editUuid });
-    const body = buildComponentBody(editUuid, description, components);
-    return replaceAdmonitionByUUID(md, editUuid, buildAdmonition(prefix, type, title, body));
+
+  // UUID → display descriptor for the order-conflict resolver, built from the
+  // union of the open editor's working components and whatever readFresh parses.
+  const labelMap = {};
+  const noteLabels = comps => {
+    for (const c of comps) {
+      if (c.kind === 'admonition') {
+        const { title: t } = splitTitleMeta(c.adm.title || '');
+        labelMap[c.adm.uuid] = { kind: 'admonition', title: t || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+      } else {
+        labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
+      }
+    }
+  };
+  noteLabels(openComponentEditor?.components ?? []);
+
+  await mergeSave({
+    formEl,
+    file,
+    onProgress,
+    resolverOptions: { describe: (uuid) => labelMap[uuid] },
+    fieldSpecs: [
+      { name: 'admonitionType', type: 'scalar', label: 'Type' },
+      { name: 'admonitionTitle', type: 'scalar', label: 'Title' },
+      { name: 'admonitionMeta', type: 'scalar', label: 'Note' },
+      { name: 'admonitionCollapsible', type: 'scalar', label: 'Collapsible' },
+      { name: 'admonitionDescription', type: 'scalar', label: 'Description' },
+      { name: 'componentOrder', type: 'orderedUuidList', label: 'Component order' },
+    ],
+    readFresh: md => {
+      const adm = locateGuideAdmonition(md, editUuid);
+      const { components } = readContainerComponents(md, { kind: 'guide-admonition', uuid: editUuid });
+      noteLabels(components);
+      const { title: t, meta } = splitTitleMeta(adm?.title || '');
+      const { description: d } = parseComponents(adm?.body ?? '', GUIDE_ADMONITION_TYPES_RE);
+      return {
+        admonitionType: adm?.type ?? type,
+        admonitionTitle: adm?.type === 'step' ? '' : (t ?? ''),
+        admonitionMeta: meta ?? '',
+        admonitionCollapsible: prefixToCollapsible(adm?.prefix ?? '!!!'),
+        admonitionDescription: d ?? '',
+        componentOrder: components.map(uuidOfComponent).join(','),
+      };
+    },
+    build: (md, resolved) => {
+      if (!locateGuideAdmonition(md, editUuid)) throw new Error('Admonition no longer exists.');
+      const { components } = readContainerComponents(md, { kind: 'guide-admonition', uuid: editUuid });
+      const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
+      const mergedTitle = joinTitleMeta(resolved.admonitionType === 'step' ? '' : resolved.admonitionTitle, resolved.admonitionMeta);
+      const body = buildComponentBody(editUuid, resolved.admonitionDescription, ordered);
+      return replaceAdmonitionByUUID(md, editUuid, buildAdmonition(collapsibleToPrefix(resolved.admonitionCollapsible), resolved.admonitionType, mergedTitle, body));
+    },
   });
   return { editUuid, file };
 }
@@ -1318,7 +1365,7 @@ async function saveAdmonitionForComponent(formEl, onProgress = () => {}) {
   }
   const res = await persistAdmonitionEdit(formEl, onProgress);
   if (!res) return null;
-  resetDirtyBaseline(formEl);
+  // mergeSave already reset the dirty baseline; no second reset needed here.
   return { container: { kind: 'guide-admonition', uuid: res.editUuid, file: res.file }, formEl };
 }
 

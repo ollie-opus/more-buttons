@@ -1,16 +1,18 @@
 import { registerFormAction, getFormAction } from './formActions.js';
 import { githubFetchAndPushFile } from './github.js';
-import { readRepoText } from './repoClient.js';
+import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
-import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
+import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { renderCard } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
 import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
-import { parseComponents, buildComponentBody } from './components.js';
+import { parseComponents, buildComponentBody, uuidOfComponent, reorderComponents } from './components.js';
+import { mergeSave } from './mergeSave.js';
 import {
   makeContainerHandler, GUIDE_ADMONITION_TYPES_RE,
   renderComponents, onComponentEditorClick, setOpenComponentEditor,
+  reorderOpenComponentEditor,
 } from './guides.js';
 
 const DRAFT_ENTITY = 'systemUpdateDrafts';
@@ -141,7 +143,8 @@ function mountUpdateComponentsEditor(formEl, { uuid, file, kind, components }) {
   formEl._componentSaver = () => saveUpdateForComponent(formEl);
   const listEl = formEl.querySelector('[data-update-components]');
   renderComponents(listEl, components, false); // updates don't number steps
-  setOpenComponentEditor({ formEl, listEl, container: { kind, uuid, file } });
+  setOpenComponentEditor({ formEl, listEl, container: { kind, uuid, file }, components });
+  formEl._reorderRehydrate = (order) => reorderOpenComponentEditor(order);
   formEl.addEventListener('click', onComponentEditorClick);
 }
 
@@ -161,20 +164,68 @@ async function saveLogUpdateForComponent(formEl) {
 }
 
 // Save-gate saver for the (already-saved) update + draft editors: rewrite the
-// block's header + leading description, preserving committed components.
+// block's header + leading description through the merge engine, preserving
+// committed components and honouring an in-flight reorder. The update's own LIST
+// position is date-driven and untouched here — only the components INSIDE reorder.
 async function saveUpdateForComponent(formEl) {
-  const { title, date, type, description } = readUpdateFormFields(formEl);
+  const { title, date, type } = readUpdateFormFields(formEl); // date is ISO from the form
   if (!title || !date || !type) { alert('Please fill in all required fields.'); return null; }
   const uuid = formEl.dataset.editUuid;
   const kind = formEl.dataset.componentContainerKind; // 'system-update' | 'system-draft'
   const file = formEl.dataset.containerFile;
-  await githubFetchAndPushFile(file, () => {}, md => {
-    const body = rebuildUpdateBody(md, uuid, description);
-    return kind === 'system-update'
-      ? replaceUpdateInMarkdown(md, uuid, { title, date, type, uuid, description: body }, [])
-      : replaceDraftInMarkdown(md, uuid, { title, date, type, description: body }, []);
+
+  // UUID → display descriptor for the order-conflict resolver, built from the
+  // union of the open editor's working components and whatever readFresh parses.
+  const labelMap = {};
+  const noteLabels = comps => {
+    for (const c of comps) {
+      if (c.kind === 'admonition') {
+        const { title: t } = splitTitleMeta(c.adm.title || '');
+        labelMap[c.adm.uuid] = { kind: 'admonition', title: t || c.adm.type };
+      } else {
+        labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
+      }
+    }
+  };
+
+  await mergeSave({
+    formEl,
+    file,
+    resolverOptions: { describe: (u) => labelMap[u] },
+    fieldSpecs: [
+      { name: 'updateTitle', type: 'scalar', label: 'Title' },
+      { name: 'updateDate', type: 'scalar', label: 'Date' },
+      { name: 'updateType', type: 'scalar', label: 'Type' },
+      { name: 'description', type: 'scalar', label: 'Description' },
+      { name: 'componentOrder', type: 'orderedUuidList', label: 'Component order' },
+    ],
+    readFresh: md => {
+      const block = parseUpdateBlocks(md).find(u => u.uuid === uuid);
+      // parseUpdateBlocks yields the *display* date; the form value is ISO, so
+      // normalize the fresh side to ISO too — otherwise an unchanged date reads
+      // as a phantom conflict.
+      const di = block ? parseDateStr(block.date) : null;
+      const isoDate = di ? `${di.year}-${String(di.month).padStart(2, '0')}-${String(di.day).padStart(2, '0')}` : '';
+      const { description, components } = readUpdateComponents(md, uuid);
+      noteLabels(components);
+      return {
+        updateTitle: block?.title ?? '',
+        updateDate: isoDate,
+        updateType: block?.type ?? '',
+        description: description ?? '',
+        componentOrder: components.map(uuidOfComponent).join(','),
+      };
+    },
+    build: (md, resolved) => {
+      const { components } = readUpdateComponents(md, uuid);
+      const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
+      const body = buildComponentBody(uuid, resolved.description, ordered);
+      const upd = { title: resolved.updateTitle, date: resolved.updateDate, type: resolved.updateType, uuid, description: body };
+      return kind === 'system-update'
+        ? replaceUpdateInMarkdown(md, uuid, upd, [])
+        : replaceDraftInMarkdown(md, uuid, upd, []);
+    },
   });
-  resetDirtyBaseline(formEl);
   return { container: { kind, uuid, file }, formEl };
 }
 
@@ -510,18 +561,10 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
   try {
-    const _uuid = formEl.dataset.editUuid;
-    if (!_uuid) throw new Error('No update identity found');
-
-    const { title, date, type, description } = readUpdateFormFields(formEl);
-    if (!title || !date || !type) { alert('Please fill in all required fields.'); formEl._refreshSaveState?.(); return; }
-
-    await githubFetchAndPushFile(UPDATES_FILE, s => setButtonBusy(btn, s), md => {
-      const body = rebuildUpdateBody(md, _uuid, description);
-      return replaceUpdateInMarkdown(md, _uuid, { title, date, type, uuid: _uuid, description: body }, []);
-    });
-
-    resetDirtyBaseline(formEl);
+    if (!formEl.dataset.editUuid) throw new Error('No update identity found');
+    // Route through the single merge-based save path (resets the dirty baseline
+    // internally). Validation failure returns null; either way refresh the button.
+    await saveUpdateForComponent(formEl);
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
@@ -618,18 +661,10 @@ registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
   try {
-    const _uuid = formEl.dataset.editUuid;
-    if (!_uuid) throw new Error('No draft identity found');
-
-    const { title, date, type, description } = readUpdateFormFields(formEl);
-    if (!title || !date || !type) { alert('Please fill in all required fields.'); formEl._refreshSaveState?.(); return; }
-
-    await githubFetchAndPushFile(DRAFTS_FILE, s => setButtonBusy(btn, s), md => {
-      const body = rebuildUpdateBody(md, _uuid, description);
-      return replaceDraftInMarkdown(md, _uuid, { title, date, type, description: body }, []);
-    });
-
-    resetDirtyBaseline(formEl);
+    if (!formEl.dataset.editUuid) throw new Error('No draft identity found');
+    // Route through the single merge-based save path (resets the dirty baseline
+    // internally). kind is read from the form dataset, so the draft file is used.
+    await saveUpdateForComponent(formEl);
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
