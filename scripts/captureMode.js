@@ -67,7 +67,7 @@ async function loadSettings() {
     capturePadding:  0,
     downloadPath:    s.downloadPath || 'occ-captures',
     themeDelay:      s.themeDelay ?? 500,
-    scale:           2,
+    scale:           6,
   };
 }
 
