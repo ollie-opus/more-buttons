@@ -32,7 +32,7 @@ import {
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { escapeHtml, captureComponentCard } from './cardRenderer.js';
-import { parseComponents, buildComponentBody, ensureCaptureUUIDs } from './components.js';
+import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 
@@ -562,7 +562,8 @@ registerFormAction('openEditGuideSection', async ({ uuid }) => {
   // Render the unified component list (admonitions + captures, in order).
   const listEl = formEl.querySelector('[data-section-components]');
   renderComponents(listEl, components);
-  openComponentEditor = { formEl, listEl, container: { kind: 'guide-section', uuid, file: currentGuide.draftPath } };
+  openComponentEditor = { formEl, listEl, container: { kind: 'guide-section', uuid, file: currentGuide.draftPath }, components };
+  attachReorderState(formEl);
 
   formEl.addEventListener('click', onComponentEditorClick);
 });
@@ -640,11 +641,43 @@ function writeContainerBody(md, container, description, components) {
 let openComponentEditor = null;
 export function setOpenComponentEditor(ed) { openComponentEditor = ed; }
 
+// Post-merge / post-arrow re-render of the open editor in a given UUID order.
+// Exported so non-guide hosts (system updates) reuse the exact same re-render.
+export function reorderOpenComponentEditor(order) {
+  const ed = openComponentEditor;
+  if (!ed) return;
+  ed.components = reorderComponents(ed.components, order);
+  renderComponents(ed.listEl, ed.components, ed.container.kind === 'guide-section');
+}
+
+// Wires the form's mergeSave reorder-rehydrate hook to the shared re-render.
+function attachReorderState(formEl) {
+  formEl._reorderRehydrate = (order) => reorderOpenComponentEditor(order);
+}
+
+// In-memory reorder: swap a component with its neighbour in the open editor's
+// working list, re-render, and mark the form dirty. Order is BATCH — it is not
+// committed here; it rides the parent form's next save through the merge engine.
+function moveComponentInEditor(formEl, uuid, dir) {
+  const ed = openComponentEditor;
+  if (!ed || ed.formEl !== formEl || !Array.isArray(ed.components)) return;
+  const i = ed.components.findIndex(c => uuidOfComponent(c) === uuid);
+  if (i < 0) return;
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= ed.components.length) return;
+  const next = ed.components.slice();
+  [next[i], next[j]] = [next[j], next[i]];
+  ed.components = next;
+  renderComponents(ed.listEl, next, ed.container.kind === 'guide-section');
+  formEl._refreshSaveState?.(); // programmatic field change doesn't fire input/change
+}
+
 async function rerenderOpenComponentEditor() {
   const ed = openComponentEditor;
   if (!ed?.formEl?.isConnected) return;
   const md = await readRepoText(ed.container.file);
   const { components } = readContainerComponents(md, ed.container);
+  ed.components = components;
   renderComponents(ed.listEl, components, ed.container.kind === 'guide-section');
 }
 
@@ -707,23 +740,42 @@ function captureComponentCardFor(cap) {
 // numbered, matching the published site). Captures never affect numbering.
 export function renderComponents(listEl, components, numberSteps = true) {
   if (!listEl) return;
+  // Keep the form's hidden order field in lockstep with what's rendered.
+  const orderField = listEl.closest('form')?.querySelector('[name="componentOrder"]');
+  if (orderField) orderField.value = components.map(uuidOfComponent).join(',');
+
   if (components.length === 0) {
     listEl.innerHTML = `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
   const parts = [];
   let stepN = 0;
+  const last = components.length - 1;
   components.forEach((c, i) => {
     parts.push(insertComponentTrigger(i));
+    let card;
     if (c.kind === 'admonition') {
       const n = (numberSteps && c.adm.type === 'step') ? ++stepN : null;
-      parts.push(admonitionCard(c.adm, n));
+      card = admonitionCard(c.adm, n);
     } else {
-      parts.push(captureComponentCardFor(c.cap));
+      card = captureComponentCardFor(c.cap);
     }
+    parts.push(componentRow(uuidOfComponent(c), i === 0, i === last, card));
   });
   parts.push(insertComponentTrigger(components.length));
   listEl.innerHTML = parts.join('');
+}
+
+// Wraps a component card with a vertical up/down reorder rail on its left edge.
+function componentRow(uuid, isFirst, isLast, cardHtml) {
+  return `
+    <div class="mb-component-row" data-component-uuid="${escapeHtml(uuid)}">
+      <div class="mb-component-rail">
+        <button type="button" class="mb-component-rail__btn" data-move-component="up" ${isFirst ? 'disabled' : ''} aria-label="Move up">↑</button>
+        <button type="button" class="mb-component-rail__btn" data-move-component="down" ${isLast ? 'disabled' : ''} aria-label="Move down">↓</button>
+      </div>
+      ${cardHtml}
+    </div>`;
 }
 
 // ── The component save-gate ──────────────────────────────────────────────────
@@ -793,6 +845,14 @@ async function runChildAction(container, formEl, action) {
 // system-update). Routes all child navigation through the save-gate.
 export function onComponentEditorClick(e) {
   const formEl = e.currentTarget;
+
+  const moveBtn = e.target.closest('[data-move-component]');
+  if (moveBtn) {
+    if (moveBtn.disabled) return;
+    const row = moveBtn.closest('[data-component-uuid]');
+    moveComponentInEditor(formEl, row?.dataset.componentUuid, moveBtn.dataset.moveComponent);
+    return;
+  }
 
   const editAdm = e.target.closest('[data-edit-guide-admonition]');
   if (editAdm) {
@@ -873,7 +933,8 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
   const listEl = formEl.querySelector('[data-section-components]');
   renderComponents(listEl, []);
-  setOpenComponentEditor({ formEl, listEl, container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath } });
+  setOpenComponentEditor({ formEl, listEl, container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath }, components: [] });
+  attachReorderState(formEl);
   const refreshed = await readRepoText(currentGuide.draftPath);
   const newTreeMatch = buildSectionTree(refreshed).sections.find(s => s.uuid === newUuid);
   const heading = formEl.querySelector('[data-guide-section-heading]');
@@ -1120,7 +1181,8 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
   // Sub-admonition steps aren't numbered (matches the published site + breadcrumb).
   const listEl = formEl.querySelector('[data-admonition-components]');
   renderComponents(listEl, components, false);
-  openComponentEditor = { formEl, listEl, container: { kind: 'guide-admonition', uuid, file: containerFile } };
+  openComponentEditor = { formEl, listEl, container: { kind: 'guide-admonition', uuid, file: containerFile }, components };
+  attachReorderState(formEl);
 });
 
 // Step admonitions are auto-titled by the docs theme (any title is ignored), so
@@ -1208,7 +1270,8 @@ async function transitionAdmonitionCreateToEdit(formEl, newUuid, file) {
   formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
   const listEl = formEl.querySelector('[data-admonition-components]');
   renderComponents(listEl, [], false);
-  setOpenComponentEditor({ formEl, listEl, container: { kind: 'guide-admonition', uuid: newUuid, file } });
+  setOpenComponentEditor({ formEl, listEl, container: { kind: 'guide-admonition', uuid: newUuid, file }, components: [] });
+  attachReorderState(formEl);
   await chrome.storage.local.set({
     moreButtonsEditGuideAdmonition: {
       admonitionTitle: formEl.querySelector('[name="admonitionTitle"]')?.value ?? '',
