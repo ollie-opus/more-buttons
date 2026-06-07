@@ -9,7 +9,7 @@
  */
 
 import { mergeFields, ConflictNeeded } from './formMerge.js';
-import { showConflictResolver } from './conflictResolver.js';
+import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { githubFetchAndPushFile } from './github.js';
 import { readFormValues, resetDirtyBaseline } from './form.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
@@ -22,9 +22,10 @@ import { syncSurfaceFromTextarea } from './richTextEditor.js';
  * @param {(md:string)=>Object} opts.readFresh - parse fresh field values from md
  * @param {(md:string, resolved:Object)=>string} opts.build - build updated md
  * @param {(msg:string)=>void} [opts.onProgress]
+ * @param {Object} [opts.resolverOptions] - forwarded to showConflictResolver (e.g. describe)
  * @returns {Promise<Object>} the resolved values that were written
  */
-export async function mergeSave({ formEl, file, fieldSpecs, readFresh, build, onProgress = () => {} }) {
+export async function mergeSave({ formEl, file, fieldSpecs, readFresh, build, onProgress = () => {}, resolverOptions = {} }) {
   const snap = formEl._initialSnapshot ?? {};
   const resolutions = {};
   let lastResolved = null;
@@ -42,7 +43,16 @@ export async function mergeSave({ formEl, file, fieldSpecs, readFresh, build, on
       break;
     } catch (e) {
       if (e instanceof ConflictNeeded) {
-        const choices = await showConflictResolver(formEl, e.conflicts);
+        let choices;
+        try {
+          choices = await showConflictResolver(formEl, e.conflicts, resolverOptions);
+        } catch (cancel) {
+          if (cancel instanceof ResolveCancelled) {
+            formEl._refreshSaveState?.();   // restore the save button; abort the save
+            return null;
+          }
+          throw cancel;
+        }
         for (const c of e.conflicts) {
           resolutions[c.field] = { choice: choices[c.field], theirsShown: c.theirs };
         }
