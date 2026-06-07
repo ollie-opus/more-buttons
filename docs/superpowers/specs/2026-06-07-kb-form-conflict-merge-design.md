@@ -59,6 +59,10 @@ We parse markdown only for `fresh`, and only for the fields we actually merge.
 
 ## The merge rule (per field)
 
+The merge runs in **edit mode only**. A create-mode save mints a brand-new UUID and
+cannot collide with anything, so it is never merged — this applies uniformly to creating
+a section, an admonition, a system update, and an incident.
+
 | condition | meaning | action |
 |---|---|---|
 | `cur === snap` | you didn't touch it | **take `fresh`** (keep theirs) |
@@ -157,6 +161,41 @@ ones they deleted.
 
 Reorder ships **with** this merge so it cannot reintroduce clobbering.
 
+## Capture identity (UUIDs) — a prerequisite
+
+Captures are the one component **without stable identity**: they are addressed by list
+**index** (`captureComponent.js` — `componentIndex` / `components[index]`), and the capture
+markdown carries no `data-uuid` span (the dark filename is even *derived* from the light
+one via `-light-mode`→`-dark-mode`). This breaks two things:
+
+1. **A latent wrong-target bug, today.** `editCaptureComponent` saves by re-reading fresh
+   components and indexing `components[index]`. If another session inserts/deletes/reorders
+   a component above this capture between open and save, that index points elsewhere. The
+   `c.kind !== 'capture'` guard prevents corrupting an admonition, but if the item now at
+   that index is *also* a capture, you silently edit the **wrong capture's** dimensions.
+2. **Reorder cannot be correct on mixed lists.** A container's component list interleaves
+   admonitions and captures, and `orderedUuidList` reconciles membership/order **by UUID**.
+   With no UUID on captures, the strategy can't track them across snap/cur/fresh.
+
+**Resolution — give captures UUIDs, mirroring the section/admonition pattern.** This is
+foundational and lands **before** reorder, not as an optional extra.
+
+- **Format:** a hidden `data-uuid` span on the line immediately preceding the light-mode
+  image line, at the same indent, folded into the capture's line range:
+  ```
+  <span data-uuid="…" style="display:none"></span>
+  ![](../assets/foo-light-mode.png#only-light){ width="800" }
+  ![](../assets/foo-dark-mode.png#only-dark)
+  ```
+- **Migration:** `ensureCaptureUUIDs(markdown)` backfills existing captures on first touch —
+  idempotent, reverse-order splice, same approach as `ensureAdmonitionUUIDs` /
+  `ensureSectionUUIDs`. Run from the same migration point those already use.
+- **Parse/build:** `locateCaptureLines` detects and returns the adjacent span (extending
+  `startLine`); `parseComponents` carries `cap.uuid`; `buildCaptureLines` emits the span.
+- **Addressing switch:** `editCaptureComponent` and the `componentContainers` capture
+  mutation locate by `cap.uuid`, not index — fixing bug (1) and making capture
+  `dimMode`/`dimValue` a normal UUID-keyed scalar merge.
+
 ## Engine: pluggable field types
 
 `scripts/formMerge.js` exposes one engine with per-field-type strategies:
@@ -175,15 +214,18 @@ Adding a future field type is a new strategy, not an engine rewrite.
 
 ## Scope — the complete inventory
 
+Merge applies to **edit mode** only (see the merge-rule note); create-mode rows below are
+listed as "create: none" for completeness.
+
 | Form / saver | File | Merged fields |
 |---|---|---|
-| `editGuideSection` → `saveSectionForComponent` | `scripts/guides.js` | title, description |
-| `editGuideAdmonition` → `saveAdmonitionForComponent` | `scripts/guides.js` | title, meta, type, collapsible, description |
+| `editGuideSection` → `saveSectionForComponent` | `scripts/guides.js` | edit: title, description · create: none |
+| `editGuideAdmonition` → `saveAdmonitionForComponent` | `scripts/guides.js` | edit: title, meta, type, collapsible, description · create: none |
 | `editSystemUpdate` / `editDraftSystemUpdate` → `saveUpdateForComponent` | `scripts/systemUpdates.js` | title, date, type, description |
 | `logSystemUpdate` → `saveLogUpdateForComponent` | `scripts/systemUpdates.js` | create-mode (no merge); transitions to draft edit |
-| incidents `reportIncident` (create) / `updateIncident` | `scripts/systemStatus.js` | create: none; update: description, status, reported, resolved, causation |
+| incidents `reportIncident` (create) / `updateIncident` | `scripts/systemStatus.js` | create: none · update: description, status, reported, resolved, causation |
 | service-status toggles → `publishSystemStatus` | `scripts/systemStatus.js` | each service's status, keyed by service name |
-| `editCaptureComponent` | `scripts/captureComponent.js` | dimMode, dimValue |
+| `editCaptureComponent` | `scripts/captureComponent.js` | dimMode, dimValue (UUID-keyed — requires capture UUIDs) |
 | parent forms with components (section, admonition, update, draft-update) | as above | `componentOrder` (`orderedUuidList`) once reorder ships |
 
 **Out of scope:** the same-browser "open in another tab" advisory nudge (the merge already
@@ -219,6 +261,11 @@ later, independently). Locking, in any form. Positional merge beyond `orderedUui
 - `scripts/guides.js`, `scripts/systemUpdates.js`, `scripts/systemStatus.js`,
   `scripts/captureComponent.js` — add a per-form descriptor (mergeable fields +
   `readFresh` + `write`) and route each saver through the engine + resolver.
+- `scripts/components.js`, `scripts/captures.js` — capture UUID support:
+  `locateCaptureLines` reads/returns the span, `parseComponents` carries `cap.uuid`,
+  `buildCaptureLines` emits it, plus an `ensureCaptureUUIDs` migration.
+- `scripts/captureComponent.js` + `componentContainers` capture mutation — address
+  captures by `cap.uuid` instead of list index.
 - Parent component forms — add reorder arrows, the `componentOrder` hidden field, and
   order-aware writes.
 - Small helper to normalise the system-update display date to ISO on both `fresh` and form
@@ -230,7 +277,10 @@ later, independently). Locking, in any form. Positional merge beyond `orderedUui
    entries.
 2. **Wire `scalar` merge into `editGuideSection`** — proves the full loop end-to-end
    against the motivating scenario.
-3. **Extend scalar** to admonition, system-update/draft/log, incident-update, capture,
+3. **Extend scalar** to admonition, system-update/draft/log, incident-update,
    per-service status.
-4. **Batch reorder**: arrows UI + `componentOrder` field + `orderedUuidList` strategy +
-   order-aware writes on the parent forms.
+4. **Capture UUIDs** (foundational): span format, `ensureCaptureUUIDs` migration,
+   parse/build, and the `editCaptureComponent` index→UUID switch. Then wire capture
+   `dimMode`/`dimValue` into the scalar merge.
+5. **Batch reorder**: arrows UI + `componentOrder` field + `orderedUuidList` strategy +
+   order-aware writes on the parent forms (depends on step 4 for capture identity).
