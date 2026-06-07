@@ -694,10 +694,10 @@ function insertComponentTrigger(idx) {
   return `<div class="mb-insert-component" data-insert-component-at="${idx}"><button type="button" class="mb-insert-component__btn">+ Insert Component</button></div>`;
 }
 
-function captureComponentCardFor(cap, index) {
+function captureComponentCardFor(cap) {
   return captureComponentCard({
     thumbSrc: assetCdnUrl('docs/assets/' + cap.lightFilename),
-    btnAttr: `data-edit-component="${index}"`,
+    btnAttr: `data-edit-component="${escapeHtml(cap.uuid ?? '')}"`,
   });
 }
 
@@ -719,7 +719,7 @@ export function renderComponents(listEl, components, numberSteps = true) {
       const n = (numberSteps && c.adm.type === 'step') ? ++stepN : null;
       parts.push(admonitionCard(c.adm, n));
     } else {
-      parts.push(captureComponentCardFor(c.cap, i));
+      parts.push(captureComponentCardFor(c.cap));
     }
   });
   parts.push(insertComponentTrigger(components.length));
@@ -785,7 +785,7 @@ async function runChildAction(container, formEl, action) {
   } else if (action.type === 'edit-admonition') {
     getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-capture') {
-    openCaptureComponentEditor(container, action.index);
+    openCaptureComponentEditor(container, action.uuid);
   }
 }
 
@@ -802,7 +802,7 @@ export function onComponentEditorClick(e) {
 
   const editCap = e.target.closest('[data-edit-component]');
   if (editCap) {
-    beginChildNavigation(formEl, { type: 'edit-capture', index: parseInt(editCap.dataset.editComponent, 10) });
+    beginChildNavigation(formEl, { type: 'edit-capture', uuid: editCap.dataset.editComponent });
     return;
   }
 
@@ -819,12 +819,12 @@ export function onComponentEditorClick(e) {
   }
 }
 
-async function openCaptureComponentEditor(container, index) {
+async function openCaptureComponentEditor(container, uuid) {
   const md = await readRepoText(container.file);
   const { components } = readContainerComponents(md, container);
-  const c = components[index];
-  if (!c || c.kind !== 'capture') return;
-  getFormAction('openEditCaptureComponent')?.({ container, index, cap: c.cap });
+  const c = components.find(x => x.kind === 'capture' && x.cap.uuid === uuid);
+  if (!c) return;
+  getFormAction('openEditCaptureComponent')?.({ container, uuid, cap: c.cap });
 }
 
 function admonitionCard(adm, stepNumber = null) {

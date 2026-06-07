@@ -28,12 +28,12 @@ function applyDimAuto(formEl) {
 /**
  * @param {Object} opts
  * @param {{kind:string, uuid:string}} opts.container - the owning container.
- * @param {number} opts.index - component index of this capture within the container.
+ * @param {string} opts.uuid - the capture component's UUID.
  * @param {{lightFilename,darkFilename,dimMode,dimValue}} opts.cap
  */
-export async function openEditCaptureComponent({ container, index, cap } = {}) {
+export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
   if (!container || !cap) return;
-  const opener = () => openEditCaptureComponent({ container, index, cap });
+  const opener = () => openEditCaptureComponent({ container, uuid, cap });
 
   await chrome.storage.local.set({
     moreButtonsEditCaptureComponent: { dimMode: cap.dimMode ?? 'none', dimValue: cap.dimValue ?? 50 },
@@ -44,7 +44,7 @@ export async function openEditCaptureComponent({ container, index, cap } = {}) {
   formEl.dataset.containerKind = container.kind;
   formEl.dataset.containerUuid = container.uuid;
   formEl.dataset.containerFile = container.file;
-  formEl.dataset.componentIndex = String(index);
+  formEl.dataset.componentUuid = uuid;
 
   const previewEl = formEl.querySelector('[data-capture-component-preview]');
   if (previewEl) {
@@ -80,12 +80,12 @@ function readContainerRef(formEl) {
       uuid: formEl.dataset.containerUuid,
       file: formEl.dataset.containerFile,
     },
-    index: parseInt(formEl.dataset.componentIndex, 10),
+    uuid: formEl.dataset.componentUuid,
   };
 }
 
 registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => {
-  const { handler, container, index } = readContainerRef(formEl);
+  const { handler, container, uuid } = readContainerRef(formEl);
   if (!handler) return;
   const btn = content?.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
@@ -94,13 +94,12 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
     const rawVal = parseInt(formEl.querySelector('[name="dimValue"]')?.value, 10);
     const dimValue = mode === 'none' ? null : (Number.isFinite(rawVal) && rawVal > 0 ? rawVal : 50);
 
-    await handler.mutate(container, (components) => {
-      const c = components[index];
-      if (!c || c.kind !== 'capture') return components;
-      const next = components.slice();
-      next[index] = { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue } };
-      return next;
-    }, s => setButtonBusy(btn, s));
+    await handler.mutate(container, (components) =>
+      components.map(c =>
+        (c.kind === 'capture' && c.cap.uuid === uuid)
+          ? { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue } }
+          : c),
+      s => setButtonBusy(btn, s));
 
     resetDirtyBaseline(formEl);
     formEl._refreshSaveState?.();
@@ -112,19 +111,15 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
 
 registerFormAction('deleteCaptureComponent', async ({ formEl, content }) => {
   if (!confirm('Delete this capture? This removes it from the page (the image stays in the library).')) return;
-  const { handler, container, index } = readContainerRef(formEl);
+  const { handler, container, uuid } = readContainerRef(formEl);
   if (!handler) return;
   const btn = content?.querySelector('[data-action="deleteCaptureComponent"]');
   const originalText = btn?.textContent;
   if (btn) btn.disabled = true;
   try {
-    await handler.mutate(container, (components) => {
-      const c = components[index];
-      if (!c || c.kind !== 'capture') return components;
-      const next = components.slice();
-      next.splice(index, 1);
-      return next;
-    }, s => { if (btn) btn.textContent = s; });
+    await handler.mutate(container, (components) =>
+      components.filter(c => !(c.kind === 'capture' && c.cap.uuid === uuid)),
+      s => { if (btn) btn.textContent = s; });
 
     await chrome.storage.local.remove('moreButtonsEditCaptureComponent');
     await navigateBack();

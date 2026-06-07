@@ -30,7 +30,7 @@ export function renderCard({ colour, title, badge, description, meta, btnAttr, b
 // "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an
 // existing capture, or a data: url for a freshly-captured pending one).
-// `btnAttr` wires the Edit button (e.g. 'data-edit-component="2"').
+// `btnAttr` wires the Edit button (e.g. 'data-edit-component="<uuid>"').
 export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
