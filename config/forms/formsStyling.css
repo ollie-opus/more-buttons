@@ -546,15 +546,15 @@ button.more-buttons-crumb:hover {
 }
 
 .mb-capture-card--light {
-  background: #ffffff;
-  border-color: #e2e8f0;
-  color: #0f172a;
-}
-
-.mb-capture-card--dark {
   background: #1e293b;
   border-color: #334155;
   color: #f8fafc;
+}
+
+.mb-capture-card--dark {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
 }
 
 .mb-capture-card__title {
