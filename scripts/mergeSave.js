@@ -12,6 +12,7 @@ import { mergeFields, ConflictNeeded } from './formMerge.js';
 import { showConflictResolver } from './conflictResolver.js';
 import { githubFetchAndPushFile } from './github.js';
 import { readFormValues, resetDirtyBaseline } from './form.js';
+import { syncSurfaceFromTextarea } from './richTextEditor.js';
 
 /**
  * @param {Object} opts
@@ -68,6 +69,10 @@ function rehydrateFields(formEl, fieldSpecs, resolved) {
       els.forEach(r => { r.checked = (r.value === String(val)); });
     } else if (els[0]) {
       els[0].value = val ?? '';
+      // If this is a rich-text textarea, re-render its visible surface too —
+      // otherwise the surface keeps the stale value and re-serializes it over the
+      // merged value on the user's next keystroke (silent re-clobber).
+      syncSurfaceFromTextarea(els[0]);
     }
   }
 }

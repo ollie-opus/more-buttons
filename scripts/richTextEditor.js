@@ -102,6 +102,15 @@ function renderSurface(rte) {
   rte.surface.innerHTML = renderHtml(parseInline(rte.textarea.value || ''));
 }
 
+// Re-render the visible rich surface from the textarea's current value. Call
+// after programmatically replacing textarea.value (e.g. a merge rehydrate) so the
+// surface doesn't keep showing — and then re-serialize over — a stale value. No-op
+// for a plain (non-upgraded) textarea.
+export function syncSurfaceFromTextarea(textarea) {
+  const rte = textarea?.closest?.('.mb-rte')?._rte;
+  if (rte) renderSurface(rte);
+}
+
 // Does the surface hold an emptied mark wrapper? (e.g. the user deleted all the
 // text inside a <strong>, leaving <strong></strong> with the caret in it.)
 function hasEmptyMark(surface) {
