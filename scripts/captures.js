@@ -25,13 +25,15 @@ export function buildCaptureLines(list = []) {
   return list.flatMap(c => {
     const light = `![](../assets/${c.lightFilename}#only-light)`;
     const dark  = `![](../assets/${c.darkFilename}#only-dark)`;
+    const spanLines = c.uuid ? [`<span data-uuid="${c.uuid}" style="display:none"></span>`] : [];
     if (c.dimMode === 'none') {
-      return ['', light, dark];
+      return ['', ...spanLines, light, dark];
     }
     const v = c.dimValue ?? 50;
     const dimAttr = c.dimMode === 'width' ? `width="${v}"` : `style="height: ${v}px"`;
     return [
       '',
+      ...spanLines,
       `${light}{ ${dimAttr} loading=lazy }`,
       `${dark}{ ${dimAttr} loading=lazy }`,
     ];
