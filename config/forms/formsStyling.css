@@ -2495,3 +2495,16 @@ details[open] .more-buttons-advanced-toggle::before {
   background-color: var(--mb-bg-input);
   border-left: 1px dashed var(--mb-border);
 }
+
+/* Component reorder rail (Plan 2) — vertical up/down arrows on each card's left edge. */
+.mb-component-row { display: flex; align-items: stretch; gap: 6px; }
+.mb-component-row > .mb-incident-card { flex: 1 1 auto; }
+.mb-component-rail { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 0 0 auto; }
+.mb-component-rail__btn {
+  width: 28px; height: 28px; padding: 0; line-height: 1;
+  border: 1px solid var(--mb-border, #d0d5dd); border-radius: 6px;
+  background: #fff; cursor: pointer; color: #475467; font-size: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.mb-component-rail__btn:hover:not(:disabled) { background: #f2f4f7; }
+.mb-component-rail__btn:disabled { opacity: 0.35; cursor: default; }
