@@ -1,6 +1,6 @@
 # KB Conflict Merge — Plan 2: Capture UUIDs & Component Reorder
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use **superpowers:subagent-driven-development** to implement this plan task-by-task — this is the chosen execution mode (same as Plan 1): a fresh subagent per task, a two-stage review between tasks (spec compliance → code quality), and a commit per task. Steps use checkbox (`- [ ]`) syntax for tracking. Do the tasks strictly in order (A1 → A8 → B1 → B8); the dependency notes in "Self-review notes" are binding.
 
 **Goal:** Give captures stable UUIDs (killing the latent wrong-target bug and making capture edits a UUID-keyed scalar merge), then add up/down reorder of the components inside every component-container (guide section, admonition, system-update body) routed through the conflict-merge engine so reorder can never reintroduce last-write-wins clobbering.
 
