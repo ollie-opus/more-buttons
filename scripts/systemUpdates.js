@@ -167,7 +167,7 @@ async function saveLogUpdateForComponent(formEl) {
 // block's header + leading description through the merge engine, preserving
 // committed components and honouring an in-flight reorder. The update's own LIST
 // position is date-driven and untouched here — only the components INSIDE reorder.
-async function saveUpdateForComponent(formEl) {
+async function saveUpdateForComponent(formEl, onProgress = () => {}) {
   const { title, date, type } = readUpdateFormFields(formEl); // date is ISO from the form
   if (!title || !date || !type) { alert('Please fill in all required fields.'); return null; }
   const uuid = formEl.dataset.editUuid;
@@ -191,6 +191,7 @@ async function saveUpdateForComponent(formEl) {
   await mergeSave({
     formEl,
     file,
+    onProgress,
     resolverOptions: { describe: (u) => labelMap[u] },
     fieldSpecs: [
       { name: 'updateTitle', type: 'scalar', label: 'Title' },
@@ -564,7 +565,7 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, content }) => {
     if (!formEl.dataset.editUuid) throw new Error('No update identity found');
     // Route through the single merge-based save path (resets the dirty baseline
     // internally). Validation failure returns null; either way refresh the button.
-    await saveUpdateForComponent(formEl);
+    await saveUpdateForComponent(formEl, s => setButtonBusy(btn, s));
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
@@ -664,7 +665,7 @@ registerFormAction('saveDraftEditSystemUpdate', async ({ formEl, content }) => {
     if (!formEl.dataset.editUuid) throw new Error('No draft identity found');
     // Route through the single merge-based save path (resets the dirty baseline
     // internally). kind is read from the form dataset, so the draft file is used.
-    await saveUpdateForComponent(formEl);
+    await saveUpdateForComponent(formEl, s => setButtonBusy(btn, s));
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
