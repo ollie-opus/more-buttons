@@ -71,6 +71,16 @@ export async function mergeSave({ formEl, file, fieldSpecs, readFresh, build, on
 function rehydrateFields(formEl, fieldSpecs, resolved) {
   if (!resolved) return;
   for (const spec of fieldSpecs) {
+    if (spec.type === 'orderedUuidList') {
+      // A still-conflicted order field has no resolved entry — skip it so we
+      // don't clobber the on-screen order with stale/undefined data.
+      const val = resolved[spec.name];
+      if (val === undefined) continue;
+      const field = formEl.querySelector(`[name="${spec.name}"]`);
+      if (field) field.value = val;
+      formEl._reorderRehydrate?.(String(val).split(',').filter(Boolean));
+      continue;
+    }
     if (spec.type !== 'scalar') continue;
     const val = resolved[spec.name];
     if (val === undefined) continue;

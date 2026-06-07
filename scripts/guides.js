@@ -983,26 +983,48 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
   const requestedParent = parentUuid || null;
   const parentChanged = section.level !== 1 && (currentParentUuid ?? null) !== (requestedParent ?? null);
 
+  // Map UUID → display descriptor for the order-conflict resolver. Built from
+  // the union of the open editor's working components and whatever readFresh last
+  // parsed, so both "mine" and "theirs" UUIDs resolve to a label/thumbnail.
+  const labelMap = {};
+  const noteLabels = comps => {
+    for (const c of comps) {
+      if (c.kind === 'admonition') {
+        const { title } = splitTitleMeta(c.adm.title || '');
+        labelMap[c.adm.uuid] = { kind: 'admonition', title: title || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+      } else {
+        labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
+      }
+    }
+  };
+  noteLabels(openComponentEditor?.components ?? []);
+
   await mergeSave({
     formEl,
     file: currentGuide.draftPath,
     onProgress,
+    resolverOptions: { describe: (uuid) => labelMap[uuid] },
     fieldSpecs: [
       { name: 'sectionTitle', type: 'scalar', label: 'Title' },
       { name: 'sectionDescription', type: 'scalar', label: 'Description' },
+      { name: 'componentOrder', type: 'orderedUuidList', label: 'Component order' },
     ],
     readFresh: md => {
       const sec = locateSectionByUUID(md, editUuid);
+      const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
+      noteLabels(components);
       return {
         sectionTitle: sec?.title ?? '',
         sectionDescription: parseComponents(readSectionDescription(md, editUuid).descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE).description ?? '',
+        componentOrder: components.map(uuidOfComponent).join(','),
       };
     },
     build: (md, resolved) => {
       const sec = locateSectionByUUID(md, editUuid);
       if (!sec) throw new Error('Section no longer exists.');
       const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
-      const newBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), components);
+      const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
+      const newBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), ordered);
       let updated = replaceSectionByUUID(md, editUuid, buildSection(sec.level, (resolved.sectionTitle ?? '').trim(), editUuid, newBody));
       if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
       return updated;
