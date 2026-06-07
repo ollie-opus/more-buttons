@@ -25,6 +25,7 @@ const LIGHT_LINE_RE =
   /^(\s*)!\[\]\(\.\.\/assets\/([^)#]+)#only-light\)(?:\{\s*([^}]+?)\s*\})?\s*$/;
 const DARK_LINE_RE = /^\s*!\[\]\(\.\.\/assets\/[^)#]+#only-dark\)/;
 const UUID_SPAN_RE = /<span[^>]*data-uuid[^>]*><\/span>\n?/g;
+const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
 
 /** True when `line` falls within any `[start, end)` range. */
 function inAnyRange(line, ranges) {
@@ -65,7 +66,16 @@ export function locateCaptureLines(body) {
     while (j < lines.length && lines[j] === '') j++;
     const endLine = (j < lines.length && DARK_LINE_RE.test(lines[j])) ? j + 1 : i + 1;
 
-    out.push({ lightFilename, darkFilename, dimMode, dimValue, indent, startLine: i, endLine });
+    // A hidden data-uuid span on the line immediately before the light image is
+    // this capture's identity; extend startLine to swallow it.
+    let startLine = i;
+    let uuid = null;
+    if (i > 0) {
+      const sm = lines[i - 1].match(UUID_SPAN_LINE_RE);
+      if (sm) { uuid = sm[1]; startLine = i - 1; }
+    }
+
+    out.push({ lightFilename, darkFilename, dimMode, dimValue, indent, uuid, startLine, endLine });
     i = endLine - 1;
   }
   return out;
