@@ -217,3 +217,21 @@ export function captureComponent(cap) {
 export function admonitionComponent(adm) {
   return { kind: 'admonition', adm };
 }
+
+/** The stable UUID of a component (admonition or capture). */
+export function uuidOfComponent(c) {
+  return c.kind === 'admonition' ? c.adm.uuid : c.cap.uuid;
+}
+
+/**
+ * Returns `components` reordered to match the `order` UUID sequence. UUIDs in
+ * `order` not present in `components` are ignored; components whose UUID is not
+ * in `order` are appended in their original relative order (safety net).
+ */
+export function reorderComponents(components, order) {
+  const byUuid = new Map(components.map(c => [uuidOfComponent(c), c]));
+  const out = [];
+  for (const u of order) { const c = byUuid.get(u); if (c) { out.push(c); byUuid.delete(u); } }
+  for (const c of components) { if (byUuid.has(uuidOfComponent(c))) out.push(c); }
+  return out;
+}

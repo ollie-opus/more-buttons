@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { locateCaptureLines, parseComponents, ensureCaptureUUIDs } from '../scripts/components.js';
+import { locateCaptureLines, parseComponents, ensureCaptureUUIDs, uuidOfComponent, reorderComponents } from '../scripts/components.js';
 import { buildCaptureLines } from '../scripts/captures.js';
 import { buildComponentBody } from '../scripts/components.js';
 
@@ -130,6 +130,24 @@ test('ensureCaptureUUIDs: a nested (indented) capture gets a span at matching in
   const lines = out.split('\n');
   const lightIdx = lines.findIndex(l => /c-light-mode/.test(l));
   assert.match(lines[lightIdx - 1], /^    <span[^>]*data-uuid="[0-9a-f-]{36}"/i); // 4-space indent preserved
+});
+
+test('uuidOfComponent: returns admonition or capture uuid', () => {
+  assert.equal(uuidOfComponent({ kind: 'admonition', adm: { uuid: 'A1' } }), 'A1');
+  assert.equal(uuidOfComponent({ kind: 'capture', cap: { uuid: 'C1' } }), 'C1');
+});
+
+test('reorderComponents: reorders by a uuid sequence; unknown uuids dropped, extras appended', () => {
+  const comps = [
+    { kind: 'admonition', adm: { uuid: 'A' } },
+    { kind: 'capture', cap: { uuid: 'B' } },
+    { kind: 'admonition', adm: { uuid: 'C' } },
+  ];
+  const out = reorderComponents(comps, ['C', 'A', 'B']);
+  assert.deepEqual(out.map(uuidOfComponent), ['C', 'A', 'B']);
+  // A uuid not present in comps is ignored; a comp missing from the order is appended.
+  const out2 = reorderComponents(comps, ['C', 'ZZZ']);
+  assert.deepEqual(out2.map(uuidOfComponent), ['C', 'A', 'B']);
 });
 
 console.log(`\n${passed} passed`);
