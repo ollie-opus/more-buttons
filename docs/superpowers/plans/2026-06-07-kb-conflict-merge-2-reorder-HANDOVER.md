@@ -212,6 +212,50 @@ This is feature work with open UX/design decisions, so **don't jump to code**:
 3. **`superpowers:subagent-driven-development`** — execute as Plan 1 was: fresh subagent per
    task, two-stage review (spec compliance → code quality) between tasks, commit per task.
 
+## Plan 2 — DONE (capture UUIDs + component reorder)
+
+Plan 2 (`docs/superpowers/plans/2026-06-07-kb-conflict-merge-2-capture-uuids-and-reorder.md`,
+rollout steps 4–5) is implemented, reviewed (two-stage spec + code-quality per task, plus a
+final whole-implementation review), and committed on **`main`** (`140610c`…`2d03962`, 18
+commits). All 16 tasks (A1–A8, B1–B8) done. Pure suites green: `tests/formMerge.test.mjs`
+(18) + `tests/captureUuid.test.mjs` (13); all 9 touched scripts pass `node --check`; no new
+script files (no manifest change).
+
+**What shipped:**
+- **Part A — capture UUIDs:** hidden `data-uuid` span before the light image;
+  `locateCaptureLines`/`parseComponents`/`buildCaptureLines` read/carry/emit it;
+  `ensureCaptureUUIDs` migration (idempotent, any-indent) runs at draft creation; new captures
+  born with a UUID; capture edit/delete addressed by `cap.uuid` (wrong-target bug fixed);
+  capture dim edits route through `mergeSave` (UUID-keyed scalar).
+- **Part B — reorder:** `orderedUuidList` strategy in `formMerge.js` (`spec.type` dispatch);
+  hidden `componentOrder` field + vertical arrow rail on each card; in-memory batch reorder;
+  order-aware merge writes through the **section, admonition, and system-update** savers
+  (admonition + system-update also gained their scalar merge = rollout step 3); resolver
+  **Cancel/abort** + numbered-list/thumbnail rendering of an order conflict.
+- The prior follow-up **"Resolver has no cancel/abort path"** is now **resolved** (Task B3).
+
+**Open follow-ups from the final review (not blockers; decide before/with any next plan):**
+- **`publishDraftSystemUpdate` bypasses `mergeSave`** (Important). It rebuilds the body from
+  committed `draftMd`, so an **uncommitted in-memory reorder is dropped if the user reorders a
+  draft system-update then clicks Publish without first clicking Save.** The edit/draft-edit
+  paths route through `saveUpdateForComponent`/`mergeSave` correctly; only the draft→publish
+  transition doesn't (deliberately left as-is per the plan). Fix: flush the save-gate before
+  publish, or read order from the in-memory working copy.
+- **Legacy uuid-less captures in `system-updates.md`/drafts** (Minor). `ensureCaptureUUIDs`
+  only runs at `createGuideDraft`; pre-feature captures inside system updates stay uuid-less
+  until touched. `reorderComponents` preserves them (no data loss), but they are
+  non-reorderable and migrate to the bottom on the first order-affecting save.
+- **Snapshot/render timing** (Minor, deterministic in practice): the dirty baseline is captured
+  in the async storage callback after `componentOrder` is populated, so opening a container
+  shouldn't show false "unsaved changes" — worth a manual confirm.
+
+**Manual test matrix still owned by the user** (B8 step 3): reorder persists in section /
+admonition / system-update; two-tab divergent reorder → resolver numbered list + capture
+thumbnails, Keep mine / Keep theirs / Cancel; reorder-then-child-navigate flushes via the
+save-gate; the publish-without-save case above; legacy uuid-less captures; capture
+wrong-target fix; capture dim merge across tabs; system-update list order (by date) never
+altered by component reorder.
+
 ## Status / housekeeping
 
 - Plan 1 code + fixes are on **`main`** (`3dd2cba`…`76a5d25`). Decide a branch strategy
