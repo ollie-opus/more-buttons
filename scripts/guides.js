@@ -14,6 +14,7 @@
 
 import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
+import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
@@ -912,21 +913,38 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
   const editUuid = formEl.dataset.editUuid;
   const draftMarkdown = await readRepoText(currentGuide.draftPath);
   const section = locateSectionByUUID(draftMarkdown, editUuid);
-  if (!section) { alert('Section no longer exists.'); return null; }
+  if (!section) { alert('This section was deleted in another session — your changes can’t be saved.'); return null; }
   const currentParentUuid = section.level === 2
     ? (buildSectionTree(draftMarkdown).title?.uuid ?? null)
     : (section.level === 3 ? findH2ParentUuid(draftMarkdown, editUuid) || null : null);
   const requestedParent = parentUuid || null;
   const parentChanged = section.level !== 1 && (currentParentUuid ?? null) !== (requestedParent ?? null);
 
-  await githubFetchAndPushFile(currentGuide.draftPath, onProgress, md => {
-    const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
-    const newBody = buildComponentBody(null, description, components);
-    let updated = replaceSectionByUUID(md, editUuid, buildSection(section.level, title, editUuid, newBody));
-    if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
-    return updated;
+  await mergeSave({
+    formEl,
+    file: currentGuide.draftPath,
+    onProgress,
+    fieldSpecs: [
+      { name: 'sectionTitle', type: 'scalar', label: 'Title' },
+      { name: 'sectionDescription', type: 'scalar', label: 'Description' },
+    ],
+    readFresh: md => {
+      const sec = locateSectionByUUID(md, editUuid);
+      return {
+        sectionTitle: sec?.title ?? '',
+        sectionDescription: parseComponents(readSectionDescription(md, editUuid).descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE).description ?? '',
+      };
+    },
+    build: (md, resolved) => {
+      const sec = locateSectionByUUID(md, editUuid);
+      if (!sec) throw new Error('Section no longer exists.');
+      const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
+      const newBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), components);
+      let updated = replaceSectionByUUID(md, editUuid, buildSection(sec.level, (resolved.sectionTitle ?? '').trim(), editUuid, newBody));
+      if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
+      return updated;
+    },
   });
-  resetDirtyBaseline(formEl);
   return { container: { kind: 'guide-section', uuid: editUuid, file: currentGuide.draftPath }, formEl };
 }
 
