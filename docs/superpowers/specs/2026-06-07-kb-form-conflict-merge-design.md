@@ -284,3 +284,66 @@ later, independently). Locking, in any form. Positional merge beyond `orderedUui
    `dimMode`/`dimValue` into the scalar merge.
 5. **Batch reorder**: arrows UI + `componentOrder` field + `orderedUuidList` strategy +
    order-aware writes on the parent forms (depends on step 4 for capture identity).
+
+---
+
+## Plan 2 brainstorming decisions (2026-06-07)
+
+Steps 4 + 5 were brainstormed for execution as a **single combined plan** ("Plan 2").
+These decisions refine — and where noted, sharpen — the design above. The rest of the
+spec stands.
+
+### Reorder is a container property, not a form property
+
+The unit reordered is always the **component list (sub-admonitions + captures) inside a
+container**. A container is a **guide section**, an **admonition**, or a **system-update
+body**. Reordering reuses the existing `makeContainerHandler` container abstraction.
+
+- The **system-update *list* itself is never manually reordered** — system updates are a
+  special admonition kind whose position is driven by a date meta field. Only the
+  components *inside* a system update reorder, exactly like components inside a guide
+  section or admonition.
+- So every container-editing form (section, admonition, system-update body) gets the
+  `componentOrder` field + arrows + order-aware writes.
+
+### Step-3 host wiring is pulled into this plan
+
+A form can only merge `componentOrder` if it routes through `mergeSave`. The guide section
+already does (step 2). The **admonition** and **system-update** savers do not — so this
+plan first wires `saveAdmonitionForComponent` (title/meta/type/collapsible/description) and
+`saveUpdateForComponent` (title/date/type/description, ISO-date normalized) through the
+scalar engine (rollout step 3 for those forms), then adds `componentOrder` to each.
+
+### Capture UUID format (confirms spec, rejects an alternative)
+
+The capture UUID lives in a **separate hidden `<span data-uuid>` line immediately
+preceding the light-mode image**, at the same indent, folded into the capture's line range
+— **not** inline in the image attributes. `ensureCaptureUUIDs(markdown)` runs as a single
+idempotent reverse-order splice over the whole document, matching captures at any indent so
+nested captures (inside admonitions / system-updates) are covered in one pass. It is called
+alongside `ensureSectionUUIDs` / `ensureAdmonitionUUIDs` at the existing migration points.
+
+### Reorder UX — vertical rail
+
+Up/down arrows render as a **vertical ↑/↓ rail on each card's left edge**. A click swaps
+adjacent UUIDs in `componentOrder` and re-renders the cards **in memory** (batch model — the
+order is pushed when the container form saves, not per click). The top card's ↑ and the
+bottom card's ↓ are disabled (greyed, inert). Reorder is the only component operation that
+is batch rather than immediate-save; it must participate in the shared
+`_componentSaver` / `beginChildNavigation` save-gate so an in-memory reorder is not silently
+lost.
+
+### Order-conflict display
+
+The order conflict is one resolver row (`componentOrder`, label "Component order"), rendered
+as **two numbered lists** (theirs / mine) of component labels so the sequence difference is
+visible. An admonition is labelled by its **title**; a capture is labelled by a **small
+thumbnail + the word "Capture"**, reusing the same thumbnail src resolution the component
+cards use (`.mb-component-card__thumb`). The resolver, text-only today, gains lightweight
+image rendering for this row.
+
+### Resolver cancel/abort (folded-in Plan 1 follow-up)
+
+`showConflictResolver` gains a **Cancel** that rejects the promise; `mergeSave` catches the
+rejection and restores the save-button state. This closes the "busy button on abandonment"
+gap, which reorder's extra conflict row makes more likely.
