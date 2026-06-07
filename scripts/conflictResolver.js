@@ -29,12 +29,12 @@ export function showConflictResolver(formEl, conflicts) {
 
     const rows = conflicts.map(c => `
       <div data-conflict-field="${esc(c.field)}" style="padding:8px 0;border-top:1px solid #fde68a;">
-        <p style="margin:0 0 4px;font-weight:600;">⚠ "${esc(c.label)}" changed in another tab since you opened this:</p>
-        <p style="margin:0 0 2px;"><strong>theirs:</strong> ${esc(c.theirs)}</p>
-        <p style="margin:0 0 6px;"><strong>mine:</strong> ${esc(c.mine)}</p>
+        <p style="margin:0 0 4px;font-weight:600;">⚠ "${esc(c.label)}" was changed elsewhere since you opened this (another tab, device, or person):</p>
+        <p style="margin:0 0 2px;"><strong>current (theirs):</strong> ${esc(c.theirs)}</p>
+        <p style="margin:0 0 6px;"><strong>yours (mine):</strong> ${esc(c.mine)}</p>
         <div style="display:flex;gap:8px;">
-          <button type="button" class="more-buttons-button" data-choose="theirs">Use theirs</button>
-          <button type="button" class="more-buttons-button success" data-choose="mine">Keep mine</button>
+          <button type="button" class="more-buttons-button" data-choose="theirs">Keep theirs (current)</button>
+          <button type="button" class="more-buttons-button success" data-choose="mine">Keep mine (overwrite)</button>
         </div>
       </div>`).join('');
 
