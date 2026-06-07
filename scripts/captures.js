@@ -87,6 +87,7 @@ async function commitCapturesIntoContainer(container, insertAt, capList) {
   const resolved = resolveCaptures(capList);
   await pushCaptures(resolved);
   const caps = resolved.map(c => ({
+    uuid: generateUUID(),
     lightFilename: c.lightFilename,
     darkFilename: c.darkFilename,
     dimMode: c.dimMode ?? 'height',
