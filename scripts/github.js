@@ -3,6 +3,16 @@ import { contentsApiUrl, authHeader } from './repoClient.js';
 
 let _opQueue = Promise.resolve();
 
+// Cache-busted read URL. repoClient.js fetches these same contents-API URLs with
+// `Accept: application/vnd.github.raw`; the browser caches/coalesces by URL alone
+// (ignoring `Vary: Accept` and even `cache: 'no-store'`), so a JSON-envelope GET
+// here can be served that raw variant — making `.json()` choke on raw markdown.
+// A per-read unique query param gives each read its own URL, forcing a fresh hit.
+let _readNonce = 0;
+function contentsReadUrl(path) {
+  return `${contentsApiUrl(path)}&_cb=${Date.now()}-${++_readNonce}`;
+}
+
 // Serialise an operation behind any in-flight ones, returning a promise that
 // carries the op's real result/rejection to the caller. The queue itself is
 // advanced with a swallowed copy: chaining .then() on a *rejected* _opQueue
@@ -28,8 +38,10 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
   const auth = await authHeader();
 
   onProgress?.('Fetching current file...');
-  const fileRes = await fetch(contentsApiUrl(filePath), {
-    headers: { 'Authorization': auth },
+  // We read `.sha` + base64 `.content` below, so we need the JSON envelope:
+  // request it explicitly AND via a cache-busted URL (see contentsReadUrl).
+  const fileRes = await fetch(contentsReadUrl(filePath), {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github+json' },
     cache: 'no-store',
   });
   let currentMarkdown = '';
@@ -46,6 +58,13 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
   const migratedMarkdown = typeRegex ? ensureAdmonitionUUIDs(currentMarkdown, typeRegex) : currentMarkdown;
 
   const updatedMarkdown = buildUpdatedMarkdown(migratedMarkdown);
+
+  // Nothing actually changed (e.g. the user resolved every conflict as "keep
+  // theirs") — skip the PUT so we don't write an empty commit to GitHub.
+  if (updatedMarkdown === currentMarkdown) {
+    onProgress?.('No changes to save.');
+    return updatedMarkdown;
+  }
 
   onProgress?.('Pushing to GitHub...');
   const filename = filePath.split('/').pop();
@@ -89,8 +108,8 @@ async function _githubDeleteFile(filePath, onProgress) {
   const auth = await authHeader();
 
   onProgress?.('Fetching current file...');
-  const fileRes = await fetch(contentsApiUrl(filePath), {
-    headers: { 'Authorization': auth },
+  const fileRes = await fetch(contentsReadUrl(filePath), {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github+json' },
     cache: 'no-store',
   });
   if (fileRes.status === 404) return; // already gone
@@ -128,8 +147,8 @@ async function _githubReplaceImage(imagePath, base64Data, onProgress) {
   const auth = await authHeader();
 
   onProgress?.('Fetching current file...');
-  const fileRes = await fetch(contentsApiUrl(imagePath), {
-    headers: { 'Authorization': auth },
+  const fileRes = await fetch(contentsReadUrl(imagePath), {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github+json' },
     cache: 'no-store',
   });
   if (fileRes.status === 404) throw new Error(`File not found: ${imagePath}`);
@@ -157,8 +176,8 @@ async function _githubReplaceImage(imagePath, base64Data, onProgress) {
 // an existing file. Read-only, so no need to serialise through _opQueue.
 export async function githubPathExists(imagePath) {
   const auth = await authHeader();
-  const res = await fetch(contentsApiUrl(imagePath), {
-    headers: { 'Authorization': auth },
+  const res = await fetch(contentsReadUrl(imagePath), {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github+json' },
     cache: 'no-store',
   });
   if (res.ok) return true;
@@ -171,8 +190,8 @@ export async function githubPathExists(imagePath) {
 export async function githubPushImageIfNotExists(imagePath, base64Data, onProgress) {
   const auth = await authHeader();
 
-  const checkRes = await fetch(contentsApiUrl(imagePath), {
-    headers: { 'Authorization': auth },
+  const checkRes = await fetch(contentsReadUrl(imagePath), {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github+json' },
     cache: 'no-store',
   });
   if (checkRes.ok) return false; // already exists — skip
