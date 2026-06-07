@@ -15,7 +15,7 @@
  * All functions here are pure (no DOM, no network) — markdown in, markdown out.
  */
 
-import { parseAdmonitions, buildAdmonition } from './admonitions.js';
+import { parseAdmonitions, buildAdmonition, generateUUID } from './admonitions.js';
 import { buildSectionUUIDSpan } from './sections.js';
 import { buildCaptureLines } from './captures.js';
 
@@ -79,6 +79,31 @@ export function locateCaptureLines(body) {
     i = endLine - 1;
   }
   return out;
+}
+
+/**
+ * Backfills a hidden data-uuid span before every capture that lacks one.
+ * Idempotent; matches captures at any indent (so nested captures inside
+ * admonitions / system-updates are covered in one whole-document pass).
+ * Reverse-order splice keeps earlier line indices valid. Mirrors
+ * ensureSectionUUIDs / ensureAdmonitionUUIDs.
+ *
+ * @param {string} markdown
+ * @returns {string}
+ */
+export function ensureCaptureUUIDs(markdown) {
+  const caps = locateCaptureLines(markdown);
+  if (caps.length === 0) return markdown;
+  const lines = (markdown ?? '').split('\n');
+  let modified = false;
+  for (let k = caps.length - 1; k >= 0; k--) {
+    const c = caps[k];
+    if (c.uuid) continue; // already migrated
+    const span = `${c.indent}<span data-uuid="${generateUUID()}" style="display:none"></span>`;
+    lines.splice(c.startLine, 0, span); // insert immediately before the light line
+    modified = true;
+  }
+  return modified ? lines.join('\n') : markdown;
 }
 
 /**

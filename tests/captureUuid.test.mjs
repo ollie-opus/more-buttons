@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { locateCaptureLines, parseComponents } from '../scripts/components.js';
+import { locateCaptureLines, parseComponents, ensureCaptureUUIDs } from '../scripts/components.js';
 import { buildCaptureLines } from '../scripts/captures.js';
 import { buildComponentBody } from '../scripts/components.js';
 
@@ -77,6 +77,59 @@ test('round-trip: parseComponents → buildComponentBody preserves capture uuid 
   ]);
   const { components } = parseComponents(body, /step|note/);
   assert.deepEqual(components.map(c => c.cap.uuid), ['C1', 'C2']);
+});
+
+test('ensureCaptureUUIDs: injects a span before an unmigrated capture', () => {
+  const body = [
+    'Intro.',
+    '',
+    '![](../assets/a-light-mode.png#only-light){ width="800" }',
+    '![](../assets/a-dark-mode.png#only-dark)',
+  ].join('\n');
+  const out = ensureCaptureUUIDs(body);
+  const lines = out.split('\n');
+  const lightIdx = lines.findIndex(l => /a-light-mode/.test(l));
+  assert.match(lines[lightIdx - 1], /data-uuid="[0-9a-f-]{36}"/i);
+});
+
+test('ensureCaptureUUIDs: idempotent (already-migrated capture is untouched)', () => {
+  const body = [
+    '<span data-uuid="CAP-X" style="display:none"></span>',
+    '![](../assets/a-light-mode.png#only-light){ width="800" }',
+    '![](../assets/a-dark-mode.png#only-dark)',
+  ].join('\n');
+  assert.equal(ensureCaptureUUIDs(body), body);
+});
+
+test('ensureCaptureUUIDs: migrates multiple captures, each with a distinct uuid', () => {
+  const body = [
+    '![](../assets/a-light-mode.png#only-light)',
+    '![](../assets/a-dark-mode.png#only-dark)',
+    '',
+    '![](../assets/b-light-mode.png#only-light)',
+    '![](../assets/b-dark-mode.png#only-dark)',
+  ].join('\n');
+  const out = ensureCaptureUUIDs(body);
+  const uuids = [...out.matchAll(/data-uuid="([^"]+)"/g)].map(m => m[1]);
+  assert.equal(uuids.length, 2);
+  assert.notEqual(uuids[0], uuids[1]);
+  // Re-running is a no-op.
+  assert.equal(ensureCaptureUUIDs(out), out);
+});
+
+test('ensureCaptureUUIDs: a nested (indented) capture gets a span at matching indent', () => {
+  const body = [
+    '!!! note "N"',
+    '',
+    '    <span data-uuid="ADM" style="display:none"></span>',
+    '',
+    '    ![](../assets/c-light-mode.png#only-light){ width="800" }',
+    '    ![](../assets/c-dark-mode.png#only-dark)',
+  ].join('\n');
+  const out = ensureCaptureUUIDs(body);
+  const lines = out.split('\n');
+  const lightIdx = lines.findIndex(l => /c-light-mode/.test(l));
+  assert.match(lines[lightIdx - 1], /^    <span[^>]*data-uuid="[0-9a-f-]{36}"/i); // 4-space indent preserved
 });
 
 console.log(`\n${passed} passed`);
