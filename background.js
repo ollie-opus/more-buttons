@@ -71,13 +71,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const zoom = await new Promise(resolve => chrome.tabs.getZoom(tabId, resolve));
         const rx = rect.x * zoom;
         const ry = rect.y * zoom;
-        const x = Math.round(rx);
-        const y = Math.round(ry);
+        // Snap each clip edge to the OUTPUT pixel grid (not the CSS grid). The net
+        // CSS->output multiplier is `scale`, so one CSS pixel is `scale` output
+        // pixels; rounding in CSS space (the old Math.round/Math.ceil) leaked up to
+        // `scale` px of background along any sub-pixel edge. We round OUTWARD here
+        // (floor the origin, ceil the far edge) rather than to-nearest: rounding to
+        // nearest can land just inside the element and crop it (e.g. thinning a
+        // border on the far side), whereas an outward sub-pixel margin is invisible
+        // and the border-radius mask trims any corner overspill anyway. Working on
+        // the output grid keeps that margin under one output pixel.
+        const left   = Math.floor(rx * scale) / scale;
+        const top    = Math.floor(ry * scale) / scale;
+        const right  = Math.ceil((rx + rect.width  * zoom) * scale) / scale;
+        const bottom = Math.ceil((ry + rect.height * zoom) * scale) / scale;
         const clip = {
-          x,
-          y,
-          width:  Math.ceil(rx + rect.width  * zoom) - x,
-          height: Math.ceil(ry + rect.height * zoom) - y,
+          x:      left,
+          y:      top,
+          width:  right - left,
+          height: bottom - top,
+        };
+
+        // Where the element sits *within* the clip, as fractions. The clip is rounded
+        // outward so it always contains the element plus a sub-pixel margin, and that
+        // margin isn't symmetric. Expressing the element box as fractions of the clip
+        // lets the content script crop/mask to the element's true position without
+        // needing to know the net output scale (which depends on DPR + zoom).
+        const elemFrac = {
+          x: (rx - left) / clip.width,
+          y: (ry - top)  / clip.height,
+          w: (rect.width  * zoom) / clip.width,
+          h: (rect.height * zoom) / clip.height,
         };
 
         const result = await cmd(tabId, 'Page.captureScreenshot', {
@@ -87,7 +110,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         if (forcedTheme) await resetEmulation();
         await detach();
-        sendResponse({ dataUrl: 'data:image/png;base64,' + result.data });
+        sendResponse({ dataUrl: 'data:image/png;base64,' + result.data, elemFrac });
       } catch (err) {
         if (forcedTheme) await resetEmulation().catch(() => {});
         try { await detach(); } catch {}

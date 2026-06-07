@@ -183,29 +183,54 @@ function getElementLabel(el) {
   );
 }
 
-function applyBorderRadiusMask(src, el) {
+function applyBorderRadiusMask(src, el, elemFrac) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const { width: elW } = el.getBoundingClientRect();
       const cs = getComputedStyle(el);
+
+      // The captured bitmap contains the element plus a small, asymmetric margin
+      // (the clip is rounded outward so it never crops the element). elemFrac tells
+      // us where the element actually sits inside the bitmap, as fractions — robust
+      // to the net output scale. We crop the canvas to exactly that box so the
+      // background margin is removed and the rounded mask registers against the
+      // element's true edges (critical for pills, whose curved ends would otherwise
+      // be sliced by a mask centred on the whole bitmap). Fall back to the full
+      // bitmap if no position was supplied.
+      const box = elemFrac || { x: 0, y: 0, w: 1, h: 1 };
+      const ex = box.x * img.width;
+      const ey = box.y * img.height;
+      const ew = box.w * img.width;
+      const eh = box.h * img.height;
+
+      const w = Math.max(1, Math.round(ew));
+      const h = Math.max(1, Math.round(eh));
       const canvas = document.createElement('canvas');
-      canvas.width  = img.width;
-      canvas.height = img.height;
+      canvas.width  = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
 
-      const sx = img.width / elW;
+      const sx = ew / elW;
       function parseR(val, dim, scale) {
         const v = val.trim().split(/\s+/)[0];
         if (v.endsWith('%')) return (parseFloat(v) / 100) * dim * scale;
         return (parseFloat(v) || 0) * scale;
       }
 
-      const tl = parseR(cs.borderTopLeftRadius,     elW, sx);
-      const tr = parseR(cs.borderTopRightRadius,    elW, sx);
-      const br = parseR(cs.borderBottomRightRadius, elW, sx);
-      const bl = parseR(cs.borderBottomLeftRadius,  elW, sx);
-      const w = img.width, h = img.height;
+      let tl = parseR(cs.borderTopLeftRadius,     elW, sx);
+      let tr = parseR(cs.borderTopRightRadius,    elW, sx);
+      let br = parseR(cs.borderBottomRightRadius, elW, sx);
+      let bl = parseR(cs.borderBottomLeftRadius,  elW, sx);
+
+      // getComputedStyle returns the *unclamped* radius (e.g. "9999px" for a
+      // pill), but CSS scales all radii down by a single factor when the two
+      // radii along any edge would overlap. Reproduce that clamp here against the
+      // element's own box, otherwise large/pill radii feed arcTo() values bigger
+      // than the box and the clip path becomes malformed (no rounded ends). The
+      // factor stays 1 for normal radii.
+      const f = Math.min(1, w / (tl + tr), h / (tr + br), w / (br + bl), h / (bl + tl));
+      if (f < 1) { tl *= f; tr *= f; br *= f; bl *= f; }
 
       ctx.beginPath();
       ctx.moveTo(tl, 0);
@@ -215,7 +240,9 @@ function applyBorderRadiusMask(src, el) {
       ctx.lineTo(0, tl);      ctx.arcTo(0, 0, tl, 0, tl);
       ctx.closePath();
       ctx.clip();
-      ctx.drawImage(img, 0, 0);
+      // Draw the full bitmap shifted so the element's top-left lands at (0,0); the
+      // canvas is exactly the element box, so the outward clip margin is cropped off.
+      ctx.drawImage(img, -ex, -ey);
 
       resolve(canvas.toDataURL('image/png'));
     };
@@ -357,7 +384,7 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     return null;
   }
 
-  const maskedDataUrl = !customRect ? await applyBorderRadiusMask(response.dataUrl, el) : response.dataUrl;
+  const maskedDataUrl = !customRect ? await applyBorderRadiusMask(response.dataUrl, el, response.elemFrac) : response.dataUrl;
   const originalWidth = customRect ? customRect.width : el.getBoundingClientRect().width;
   const appliedPadding = (padding > 0 && sampledBgColor) ? padding : 0;
   const finalDataUrl = appliedPadding
