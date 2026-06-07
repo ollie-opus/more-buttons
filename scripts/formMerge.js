@@ -77,7 +77,7 @@ function mergeMine(B, F) {
   F.forEach((u, i) => {
     if (bSet.has(u)) return; // not new
     // Insert after the nearest fresh-predecessor that already survives in `out`.
-    let insertAt = 0;
+    let insertAt = 0; // default: no surviving fresh-predecessor → insert at the head
     for (let j = i - 1; j >= 0; j--) {
       const idx = out.indexOf(F[j]);
       if (idx !== -1) { insertAt = idx + 1; break; }

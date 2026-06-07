@@ -141,4 +141,18 @@ test('orderedUuidList: recorded choice mine applies while fresh stable; re-promp
   assert.equal(moved.conflicts.length, 1);
 });
 
+test('orderedUuidList: multiple consecutive new uuids land in fresh-relative order', () => {
+  // You reordered A,B → B,A. They inserted X,Y between A and B (fresh A,X,Y,B).
+  // X,Y are new; each must follow its fresh-predecessor, preserving X-before-Y.
+  const { resolved, conflicts } = order('A,B', 'B,A', 'A,X,Y,B');
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'B,A,X,Y');
+});
+
+test('orderedUuidList: recorded choice theirs applies while fresh stable', () => {
+  const { resolved, conflicts } = order('A,B,C', 'B,A,C', 'C,B,A', { componentOrder: { choice: 'theirs', theirsShown: ['C', 'B', 'A'] } });
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.componentOrder, 'C,B,A');
+});
+
 console.log(`\n${passed} passed`);
