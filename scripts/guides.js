@@ -16,7 +16,7 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
-import { githubFetchAndPushFile, githubDeleteFile } from './github.js';
+import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
 import {
   ensureSectionUUIDs, parseSections, buildSectionTree,
@@ -29,6 +29,7 @@ import {
   generateUUID, replaceAdmonitionByUUID,
   deleteAdmonitionByUUID,
   splitTitleMeta, joinTitleMeta,
+  GUIDE_ADMONITION_TYPES_RE,
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { escapeHtml, captureComponentCard } from './cardRenderer.js';
@@ -38,8 +39,10 @@ import { openInsertMenu } from './insertMenu.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-export const GUIDE_ADMONITION_TYPES_RE =
-  /step|outline|note|abstract|info|tip|success|question|warning|failure|danger|bug|example|quote/;
+// Canonical definition lives in admonitions.js (the leaf module) so github.js's
+// central UUID migration can reference it without importing this module; re-
+// exported here for the callers (e.g. systemUpdates.js) that import it from guides.
+export { GUIDE_ADMONITION_TYPES_RE };
 
 const ADMONITION_TYPE_LABELS = {
   step: 'Step', outline: 'Outline', note: 'Note', abstract: 'Abstract',
@@ -513,7 +516,9 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid }) => {
 
 registerFormAction('openEditGuideSection', async ({ uuid }) => {
   if (!currentGuide) return;
-  const draftMarkdown = await readRepoText(currentGuide.draftPath);
+  // Backfill + persist any missing component UUIDs before reading, so captures in
+  // pre-migration drafts are reorderable/editable on open (not after a later save).
+  const draftMarkdown = await fetchFileMigratingIdentity(currentGuide.draftPath);
   const section = locateSectionByUUID(draftMarkdown, uuid);
   if (!section) { alert('Section not found.'); return; }
 
@@ -1151,7 +1156,8 @@ registerFormAction('openCreateGuideAdmonition', async ({ container, insertAtInde
 registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
   const containerFile = file || currentGuide?.draftPath;
   if (!containerFile) return;
-  const draftMarkdown = await readRepoText(containerFile);
+  // Backfill + persist missing component UUIDs first (see openEditGuideSection).
+  const draftMarkdown = await fetchFileMigratingIdentity(containerFile);
   const adm = locateGuideAdmonition(draftMarkdown, uuid);
   if (!adm) { alert('Admonition not found.'); return; }
 

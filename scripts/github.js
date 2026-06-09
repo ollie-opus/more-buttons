@@ -1,4 +1,6 @@
-import { ensureAdmonitionUUIDs } from './admonitions.js';
+import { ensureAdmonitionUUIDs, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
+import { ensureSectionUUIDs } from './sections.js';
+import { ensureCaptureUUIDs } from './components.js';
 import { contentsApiUrl, authHeader } from './repoClient.js';
 
 let _opQueue = Promise.resolve();
@@ -30,8 +32,56 @@ const ADMONITION_TYPE_BY_FILE = {
   'system-status.md':  /status-available|status-disruption|status-outage/,
 };
 
+// True for guide pages/drafts (which carry sections + component admonitions +
+// captures), but NOT the system-updates/status files that share those dirs and
+// have their own block grammar. Anything outside docs/pages|docs/drafts (toml,
+// nav, etc.) is never touched.
+function isGuideMarkdown(filePath) {
+  if (!filePath.endsWith('.md')) return false;
+  if (!(filePath.startsWith('docs/pages/') || filePath.startsWith('docs/drafts/'))) return false;
+  const base = filePath.split('/').pop();
+  return base !== 'system-updates.md' && base !== 'system-status.md';
+}
+
+// Backfill missing component-identity UUIDs (sections / admonitions / captures)
+// for any file that carries components, BEFORE the caller's build runs — so every
+// save and merge sees stable UUIDs and self-heals. This is the single place that
+// guarantees identity; previously only admonitions were migrated here (and only
+// for system files), while captures/sections were migrated once at guide-draft
+// creation. That left pre-existing drafts and all system-update captures UUID-less,
+// which silently no-oped every UUID-keyed component op (reorder, edit, delete,
+// merge). Idempotent; a no-op (returns the input) for non-component files.
+//
+// Exported for unit testing the dispatch — callers use githubFetchAndPushFile /
+// fetchFileMigratingIdentity, which apply it automatically.
+export function migrateComponentIdentity(filePath, markdown) {
+  const blockRegex = Object.entries(ADMONITION_TYPE_BY_FILE).find(([k]) => filePath.includes(k))?.[1];
+  if (blockRegex) {
+    // System updates / status: their top-level block admonitions, plus (for
+    // updates, which embed components) any captures inside update bodies.
+    const withAdm = ensureAdmonitionUUIDs(markdown, blockRegex);
+    return filePath.includes('system-updates.md') ? ensureCaptureUUIDs(withAdm) : withAdm;
+  }
+  if (isGuideMarkdown(filePath)) {
+    // Mirror createGuideDraft: sections + component admonitions + captures.
+    return ensureCaptureUUIDs(
+      ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
+    );
+  }
+  return markdown;
+}
+
 export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown) {
   return _enqueue(() => _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown));
+}
+
+// Read a component-bearing file, backfilling + persisting any missing identity
+// UUIDs once (idempotent: a fully-migrated file reads through with no write), and
+// return the up-to-date markdown. Used by the editor-open paths so existing
+// content with UUID-less captures becomes reorderable/editable immediately,
+// without waiting for an unrelated save to trigger the migration.
+export function fetchFileMigratingIdentity(filePath, onProgress) {
+  return githubFetchAndPushFile(filePath, onProgress, md => md);
 }
 
 async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, retries = 1) {
@@ -54,8 +104,7 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
     throw new Error(`GitHub API error: ${fileRes.status}`);
   }
 
-  const typeRegex = Object.entries(ADMONITION_TYPE_BY_FILE).find(([k]) => filePath.includes(k))?.[1];
-  const migratedMarkdown = typeRegex ? ensureAdmonitionUUIDs(currentMarkdown, typeRegex) : currentMarkdown;
+  const migratedMarkdown = migrateComponentIdentity(filePath, currentMarkdown);
 
   const updatedMarkdown = buildUpdatedMarkdown(migratedMarkdown);
 

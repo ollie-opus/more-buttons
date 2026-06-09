@@ -1,5 +1,5 @@
 import { registerFormAction, getFormAction } from './formActions.js';
-import { githubFetchAndPushFile } from './github.js';
+import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
 import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, setButtonBusy, snapshotButton, restoreButton } from './form.js';
@@ -533,7 +533,9 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content }) => {
 });
 
 registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
-  const markdown = await readRepoText(UPDATES_FILE);
+  // Backfill + persist missing component UUIDs so captures in this update are
+  // reorderable/editable on open (system-update captures were never migrated).
+  const markdown = await fetchFileMigratingIdentity(UPDATES_FILE);
   const update = parseUpdateBlocks(markdown).find(u => u.uuid === uuid);
   if (!update) { alert('Entry not found.'); return; }
 
@@ -629,7 +631,8 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content }) => {
 registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
   let draftsMarkdown = '';
   try {
-    draftsMarkdown = await readRepoText(DRAFTS_FILE);
+    // Backfill + persist missing component UUIDs first (see openEditSystemUpdate).
+    draftsMarkdown = await fetchFileMigratingIdentity(DRAFTS_FILE);
   } catch {
     alert('Failed to load drafts.');
     return;

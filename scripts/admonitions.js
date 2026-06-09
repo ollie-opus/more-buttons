@@ -16,6 +16,15 @@ export function generateUUID() {
   return crypto.randomUUID();
 }
 
+// The admonition types valid as *components* inside guide sections and system-
+// update bodies (distinct from the top-level system-update/status block types in
+// github.js's ADMONITION_TYPE_BY_FILE). Lives here — the lowest-level admonition
+// module — so the central migration in github.js can reference it without
+// importing the high-level guides.js (which would create an import cycle).
+// Re-exported from guides.js for existing callers.
+export const GUIDE_ADMONITION_TYPES_RE =
+  /step|outline|note|abstract|info|tip|success|question|warning|failure|danger|bug|example|quote/;
+
 /**
  * Scans the first non-empty line of `body` for a `data-uuid` attribute and
  * returns its value, or `null` if no UUID span is present.
