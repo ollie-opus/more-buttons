@@ -884,12 +884,28 @@ export function onComponentEditorClick(e) {
   }
 }
 
+// Single source of truth for opening a component's editor, keyed by component
+// kind. Used both when clicking Edit on an existing component and right after a
+// new component is inserted — so every component kind lands in its editor on
+// insert, the way admonitions already do via their create form. New component
+// kinds add a branch here and get insert→edit behaviour for free.
+function openEditorForComponent(container, component) {
+  if (!component) return;
+  if (component.kind === 'admonition') {
+    getFormAction('openEditGuideAdmonition')?.({ uuid: component.adm.uuid, file: container.file });
+  } else if (component.kind === 'capture') {
+    getFormAction('openEditCaptureComponent')?.({ container, uuid: component.cap.uuid, cap: component.cap });
+  }
+}
+// Exposed for the insert flows (e.g. captures.js) to land in the new editor.
+registerFormAction('openComponentEditor', ({ container, component }) => openEditorForComponent(container, component));
+
 async function openCaptureComponentEditor(container, uuid) {
   const md = await readRepoText(container.file);
   const { components } = readContainerComponents(md, container);
   const c = components.find(x => x.kind === 'capture' && x.cap.uuid === uuid);
   if (!c) return;
-  getFormAction('openEditCaptureComponent')?.({ container, uuid, cap: c.cap });
+  openEditorForComponent(container, c);
 }
 
 function admonitionCard(adm, stepNumber = null) {

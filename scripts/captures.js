@@ -83,7 +83,7 @@ export async function pushCaptures(list = [], onProgress) {
 
 async function commitCapturesIntoContainer(container, insertAt, capList) {
   const handler = getComponentContainer(container.kind);
-  if (!handler) return;
+  if (!handler) return [];
   const resolved = resolveCaptures(capList);
   await pushCaptures(resolved);
   const caps = resolved.map(c => ({
@@ -93,12 +93,25 @@ async function commitCapturesIntoContainer(container, insertAt, capList) {
     dimMode: c.dimMode ?? 'height',
     dimValue: c.dimMode === 'none' ? null : (c.dimValue ?? 50),
   }));
+  const inserted = caps.map(cap => ({ kind: 'capture', cap }));
   await handler.mutate(container, (components) => {
     const idx = Math.max(0, Math.min(insertAt, components.length));
     const next = components.slice();
-    next.splice(idx, 0, ...caps.map(cap => ({ kind: 'capture', cap })));
+    next.splice(idx, 0, ...inserted);
     return next;
   });
+  return inserted;
+}
+
+// Standard Components behaviour: after inserting a component, land in its editor
+// (admonitions do this via their create form). Component capture sessions are
+// capped to one (maxCaptures: 1) and library inserts are always single, so there
+// is exactly one inserted component to open. Routes through guides.js's
+// component-editor dispatch via the form-action registry.
+function openInsertedComponentEditor(container, inserted) {
+  const component = inserted?.[inserted.length - 1];
+  if (!component) return;
+  getFormAction('openComponentEditor')?.({ container, component });
 }
 
 // "Create a new capture" → screenshot → upload → splice into the container at idx.
@@ -110,18 +123,28 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
 
   enterCaptureMode({
     formStackSnapshot,
+    // One capture per insert in the Components context: capture mode auto-commits
+    // after a single screenshot so the flow lands in the new capture's editor,
+    // exactly like inserting an admonition.
+    maxCaptures: 1,
     returnTo: {
       onComplete: async (sessionBuffer) => {
         if (formEl.isConnected) {
           overlay.style.display = '';
           document.body.style.overflow = prevBodyOverflow;
-          if (sessionBuffer.length) await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+          if (sessionBuffer.length) {
+            const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+            openInsertedComponentEditor(container, inserted);
+          }
           return;
         }
         // Cold path: the form was torn down by a hard nav. Replay it, then commit.
         if (!formStackSnapshot?.length || !sessionBuffer.length) return;
         const ok = await replayFormStack(formStackSnapshot);
-        if (ok) await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+        if (ok) {
+          const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+          openInsertedComponentEditor(container, inserted);
+        }
       },
       // ✕ / Esc: discard everything captured this session and just re-show the
       // form. Nothing is committed to the draft (immediate-save means a commit
@@ -157,5 +180,6 @@ registerFormAction('completeLibraryInsert', async ({ capture } = {}) => {
   if (!capture || !intent.snapshot?.length) return;
   const ok = await replayFormStack(intent.snapshot);
   if (!ok) return;
-  await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
+  const inserted = await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
+  openInsertedComponentEditor(intent.container, inserted);
 });

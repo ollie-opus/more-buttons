@@ -275,7 +275,9 @@ export async function enterCaptureMode(opts = {}) {
     bar,
     wasFormMode: hasReturnTo || !!restored?.wasFormMode,
     formStackSnapshot: opts.formStackSnapshot ?? restored?.formStackSnapshot ?? null,
-    maxCaptures: typeof opts.maxCaptures === 'number' && opts.maxCaptures > 0 ? opts.maxCaptures : null,
+    maxCaptures: typeof opts.maxCaptures === 'number' && opts.maxCaptures > 0
+      ? opts.maxCaptures
+      : (typeof restored?.maxCaptures === 'number' && restored.maxCaptures > 0 ? restored.maxCaptures : null),
   };
   active = ctx;
   starting = false;
@@ -291,6 +293,7 @@ export async function enterCaptureMode(opts = {}) {
       },
       wasFormMode: ctx.wasFormMode,
       formStackSnapshot: ctx.formStackSnapshot,
+      maxCaptures: ctx.maxCaptures,
       sessionBuffer: sessionBuffer.slice(),
     };
   }
