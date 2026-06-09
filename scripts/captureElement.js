@@ -183,29 +183,32 @@ function getElementLabel(el) {
   );
 }
 
-function applyBorderRadiusMask(src, el, elemFrac) {
+function applyBorderRadiusMask(src, el, cropPx) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const { width: elW } = el.getBoundingClientRect();
       const cs = getComputedStyle(el);
 
-      // The captured bitmap contains the element plus a small, asymmetric margin
-      // (the clip is rounded outward so it never crops the element). elemFrac tells
-      // us where the element actually sits inside the bitmap, as fractions — robust
-      // to the net output scale. We crop the canvas to exactly that box so the
-      // background margin is removed and the rounded mask registers against the
-      // element's true edges (critical for pills, whose curved ends would otherwise
-      // be sliced by a mask centred on the whole bitmap). Fall back to the full
-      // bitmap if no position was supplied.
-      const box = elemFrac || { x: 0, y: 0, w: 1, h: 1 };
-      const ex = box.x * img.width;
-      const ey = box.y * img.height;
-      const ew = box.w * img.width;
-      const eh = box.h * img.height;
+      // The captured bitmap contains the element plus a background margin (the
+      // clip is captured with a deliberate margin so CDP's ~1-DIP capture
+      // shortfall never eats the element's edge). `cropPx` is the element's box
+      // in absolute bitmap pixels, computed background-side from the known
+      // render scale — robust to CDP's output-dimension rounding. We crop the
+      // canvas to exactly that box so the margin is removed and the rounded mask
+      // registers against the element's true edges (critical for pills, whose
+      // curved ends would otherwise be sliced by a mask centred on the whole
+      // bitmap). Clamp to the bitmap bounds defensively, and fall back to the
+      // full bitmap if no box was supplied.
+      const box = cropPx || { x: 0, y: 0, w: img.width, h: img.height };
+      const ex = Math.min(Math.max(0, box.x), img.width);
+      const ey = Math.min(Math.max(0, box.y), img.height);
+      const ew = Math.min(Math.max(1, box.w), img.width  - ex);
+      const eh = Math.min(Math.max(1, box.h), img.height - ey);
 
       const w = Math.max(1, Math.round(ew));
       const h = Math.max(1, Math.round(eh));
+
       const canvas = document.createElement('canvas');
       canvas.width  = w;
       canvas.height = h;
@@ -372,6 +375,10 @@ export async function screenshotElement(el, { theme, customRect = null, settings
       devicePixelRatio: window.devicePixelRatio,
       forcedTheme: theme,
       themeDelay: theme ? (settings.themeDelay ?? 500) : 0,
+      // Element captures crop a margin off afterwards (so CDP's capture
+      // shortfall can't eat the element's edge); resize-mode captures use the
+      // bitmap as-is, so they must stay tight to the user's chosen rect.
+      tight: !!customRect,
     }, resolve)
   );
 
@@ -384,7 +391,7 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     return null;
   }
 
-  const maskedDataUrl = !customRect ? await applyBorderRadiusMask(response.dataUrl, el, response.elemFrac) : response.dataUrl;
+  const maskedDataUrl = !customRect ? await applyBorderRadiusMask(response.dataUrl, el, response.cropPx) : response.dataUrl;
   const originalWidth = customRect ? customRect.width : el.getBoundingClientRect().width;
   const appliedPadding = (padding > 0 && sampledBgColor) ? padding : 0;
   const finalDataUrl = appliedPadding

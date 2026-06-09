@@ -34,7 +34,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'captureTab') {
-    const { scale, devicePixelRatio = 1, forcedTheme, themeDelay = 0 } = msg;
+    const { scale, devicePixelRatio = 1, forcedTheme, themeDelay = 0, tight = false } = msg;
     const tabId = sender.tab.id;
 
     (async () => {
@@ -69,48 +69,72 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // getBoundingClientRect() still returns logical CSS pixels, so we must multiply
         // by the current tab zoom to convert to the coordinate space CDP expects.
         const zoom = await new Promise(resolve => chrome.tabs.getZoom(tabId, resolve));
+        // Element box in DIP (the coordinate space CDP's clip expects). CDP clip
+        // coords are CSS px at zoom=1, so multiply the page's logical rect by the
+        // tab zoom.
         const rx = rect.x * zoom;
         const ry = rect.y * zoom;
-        // Snap each clip edge to the OUTPUT pixel grid (not the CSS grid). The net
-        // CSS->output multiplier is `scale`, so one CSS pixel is `scale` output
-        // pixels; rounding in CSS space (the old Math.round/Math.ceil) leaked up to
-        // `scale` px of background along any sub-pixel edge. We round OUTWARD here
-        // (floor the origin, ceil the far edge) rather than to-nearest: rounding to
-        // nearest can land just inside the element and crop it (e.g. thinning a
-        // border on the far side), whereas an outward sub-pixel margin is invisible
-        // and the border-radius mask trims any corner overspill anyway. Working on
-        // the output grid keeps that margin under one output pixel.
-        const left   = Math.floor(rx * scale) / scale;
-        const top    = Math.floor(ry * scale) / scale;
-        const right  = Math.ceil((rx + rect.width  * zoom) * scale) / scale;
-        const bottom = Math.ceil((ry + rect.height * zoom) * scale) / scale;
+        const rw = rect.width  * zoom;
+        const rh = rect.height * zoom;
+
+        // Pixel-exact capture rests on two grid alignments:
+        //
+        // 1. INTEGER clip.scale. clip.scale is output-px-per-DIP. A fractional
+        //    value (e.g. 6/2.2 under zoom) makes CDP resample and round, which
+        //    clamps the captured region ~1 DIP short and shifts edges. An integer
+        //    scale maps the clip to the bitmap linearly with no rounding. `scale`
+        //    is only a quality knob, so rounding scale/dpr to the nearest integer
+        //    is free. (At 100% on Retina this is already 6/2=3 — why 100% looked
+        //    clean and zoom didn't.)
+        //
+        // 2. DEVICE-pixel-snapped element box. getBoundingClientRect() is
+        //    fractional, but the browser paints element edges snapped to the
+        //    device-pixel grid. Cropping from the raw fractional rect misses the
+        //    painted edge by a sub-pixel that scale magnifies into visible px, in
+        //    either direction depending on where the fraction lands. Snapping the
+        //    box to the device grid (physicalDpr = device px per DIP) registers
+        //    the crop against the pixels actually drawn.
+        const physicalDpr = devicePixelRatio / zoom;            // device px per DIP
+        const clipScale = Math.max(1, Math.round(scale / devicePixelRatio)); // integer px per DIP
+        const snapDip = v => Math.round(v * physicalDpr) / physicalDpr;       // → nearest device px
+        const eL = snapDip(rx);
+        const eT = snapDip(ry);
+        const eR = snapDip(rx + rw);
+        const eB = snapDip(ry + rh);
+
+        // Element captures take a background margin (cropped off via cropPx) so
+        // any residual rounding can't eat the element's edge; resize-mode
+        // captures (`tight`) are used as-is, so capture exactly the box.
+        const MARGIN = tight ? 0 : 4 / physicalDpr; // 4 device px, in DIP
+        const clipLeft   = eL - MARGIN;
+        const clipTop    = eT - MARGIN;
+        const clipRight  = eR + MARGIN;
+        const clipBottom = eB + MARGIN;
         const clip = {
-          x:      left,
-          y:      top,
-          width:  right - left,
-          height: bottom - top,
+          x:      clipLeft,
+          y:      clipTop,
+          width:  clipRight - clipLeft,
+          height: clipBottom - clipTop,
         };
 
-        // Where the element sits *within* the clip, as fractions. The clip is rounded
-        // outward so it always contains the element plus a sub-pixel margin, and that
-        // margin isn't symmetric. Expressing the element box as fractions of the clip
-        // lets the content script crop/mask to the element's true position without
-        // needing to know the net output scale (which depends on DPR + zoom).
-        const elemFrac = {
-          x: (rx - left) / clip.width,
-          y: (ry - top)  / clip.height,
-          w: (rect.width  * zoom) / clip.width,
-          h: (rect.height * zoom) / clip.height,
+        // Crop box in BITMAP PIXELS: clip top-left maps to (0,0), one DIP is
+        // clipScale output px. With integer clipScale and device-snapped edges
+        // this is exact, not approximate.
+        const cropPx = {
+          x: (eL - clipLeft) * clipScale,
+          y: (eT - clipTop)  * clipScale,
+          w: (eR - eL) * clipScale,
+          h: (eB - eT) * clipScale,
         };
 
         const result = await cmd(tabId, 'Page.captureScreenshot', {
           format: 'png',
-          clip: { ...clip, scale: scale / devicePixelRatio },
+          clip: { ...clip, scale: clipScale },
         });
 
         if (forcedTheme) await resetEmulation();
         await detach();
-        sendResponse({ dataUrl: 'data:image/png;base64,' + result.data, elemFrac });
+        sendResponse({ dataUrl: 'data:image/png;base64,' + result.data, cropPx });
       } catch (err) {
         if (forcedTheme) await resetEmulation().catch(() => {});
         try { await detach(); } catch {}
