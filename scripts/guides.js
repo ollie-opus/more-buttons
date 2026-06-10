@@ -1158,14 +1158,14 @@ registerFormAction('deleteGuideSection', async ({ formEl, content, cleanup }) =>
   if (!confirm(msg)) return;
 
   const btn = content.querySelector('[data-action="deleteGuideSection"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
   try {
-    await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, md => deleteSectionByUUID(md, editUuid, { cascade: true }));
+    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s), md => deleteSectionByUUID(md, editUuid, { cascade: true }));
     await chrome.storage.local.remove('moreButtonsEditGuideSection');
     await navigateBack();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to delete section: ' + e.message);
   }
 });

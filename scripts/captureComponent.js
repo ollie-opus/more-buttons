@@ -9,7 +9,7 @@
  * re-renders from markdown.
  */
 
-import { createForm, navigateBack, resetDirtyBaseline, setButtonBusy } from './form.js';
+import { createForm, navigateBack, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
@@ -147,17 +147,17 @@ registerFormAction('deleteCaptureComponent', async ({ formEl, content }) => {
   const { handler, container, uuid } = readContainerRef(formEl);
   if (!handler) return;
   const btn = content?.querySelector('[data-action="deleteCaptureComponent"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
   try {
     await handler.mutate(container, (components) =>
       components.filter(c => !(c.kind === 'capture' && c.cap.uuid === uuid)),
-      s => { if (btn) btn.textContent = s; });
+      s => setButtonBusy(btn, s));
 
     await chrome.storage.local.remove('moreButtonsEditCaptureComponent');
     await navigateBack();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to delete capture: ' + e.message);
   }
 });

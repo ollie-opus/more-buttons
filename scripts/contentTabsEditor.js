@@ -28,7 +28,7 @@
 import { registerFormAction } from './formActions.js';
 import {
   createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack,
-  resetDirtyBaseline, setButtonBusy,
+  resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton,
 } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
@@ -478,14 +478,14 @@ registerFormAction('deleteContentTabs', async ({ formEl, content }) => {
   if (!groupUuid || !file) return;
   if (!confirm('Delete this tab group? All of its tabs and their contents are removed.')) return;
   const btn = content?.querySelector('[data-action="deleteContentTabs"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
   try {
-    await githubFetchAndPushFile(file, s => { if (btn) btn.textContent = s; }, md => deleteTabGroupByUUID(md, groupUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteTabGroupByUUID(md, groupUuid));
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to delete content tabs: ' + e.message);
   }
 });
