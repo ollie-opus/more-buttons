@@ -881,6 +881,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
     else if (action.kind === 'capture-library') await runComponentLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'paste-markdown') await getFormAction('openPasteMarkdown')?.({ container, insertAtIndex: action.insertAt });
   } else if (action.type === 'edit-admonition') {
     await getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-capture') {
@@ -936,6 +937,7 @@ export function onComponentEditorClick(e) {
       captureNew: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-new', insertAt: i }),
       captureLibrary: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-library', insertAt: i }),
       contentTabs: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'tabs', insertAt: i }),
+      pasteMarkdown: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'paste-markdown', insertAt: i }),
     });
     return;
   }

@@ -1049,6 +1049,11 @@ button.more-buttons-crumb:hover {
   background: color-mix(in srgb, var(--mb-text-muted) 12%, transparent);
 }
 .mb-popup-menu__chev { color: var(--mb-text-muted); font-size: 1rem; line-height: 1; }
+.mb-popup-menu__divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: color-mix(in srgb, var(--mb-text-muted) 25%, transparent);
+}
 .mb-popup-submenu {
   position: absolute;
   top: -4px;
