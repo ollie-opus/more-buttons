@@ -527,6 +527,18 @@ button.more-buttons-crumb:hover {
 
 /* ── Capture Entry: light/dark cards ──────────────────────────────────────── */
 
+/* Input column of the capture-path form row: input plus optional hint below. */
+.mb-capture-path-field {
+  min-width: 0;
+}
+
+.mb-capture-path-hint {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--mb-text-muted);
+}
+
 .mb-capture-entry-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

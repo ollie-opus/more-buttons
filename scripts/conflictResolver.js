@@ -46,7 +46,11 @@ function renderValue(label, value, options) {
 /**
  * @param {HTMLElement} formEl
  * @param {Array<{field,label,mine,theirs}>} conflicts
- * @param {{ describe?: (uuid:string)=>{kind?:string,title?:string,thumbSrc?:string} }} [options]
+ * @param {{ describe?: (uuid:string)=>{kind?:string,title?:string,thumbSrc?:string},
+ *           head?: string, desc?: string }} [options]
+ *   head/desc override the panel's heading and explanation copy for callers
+ *   whose conflict isn't the default concurrent-edit situation (e.g.
+ *   captureNew's path clash). Defaults preserve the original text exactly.
  * @returns {Promise<{ [field]: 'mine'|'theirs' }>}  rejects with ResolveCancelled on cancel
  */
 export function showConflictResolver(formEl, conflicts, options = {}) {
@@ -72,9 +76,12 @@ export function showConflictResolver(formEl, conflicts, options = {}) {
         </div>
       </div>`).join('');
 
+    const head = options.head ?? 'Resolve conflicts to save';
+    const desc = options.desc ?? 'These fields changed elsewhere (another tab, device, or person) while you had this open. Pick which value to keep.';
+
     panel.innerHTML =
-      `<div class="mb-conflict__head"><span class="more-buttons-icon">sync_problem</span>Resolve conflicts to save</div>` +
-      `<p class="mb-conflict__desc">These fields changed elsewhere (another tab, device, or person) while you had this open. Pick which value to keep.</p>` +
+      `<div class="mb-conflict__head"><span class="more-buttons-icon">sync_problem</span>${esc(head)}</div>` +
+      `<p class="mb-conflict__desc">${esc(desc)}</p>` +
       fields +
       `<div class="mb-conflict__foot"><button type="button" class="more-buttons-button" data-conflict-cancel>Cancel</button></div>`;
 

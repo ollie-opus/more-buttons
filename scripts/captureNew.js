@@ -1,7 +1,10 @@
 import { createForm, navigateBack } from './form.js';
 import { pushCaptures } from './captures.js';
-import { githubPathExists } from './github.js';
+import { githubPathExists, githubReplaceImage, githubPushImageIfNotExists } from './github.js';
+import { writeCaptureMeta } from './captureMeta.js';
+import { readRepoBlob } from './repoClient.js';
 import { captureCard, captureGrid, capturePathField, captureBasePath } from './captureCards.js';
+import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { registerFormAction } from './formActions.js';
 
 // `capture` is one entry from Capture Mode's session buffer: it carries
@@ -23,12 +26,29 @@ export async function openCaptureNew({ capture } = {}) {
   const saveBtn = contentEl.querySelector('[data-capture-new-save]');
   const cancelBtn = contentEl.querySelector('[data-capture-new-cancel]');
 
+  // The proposed path is editable: the trimmed input value (sans surrounding
+  // slashes) is the theme-agnostic base, with the original as fallback when
+  // the field is emptied.
+  const originalBase = captureBasePath(capture.lightFilename);
+
   bodyEl.innerHTML =
-    capturePathField({ label: 'Proposed capture path', value: captureBasePath(capture.lightFilename) }) +
+    capturePathField({
+      label: 'Proposed capture path',
+      value: originalBase,
+      editable: true,
+      hint: 'Warning: Only rename this path for legitimate reasons. The majority of the time you will want to utilise the automatically generated path',
+    }) +
     captureGrid([
       captureCard({ theme: 'light', title: 'Light mode', src: capture.lightDataUrl, alt: 'light mode' }),
       captureCard({ theme: 'dark', title: 'Dark mode', src: capture.darkDataUrl, alt: 'dark mode' }),
     ]);
+
+  const pathInput = bodyEl.querySelector('[data-capture-path-input]');
+
+  function currentBase() {
+    const raw = (pathInput?.value ?? '').trim().replace(/^\/+|\/+$/g, '');
+    return raw || originalBase;
+  }
 
   const setStatus = (msg) => {
     if (!statusEl) return;
@@ -36,38 +56,105 @@ export async function openCaptureNew({ capture } = {}) {
     statusEl.textContent = msg;
   };
 
-  // A new capture writes to docs/assets/<lightFilename>, derived purely from
-  // the element + page path + theme — padding/resize are NOT in the name. So
-  // recapturing the same element resolves to the same path. The save flow is
-  // create-only (it never overwrites an existing PNG or its metadata), which
-  // would make a save silently no-op. Detect that up front and block the save
-  // with an in-button warning instead of letting it look like it succeeded.
-  const lightPath = `docs/assets/${capture.lightFilename}`;
-  let alreadyExists = false;
-
-  function markAlreadyExists() {
-    alreadyExists = true;
-    if (!saveBtn) return;
-    saveBtn.disabled = true;
-    saveBtn.classList.remove('success');
-    saveBtn.classList.add('warn');
-    saveBtn.innerHTML =
-      '<span class="more-buttons-icon">warning</span>Capture already exists';
-    saveBtn.title =
-      'A capture for this element already exists in the library. ' +
-      'Delete it from the library first to recapture.';
+  // A clash with a stored capture is resolved through the standard conflict
+  // panel (conflictResolver.js — the same UI guides use for concurrent-edit
+  // conflicts): one "Capture" field whose tiles carry the stored light
+  // thumbnail vs this capture's. Resolves true only when the user picks
+  // "Yours (overwrite)"; picking theirs or cancelling keeps the library
+  // untouched. The stored thumbnail comes via the contents API (readRepoBlob),
+  // not the raw CDN, so a recently replaced capture can't show stale bytes; a
+  // failed fetch just drops the thumbnail (text-only tile).
+  async function resolveExistingConflict({ base, lightPath, lightExists }) {
+    const theirsBlob = lightExists ? await readRepoBlob(lightPath).catch(() => null) : null;
+    const theirsUrl = theirsBlob ? URL.createObjectURL(theirsBlob) : '';
+    try {
+      const choices = await showConflictResolver(
+        formEl,
+        [{ field: 'capture', label: 'Capture', mine: ['mine'], theirs: ['theirs'] }],
+        {
+          describe: (token) => ({
+            kind: 'capture',
+            thumbSrc: token === 'mine' ? capture.lightDataUrl : theirsUrl,
+          }),
+          head: 'A capture already exists at this path',
+          desc: `The library already has a capture at "${base}". Keep the existing one (you can rename the path and save again), or overwrite it with this capture.`,
+        },
+      );
+      return choices.capture === 'mine';
+    } catch (e) {
+      if (e instanceof ResolveCancelled) return false;
+      throw e;
+    } finally {
+      if (theirsUrl) URL.revokeObjectURL(theirsUrl);
+    }
   }
 
+  // "Yours (overwrite)": replace the stored files with this capture. Replace
+  // what's there and create what isn't (a manual rename can land on a
+  // half-existing pair), then upsert the manifest entry so padding/resized
+  // follow the new bytes — the same writes captureEntry's recapture save does.
+  async function overwriteExisting({ lightPath, darkPath, lightExists, darkExists }) {
+    const lightB64 = capture.lightDataUrl.split(',')[1];
+    const darkB64 = capture.darkDataUrl.split(',')[1];
+    await (lightExists
+      ? githubReplaceImage(lightPath, lightB64, setStatus)
+      : githubPushImageIfNotExists(lightPath, lightB64, setStatus));
+    await (darkExists
+      ? githubReplaceImage(darkPath, darkB64, setStatus)
+      : githubPushImageIfNotExists(darkPath, darkB64, setStatus));
+    await writeCaptureMeta(
+      [{ lightPath, resized: !!capture.resized, padding: capture.padding || 0 }],
+      setStatus,
+    );
+  }
+
+  let busy = false;
+
   async function save() {
-    if (alreadyExists) return;
+    if (busy) return;
+    busy = true;
     if (saveBtn) saveBtn.disabled = true;
     if (cancelBtn) cancelBtn.disabled = true;
     try {
-      await pushCaptures([capture], setStatus);
+      const base = currentBase();
+      const light = `occ-captures/${base}-light-mode.png`;
+      const dark = `occ-captures/${base}-dark-mode.png`;
+      const lightPath = `docs/assets/${light}`;
+      const darkPath = `docs/assets/${dark}`;
+
+      // Probe both theme files of the (possibly renamed) target. pushCaptures
+      // is create-only, so saving onto an existing path would silently no-op —
+      // surface a failed probe as an error rather than pushing blind.
+      let lightExists, darkExists;
+      try {
+        [lightExists, darkExists] = await Promise.all([
+          githubPathExists(lightPath),
+          githubPathExists(darkPath),
+        ]);
+      } catch (e) {
+        setStatus(`Could not check for an existing capture: ${e.message}`);
+        return;
+      }
+
+      capture.lightFilename = light;
+      capture.darkFilename = dark;
+
+      if (lightExists || darkExists) {
+        const keepMine = await resolveExistingConflict({ base, lightPath, lightExists });
+        if (!keepMine) {
+          setStatus('Kept the existing capture — rename the path to save yours separately.');
+          return;
+        }
+        await overwriteExisting({ lightPath, darkPath, lightExists, darkExists });
+      } else {
+        await pushCaptures([capture], setStatus);
+      }
       setStatus('Saved to library.');
       navigateBack(); // replays openCaptureLibrary → re-fetches the tree
     } catch (e) {
       setStatus(`Failed: ${e.message}`);
+    } finally {
+      busy = false;
       if (saveBtn) saveBtn.disabled = false;
       if (cancelBtn) cancelBtn.disabled = false;
     }
@@ -77,18 +164,6 @@ export async function openCaptureNew({ capture } = {}) {
     if (e.target.closest('[data-capture-new-save]')) save();
     else if (e.target.closest('[data-capture-new-cancel]')) navigateBack();
   });
-
-  // Probe for an existing capture while the preview renders. Disable save until
-  // we know, so a quick click can't push before the check resolves. A failed
-  // probe (offline/auth) leaves save enabled — pushCaptures stays create-only,
-  // so the worst case is a no-op, never a clobber.
-  if (saveBtn) saveBtn.disabled = true;
-  try {
-    if (await githubPathExists(lightPath)) markAlreadyExists();
-    else if (saveBtn) saveBtn.disabled = false;
-  } catch {
-    if (saveBtn) saveBtn.disabled = false;
-  }
 }
 
 registerFormAction('openCaptureNew', openCaptureNew);

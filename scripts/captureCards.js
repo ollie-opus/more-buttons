@@ -59,16 +59,24 @@ function escapeAttr(value) {
 }
 
 /**
- * Read-only "capture path" form row, rendered above the preview grid. Uses the
- * standard horizontal form-group layout (label left, input right) so it matches
- * every other overlay form. The input is disabled + readonly: view-only, always.
- * @param {{label:string, value:string}} opts
+ * "Capture path" form row, rendered above the preview grid. Uses the standard
+ * horizontal form-group layout (label left, input right) so it matches every
+ * other overlay form. Read-only by default (captureEntry's view of stored
+ * captures); pass editable for captureNew, where the proposed path may be
+ * renamed before save. Editable inputs carry data-capture-path-input so the
+ * caller can read the value back. An optional hint renders below the input.
+ * @param {{label:string, value:string, editable?:boolean, hint?:string}} opts
  */
-export function capturePathField({ label, value }) {
+export function capturePathField({ label, value, editable = false, hint = '' }) {
+  const lock = editable ? ' data-capture-path-input' : ' disabled readonly';
+  const hintHtml = hint ? `<p class="mb-capture-path-hint">${escapeAttr(hint)}</p>` : '';
   return `
     <div class="more-buttons-form-group">
       <label class="more-buttons-label">${escapeAttr(label)}</label>
-      <input class="more-buttons-input-text" type="text" value="${escapeAttr(value)}" disabled readonly>
+      <div class="mb-capture-path-field">
+        <input class="more-buttons-input-text" type="text" value="${escapeAttr(value)}"${lock}>
+        ${hintHtml}
+      </div>
     </div>
   `;
 }

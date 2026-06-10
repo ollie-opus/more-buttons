@@ -1,3 +1,5 @@
+import { computeCaptureClip } from './scripts/captureGeometry.js';
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extension installed');
 });
@@ -66,66 +68,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
 
         // CDP clip coords are in CSS pixels at zoom=1. When the browser is zoomed,
-        // getBoundingClientRect() still returns logical CSS pixels, so we must multiply
-        // by the current tab zoom to convert to the coordinate space CDP expects.
+        // getBoundingClientRect() still returns logical CSS pixels, so
+        // computeCaptureClip multiplies by the current tab zoom to convert to
+        // the coordinate space CDP expects. All grid-alignment subtleties
+        // (integer clip.scale, device-pixel snapping, the cropped-off margin)
+        // live in captureGeometry.js.
         const zoom = await new Promise(resolve => chrome.tabs.getZoom(tabId, resolve));
-        // Element box in DIP (the coordinate space CDP's clip expects). CDP clip
-        // coords are CSS px at zoom=1, so multiply the page's logical rect by the
-        // tab zoom.
-        const rx = rect.x * zoom;
-        const ry = rect.y * zoom;
-        const rw = rect.width  * zoom;
-        const rh = rect.height * zoom;
-
-        // Pixel-exact capture rests on two grid alignments:
-        //
-        // 1. INTEGER clip.scale. clip.scale is output-px-per-DIP. A fractional
-        //    value (e.g. 6/2.2 under zoom) makes CDP resample and round, which
-        //    clamps the captured region ~1 DIP short and shifts edges. An integer
-        //    scale maps the clip to the bitmap linearly with no rounding. `scale`
-        //    is only a quality knob, so rounding scale/dpr to the nearest integer
-        //    is free. (At 100% on Retina this is already 6/2=3 — why 100% looked
-        //    clean and zoom didn't.)
-        //
-        // 2. DEVICE-pixel-snapped element box. getBoundingClientRect() is
-        //    fractional, but the browser paints element edges snapped to the
-        //    device-pixel grid. Cropping from the raw fractional rect misses the
-        //    painted edge by a sub-pixel that scale magnifies into visible px, in
-        //    either direction depending on where the fraction lands. Snapping the
-        //    box to the device grid (physicalDpr = device px per DIP) registers
-        //    the crop against the pixels actually drawn.
-        const physicalDpr = devicePixelRatio / zoom;            // device px per DIP
-        const clipScale = Math.max(1, Math.round(scale / devicePixelRatio)); // integer px per DIP
-        const snapDip = v => Math.round(v * physicalDpr) / physicalDpr;       // → nearest device px
-        const eL = snapDip(rx);
-        const eT = snapDip(ry);
-        const eR = snapDip(rx + rw);
-        const eB = snapDip(ry + rh);
-
-        // Element captures take a background margin (cropped off via cropPx) so
-        // any residual rounding can't eat the element's edge; resize-mode
-        // captures (`tight`) are used as-is, so capture exactly the box.
-        const MARGIN = tight ? 0 : 4 / physicalDpr; // 4 device px, in DIP
-        const clipLeft   = eL - MARGIN;
-        const clipTop    = eT - MARGIN;
-        const clipRight  = eR + MARGIN;
-        const clipBottom = eB + MARGIN;
-        const clip = {
-          x:      clipLeft,
-          y:      clipTop,
-          width:  clipRight - clipLeft,
-          height: clipBottom - clipTop,
-        };
-
-        // Crop box in BITMAP PIXELS: clip top-left maps to (0,0), one DIP is
-        // clipScale output px. With integer clipScale and device-snapped edges
-        // this is exact, not approximate.
-        const cropPx = {
-          x: (eL - clipLeft) * clipScale,
-          y: (eT - clipTop)  * clipScale,
-          w: (eR - eL) * clipScale,
-          h: (eB - eT) * clipScale,
-        };
+        const { clip, clipScale, cropDip } = computeCaptureClip({ rect, zoom, devicePixelRatio, scale, tight });
 
         const result = await cmd(tabId, 'Page.captureScreenshot', {
           format: 'png',
@@ -134,7 +83,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         if (forcedTheme) await resetEmulation();
         await detach();
-        sendResponse({ dataUrl: 'data:image/png;base64,' + result.data, cropPx });
+        // cropDip (element box in DIP relative to the clip) rather than bitmap
+        // pixels: how many px one DIP became depends on the display's
+        // deviceScaleFactor, which the content script measures from the bitmap.
+        sendResponse({ dataUrl: 'data:image/png;base64,' + result.data, cropDip });
       } catch (err) {
         if (forcedTheme) await resetEmulation().catch(() => {});
         try { await detach(); } catch {}

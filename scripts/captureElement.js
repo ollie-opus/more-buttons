@@ -14,6 +14,8 @@
  * No module-level lifecycle. The controller owns mode state.
  */
 
+import { cropBoxPx } from './captureGeometry.js';
+
 // ── Hover + Shift-arm selector ────────────────────────────────────────────────
 
 export function installSelector({ onPick, onArmedChange, getPadding }) {
@@ -183,7 +185,7 @@ function getElementLabel(el) {
   );
 }
 
-function applyBorderRadiusMask(src, el, cropPx) {
+function applyBorderRadiusMask(src, el, cropDip) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -192,19 +194,16 @@ function applyBorderRadiusMask(src, el, cropPx) {
 
       // The captured bitmap contains the element plus a background margin (the
       // clip is captured with a deliberate margin so CDP's ~1-DIP capture
-      // shortfall never eats the element's edge). `cropPx` is the element's box
-      // in absolute bitmap pixels, computed background-side from the known
-      // render scale — robust to CDP's output-dimension rounding. We crop the
+      // shortfall never eats the element's edge). `cropDip` is the element's
+      // box in DIP relative to the clip origin; cropBoxPx resolves it against
+      // the decoded bitmap, measuring the actual px-per-DIP from the bitmap
+      // itself (the surface is rendered at clip.scale * deviceScaleFactor, so
+      // a background-side pixel value would be display-dependent). We crop the
       // canvas to exactly that box so the margin is removed and the rounded mask
       // registers against the element's true edges (critical for pills, whose
       // curved ends would otherwise be sliced by a mask centred on the whole
-      // bitmap). Clamp to the bitmap bounds defensively, and fall back to the
-      // full bitmap if no box was supplied.
-      const box = cropPx || { x: 0, y: 0, w: img.width, h: img.height };
-      const ex = Math.min(Math.max(0, box.x), img.width);
-      const ey = Math.min(Math.max(0, box.y), img.height);
-      const ew = Math.min(Math.max(1, box.w), img.width  - ex);
-      const eh = Math.min(Math.max(1, box.h), img.height - ey);
+      // bitmap).
+      const { x: ex, y: ey, w: ew, h: eh } = cropBoxPx(cropDip, img.width, img.height);
 
       const w = Math.max(1, Math.round(ew));
       const h = Math.max(1, Math.round(eh));
@@ -247,6 +246,26 @@ function applyBorderRadiusMask(src, el, cropPx) {
       // canvas is exactly the element box, so the outward clip margin is cropped off.
       ctx.drawImage(img, -ex, -ey);
 
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Plain crop to the cropDip box, no rounded-corner mask — used for resize-mode
+// captures, whose clip is also outward-snapped to whole DIPs (fractional clips
+// get rounded inward by CDP and mis-register the capture under browser zoom).
+function cropToBox(src, cropDip) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const { x, y, w, h } = cropBoxPx(cropDip, img.width, img.height);
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.max(1, Math.round(w));
+      canvas.height = Math.max(1, Math.round(h));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, -x, -y);
       resolve(canvas.toDataURL('image/png'));
     };
     img.onerror = reject;
@@ -375,9 +394,9 @@ export async function screenshotElement(el, { theme, customRect = null, settings
       devicePixelRatio: window.devicePixelRatio,
       forcedTheme: theme,
       themeDelay: theme ? (settings.themeDelay ?? 500) : 0,
-      // Element captures crop a margin off afterwards (so CDP's capture
-      // shortfall can't eat the element's edge); resize-mode captures use the
-      // bitmap as-is, so they must stay tight to the user's chosen rect.
+      // Element captures take a 4-device-px margin (cropped off afterwards);
+      // resize-mode captures add no extra margin beyond the whole-DIP snap.
+      // Both crop back to cropDip afterwards.
       tight: !!customRect,
     }, resolve)
   );
@@ -391,7 +410,9 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     return null;
   }
 
-  const maskedDataUrl = !customRect ? await applyBorderRadiusMask(response.dataUrl, el, response.cropPx) : response.dataUrl;
+  const maskedDataUrl = !customRect
+    ? await applyBorderRadiusMask(response.dataUrl, el, response.cropDip)
+    : await cropToBox(response.dataUrl, response.cropDip);
   const originalWidth = customRect ? customRect.width : el.getBoundingClientRect().width;
   const appliedPadding = (padding > 0 && sampledBgColor) ? padding : 0;
   const finalDataUrl = appliedPadding
@@ -409,6 +430,20 @@ export async function screenshotElement(el, { theme, customRect = null, settings
 export function dimensionsChanged(initRect, box) {
   return Math.round(box.width) !== Math.round(initRect.width)
       || Math.round(box.height) !== Math.round(initRect.height);
+}
+
+/**
+ * Is the resize box still exactly where it started (position AND size, rounded
+ * so sub-pixel jitter doesn't count)? Unlike dimensionsChanged this also
+ * catches pure moves (opposite-handle drags that net a shift). An untouched
+ * box means the user confirmed the element as-is, so the capture should take
+ * the element path and get the rounded-corner mask.
+ */
+export function boxUnchanged(a, b) {
+  return Math.round(a.top)    === Math.round(b.top)
+      && Math.round(a.left)   === Math.round(b.left)
+      && Math.round(a.width)  === Math.round(b.width)
+      && Math.round(a.height) === Math.round(b.height);
 }
 
 // ── Resize mode (draggable box) ───────────────────────────────────────────────
@@ -430,8 +465,10 @@ function applyDelta(handle, startBox, dx, dy) {
 }
 
 /**
- * Draggable selection box. Calls onConfirm(rect) on Enter, onCancel() on Esc.
- * Cleans up its own UI before invoking either callback.
+ * Draggable selection box. Calls onConfirm(rect, resized, untouched) on Enter,
+ * onCancel() on Esc. Cleans up its own UI before invoking either callback.
+ * `untouched` is true when the box still matches the element's initial rect
+ * (position and size) — i.e. the user just pressed Enter without adjusting.
  */
 export function enterResizeMode(el, _settings, onConfirm, onCancel) {
   const initRect = el.getBoundingClientRect();
@@ -441,6 +478,7 @@ export function enterResizeMode(el, _settings, onConfirm, onCancel) {
     width: initRect.width,
     height: initRect.height,
   };
+  const initBox = { ...box };
 
   const resizeOverlay = document.createElement('div');
   resizeOverlay.className = 'mb-capture-resize';
@@ -525,7 +563,7 @@ export function enterResizeMode(el, _settings, onConfirm, onCancel) {
       e.stopPropagation();
       teardown();
       if (document.activeElement) document.activeElement.blur();
-      onConfirm?.({ ...box }, dimensionsChanged(initRect, box));
+      onConfirm?.({ ...box }, dimensionsChanged(initRect, box), boxUnchanged(initBox, box));
     }
   }
 

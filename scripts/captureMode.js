@@ -376,9 +376,14 @@ export async function enterCaptureMode(opts = {}) {
     try {
       if (settings.resizeMode) {
         await new Promise(resolve => {
-          enterResizeMode(target, settings, async (rect, resized) => {
-            const light = await screenshotElement(target, { theme: 'light', customRect: rect, settings });
-            const dark  = await screenshotElement(target, { theme: 'dark',  customRect: rect, settings });
+          enterResizeMode(target, settings, async (rect, resized, untouched) => {
+            // Plain Enter with the box untouched = the user wants the element
+            // as-is: take the element path so the rounded-corner mask applies,
+            // exactly like a non-resize-mode capture. Only an adjusted box
+            // captures the raw region (whose corner radii are unknowable).
+            const customRect = untouched ? null : rect;
+            const light = await screenshotElement(target, { theme: 'light', customRect, settings });
+            const dark  = await screenshotElement(target, { theme: 'dark',  customRect, settings });
             finishCapture(light, dark, resized);
             resolve();
           }, () => resolve());
