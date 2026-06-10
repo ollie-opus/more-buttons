@@ -12,7 +12,7 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { snapshotFormStack, replayFormStack } from './form.js';
+import { snapshotFormStack, replayFormStack, loadingTile } from './form.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubPushImageIfNotExists } from './github.js';
 import { writeCaptureMeta } from './captureMeta.js';
@@ -111,7 +111,7 @@ async function commitCapturesIntoContainer(container, insertAt, capList) {
 function openInsertedComponentEditor(container, inserted) {
   const component = inserted?.[inserted.length - 1];
   if (!component) return;
-  getFormAction('openComponentEditor')?.({ container, component });
+  return getFormAction('openComponentEditor')?.({ container, component });
 }
 
 // "Create a new capture" → screenshot → upload → splice into the container at idx.
@@ -133,17 +133,32 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
           overlay.style.display = '';
           document.body.style.overflow = prevBodyOverflow;
           if (sessionBuffer.length) {
-            const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
-            openInsertedComponentEditor(container, inserted);
+            // Image upload + draft commit + editor open: cover the whole
+            // stretch with the loading tile until the editor form renders.
+            loadingTile.show();
+            try {
+              const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+              await openInsertedComponentEditor(container, inserted);
+            } finally {
+              loadingTile.dismiss();
+            }
           }
           return;
         }
         // Cold path: the form was torn down by a hard nav. Replay it, then commit.
         if (!formStackSnapshot?.length || !sessionBuffer.length) return;
-        const ok = await replayFormStack(formStackSnapshot);
-        if (ok) {
-          const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
-          openInsertedComponentEditor(container, inserted);
+        loadingTile.show();
+        try {
+          const ok = await replayFormStack(formStackSnapshot);
+          if (ok) {
+            // The replay's createForm dropped the tile when the parent form
+            // re-rendered; re-arm it to cover the commit + editor-open gap.
+            loadingTile.show();
+            const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+            await openInsertedComponentEditor(container, inserted);
+          }
+        } finally {
+          loadingTile.dismiss();
         }
       },
       // ✕ / Esc: discard everything captured this session and just re-show the
@@ -162,7 +177,7 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
 // "Add from library" → pick a library capture → splice into the container at idx.
 export function runComponentLibraryInsert({ container, insertAt }) {
   componentLibraryIntent = { snapshot: snapshotFormStack(), container, insertAt };
-  getFormAction('openCaptureLibrary')?.({ mode: 'insert' });
+  return getFormAction('openCaptureLibrary')?.({ mode: 'insert' });
 }
 
 // componentLibraryIntent remembers where to commit the chosen library capture:
@@ -178,8 +193,18 @@ registerFormAction('completeLibraryInsert', async ({ capture } = {}) => {
   const intent = componentLibraryIntent;
   componentLibraryIntent = null;
   if (!capture || !intent.snapshot?.length) return;
-  const ok = await replayFormStack(intent.snapshot);
-  if (!ok) return;
-  const inserted = await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
-  openInsertedComponentEditor(intent.container, inserted);
+  // The library's insert button bypasses form.js's data-action dispatcher,
+  // so this action arms the loading tile itself.
+  loadingTile.show();
+  try {
+    const ok = await replayFormStack(intent.snapshot);
+    if (!ok) return;
+    // The replay's createForm dropped the tile when the parent form
+    // re-rendered; re-arm it to cover the commit + editor-open gap.
+    loadingTile.show();
+    const inserted = await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
+    await openInsertedComponentEditor(intent.container, inserted);
+  } finally {
+    loadingTile.dismiss();
+  }
 });

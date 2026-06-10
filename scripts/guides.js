@@ -13,7 +13,7 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
+import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton, loadingTile } from './form.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
@@ -138,14 +138,21 @@ function onGuideEntryClick(e, formEl) {
   // Edit / create section clicks are dispatched via form actions below. The
   // draft path rides in the args so the resulting history descriptors are
   // self-contained (replayable without this guide-entry form having run).
+  // Section cards bypass form.js's data-action dispatcher, so arm the loading
+  // tile here; createForm drops it when the section form renders, the .finally
+  // mops up failures (the dispatch itself stays fire-and-forget).
   const editSec = e.target.closest('[data-edit-guide-section]');
   if (editSec) {
-    getFormAction('openEditGuideSection')?.({ uuid: editSec.dataset.editGuideSection, file: formEl.dataset.draftPath });
+    loadingTile.show();
+    Promise.resolve(getFormAction('openEditGuideSection')?.({ uuid: editSec.dataset.editGuideSection, file: formEl.dataset.draftPath }))
+      .finally(() => loadingTile.dismiss());
     return;
   }
   const createSec = e.target.closest('[data-create-guide-section]');
   if (createSec) {
-    getFormAction('openCreateGuideSection')?.({ parentUuid: createSec.dataset.createGuideSection, file: formEl.dataset.draftPath });
+    loadingTile.show();
+    Promise.resolve(getFormAction('openCreateGuideSection')?.({ parentUuid: createSec.dataset.createGuideSection, file: formEl.dataset.draftPath }))
+      .finally(() => loadingTile.dismiss());
     return;
   }
 }
@@ -850,22 +857,32 @@ async function ensureContainerReady(formEl) {
 async function beginChildNavigation(formEl, action) {
   const ready = await ensureContainerReady(formEl);
   if (!ready) return;
-  await runChildAction(ready.container, ready.formEl, action);
+  // Card clicks bypass form.js's data-action dispatcher, so the loading tile
+  // is armed here instead. runChildAction's branches are awaited end-to-end:
+  // the tile drops as soon as the child form renders (createForm) and the
+  // finally only mops up failures and the no-form paths (e.g. capture mode,
+  // which returns immediately — well inside the grace period).
+  loadingTile.show();
+  try {
+    await runChildAction(ready.container, ready.formEl, action);
+  } finally {
+    loadingTile.dismiss();
+  }
 }
 
 async function runChildAction(container, formEl, action) {
   const overlay = formEl.closest('.more-buttons-overlay');
   if (action.type === 'insert') {
-    if (action.kind === 'admonition') getFormAction('openCreateGuideAdmonition')?.({ container, insertAtIndex: action.insertAt });
+    if (action.kind === 'admonition') await getFormAction('openCreateGuideAdmonition')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
-    else if (action.kind === 'capture-library') runComponentLibraryInsert({ container, insertAt: action.insertAt });
-    else if (action.kind === 'tabs') getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'capture-library') await runComponentLibraryInsert({ container, insertAt: action.insertAt });
+    else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
   } else if (action.type === 'edit-admonition') {
-    getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
+    await getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-capture') {
-    openCaptureComponentEditor(container, action.uuid);
+    await openCaptureComponentEditor(container, action.uuid);
   } else if (action.type === 'edit-tabs') {
-    getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
+    await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   }
 }
 
@@ -919,14 +936,14 @@ export function onComponentEditorClick(e) {
 // new component is inserted — so every component kind lands in its editor on
 // insert, the way admonitions already do via their create form. New component
 // kinds add a branch here and get insert→edit behaviour for free.
-function openEditorForComponent(container, component) {
+async function openEditorForComponent(container, component) {
   if (!component) return;
   if (component.kind === 'admonition') {
-    getFormAction('openEditGuideAdmonition')?.({ uuid: component.adm.uuid, file: container.file });
+    await getFormAction('openEditGuideAdmonition')?.({ uuid: component.adm.uuid, file: container.file });
   } else if (component.kind === 'capture') {
-    getFormAction('openEditCaptureComponent')?.({ container, uuid: component.cap.uuid, cap: component.cap });
+    await getFormAction('openEditCaptureComponent')?.({ container, uuid: component.cap.uuid, cap: component.cap });
   } else if (component.kind === 'tabs') {
-    getFormAction('openEditContentTabs')?.({ uuid: component.grp.uuid, file: container.file });
+    await getFormAction('openEditContentTabs')?.({ uuid: component.grp.uuid, file: container.file });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -937,7 +954,7 @@ async function openCaptureComponentEditor(container, uuid) {
   const { components } = readContainerComponents(md, container);
   const c = components.find(x => x.kind === 'capture' && x.cap.uuid === uuid);
   if (!c) return;
-  openEditorForComponent(container, c);
+  await openEditorForComponent(container, c);
 }
 
 function admonitionCard(adm, stepNumber = null) {
