@@ -726,6 +726,7 @@ export function makeContainerHandler(readComponents, writeBody, exists) {
     exists,
     mutate: async (container, transform, onProgress) => {
       await githubFetchAndPushFile(container.file, onProgress || (() => {}), md => {
+        if (!exists(md, container.uuid)) throw new Error('Parent container no longer exists.');
         const { description, components } = readComponents(md, container.uuid);
         const next = transform(components, description) || components;
         return writeBody(md, container.uuid, description, next);
@@ -750,6 +751,7 @@ registerComponentContainer('guide-admonition', makeContainerHandler(
 // existing catch → alert. Exported for contentTabsEditor.js.
 export async function spliceIntoContainer(container, insertAt, items, onProgress = () => {}) {
   await githubFetchAndPushFile(container.file, onProgress, md => {
+    if (!getComponentContainer(container.kind)) throw new Error('Unknown container kind: ' + container.kind);
     if (!containerExists(md, container)) throw new Error('Parent container no longer exists.');
     const { description, components: existing } = readContainerComponents(md, container);
     const idx = (insertAt != null && insertAt >= 0 && insertAt <= existing.length) ? insertAt : existing.length;

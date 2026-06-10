@@ -140,6 +140,8 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
             try {
               const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
               await openInsertedComponentEditor(container, inserted);
+            } catch (e) {
+              alert('Failed to insert capture: ' + e.message);
             } finally {
               formLoading.dismiss();
             }
@@ -158,6 +160,8 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
             const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
             await openInsertedComponentEditor(container, inserted);
           }
+        } catch (e) {
+          alert('Failed to insert capture: ' + e.message);
         } finally {
           formLoading.dismiss();
         }
@@ -205,6 +209,8 @@ registerFormAction('completeLibraryInsert', async ({ capture } = {}) => {
     formLoading.show();
     const inserted = await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
     await openInsertedComponentEditor(intent.container, inserted);
+  } catch (e) {
+    alert('Failed to insert capture: ' + e.message);
   } finally {
     formLoading.dismiss();
   }

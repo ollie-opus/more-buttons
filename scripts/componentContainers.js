@@ -7,7 +7,10 @@
  * section, a guide admonition, etc. Each editor registers a handler per kind:
  *
  *   registerComponentContainer('guide-section', {
- *     mutate: async (uuid, transform, onProgress) => { … commit + re-render … },
+ *     readComponents: (md, uuid) => ({ description, components }),
+ *     writeBody: (md, uuid, description, components) => newMd,
+ *     exists: (md, uuid) => boolean,
+ *     mutate: async (container, transform, onProgress) => { … commit + re-render … },
  *   })
  *
  * `mutate(uuid, transform, onProgress)` reads the container's current component
