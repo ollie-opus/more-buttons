@@ -1285,6 +1285,21 @@ registerFormAction('openCreateGuideAdmonition', async ({ container, insertAtInde
   wireAdmonitionTypeToggle(formEl, 'step');
 });
 
+registerFormAction('openPasteMarkdown', async ({ container, insertAtIndex }) => {
+  if (!container?.file) return;
+  if (!isFormReplay()) {
+    await chrome.storage.local.set({ moreButtonsPasteMarkdown: { pasteMarkdownText: '' } });
+  }
+  const { formEl } = await createForm('pasteMarkdown');
+  if (!formEl) return;
+  // Parent container the pasted components will be spliced into (kind/uuid/file).
+  formEl.dataset.parentKind = container.kind;
+  formEl.dataset.parentUuid = container.uuid;
+  formEl.dataset.parentFile = container.file;
+  formEl.dataset.insertAtIndex = insertAtIndex == null ? '' : String(insertAtIndex);
+  setCrumbLabel('Paste markdown');
+});
+
 registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
   const containerFile = file || currentGuide?.draftPath;
   if (!containerFile) return;
