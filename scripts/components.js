@@ -18,10 +18,10 @@
  * All functions here are pure (no DOM, no network) — markdown in, markdown out.
  */
 
-import { parseAdmonitions, buildAdmonition, generateUUID, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
+import { parseAdmonitions, buildAdmonition, generateUUID, GUIDE_ADMONITION_TYPES_RE, ensureAdmonitionUUIDs } from './admonitions.js';
 import { buildSectionUUIDSpan } from './sections.js';
 import { buildCaptureLines } from './captures.js';
-import { locateTabGroups, buildTabGroup, locateTabByUUID } from './contentTabs.js';
+import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
 
 // Per-line light-capture matcher (mirrors captures.js' parseExistingCaptures,
 // but line-addressable so we can interleave with admonitions by position).
@@ -30,6 +30,10 @@ const LIGHT_LINE_RE =
 const DARK_LINE_RE = /^\s*!\[\]\(\.\.\/assets\/[^)#]+#only-dark\)/;
 const UUID_SPAN_RE = /<span[^>]*data-uuid[^>]*><\/span>\n?/g;
 const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
+// Whole-line variant: removes an own-line uuid span INCLUDING its indent and
+// newline, so nested (indented) spans vanish without leaving indent residue —
+// UUID_SPAN_RE alone would merge the leftover indent into the following line.
+const UUID_SPAN_FULL_LINE_RE = /^[ \t]*<span[^>]*data-uuid[^>]*><\/span>[ \t]*\r?\n?/gm;
 
 /** True when `line` falls within any `[start, end)` range. */
 function inAnyRange(line, ranges) {
@@ -257,6 +261,46 @@ export function uuidOfComponent(c) {
   if (c.kind === 'admonition') return c.adm.uuid;
   if (c.kind === 'tabs') return c.grp.uuid;
   return c.cap.uuid;
+}
+
+/** Removes every own-line `data-uuid` identity span (any indent) from `markdown`. */
+export function stripUUIDSpans(markdown) {
+  return (markdown ?? '').replace(UUID_SPAN_FULL_LINE_RE, '');
+}
+
+/**
+ * The full markdown of one component (including all nested subcomponents),
+ * with every identity span stripped — the Copy-to-clipboard payload.
+ */
+export function componentMarkdown(component) {
+  return stripUUIDSpans(buildComponentBody(null, '', [component]))
+    .replace(/^\n+/, '')
+    .trimEnd();
+}
+
+/**
+ * Validates pasted markdown for the "Paste copied markdown" insert flow.
+ * Strips any uuid spans the paste carried (fresh identities are always minted —
+ * pasting into the same page can never duplicate a uuid), backfills new uuids
+ * (admonitions → tabs → captures, same order as migrateComponentIdentity), and
+ * parses the result. Valid = at least one recognized component and no stray
+ * prose outside component blocks.
+ *
+ * @param {string} text
+ * @returns {{ components: Array|null, error: string|null }}
+ */
+export function parsePastedComponents(text) {
+  const stripped = stripUUIDSpans(text ?? '').trim();
+  if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
+  const withUuids = ensureCaptureUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)));
+  const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
+  if (components.length === 0) {
+    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture or content tabs).' };
+  }
+  if (description.trim() !== '') {
+    return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };
+  }
+  return { components, error: null };
 }
 
 // ── Tab containers (a single tab's body holds an ordered component list) ──────
