@@ -32,7 +32,7 @@
 - Modify: `scripts/components.js`
 - Test (create): `tests/componentMarkdown.test.mjs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/componentMarkdown.test.mjs`:
 
@@ -139,12 +139,12 @@ test('parsePastedComponents: rejects components mixed with stray prose', () => {
 console.log(`\n${passed} passed`);
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node tests/componentMarkdown.test.mjs`
 Expected: FAIL — `SyntaxError: The requested module '../scripts/components.js' does not provide an export named 'stripUUIDSpans'`
 
-- [ ] **Step 3: Implement the helpers in components.js**
+- [x] **Step 3: Implement the helpers in components.js**
 
 In `scripts/components.js`, extend the two existing imports at the top (line 21 and 24):
 
@@ -211,17 +211,17 @@ export function parsePastedComponents(text) {
 
 Circular-import check: `admonitions.js` and `contentTabs.js` do not import `components.js`, so the two new named imports are safe (they're the same modules already imported).
 
-- [ ] **Step 4: Run the new tests — verify they pass**
+- [x] **Step 4: Run the new tests — verify they pass**
 
 Run: `node tests/componentMarkdown.test.mjs`
 Expected: `9 passed`
 
-- [ ] **Step 5: Run the full existing suite (regression)**
+- [x] **Step 5: Run the full existing suite (regression)**
 
 Run: `for f in tests/*.test.mjs; do echo "== $f"; node "$f" || break; done`
 Expected: every file prints `N passed`, no assertion errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/components.js tests/componentMarkdown.test.mjs
@@ -236,7 +236,7 @@ git commit -m "feat(components): markdown copy/paste helpers (stripUUIDSpans, co
 - Modify: `scripts/cardRenderer.js` (captureComponentCard, line 34)
 - Modify: `scripts/guides.js` (captureComponentCardFor line 762, admonitionCard line 963, tabsComponentCard line 996, onComponentEditorClick line 894, imports line 37)
 
-- [ ] **Step 1: Extend captureComponentCard with an optional copy button**
+- [x] **Step 1: Extend captureComponentCard with an optional copy button**
 
 In `scripts/cardRenderer.js`, replace `captureComponentCard` with:
 
@@ -259,7 +259,7 @@ export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', cop
 
 (`copyAttr` defaults to `''`, so the other call sites of `captureComponentCard` — pending-capture previews — are unchanged. The foot is `display:flex; gap:10px`, so the second button needs no styling.)
 
-- [ ] **Step 2: Emit the copy attribute from all three card renderers in guides.js**
+- [x] **Step 2: Emit the copy attribute from all three card renderers in guides.js**
 
 Replace `captureComponentCardFor` (guides.js:762):
 
@@ -299,7 +299,7 @@ In `tabsComponentCard` (guides.js:996), replace its foot block the same way:
       </div>
 ```
 
-- [ ] **Step 3: Handle the copy click (no save-gate) in guides.js**
+- [x] **Step 3: Handle the copy click (no save-gate) in guides.js**
 
 Add `componentMarkdown` to the components.js import (guides.js:37):
 
@@ -352,12 +352,12 @@ async function copyComponentMarkdown(formEl, uuid, btn) {
 }
 ```
 
-- [ ] **Step 4: Regression-run the suite**
+- [x] **Step 4: Regression-run the suite**
 
 Run: `for f in tests/*.test.mjs; do echo "== $f"; node "$f" || break; done`
 Expected: all pass (this task is UI-only; nothing pure changed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/cardRenderer.js scripts/guides.js
@@ -373,7 +373,7 @@ git commit -m "feat(components): Copy-to-clipboard button on component cards"
 - Modify: `config/forms/formsStyling.css` (one divider rule, near the `.mb-popup-menu` block at line 1017)
 - Modify: `scripts/guides.js` (`onComponentEditorClick` menu handlers line 927, `runChildAction` line 876)
 
-- [ ] **Step 1: Add divider + option to the menu markup**
+- [x] **Step 1: Add divider + option to the menu markup**
 
 In `scripts/insertMenu.js`, inside `menu.innerHTML` (after the `content-tabs` button, line 40):
 
@@ -392,7 +392,7 @@ In the `pick` dispatcher (line 58), add a branch:
 
 Update the JSDoc `handlers` type (line 22) to `{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, pasteMarkdown:Function}`, and the file header comment (lines 4–7) to mention the divider + paste option.
 
-- [ ] **Step 2: Divider style**
+- [x] **Step 2: Divider style**
 
 In `config/forms/formsStyling.css`, after the `.mb-popup-menu__chev` rule (line 1051), add (same colour recipe as the menu's own border):
 
@@ -404,7 +404,7 @@ In `config/forms/formsStyling.css`, after the `.mb-popup-menu__chev` rule (line 
 }
 ```
 
-- [ ] **Step 3: Wire the handler through the save-gate in guides.js**
+- [x] **Step 3: Wire the handler through the save-gate in guides.js**
 
 In `onComponentEditorClick`'s `openInsertMenu` call (guides.js:927), add to the handlers object:
 
@@ -422,7 +422,7 @@ In `runChildAction` (guides.js:876), add a branch to the `insert` block:
 
 (`openPasteMarkdown` is registered in Task 4; until then the optional-chained call is a silent no-op — safe to commit.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/insertMenu.js config/forms/formsStyling.css scripts/guides.js
@@ -437,7 +437,7 @@ git commit -m "feat(insert-menu): divider + Paste copied markdown option"
 - Create: `config/forms/pasteMarkdown.html`
 - Modify: `scripts/guides.js` (register `openPasteMarkdown`, after `openCreateGuideAdmonition` at line 1244)
 
-- [ ] **Step 1: Create the form HTML**
+- [x] **Step 1: Create the form HTML**
 
 Create `config/forms/pasteMarkdown.html`. Conventions: `--full` form group because the textarea is label-less full-width; **plain** textarea (no `data-richtext` — it holds raw markdown); single primary action bottom-right (form-actions is already `justify-content: flex-end`); `add` is the standard plus icon ligature.
 
@@ -457,7 +457,7 @@ Create `config/forms/pasteMarkdown.html`. Conventions: `--full` form group becau
 
 No manifest change: `config/forms/*` is already globbed in `manifest.json` web_accessible_resources (line 99). No `data-dirty-guard`: the pasted text survives on the clipboard, so discard-on-back needs no prompt.
 
-- [ ] **Step 2: Register the opener form action**
+- [x] **Step 2: Register the opener form action**
 
 In `scripts/guides.js`, after the `openCreateGuideAdmonition` registration (line 1244), add — same shape: clear storage so the textarea opens empty (except on history replay), then carry the parent container + insert index on the form's dataset:
 
@@ -482,7 +482,7 @@ registerFormAction('openPasteMarkdown', async ({ container, insertAtIndex }) => 
 
 Reload the extension at chrome://extensions, open a guide section editor, click "+ Insert Component" → the menu shows the divider + "Paste copied markdown"; clicking it opens the textarea form with the breadcrumb "Paste markdown", with the standard loading veil during the transition. (Insert does nothing yet — that's Task 5.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add config/forms/pasteMarkdown.html scripts/guides.js
@@ -496,7 +496,7 @@ git commit -m "feat(forms): paste-markdown form + openPasteMarkdown action"
 **Files:**
 - Modify: `scripts/guides.js` (register `insertPastedMarkdown` right after `openPasteMarkdown`; import `parsePastedComponents`)
 
-- [ ] **Step 1: Implement the submit action**
+- [x] **Step 1: Implement the submit action**
 
 Extend the components.js import in guides.js (line 37) once more:
 
@@ -545,12 +545,12 @@ registerFormAction('insertPastedMarkdown', async ({ formEl, content }) => {
 
 (`snapshotButton`, `restoreButton`, `setButtonBusy`, `navigateBack`, `isFormReplay`, `setCrumbLabel`, `createForm` are all already imported in guides.js line 16.)
 
-- [ ] **Step 2: Regression-run the suite**
+- [x] **Step 2: Regression-run the suite**
 
 Run: `for f in tests/*.test.mjs; do echo "== $f"; node "$f" || break; done`
 Expected: all pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/guides.js
