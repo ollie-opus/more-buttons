@@ -3,7 +3,7 @@ import { readRepoText } from './repoClient.js';
 import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 import { upgradeTextarea } from './richTextEditor.js';
-import { createLoadingTile } from './loadingTile.js';
+import { formLoading, loadingMarkup } from './loading.js';
 
 // Render-function contract for renderFns:
 // - Signature: (initialMarkdown, panel). `initialMarkdown` is the freshly-read
@@ -24,9 +24,9 @@ let activeFormCleanup = null;
 let activeNavObserver = null;
 let activeNavbarRefresh = null;
 
-// Singleton "Loading…" tile for slow form-to-form navigations. Exported so
-// programmatic open paths that bypass the click dispatcher can opt in later.
-export const loadingTile = createLoadingTile();
+// Backward-compat alias; Task 4 will migrate guides.js and captures.js to
+// import formLoading directly, then this export can be removed.
+export { formLoading as loadingTile };
 
 // Browser-style history: a linear list of views plus a cursor into it. Each
 // entry is { opener, label, formName }. `opener` is a stateless replay closure
@@ -281,36 +281,9 @@ export function bindSaveStateButton(formEl) {
   render();
 }
 
-// Put a save/publish button into the amber "working" state while a GitHub
-// commit runs: disabled, amber, spinning change_circle icon, and a progress message.
-// The icon is built once (so the spin doesn't restart on each message tick) and
-// only the message span updates on subsequent calls.
-export function setButtonBusy(btn, message) {
-  if (!btn) return;
-  btn.disabled = true;
-  if (!btn.classList.contains('busy')) {
-    btn.classList.remove('info', 'success', 'publish', 'danger', 'secondary');
-    btn.classList.add('busy');
-    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">change_circle</span><span data-busy-msg></span>';
-  }
-  const msgEl = btn.querySelector('[data-busy-msg]');
-  if (msgEl) msgEl.textContent = message;
-  else btn.textContent = message;
-}
-
-// Capture/restore a button's look so a non-dynamic (publish) button can be put
-// back after a busy state on error. Dynamic save buttons use _refreshSaveState
-// instead.
-export function snapshotButton(btn) {
-  return btn ? { html: btn.innerHTML, className: btn.className } : null;
-}
-
-export function restoreButton(btn, snap) {
-  if (!btn || !snap) return;
-  btn.className = snap.className;
-  btn.innerHTML = snap.html;
-  btn.disabled = false;
-}
+// Busy-button helpers live in loading.js now; re-exported here because most
+// form modules already import them from form.js.
+export { setButtonBusy, snapshotButton, restoreButton } from './loading.js';
 
 function activeGuardedForm() {
   // The currently-mounted overlay form, if it opted into the dirty guard.
@@ -326,7 +299,16 @@ async function navigateTo(index) {
   if (index < 0 || index >= history.length) return;
   navMode = 'replay';
   cursor = index;
-  await history[index].opener();
+  // Back/forward/crumb replays bypass the action dispatcher, so arm the
+  // loading veil here; slow openers (GitHub re-fetches before createForm)
+  // get feedback, fast ones never outlive the grace period. createForm
+  // drops it at render; the finally mops up failures.
+  formLoading.show();
+  try {
+    await history[index].opener();
+  } finally {
+    formLoading.dismiss();
+  }
 }
 
 function navigateBack() {
@@ -424,7 +406,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
   function cleanup() {
     // Drop any pending/visible loading tile — Escape mid-action should give
     // instant feedback; the action's finally re-dismisses harmlessly.
-    loadingTile.dismiss();
+    formLoading.dismiss();
     document.removeEventListener('keydown', handleKeyDown);
     document.body.style.overflow = previousBodyOverflow;
     if (activeNavObserver) { activeNavObserver.disconnect(); activeNavObserver = null; }
@@ -445,7 +427,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     formHtml = await resp.text();
   } catch (err) {
     console.error(err);
-    loadingTile.dismiss();
+    formLoading.dismiss();
     content.textContent = 'Failed to load form.';
     return;
   }
@@ -454,7 +436,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
   // The destination form exists now — drop the loading tile so the form is
   // interactive immediately; slower sub-content (e.g. capture preview blobs)
   // falls back to its own in-container "Loading…" labels.
-  loadingTile.dismiss();
+  formLoading.dismiss();
 
   // Move form-actions outside the form so it sits below the scroll area,
   // preventing the scrollbar from rendering over the buttons.
@@ -494,7 +476,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // No form element — delegate action buttons (close / back / module fns).
     // Delegation (vs per-button binding) keeps working when a form re-renders
     // its own toolbar after createForm has run.
-    // No loadingTile.show() here — this path handles simple close/back/module
+    // No formLoading.show() here — this path handles simple close/back/module
     // actions on formless overlays; slow programmatic opens from this path are
     // the spec's noted future opt-in.
     const mod = window.__mbActionsModule;
@@ -767,7 +749,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // as soon as the destination form renders. The finally covers actions
     // that throw or never open a form. Bonus: the tile's backdrop blocks
     // double-clicks on this form mid-action.
-    loadingTile.show();
+    formLoading.show();
     try {
       for (const step of steps) {
         let stepName = step;
@@ -793,7 +775,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
         }
       }
     } finally {
-      loadingTile.dismiss();
+      formLoading.dismiss();
     }
   });
 
@@ -1030,7 +1012,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
       if (!el._templateHTML) el._templateHTML = originalHTML;
 
       // Show loading state
-      el.innerHTML = '<p class="more-buttons-description">Loading...</p>';
+      el.innerHTML = loadingMarkup();
 
       try {
         const markdown = await readRepoText(path);
