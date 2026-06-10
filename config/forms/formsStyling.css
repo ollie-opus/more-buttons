@@ -718,7 +718,9 @@ button.more-buttons-crumb:hover {
      form tile during slow navigations (the form ghosts through beneath).
    - .more-buttons-loading-tile: standalone fallback when no form is open.
    - .more-buttons-loading-inline: loadingMarkup() placeholder for content
-     areas that stream in after their form renders. */
+     areas that stream in after their form renders. Same centered treatment
+     as the veil/tile (spinner over label) — just without an overlay, since
+     the panel it stands in is empty while loading. */
 .more-buttons-loading-veil {
   position: absolute;
   inset: 0;
@@ -740,7 +742,8 @@ button.more-buttons-crumb:hover {
 }
 
 .more-buttons-loading-veil .more-buttons-icon,
-.more-buttons-loading-tile .more-buttons-icon {
+.more-buttons-loading-tile .more-buttons-icon,
+.more-buttons-loading-inline .more-buttons-icon {
   font-size: 1.75rem;
   color: var(--mb-text-muted);
 }
@@ -752,8 +755,12 @@ button.more-buttons-crumb:hover {
 
 .more-buttons-loading-inline {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 10px;
+  min-height: 120px;
+  margin: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
