@@ -12,7 +12,8 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { snapshotFormStack, replayFormStack, loadingTile } from './form.js';
+import { snapshotFormStack, replayFormStack } from './form.js';
+import { formLoading } from './loading.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubPushImageIfNotExists } from './github.js';
 import { writeCaptureMeta } from './captureMeta.js';
@@ -135,30 +136,30 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
           if (sessionBuffer.length) {
             // Image upload + draft commit + editor open: cover the whole
             // stretch with the loading tile until the editor form renders.
-            loadingTile.show();
+            formLoading.show();
             try {
               const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
               await openInsertedComponentEditor(container, inserted);
             } finally {
-              loadingTile.dismiss();
+              formLoading.dismiss();
             }
           }
           return;
         }
         // Cold path: the form was torn down by a hard nav. Replay it, then commit.
         if (!formStackSnapshot?.length || !sessionBuffer.length) return;
-        loadingTile.show();
+        formLoading.show();
         try {
           const ok = await replayFormStack(formStackSnapshot);
           if (ok) {
             // The replay's createForm dropped the tile when the parent form
             // re-rendered; re-arm it to cover the commit + editor-open gap.
-            loadingTile.show();
+            formLoading.show();
             const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
             await openInsertedComponentEditor(container, inserted);
           }
         } finally {
-          loadingTile.dismiss();
+          formLoading.dismiss();
         }
       },
       // ✕ / Esc: discard everything captured this session and just re-show the
@@ -195,16 +196,16 @@ registerFormAction('completeLibraryInsert', async ({ capture } = {}) => {
   if (!capture || !intent.snapshot?.length) return;
   // The library's insert button bypasses form.js's data-action dispatcher,
   // so this action arms the loading tile itself.
-  loadingTile.show();
+  formLoading.show();
   try {
     const ok = await replayFormStack(intent.snapshot);
     if (!ok) return;
     // The replay's createForm dropped the tile when the parent form
     // re-rendered; re-arm it to cover the commit + editor-open gap.
-    loadingTile.show();
+    formLoading.show();
     const inserted = await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
     await openInsertedComponentEditor(intent.container, inserted);
   } finally {
-    loadingTile.dismiss();
+    formLoading.dismiss();
   }
 });

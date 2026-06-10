@@ -24,9 +24,6 @@ let activeFormCleanup = null;
 let activeNavObserver = null;
 let activeNavbarRefresh = null;
 
-// Backward-compat alias; Task 4 will migrate guides.js and captures.js to
-// import formLoading directly, then this export can be removed.
-export { formLoading as loadingTile };
 
 // Browser-style history: a linear list of views plus a cursor into it. Each
 // entry is { opener, label, formName }. `opener` is a stateless replay closure
@@ -747,8 +744,8 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // Slow navigations (GitHub fetches, parent-form saves) get a "Loading…"
     // tile if still in flight after the grace period; createForm() drops it
     // as soon as the destination form renders. The finally covers actions
-    // that throw or never open a form. Bonus: the tile's backdrop blocks
-    // double-clicks on this form mid-action.
+    // that throw or never open a form. Bonus: the veil covers the tile and
+    // blocks stray clicks once the grace period elapses.
     formLoading.show();
     try {
       for (const step of steps) {

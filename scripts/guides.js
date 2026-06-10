@@ -13,7 +13,8 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton, loadingTile } from './form.js';
+import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
+import { formLoading } from './loading.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
@@ -143,16 +144,16 @@ function onGuideEntryClick(e, formEl) {
   // mops up failures (the dispatch itself stays fire-and-forget).
   const editSec = e.target.closest('[data-edit-guide-section]');
   if (editSec) {
-    loadingTile.show();
+    formLoading.show();
     Promise.resolve(getFormAction('openEditGuideSection')?.({ uuid: editSec.dataset.editGuideSection, file: formEl.dataset.draftPath }))
-      .finally(() => loadingTile.dismiss());
+      .finally(() => formLoading.dismiss());
     return;
   }
   const createSec = e.target.closest('[data-create-guide-section]');
   if (createSec) {
-    loadingTile.show();
+    formLoading.show();
     Promise.resolve(getFormAction('openCreateGuideSection')?.({ parentUuid: createSec.dataset.createGuideSection, file: formEl.dataset.draftPath }))
-      .finally(() => loadingTile.dismiss());
+      .finally(() => formLoading.dismiss());
     return;
   }
 }
@@ -862,11 +863,11 @@ async function beginChildNavigation(formEl, action) {
   // the tile drops as soon as the child form renders (createForm) and the
   // finally only mops up failures and the no-form paths (e.g. capture mode,
   // which returns immediately — well inside the grace period).
-  loadingTile.show();
+  formLoading.show();
   try {
     await runChildAction(ready.container, ready.formEl, action);
   } finally {
-    loadingTile.dismiss();
+    formLoading.dismiss();
   }
 }
 
