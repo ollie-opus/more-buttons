@@ -34,7 +34,7 @@ import {
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { escapeHtml, captureComponentCard } from './cardRenderer.js';
-import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown } from './components.js';
+import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 
@@ -1298,6 +1298,41 @@ registerFormAction('openPasteMarkdown', async ({ container, insertAtIndex }) => 
   formEl.dataset.parentFile = container.file;
   formEl.dataset.insertAtIndex = insertAtIndex == null ? '' : String(insertAtIndex);
   setCrumbLabel('Paste markdown');
+});
+
+registerFormAction('insertPastedMarkdown', async ({ formEl, content }) => {
+  const textarea = formEl.querySelector('[name="pasteMarkdownText"]');
+  textarea?.classList.remove('--invalid');
+  const { components, error } = parsePastedComponents(textarea?.value ?? '');
+  if (error) {
+    textarea?.classList.add('--invalid');
+    alert(error);
+    return;
+  }
+  const container = {
+    kind: formEl.dataset.parentKind,
+    uuid: formEl.dataset.parentUuid,
+    file: formEl.dataset.parentFile,
+  };
+  const insertAtRaw = formEl.dataset.insertAtIndex;
+  const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
+  const btn = content.querySelector('[data-action="insertPastedMarkdown"]');
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Inserting…');
+  try {
+    await githubFetchAndPushFile(container.file, s => setButtonBusy(btn, s), md => {
+      const { description, components: existing } = readContainerComponents(md, container);
+      const idx = (insertAt != null && insertAt >= 0 && insertAt <= existing.length) ? insertAt : existing.length;
+      const next = existing.slice();
+      next.splice(idx, 0, ...components);
+      return writeContainerBody(md, container, description, next);
+    });
+    await chrome.storage.local.remove('moreButtonsPasteMarkdown');
+    await navigateBack();
+  } catch (e) {
+    restoreButton(btn, snap);
+    alert('Failed to insert markdown: ' + e.message);
+  }
 });
 
 registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
