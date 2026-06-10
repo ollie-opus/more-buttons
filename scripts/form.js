@@ -3,6 +3,7 @@ import { readRepoText } from './repoClient.js';
 import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 import { upgradeTextarea } from './richTextEditor.js';
+import { createLoadingTile } from './loadingTile.js';
 
 // Render-function contract for renderFns:
 // - Signature: (initialMarkdown, panel). `initialMarkdown` is the freshly-read
@@ -22,6 +23,10 @@ const renderFns = {
 let activeFormCleanup = null;
 let activeNavObserver = null;
 let activeNavbarRefresh = null;
+
+// Singleton "Loading…" tile for slow form-to-form navigations. Exported so
+// programmatic open paths that bypass the click dispatcher can opt in later.
+export const loadingTile = createLoadingTile();
 
 // Browser-style history: a linear list of views plus a cursor into it. Each
 // entry is { opener, label, formName }. `opener` is a stateless replay closure
@@ -437,11 +442,16 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     formHtml = await resp.text();
   } catch (err) {
     console.error(err);
+    loadingTile.dismiss();
     content.textContent = 'Failed to load form.';
     return;
   }
 
   content.innerHTML = formHtml;
+  // The destination form exists now — drop the loading tile so the form is
+  // interactive immediately; slower sub-content (e.g. capture preview blobs)
+  // falls back to its own in-container "Loading…" labels.
+  loadingTile.dismiss();
 
   // Move form-actions outside the form so it sits below the scroll area,
   // preventing the scrollbar from rendering over the buttons.
@@ -746,28 +756,38 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     if (btn.hasAttribute('data-validate') && !validateForm()) return;
 
     const steps = btn.getAttribute('data-action').split(',').map(s => s.trim());
-    for (const step of steps) {
-      let stepName = step;
-      let stepParam = null;
+    // Slow navigations (GitHub fetches, parent-form saves) get a "Loading…"
+    // tile if still in flight after the grace period; createForm() drops it
+    // as soon as the destination form renders. The finally covers actions
+    // that throw or never open a form. Bonus: the tile's backdrop blocks
+    // double-clicks on this form mid-action.
+    loadingTile.show();
+    try {
+      for (const step of steps) {
+        let stepName = step;
+        let stepParam = null;
 
-      if (step.includes(':')) {
-        [stepName, stepParam] = step.split(':');
-      }
+        if (step.includes(':')) {
+          [stepName, stepParam] = step.split(':');
+        }
 
-      if (actionSteps[stepName]) {
-        await actionSteps[stepName](stepParam);
-      } else {
-        const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        const registryFn = getFormAction(stepName);
-        if (registryFn) {
-          await registryFn(ctx);
+        if (actionSteps[stepName]) {
+          await actionSteps[stepName](stepParam);
         } else {
-          const mod = window.__mbActionsModule;
-          const modFn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
-          if (modFn) await modFn(stepParam);
-          else console.warn(`createForm: Unknown action step "${stepName}"`);
+          const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
+          const registryFn = getFormAction(stepName);
+          if (registryFn) {
+            await registryFn(ctx);
+          } else {
+            const mod = window.__mbActionsModule;
+            const modFn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
+            if (modFn) await modFn(stepParam);
+            else console.warn(`createForm: Unknown action step "${stepName}"`);
+          }
         }
       }
+    } finally {
+      loadingTile.dismiss();
     }
   });
 
