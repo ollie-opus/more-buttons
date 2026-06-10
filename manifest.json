@@ -25,7 +25,7 @@
         "scripts/captures.js",
         "scripts/captureMeta.js",
         "scripts/form.js",
-        "scripts/loadingTile.js",
+        "scripts/loading.js",
         "scripts/formActions.js",
         "scripts/github.js",
         "scripts/repoClient.js",
