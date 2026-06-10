@@ -858,9 +858,9 @@ async function ensureContainerReady(formEl) {
 async function beginChildNavigation(formEl, action) {
   const ready = await ensureContainerReady(formEl);
   if (!ready) return;
-  // Card clicks bypass form.js's data-action dispatcher, so the loading tile
+  // Card clicks bypass form.js's data-action dispatcher, so the loading veil
   // is armed here instead. runChildAction's branches are awaited end-to-end:
-  // the tile drops as soon as the child form renders (createForm) and the
+  // the veil drops as soon as the child form renders (createForm) and the
   // finally only mops up failures and the no-form paths (e.g. capture mode,
   // which returns immediately — well inside the grace period).
   formLoading.show();
