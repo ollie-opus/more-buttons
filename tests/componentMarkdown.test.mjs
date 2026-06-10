@@ -97,4 +97,10 @@ test('parsePastedComponents: rejects components mixed with stray prose', () => {
   assert.ok(res.error);
 });
 
+test('parsePastedComponents: accepts CRLF clipboard text', () => {
+  const res = parsePastedComponents(ADM_FIXTURE.replaceAll('\n', '\r\n'));
+  assert.equal(res.error, null);
+  assert.equal(res.components.length, 1);
+});
+
 console.log(`\n${passed} passed`);

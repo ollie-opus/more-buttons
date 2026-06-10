@@ -290,7 +290,7 @@ export function componentMarkdown(component) {
  * @returns {{ components: Array|null, error: string|null }}
  */
 export function parsePastedComponents(text) {
-  const stripped = stripUUIDSpans(text ?? '').trim();
+  const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
   const withUuids = ensureCaptureUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)));
   const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
