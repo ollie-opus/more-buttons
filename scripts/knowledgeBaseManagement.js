@@ -3,7 +3,7 @@ import { readRepoText } from './repoClient.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { parseNavBlock, slugify } from './navToml.js';
-import { loadingMarkup } from './loading.js';
+import { formLoading } from './loading.js';
 
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 
@@ -83,9 +83,7 @@ async function renderKnowledgeBaseManagement() {
     const livePanel = formEl.querySelector('[data-kb-panel="guides"]');
     const systemPanel = formEl.querySelector('[data-kb-panel="system"]');
 
-    if (livePanel) livePanel.innerHTML = loadingMarkup();
-    if (systemPanel) systemPanel.innerHTML = loadingMarkup();
-
+    formLoading.show();
     try {
       // One fetch of zensical.toml drives everything: the tree is the union of
       // nav (live) and draft_nav (in-progress), and pills come from membership
@@ -115,6 +113,8 @@ async function renderKnowledgeBaseManagement() {
     } catch {
       if (livePanel) livePanel.innerHTML = '<p class="more-buttons-description">Failed to load articles.</p>';
       if (systemPanel) systemPanel.innerHTML = '<p class="more-buttons-description">Failed to load system pages.</p>';
+    } finally {
+      formLoading.dismiss();
     }
 
     formEl.addEventListener('input', e => {

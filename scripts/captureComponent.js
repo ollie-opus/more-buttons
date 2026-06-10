@@ -16,7 +16,7 @@ import { registerFormAction } from './formActions.js';
 import { getComponentContainer } from './componentContainers.js';
 import { captureDimFields } from './components.js';
 import { mergeSave } from './mergeSave.js';
-import { loadingMarkup } from './loading.js';
+import { formLoading } from './loading.js';
 
 function applyDimAuto(formEl) {
   const dim = formEl.querySelector('[data-capture-component-dim]');
@@ -59,17 +59,21 @@ export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
 
   const previewEl = formEl.querySelector('[data-capture-component-preview]');
   if (previewEl) {
-    previewEl.innerHTML = loadingMarkup();
-    const [lightBlob, darkBlob] = await Promise.all([
-      readRepoBlob('docs/assets/' + cap.lightFilename).catch(() => null),
-      cap.darkFilename ? readRepoBlob('docs/assets/' + cap.darkFilename).catch(() => null) : Promise.resolve(null),
-    ]);
-    const lightUrl = lightBlob ? URL.createObjectURL(lightBlob) : '';
-    const darkUrl = darkBlob ? URL.createObjectURL(darkBlob) : '';
-    previewEl.innerHTML = captureGrid([
-      captureCard({ theme: 'light', title: 'Light mode', src: lightUrl, alt: 'light mode' }),
-      captureCard({ theme: 'dark', title: 'Dark mode', src: darkUrl, alt: 'dark mode' }),
-    ]);
+    formLoading.show();
+    try {
+      const [lightBlob, darkBlob] = await Promise.all([
+        readRepoBlob('docs/assets/' + cap.lightFilename).catch(() => null),
+        cap.darkFilename ? readRepoBlob('docs/assets/' + cap.darkFilename).catch(() => null) : Promise.resolve(null),
+      ]);
+      const lightUrl = lightBlob ? URL.createObjectURL(lightBlob) : '';
+      const darkUrl = darkBlob ? URL.createObjectURL(darkBlob) : '';
+      previewEl.innerHTML = captureGrid([
+        captureCard({ theme: 'light', title: 'Light mode', src: lightUrl, alt: 'light mode' }),
+        captureCard({ theme: 'dark', title: 'Dark mode', src: darkUrl, alt: 'dark mode' }),
+      ]);
+    } finally {
+      formLoading.dismiss();
+    }
   }
 
   const sel = formEl.querySelector('[name="dimMode"]');

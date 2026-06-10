@@ -713,14 +713,11 @@ button.more-buttons-crumb:hover {
 }
 
 /* ── Loading states ───────────────────────────────────────────────────────
-   Owned by scripts/loading.js. Three surfaces:
+   Owned by scripts/loading.js. Two surfaces — ALL loading uses the veil look:
    - .more-buttons-loading-veil: translucent cover centered INSIDE the open
-     form tile during slow navigations (the form ghosts through beneath).
-   - .more-buttons-loading-tile: standalone fallback when no form is open.
-   - .more-buttons-loading-inline: loadingMarkup() placeholder for content
-     areas that stream in after their form renders. Same centered treatment
-     as the veil/tile (spinner over label) — just without an overlay, since
-     the panel it stands in is empty while loading. */
+     form tile, for navigations AND in-form content fetches (whatever is
+     beneath ghosts through).
+   - .more-buttons-loading-tile: standalone fallback when no form is open. */
 .more-buttons-loading-veil {
   position: absolute;
   inset: 0;
@@ -742,24 +739,13 @@ button.more-buttons-crumb:hover {
 }
 
 .more-buttons-loading-veil .more-buttons-icon,
-.more-buttons-loading-tile .more-buttons-icon,
-.more-buttons-loading-inline .more-buttons-icon {
+.more-buttons-loading-tile .more-buttons-icon {
   font-size: 1.75rem;
   color: var(--mb-text-muted);
 }
 
 .more-buttons-loading-veil .more-buttons-description,
 .more-buttons-loading-tile .more-buttons-description {
-  margin: 0;
-}
-
-.more-buttons-loading-inline {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 120px;
   margin: 0;
 }
 

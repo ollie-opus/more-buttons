@@ -3,7 +3,7 @@ import { readRepoText } from './repoClient.js';
 import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 import { upgradeTextarea } from './richTextEditor.js';
-import { formLoading, loadingMarkup } from './loading.js';
+import { formLoading } from './loading.js';
 
 // Render-function contract for renderFns:
 // - Signature: (initialMarkdown, panel). `initialMarkdown` is the freshly-read
@@ -1008,9 +1008,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
       const originalHTML = el._templateHTML || el.innerHTML;
       if (!el._templateHTML) el._templateHTML = originalHTML;
 
-      // Show loading state
-      el.innerHTML = loadingMarkup();
-
+      formLoading.show();
       try {
         const markdown = await readRepoText(path);
 
@@ -1028,6 +1026,8 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
         });
       } catch {
         el.innerHTML = '<p class="more-buttons-description">Failed to load services.</p>';
+      } finally {
+        formLoading.dismiss();
       }
     });
   };

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createFormLoading, loadingMarkup } from '../scripts/loading.js';
+import { createFormLoading } from '../scripts/loading.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -153,18 +153,6 @@ test('show works again after a full cycle, re-querying the CURRENT tile', () => 
   loading.show(); timers.fire();
   assert.equal(tileA.children.length, 0);
   assert.equal(tileB.children.length, 1);
-});
-
-test('loadingMarkup: default label, spinner, description classes', () => {
-  const html = loadingMarkup();
-  assert.match(html, /more-buttons-loading-inline/);
-  assert.match(html, /more-buttons-icon--spin/);
-  assert.match(html, /progress_activity/);
-  assert.match(html, /Loading…/);
-});
-
-test('loadingMarkup: custom label', () => {
-  assert.match(loadingMarkup('Loading drafts…'), /Loading drafts…/);
 });
 
 console.log(`\n${passed} passed`);

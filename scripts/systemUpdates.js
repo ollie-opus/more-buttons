@@ -9,7 +9,7 @@ import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
 import { parseComponents, buildComponentBody, uuidOfComponent, reorderComponents } from './components.js';
 import { mergeSave } from './mergeSave.js';
-import { loadingMarkup } from './loading.js';
+import { formLoading } from './loading.js';
 import {
   makeContainerHandler, GUIDE_ADMONITION_TYPES_RE,
   renderComponents, onComponentEditorClick, setOpenComponentEditor,
@@ -418,12 +418,14 @@ function draftCard(update) {
 }
 
 export async function renderDraftUpdates(_markdown, panel) {
-  panel.innerHTML = loadingMarkup('Loading drafts…');
+  formLoading.show();
   let draftsMarkdown = '';
   try {
     draftsMarkdown = await readRepoText(DRAFTS_FILE);
   } catch {
     draftsMarkdown = '';
+  } finally {
+    formLoading.dismiss();
   }
   const allDrafts = draftsMarkdown ? parseDraftBlocks(draftsMarkdown) : [];
   const fetchedUuids = new Set(allDrafts.map(d => d.uuid).filter(Boolean));

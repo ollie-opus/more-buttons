@@ -1,23 +1,22 @@
 // loading.js — the single owner of every loading affordance in the extension.
 //
-//   1. formLoading (singleton): the navigation loading state. show() arms a
-//      200ms grace timer; if the navigation is still in flight when it fires,
-//      a translucent veil with a spinner is centered INSIDE the open form
-//      tile (.more-buttons-overlay-content) — the form's DOM is never touched,
+//   1. formLoading (singleton): THE loading state. show() arms a 200ms grace
+//      timer; if the work is still in flight when it fires, a translucent
+//      veil with a spinner is centered INSIDE the open form tile
+//      (.more-buttons-overlay-content) — the form's DOM is never touched,
 //      because in-flight handlers still read the old form's fields. If no form
 //      is open (fresh entry), a standalone loading tile is shown instead.
 //      dismiss() cancels/removes either. Idempotent both ways.
 //
 //      Arming sites: form.js's data-action dispatcher, form.js navigateTo()
 //      (back/forward/crumb), guides.js card navigations, captures.js insert
-//      chains. Dismissal: createForm() at HTML render + fetch error, overlay
+//      chains, and every async sub-content fetch (previews, panels, trees) —
+//      all loading funnels through the veil; there is no inline variant.
+//      Dismissal: createForm() at HTML render + fetch error, overlay
 //      cleanup(), every arming site's finally, and setButtonBusy() (a busy
 //      button is richer feedback than the veil, so it takes over).
 //
-//   2. loadingMarkup(label): canonical inline placeholder for content areas
-//      that load after their form renders (previews, panels, trees).
-//
-//   3. setButtonBusy / snapshotButton / restoreButton: amber busy-button
+//   2. setButtonBusy / snapshotButton / restoreButton: amber busy-button
 //      progress for GitHub commits (moved from form.js; form.js re-exports).
 //
 // Deps are injectable so the state machine is testable in plain node
@@ -28,10 +27,6 @@ const SPINNER =
 
 // Open form tiles, excluding the standalone loading tile itself.
 const TILE_SELECTOR = '.more-buttons-overlay-content:not(.more-buttons-loading-tile)';
-
-export function loadingMarkup(label = 'Loading…') {
-  return `<p class="more-buttons-description more-buttons-loading-inline">${SPINNER}${label}</p>`;
-}
 
 export function createFormLoading({
   doc = globalThis.document,
