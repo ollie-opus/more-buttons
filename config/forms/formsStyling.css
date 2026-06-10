@@ -712,10 +712,26 @@ button.more-buttons-crumb:hover {
   animation: more-buttons-spin 0.9s linear infinite;
 }
 
-/* ── Form loading tile ────────────────────────────────────────────────────── */
-/* Full-screen tile shown during slow form-to-form navigations (see
-   scripts/loadingTile.js). Same surface/width as a real form tile so the
-   swap to the destination form isn't jarring. */
+/* ── Loading states ───────────────────────────────────────────────────────
+   Owned by scripts/loading.js. Three surfaces:
+   - .more-buttons-loading-veil: translucent cover centered INSIDE the open
+     form tile during slow navigations (the form ghosts through beneath).
+   - .more-buttons-loading-tile: standalone fallback when no form is open.
+   - .more-buttons-loading-inline: loadingMarkup() placeholder for content
+     areas that stream in after their form renders. */
+.more-buttons-loading-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 20; /* above in-tile chrome incl. .mb-rte__popover (10) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--mb-bg) 88%, transparent);
+  border-radius: 12px;
+}
+
 .more-buttons-overlay-content.more-buttons-loading-tile {
   min-height: 200px;
   align-items: center;
@@ -723,17 +739,25 @@ button.more-buttons-crumb:hover {
   gap: 10px;
 }
 
+.more-buttons-loading-veil .more-buttons-icon,
 .more-buttons-loading-tile .more-buttons-icon {
   font-size: 1.75rem;
   color: var(--mb-text-muted);
 }
 
+.more-buttons-loading-veil .more-buttons-description,
 .more-buttons-loading-tile .more-buttons-description {
   margin: 0;
 }
 
+.more-buttons-loading-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .more-buttons-loading-tile .more-buttons-icon--spin {
+  .more-buttons-icon--spin {
     animation: none;
   }
 }
