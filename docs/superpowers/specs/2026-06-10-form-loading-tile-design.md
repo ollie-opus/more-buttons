@@ -83,4 +83,5 @@ and leaves the old form visible and usable, same as today.
 - Manual: DevTools network throttling → run (a) library insert → capture editor,
   (b) edit section, (c) a fast action (tab switch / toggle) to confirm no
   flicker. Verify ESC and error paths leave no orphaned tile.
-- No manifest change needed (no new script file).
+- manifest.json: add `scripts/loadingTile.js` to web_accessible_resources (new
+  script file — scripts are listed individually in this manifest).
