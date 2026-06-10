@@ -5,8 +5,8 @@ import { dimensionsChanged } from '../scripts/captureElement.js';
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
 
-const P1 = 'docs/assets/occ-captures/a-light-mode.png';
-const P2 = 'docs/assets/occ-captures/b-light-mode.png';
+const P1 = 'docs/assets/media/occ-captures/a-light-mode.png';
+const P2 = 'docs/assets/media/occ-captures/b-light-mode.png';
 
 // ── applyMetaUpserts ──────────────────────────────────────────────────────────
 test('applyMetaUpserts adds a resized+padded entry', () => {

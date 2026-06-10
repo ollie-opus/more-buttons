@@ -65,7 +65,6 @@ async function loadSettings() {
   return {
     resizeMode:      !!s.resizeMode,
     capturePadding:  0,
-    downloadPath:    s.downloadPath || 'occ-captures',
     themeDelay:      s.themeDelay ?? 500,
     scale:           6, // HIGH SCALE VALUES CAN CAUSE BROWSER CRASHES
   };
@@ -78,7 +77,6 @@ function persistSettings(settings) {
     chrome.storage.local.set({
       [STORAGE_KEY]: {
         resizeMode:     settings.resizeMode,
-        downloadPath:   settings.downloadPath,
         themeDelay:     settings.themeDelay,
       },
     });
@@ -288,7 +286,6 @@ export async function enterCaptureMode(opts = {}) {
       settings: {
         resizeMode:     settings.resizeMode,
         capturePadding: settings.capturePadding,
-        downloadPath:   settings.downloadPath,
         themeDelay:     settings.themeDelay,
       },
       wasFormMode: ctx.wasFormMode,

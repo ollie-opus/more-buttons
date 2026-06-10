@@ -313,7 +313,12 @@ function looksLikeOpaqueId(s) {
   return false;
 }
 
-function deriveFilename(el, forcedTheme, settings) {
+// Library-relative storage prefix for derived capture filenames. Mirrors
+// CAPTURE_ROOT in captureLibrary.js (which carries the repo "docs/assets/"
+// part) — captureBasePath strips exactly this prefix, so the two must agree.
+const LIBRARY_PREFIX = 'media/occ-captures';
+
+function deriveFilename(el, forcedTheme) {
   const rawLabel = getElementLabel(el);
   const slug = (rawLabel || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
   const theme = forcedTheme
@@ -331,10 +336,7 @@ function deriveFilename(el, forcedTheme, settings) {
       return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     })
     .filter(Boolean);
-  const prefixSegments = settings.downloadPath
-    ? settings.downloadPath.split('/').map(s => s.trim()).filter(Boolean)
-    : [];
-  return [...prefixSegments, ...pathSegments, fileName].join('/');
+  return [LIBRARY_PREFIX, ...pathSegments, fileName].join('/');
 }
 
 /**
@@ -419,7 +421,7 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     ? await expandWithBackground(maskedDataUrl, sampledBgColor, appliedPadding, originalWidth)
     : maskedDataUrl;
 
-  return { dataUrl: finalDataUrl, filename: deriveFilename(el, theme, settings), appliedPadding };
+  return { dataUrl: finalDataUrl, filename: deriveFilename(el, theme), appliedPadding };
 }
 
 /**

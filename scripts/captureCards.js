@@ -26,17 +26,17 @@ export function captureGrid(cards) {
 }
 
 // Storage root for all captures (mirrors CAPTURE_ROOT in captureLibrary.js).
-const CAPTURE_ROOT = 'docs/assets/occ-captures';
+const CAPTURE_ROOT = 'docs/assets/media/occ-captures';
 
 /**
  * Reduce a stored capture path to its theme-agnostic, root-relative base.
  * Accepts either a full repo path (captureEntry's `lightPath`) or a
- * library-relative `occ-captures/…` filename (captureNew's `lightFilename`),
- * and strips the trailing -light-mode.png / -dark-mode.png so the same string
- * represents the light+dark pair.
+ * library-relative `media/occ-captures/…` filename (captureNew's
+ * `lightFilename`), and strips the trailing -light-mode.png / -dark-mode.png
+ * so the same string represents the light+dark pair.
  *
- *   "docs/assets/occ-captures/sites/uuid/foo-light-mode.png" -> "sites/uuid/foo"
- *   "occ-captures/sites/uuid/foo-dark-mode.png"              -> "sites/uuid/foo"
+ *   "docs/assets/media/occ-captures/sites/uuid/foo-light-mode.png" -> "sites/uuid/foo"
+ *   "media/occ-captures/sites/uuid/foo-dark-mode.png"              -> "sites/uuid/foo"
  *
  * @param {string} path
  * @returns {string}
@@ -45,7 +45,7 @@ export function captureBasePath(path) {
   if (!path) return '';
   let p = path;
   if (p.startsWith(CAPTURE_ROOT + '/')) p = p.slice(CAPTURE_ROOT.length + 1);
-  else if (p.startsWith('occ-captures/')) p = p.slice('occ-captures/'.length);
+  else if (p.startsWith('media/occ-captures/')) p = p.slice('media/occ-captures/'.length);
   return p.replace(/-(light|dark)-mode\.png$/, '');
 }
 

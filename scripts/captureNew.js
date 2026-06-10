@@ -9,7 +9,7 @@ import { registerFormAction } from './formActions.js';
 
 // `capture` is one entry from Capture Mode's session buffer: it carries
 // lightDataUrl/darkDataUrl plus library-relative lightFilename/darkFilename
-// (derived from the page path under occ-captures/…). pushCaptures writes those
+// (derived from the page path under media/occ-captures/…). pushCaptures writes those
 // straight to docs/assets/<filename> on GitHub — the library root.
 export async function openCaptureNew({ capture } = {}) {
   if (!capture?.lightDataUrl) return;
@@ -117,8 +117,8 @@ export async function openCaptureNew({ capture } = {}) {
     if (cancelBtn) cancelBtn.disabled = true;
     try {
       const base = currentBase();
-      const light = `occ-captures/${base}-light-mode.png`;
-      const dark = `occ-captures/${base}-dark-mode.png`;
+      const light = `media/occ-captures/${base}-light-mode.png`;
+      const dark = `media/occ-captures/${base}-dark-mode.png`;
       const lightPath = `docs/assets/${light}`;
       const darkPath = `docs/assets/${dark}`;
 

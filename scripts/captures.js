@@ -49,8 +49,8 @@ export function resolveCaptures(list) {
       const id = generateUUID();
       return {
         ...c,
-        lightFilename: `occ-captures/uncategorised/${id}-light-mode.png`,
-        darkFilename:  `occ-captures/uncategorised/${id}-dark-mode.png`,
+        lightFilename: `media/occ-captures/uncategorised/${id}-light-mode.png`,
+        darkFilename:  `media/occ-captures/uncategorised/${id}-dark-mode.png`,
       };
     }
     return c;

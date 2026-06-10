@@ -6,7 +6,7 @@ import { getFormAction, registerFormAction } from './formActions.js';
 import { MANIFEST_PATH, readCaptureMeta, captureMetaPills } from './captureMeta.js';
 import { formLoading } from './loading.js';
 
-const CAPTURE_ROOT = 'docs/assets/occ-captures';
+const CAPTURE_ROOT = 'docs/assets/media/occ-captures';
 
 // Fetch the full repo tree in one call, then keep only entries under CAPTURE_ROOT.
 async function listCaptureTree() {
@@ -30,7 +30,7 @@ function buildNodes(blobs) {
   const root = makeDir();
 
   for (const blob of blobs) {
-    const relative = blob.path.slice(CAPTURE_ROOT.length + 1); // strip "docs/assets/occ-captures/"
+    const relative = blob.path.slice(CAPTURE_ROOT.length + 1); // strip "docs/assets/media/occ-captures/"
     const parts = relative.split('/');
     const fileName = parts.pop();
     let cursor = root;

@@ -18,7 +18,7 @@ import { formLoading } from './loading.js';
 // path in captures.js — the working pattern the component editors already use.)
 let pendingRecapture = null; // { lightPath, capture } | null
 
-// lightPath / darkPath are repo-relative paths like "docs/assets/occ-captures/foo-light-mode.png"
+// lightPath / darkPath are repo-relative paths like "docs/assets/media/occ-captures/foo-light-mode.png"
 export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}) {
   if (!lightPath) return;
 

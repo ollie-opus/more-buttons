@@ -14,7 +14,7 @@
 import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile } from './github.js';
 
-export const MANIFEST_PATH = 'docs/assets/occ-captures/.captures-meta.json';
+export const MANIFEST_PATH = 'docs/assets/media/occ-captures/.captures-meta.json';
 
 /**
  * Apply upserts to a manifest, returning a NEW object (input untouched).
