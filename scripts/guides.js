@@ -34,7 +34,7 @@ import {
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { escapeHtml, captureComponentCard } from './cardRenderer.js';
-import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents } from './components.js';
+import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 
@@ -763,6 +763,7 @@ function captureComponentCardFor(cap) {
   return captureComponentCard({
     thumbSrc: assetCdnUrl('docs/assets/' + cap.lightFilename),
     btnAttr: `data-edit-component="${escapeHtml(cap.uuid ?? '')}"`,
+    copyAttr: cap.uuid ? `data-copy-component-md="${escapeHtml(cap.uuid)}"` : '',
   });
 }
 
@@ -902,6 +903,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const copyBtn = e.target.closest('[data-copy-component-md]');
+  if (copyBtn) {
+    copyComponentMarkdown(formEl, copyBtn.dataset.copyComponentMd, copyBtn);
+    return;
+  }
+
   const editAdm = e.target.closest('[data-edit-guide-admonition]');
   if (editAdm) {
     beginChildNavigation(formEl, { type: 'edit-admonition', uuid: editAdm.dataset.editGuideAdmonition });
@@ -960,6 +967,37 @@ async function openCaptureComponentEditor(container, uuid) {
   await openEditorForComponent(container, c);
 }
 
+// Briefly swap a button's label as click feedback ("Copied ✓" / "Copy failed").
+function flashButtonLabel(btn, label) {
+  if (!btn || btn.dataset.flashing) return;
+  btn.dataset.flashing = '1';
+  const original = btn.textContent;
+  btn.textContent = label;
+  setTimeout(() => { btn.textContent = original; delete btn.dataset.flashing; }, 1500);
+}
+
+// Copy one component's full markdown (uuid spans stripped) to the clipboard.
+// Reads from the open editor's in-memory list; falls back to a fresh repo read
+// when the click arrives outside the tracked editor (defensive — shouldn't happen).
+async function copyComponentMarkdown(formEl, uuid, btn) {
+  try {
+    let comp = openComponentEditor?.formEl === formEl
+      ? openComponentEditor.components?.find(c => uuidOfComponent(c) === uuid)
+      : null;
+    if (!comp) {
+      const container = containerFromForm(formEl);
+      const md = await readRepoText(container.file);
+      comp = readContainerComponents(md, container).components.find(c => uuidOfComponent(c) === uuid);
+    }
+    if (!comp) throw new Error('component not found');
+    await navigator.clipboard.writeText(componentMarkdown(comp));
+    flashButtonLabel(btn, 'Copied ✓');
+  } catch (err) {
+    console.warn('[MB] copy component markdown failed:', err);
+    flashButtonLabel(btn, 'Copy failed');
+  }
+}
+
 function admonitionCard(adm, stepNumber = null) {
   const colour = ADMONITION_TYPE_COLOURS[adm.type] ?? 'amber';
   const badge = ADMONITION_TYPE_LABELS[adm.type] ?? adm.type;
@@ -986,6 +1024,7 @@ function admonitionCard(adm, stepNumber = null) {
       </div>
       ${description ? `<p class="mb-incident-card__body">${escapeHtml(description)}</p>` : ''}
       <div class="mb-incident-card__foot --end">
+        ${adm.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(adm.uuid)}">Copy</button>` : ''}
         <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
       </div>
     </div>`;
@@ -1006,6 +1045,7 @@ function tabsComponentCard(grp) {
       </div>
       ${titles ? `<p class="mb-incident-card__body">${escapeHtml(titles)}</p>` : ''}
       <div class="mb-incident-card__foot --end">
+        ${grp.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(grp.uuid)}">Copy</button>` : ''}
         <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grp.uuid ? 'Edit' : 'Error'}</button>
       </div>
     </div>`;

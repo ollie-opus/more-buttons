@@ -31,7 +31,7 @@ export function renderCard({ colour, title, badge, description, meta, btnAttr, b
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an
 // existing capture, or a data: url for a freshly-captured pending one).
 // `btnAttr` wires the Edit button (e.g. 'data-edit-component="<uuid>"').
-export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit' }) {
+export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
@@ -40,6 +40,7 @@ export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit' }) {
     </div>
     ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><img class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" alt="" loading="lazy" /></div>` : ''}
     <div class="mb-incident-card__foot --end">
+      ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
       <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
