@@ -35,11 +35,11 @@ import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js'
 import { generateUUID, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
 import {
   parseComponents, buildComponentBody, uuidOfComponent, reorderComponents,
-  readTabComponents, writeTabBody,
+  readTabComponents, writeTabBody, tabContainerExists,
 } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { getTabGroupByUUID, buildTabGroup, replaceTabGroupByUUID, deleteTabGroupByUUID } from './contentTabs.js';
-import { makeContainerHandler, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
+import { makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
 import { escapeHtml } from './cardRenderer.js';
 
@@ -47,7 +47,7 @@ const STORAGE_KEY = 'moreButtonsEditContentTabs';
 
 // Each TAB is a component container: children (admonitions / captures / nested
 // tab groups) read and write through the registry like any other container.
-registerComponentContainer('content-tab', makeContainerHandler(readTabComponents, writeTabBody));
+registerComponentContainer('content-tab', makeContainerHandler(readTabComponents, writeTabBody, tabContainerExists));
 
 // ── Editor state ──────────────────────────────────────────────────────────────
 //
@@ -374,13 +374,7 @@ async function persistNewTabsGroup(formEl, onProgress = () => {}) {
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
 
-  await githubFetchAndPushFile(parent.file, onProgress, md => {
-    const { description: pDesc, components } = handler.readComponents(md, parent.uuid);
-    const idx = (insertAt != null && insertAt >= 0 && insertAt <= components.length) ? insertAt : components.length;
-    const next = components.slice();
-    next.splice(idx, 0, { kind: 'tabs', grp: { uuid: groupUuid, tabs: grpTabs } });
-    return handler.writeBody(md, parent.uuid, pDesc, next);
-  });
+  await spliceIntoContainer(parent, insertAt, [{ kind: 'tabs', grp: { uuid: groupUuid, tabs: grpTabs } }], onProgress);
   return { groupUuid, file: parent.file };
 }
 

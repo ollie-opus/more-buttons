@@ -327,6 +327,20 @@ export function readTabComponents(md, tabUuid) {
 }
 
 /**
+ * True when the TAB identified by `tabUuid` exists anywhere in the document.
+ * readTabComponents returns an empty result for BOTH a missing tab and an
+ * empty one — this is the disambiguator (registered as the 'content-tab'
+ * container's `exists` handler).
+ *
+ * @param {string} md
+ * @param {string} tabUuid
+ * @returns {boolean}
+ */
+export function tabContainerExists(md, tabUuid) {
+  return locateTabByUUID((md ?? '').split('\n'), tabUuid) != null;
+}
+
+/**
  * Rebuilds the body of the TAB identified by `tabUuid` from a description +
  * ordered component list (via buildComponentBody, which re-embeds the tab's
  * own identity span), re-indents it under the tab's header, and splices it in.

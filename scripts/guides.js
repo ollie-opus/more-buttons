@@ -35,7 +35,7 @@ import {
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { escapeHtml, captureComponentCard } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
-import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
+import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -715,12 +715,15 @@ async function rerenderOpenComponentEditor() {
 
 // Builds a file-aware container handler for the registry. `mutate(container, …)`
 // reads the container's file, transforms its ordered component list, writes it
-// back as one commit, then re-renders the open editor. Exported so
+// back as one commit, then re-renders the open editor. `exists(md, uuid)` is the
+// not-found disambiguator (readComponents returns an empty result for a missing
+// container too) — see containerExists in componentContainers.js. Exported so
 // systemUpdates.js can register its own kinds with the same machinery.
-export function makeContainerHandler(readComponents, writeBody) {
+export function makeContainerHandler(readComponents, writeBody, exists) {
   return {
     readComponents,
     writeBody,
+    exists,
     mutate: async (container, transform, onProgress) => {
       await githubFetchAndPushFile(container.file, onProgress || (() => {}), md => {
         const { description, components } = readComponents(md, container.uuid);
@@ -731,8 +734,30 @@ export function makeContainerHandler(readComponents, writeBody) {
     },
   };
 }
-registerComponentContainer('guide-section', makeContainerHandler(readSectionComponents, writeSectionBody));
-registerComponentContainer('guide-admonition', makeContainerHandler(readAdmonitionComponents, writeAdmonitionBody));
+registerComponentContainer('guide-section', makeContainerHandler(
+  readSectionComponents, writeSectionBody, (md, uuid) => !!locateSectionByUUID(md, uuid)));
+registerComponentContainer('guide-admonition', makeContainerHandler(
+  readAdmonitionComponents, writeAdmonitionBody, (md, uuid) => !!locateGuideAdmonition(md, uuid)));
+
+// One shared insert path: fetch the container's file, verify the container is
+// still present (it may have been deleted concurrently in another tab/session),
+// clamp the requested index, splice `items` into the ordered component list and
+// write the rebuilt body back as one commit. Without the exists check the read
+// helpers return an empty list for a vanished container and the write helpers
+// return the markdown unchanged — the push would no-op and the caller's success
+// path would run as if the insert landed. The throw propagates out of
+// githubFetchAndPushFile (transform errors are not retried) into each caller's
+// existing catch → alert. Exported for contentTabsEditor.js.
+export async function spliceIntoContainer(container, insertAt, items, onProgress = () => {}) {
+  await githubFetchAndPushFile(container.file, onProgress, md => {
+    if (!containerExists(md, container)) throw new Error('Parent container no longer exists.');
+    const { description, components: existing } = readContainerComponents(md, container);
+    const idx = (insertAt != null && insertAt >= 0 && insertAt <= existing.length) ? insertAt : existing.length;
+    const next = existing.slice();
+    next.splice(idx, 0, ...items);
+    return writeContainerBody(md, container, description, next);
+  });
+}
 
 // Step admonitions are auto-numbered per section (the count resets each section)
 // on the published site. Returns the 1-indexed step number of `uuid` among the
@@ -1320,13 +1345,7 @@ registerFormAction('insertPastedMarkdown', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Inserting…');
   try {
-    await githubFetchAndPushFile(container.file, s => setButtonBusy(btn, s), md => {
-      const { description, components: existing } = readContainerComponents(md, container);
-      const idx = (insertAt != null && insertAt >= 0 && insertAt <= existing.length) ? insertAt : existing.length;
-      const next = existing.slice();
-      next.splice(idx, 0, ...components);
-      return writeContainerBody(md, container, description, next);
-    });
+    await spliceIntoContainer(container, insertAt, components, s => setButtonBusy(btn, s));
     await chrome.storage.local.remove('moreButtonsPasteMarkdown');
     await navigateBack();
   } catch (e) {
@@ -1442,13 +1461,7 @@ async function persistNewAdmonition(formEl, onProgress = () => {}) {
   };
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
-  await githubFetchAndPushFile(container.file, onProgress, md => {
-    const { description: pDesc, components } = readContainerComponents(md, container);
-    const idx = (insertAt != null && insertAt >= 0 && insertAt <= components.length) ? insertAt : components.length;
-    const next = components.slice();
-    next.splice(idx, 0, { kind: 'admonition', adm: newAdm });
-    return writeContainerBody(md, container, pDesc, next);
-  });
+  await spliceIntoContainer(container, insertAt, [{ kind: 'admonition', adm: newAdm }], onProgress);
   return { newUuid, file: container.file };
 }
 

@@ -25,3 +25,16 @@ export function registerComponentContainer(kind, handlers) {
 export function getComponentContainer(kind) {
   return registry[kind] ?? null;
 }
+
+/**
+ * True when the container identified by `{ kind, uuid }` is still present in
+ * `md`. Distinct from "container exists but is empty": the per-kind
+ * readComponents helpers return `{ description:'', components:[] }` for BOTH
+ * a vanished container and a genuinely empty one, so insert flows must check
+ * this first to fail loudly instead of writing into nothing (the per-kind
+ * writeBody helpers return `md` unchanged when the uuid isn't found).
+ * Unregistered kinds report false.
+ */
+export function containerExists(md, container) {
+  return !!getComponentContainer(container.kind)?.exists(md, container.uuid);
+}

@@ -131,8 +131,12 @@ function writeUpdateBody(md, uuid, description, components) {
   );
 }
 
-registerComponentContainer('system-update', makeContainerHandler(readUpdateComponents, writeUpdateBody));
-registerComponentContainer('system-draft',  makeContainerHandler(readUpdateComponents, writeUpdateBody));
+// Not-found disambiguator: readUpdateComponents returns an empty result for a
+// vanished block too, so inserts check this first (see containerExists).
+const updateBlockExists = (md, uuid) => parseUpdateBlocks(md).some(u => u.uuid === uuid);
+
+registerComponentContainer('system-update', makeContainerHandler(readUpdateComponents, writeUpdateBody, updateBlockExists));
+registerComponentContainer('system-draft',  makeContainerHandler(readUpdateComponents, writeUpdateBody, updateBlockExists));
 
 // Mounts the unified Components list onto an opened update edit form and wires
 // the shared click delegation (insert / edit-admonition / edit-capture).
