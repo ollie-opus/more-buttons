@@ -1,7 +1,9 @@
 # Form Loading Tile — Design
 
 **Date:** 2026-06-10
-**Status:** Approved
+**Status:** Superseded by docs/superpowers/plans/2026-06-10-unified-form-loading.md
+(standalone tile became a veil inside the open form tile; loading consolidated
+into scripts/loading.js)
 
 ## Problem
 
