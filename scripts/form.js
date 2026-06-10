@@ -45,6 +45,7 @@ const FORM_LABELS = {
   editGuideSection: 'Edit Section',
   editGuideAdmonition: 'Edit Admonition',
   editCaptureComponent: 'Edit Capture',
+  editContentTabs: 'Edit Content Tabs',
   reportIncident: 'Report Incident',
   updateIncident: 'Update Incident',
   logSystemUpdate: 'Log System Update',
@@ -84,15 +85,13 @@ export function setCrumbLabel(label) {
   activeNavbarRefresh?.();
 }
 
-// Jump to a history index by replaying that entry's opener. We deliberately do
-// NOT clean up the current overlay here: re-running the opener calls createForm,
-// which tears down the current overlay itself. That keeps `activeFormCleanup`
-// set during the replay so createForm treats it as in-session navigation.
 // Serialisable snapshot of the current form stack — used by capture mode to
-// auto-reopen the form (and its required parent chain) after capture-mode Done.
+// auto-reopen the form (and its breadcrumb trail) after capture-mode Done.
 // Entries without a descriptor (forms opened by direct createForm calls rather
 // than via getFormAction) can't be replayed, so we return only the contiguous
-// suffix of descriptor-carrying entries ending at the current cursor.
+// suffix of descriptor-carrying entries ending at the current cursor. Each
+// entry also carries its crumb label + formName so a restore can paint the
+// breadcrumb without rendering the ancestor forms.
 export function snapshotFormStack() {
   if (cursor < 0) return null;
   const out = [];
@@ -104,13 +103,20 @@ export function snapshotFormStack() {
       out.length = 0;
       continue;
     }
-    out.push({ name: e.descriptor.name, args: e.descriptor.args });
+    out.push({ name: e.descriptor.name, args: e.descriptor.args, label: e.label || '', formName: e.formName });
   }
   return out.length ? out : null;
 }
 
-// Replay a snapshot produced by snapshotFormStack(). Starts fresh: any
-// currently open overlay is torn down and history is reset.
+// Restore a snapshot produced by snapshotFormStack(). Starts fresh: any
+// currently open overlay is torn down and history is reset. The snapshot is
+// seeded straight into history[] (opener + descriptor + crumb label) and ONLY
+// the target entry's form action runs — ancestors are never rendered just to
+// register their history slots. They re-render on demand when the user
+// navigates back / clicks a crumb, exactly like any other history entry.
+// Prerequisite: every snapshot-able form action must be self-contained (derive
+// all context from its args), since it can no longer rely on ancestor actions
+// having run first.
 let replaying = false;
 
 /** True while a form-stack replay is in progress. Lets form actions skip
@@ -123,20 +129,42 @@ export function isFormReplay() {
 
 export async function replayFormStack(snapshot) {
   if (!snapshot?.length) return false;
+  // Refuse wholesale if any entry is unknown — seeding a crumb that can never
+  // open is worse than not restoring (matches the old walk-the-chain contract).
+  if (snapshot.some(e => !getFormAction(e.name))) return false;
   if (activeFormCleanup) { activeFormCleanup(); activeFormCleanup = null; }
   resetHistory();
-  navMode = 'root';
+  for (const e of snapshot) {
+    history.push({
+      opener: () => getFormAction(e.name)(e.args),
+      label: e.label || '',
+      formName: e.formName,
+      descriptor: { name: e.name, args: e.args },
+    });
+  }
+  const targetIndex = history.length - 1;
   replaying = true;
   try {
-    for (const entry of snapshot) {
-      const fn = getFormAction(entry.name);
-      if (!fn) return false;
-      await fn(entry.args);
+    // Open the target view directly. If its opener bails before mounting an
+    // overlay (e.g. its section was deleted in another session), trim the dead
+    // entry and fall back to the nearest ancestor that does mount.
+    for (let i = targetIndex; i >= 0; i--) {
+      history.length = i + 1;
+      cursor = i;
+      navMode = 'replay';
+      try {
+        await history[i].opener();
+      } catch (err) {
+        console.error('replayFormStack: entry failed', snapshot[i]?.name, err);
+      }
+      if (activeFormCleanup) return i === targetIndex;
     }
   } finally {
     replaying = false;
+    navMode = 'root';
   }
-  return true;
+  resetHistory();
+  return false;
 }
 
 export { navigateBack };
@@ -285,6 +313,10 @@ function activeGuardedForm() {
   return el && el._initialSnapshot ? el : null;
 }
 
+// Jump to a history index by replaying that entry's opener. We deliberately do
+// NOT clean up the current overlay here: re-running the opener calls createForm,
+// which tears down the current overlay itself. That keeps `activeFormCleanup`
+// set during the replay so createForm treats it as in-session navigation.
 async function navigateTo(index) {
   if (index < 0 || index >= history.length) return;
   navMode = 'replay';
@@ -479,7 +511,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
       return clone.textContent.trim();
     };
     const isPlaceholder = (t) => !t || /^loading/i.test(t) || t === '…';
-    const labelFor = (entry) => entry.label || FORM_LABELS[entry.formName] || entry.formName;
+    const labelFor = (entry) => entry.label || FORM_LABELS[entry.formName] || entry.formName || '…';
 
     const renderNavbar = () => {
       const nav = document.createElement('div');

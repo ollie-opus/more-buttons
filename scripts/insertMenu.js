@@ -1,9 +1,10 @@
 /**
  * insertMenu.js — small reusable popup menu for the "+ Insert Component" button.
  *
- * Opens anchored to the trigger with two choices — Admonition and Capture — where
- * Capture expands to a submenu (Create a new capture / Add from library). Closes
- * on outside-click or Escape. Only one menu is open at a time.
+ * Opens anchored to the trigger with three choices — Admonition, Capture and
+ * Content tabs — where Capture expands to a submenu (Create a new capture /
+ * Add from library). Closes on outside-click or Escape. Only one menu is open
+ * at a time.
  */
 
 let openEl = null;
@@ -18,7 +19,7 @@ function closeMenu() {
 /**
  * @param {HTMLElement} triggerEl - the clicked "+ Insert Component" button.
  * @param {number} insertAtIndex - component index to insert at.
- * @param {{admonition:Function, captureNew:Function, captureLibrary:Function}} handlers
+ * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function}} handlers
  *   Each receives `insertAtIndex`.
  */
 export function openInsertMenu(triggerEl, insertAtIndex, handlers) {
@@ -36,6 +37,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers) {
         <button type="button" class="mb-popup-menu__item" data-pick="capture-library" role="menuitem">Add from library</button>
       </div>
     </div>
+    <button type="button" class="mb-popup-menu__item" data-pick="content-tabs" role="menuitem">Content tabs</button>
   `;
 
   const host = triggerEl.closest('.more-buttons-overlay-content') || document.body;
@@ -58,6 +60,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers) {
     if (kind === 'admonition') handlers.admonition?.(insertAtIndex);
     else if (kind === 'capture-new') handlers.captureNew?.(insertAtIndex);
     else if (kind === 'capture-library') handlers.captureLibrary?.(insertAtIndex);
+    else if (kind === 'content-tabs') handlers.contentTabs?.(insertAtIndex);
   };
 
   menu.addEventListener('click', (e) => {

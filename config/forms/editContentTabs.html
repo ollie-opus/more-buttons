@@ -1,0 +1,37 @@
+<form data-nav data-dirty-guard id="edit-content-tabs-form" data-storage-key="moreButtonsEditContentTabs" data-width="90vw" data-height="90vh">
+  <h2 data-content-tabs-heading>Edit content tabs</h2>
+
+  <div class="more-buttons-tabs mb-ct-tabs">
+    <div class="more-buttons-tab-list" data-ct-strip></div>
+  </div>
+
+  <div class="mb-ct-manage">
+    <button type="button" class="more-buttons-button secondary" data-ct-move="left"><span class="more-buttons-icon">arrow_back</span>Move left</button>
+    <button type="button" class="more-buttons-button secondary" data-ct-move="right"><span class="more-buttons-icon">arrow_forward</span>Move right</button>
+    <button type="button" class="more-buttons-button danger" data-ct-delete-tab><span class="more-buttons-icon">tab_close</span>Delete tab</button>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Title</label>
+    <input type="text" data-ct-title placeholder="Tab title" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Description</label>
+    <textarea data-ct-description rows="6" data-richtext placeholder="Markdown allowed"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group" data-components-row>
+    <label class="more-buttons-label">Components</label>
+    <div>
+      <div data-tab-components></div>
+    </div>
+  </div>
+
+  <input type="hidden" name="tabsState" />
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditContentTabs" data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteContentTabs" data-delete-tabs-btn><span class="more-buttons-icon">delete</span>Delete</button>
+  </div>
+</form>

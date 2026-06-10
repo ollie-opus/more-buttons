@@ -14,6 +14,7 @@ import { readRepoBlob } from './repoClient.js';
 import { captureCard, captureGrid } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
 import { getComponentContainer } from './componentContainers.js';
+import { captureDimFields } from './components.js';
 import { mergeSave } from './mergeSave.js';
 
 function applyDimAuto(formEl) {
@@ -23,7 +24,12 @@ function applyDimAuto(formEl) {
   const isAuto = sel.value === 'none';
   dim.classList.toggle('--auto', isAuto);
   const val = dim.querySelector('[name="dimValue"]');
-  if (val) val.disabled = isAuto;
+  if (val) {
+    val.disabled = isAuto;
+    // Auto captures are seeded with an empty value (see captureDimFields);
+    // offer the 50px default once the user actually picks a dimension.
+    if (!isAuto && val.value === '') val.value = '50';
+  }
 }
 
 /**
@@ -36,8 +42,11 @@ export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
   if (!container || !cap) return;
   const opener = () => openEditCaptureComponent({ container, uuid, cap });
 
+  // Seed the form with the same normalization readFresh applies to markdown
+  // (dimValue '' when auto) — the merge baseline snapshots these values, so an
+  // unedited auto capture must compare equal to its freshly-parsed self.
   await chrome.storage.local.set({
-    moreButtonsEditCaptureComponent: { dimMode: cap.dimMode ?? 'none', dimValue: cap.dimValue ?? 50 },
+    moreButtonsEditCaptureComponent: captureDimFields(cap),
   });
 
   const { formEl } = await createForm('editCaptureComponent', opener);
@@ -111,8 +120,7 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
       readFresh: md => {
         const { components } = handler.readComponents(md, container.uuid);
         const cap = components.find(c => c.kind === 'capture' && c.cap.uuid === uuid)?.cap;
-        const mode = cap?.dimMode ?? 'none';
-        return { dimMode: mode, dimValue: mode === 'none' ? '' : String(cap?.dimValue ?? '') };
+        return captureDimFields(cap);
       },
       build: (md, resolved) => {
         const { description, components } = handler.readComponents(md, container.uuid);

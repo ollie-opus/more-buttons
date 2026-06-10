@@ -84,6 +84,8 @@
         "scripts/componentContainers.js",
         "scripts/insertMenu.js",
         "scripts/captureComponent.js",
+        "scripts/contentTabs.js",
+        "scripts/contentTabsEditor.js",
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js"

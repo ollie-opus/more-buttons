@@ -6,6 +6,9 @@
  *   - an admonition  (a `!!!`/`???` block — including steps, notes, and nested
  *                     sub-admonitions, which are themselves admonition components)
  *   - a capture      (a paired `![](…#only-light)` / `![](…#only-dark)` image)
+ *   - a tab group    (consecutive `=== "Title"` content-tab headers — one
+ *                     component per GROUP; each tab inside is itself a
+ *                     component container, see contentTabs.js)
  *
  * Historically captures and admonitions were stored segregated (description →
  * all captures → all sub-admonitions). This module parses a body into a single
@@ -15,9 +18,10 @@
  * All functions here are pure (no DOM, no network) — markdown in, markdown out.
  */
 
-import { parseAdmonitions, buildAdmonition, generateUUID } from './admonitions.js';
+import { parseAdmonitions, buildAdmonition, generateUUID, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
 import { buildSectionUUIDSpan } from './sections.js';
 import { buildCaptureLines } from './captures.js';
+import { locateTabGroups, buildTabGroup, locateTabByUUID } from './contentTabs.js';
 
 // Per-line light-capture matcher (mirrors captures.js' parseExistingCaptures,
 // but line-addressable so we can interleave with admonitions by position).
@@ -113,22 +117,36 @@ export function ensureCaptureUUIDs(markdown) {
  * @param {RegExp} typeRegex - admonition type matcher (e.g. GUIDE_ADMONITION_TYPES_RE)
  * @param {{skipTabBlocks?: boolean}} [opts]
  * @returns {{ description: string, components: Array }}
- *   Each component is `{ kind:'admonition', adm }` or `{ kind:'capture', cap }`.
+ *   Each component is `{ kind:'admonition', adm }`, `{ kind:'capture', cap }`
+ *   or `{ kind:'tabs', grp }`.
  */
 export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) {
   const src = body ?? '';
 
   // Immediate-child admonitions (indent 0 within this dedented body).
+  // skipTabBlocks keeps admonitions buried inside tab groups out of this list.
   const adms = parseAdmonitions(src, typeRegex, { skipTabBlocks })
     .filter(a => a.indent === '');
   const admRanges = adms.map(a => [a.headerLine, a.endLine]);
 
+  // Immediate-child tab groups (indent 0; groups nested inside admonitions are
+  // indented, but guard against pathological overlaps anyway).
+  const grps = locateTabGroups(src)
+    .filter(g => g.indent === '' && !inAnyRange(g.startLine, admRanges));
+
   // Top-level captures: indent 0 and not buried inside an admonition block.
+  // (Captures inside tab groups are indented +4, so already excluded.)
   const topCaptures = locateCaptureLines(src)
     .filter(c => c.indent === '' && !inAnyRange(c.startLine, admRanges));
 
   const items = [
     ...adms.map(adm => ({ kind: 'admonition', adm, startLine: adm.headerLine, endLine: adm.endLine })),
+    ...grps.map(g => ({
+      kind: 'tabs',
+      grp: { uuid: g.uuid ?? null, tabs: g.tabs },
+      startLine: g.startLine,
+      endLine: g.endLine,
+    })),
     ...topCaptures.map(c => ({
       kind: 'capture',
       cap: { uuid: c.uuid ?? null, lightFilename: c.lightFilename, darkFilename: c.darkFilename, dimMode: c.dimMode, dimValue: c.dimValue },
@@ -140,9 +158,11 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   const description = extractDescription(src, items);
 
   // Strip the internal line bookkeeping before handing components back.
-  const components = items.map(it => it.kind === 'admonition'
-    ? { kind: 'admonition', adm: it.adm }
-    : { kind: 'capture', cap: it.cap });
+  const components = items.map(it => {
+    if (it.kind === 'admonition') return { kind: 'admonition', adm: it.adm };
+    if (it.kind === 'tabs') return { kind: 'tabs', grp: it.grp };
+    return { kind: 'capture', cap: it.cap };
+  });
 
   return { description, components };
 }
@@ -200,12 +220,26 @@ export function buildComponentBody(uuid, description, components) {
       // this, every round-trip accumulates an extra blank line inside the block.
       const body = (a.body ?? '').replace(/^\n+/, '');
       lines.push(buildAdmonition(a.prefix, a.type, a.title, body).trim());
+    } else if (c.kind === 'tabs') {
+      lines.push(buildTabGroup(c.grp.uuid, c.grp.tabs));
     } else {
       // buildCaptureLines emits a leading '' we don't want (we add our own).
       lines.push(...buildCaptureLines([c.cap]).slice(1));
     }
   }
   return lines.join('\n');
+}
+
+/**
+ * Canonical form/merge representation of a capture's dimensions: `dimValue` is
+ * '' whenever the mode is 'none' (auto). The edit-capture form seeds its
+ * baseline from this AND parses fresh markdown through it, so an untouched
+ * auto capture compares equal on both sides of a merge (no false conflict
+ * from the number input's UI prefill).
+ */
+export function captureDimFields(cap) {
+  const dimMode = cap?.dimMode ?? 'none';
+  return { dimMode, dimValue: dimMode === 'none' ? '' : String(cap?.dimValue ?? '') };
 }
 
 /** Builds a fresh capture component from a (resolved) capture object. */
@@ -218,9 +252,61 @@ export function admonitionComponent(adm) {
   return { kind: 'admonition', adm };
 }
 
-/** The stable UUID of a component (admonition or capture). */
+/** The stable UUID of a component (admonition, capture, or tab group). */
 export function uuidOfComponent(c) {
-  return c.kind === 'admonition' ? c.adm.uuid : c.cap.uuid;
+  if (c.kind === 'admonition') return c.adm.uuid;
+  if (c.kind === 'tabs') return c.grp.uuid;
+  return c.cap.uuid;
+}
+
+// ── Tab containers (a single tab's body holds an ordered component list) ──────
+
+/**
+ * Reads the component list of the TAB identified by `tabUuid` out of the raw
+ * document (any nesting depth). The tab's body is dedented by header indent +4
+ * and parsed like any container body — its own identity span is stripped by
+ * the description extraction, same as admonition bodies.
+ *
+ * @param {string} md
+ * @param {string} tabUuid
+ * @returns {{ description: string, components: Array }}
+ */
+export function readTabComponents(md, tabUuid) {
+  const lines = (md ?? '').split('\n');
+  const loc = locateTabByUUID(lines, tabUuid);
+  if (!loc) return { description: '', components: [] };
+  const bodyIndent = loc.headerIndent + '    ';
+  const body = lines.slice(loc.headerLine + 1, loc.endLine)
+    .map(l => (l.startsWith(bodyIndent) ? l.slice(bodyIndent.length) : l))
+    .join('\n');
+  return parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+}
+
+/**
+ * Rebuilds the body of the TAB identified by `tabUuid` from a description +
+ * ordered component list (via buildComponentBody, which re-embeds the tab's
+ * own identity span), re-indents it under the tab's header, and splices it in.
+ * Inverse of readTabComponents.
+ *
+ * @param {string} md
+ * @param {string} tabUuid
+ * @param {string} description
+ * @param {Array} components
+ * @returns {string}
+ */
+export function writeTabBody(md, tabUuid, description, components) {
+  const lines = (md ?? '').split('\n');
+  const loc = locateTabByUUID(lines, tabUuid);
+  if (!loc) return md;
+  const bodyIndent = loc.headerIndent + '    ';
+  const body = buildComponentBody(tabUuid, description, components);
+  const indented = body.split('\n').map(l => (l.length ? bodyIndent + l : l));
+  return [
+    ...lines.slice(0, loc.headerLine + 1),
+    '',
+    ...indented,
+    ...lines.slice(loc.endLine),
+  ].join('\n');
 }
 
 /**

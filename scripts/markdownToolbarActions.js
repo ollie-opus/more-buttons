@@ -3,7 +3,7 @@
 // value and the selection range to restore. No DOM, no side effects — unit
 // tested in tests/markdownToolbarActions.test.mjs.
 
-import { markSpans, matchLink } from './markdownInline.js';
+import { markSpans, matchLink, LIST_ITEM_RE } from './markdownInline.js';
 
 // Every delimiter the toolbar can insert. Order matters: longer delimiters that
 // share a leading character ('**' before '*') must come first so the layer
@@ -421,6 +421,105 @@ export function stripFormatting(value, selStart, selEnd) {
 
   if (newStart === null) return { value, selStart, selEnd }; // selection held no content
   return { value: out, selStart: newStart, selEnd: newEnd };
+}
+
+// Toggle ordered ('ol') / unordered ('ul') list formatting on the lines the
+// selection covers. Pure: (value, selStart, selEnd, kind) -> {value, selStart, selEnd}.
+//
+// - Every covered non-blank line already an item of `kind` -> toggle OFF
+//   (strip the prefixes).
+// - Otherwise toggle ON: prefix every covered non-blank line, converting items
+//   of the other kind in place.
+// - A collapsed caret on a blank line starts a new empty item ('- ' / '1. ').
+// - Blank-line guards keep Zensical's block parsing clean: toggling ON inserts
+//   a blank line between the new list and adjacent plain text / other-kind
+//   items; toggling OFF inserts one between the de-listed lines and items that
+//   remain (otherwise they'd lazily continue the neighbouring item).
+// - Ordered runs touching the edit are renumbered 1..n (the rich surface
+//   re-serializes to canonical numbering anyway; this keeps markdown mode clean).
+export function toggleList(value, selStart, selEnd, kind) {
+  const itemRe = LIST_ITEM_RE[kind];
+  const lines = value.split('\n');
+  const starts = [];
+  { let acc = 0; for (const l of lines) { starts.push(acc); acc += l.length + 1; } }
+  const lineOf = pos => {
+    for (let i = 0; i < lines.length; i++) {
+      if (pos <= starts[i] + lines[i].length) return i;
+    }
+    return lines.length - 1;
+  };
+
+  const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
+  const first = lineOf(lo);
+  let last = lineOf(hi);
+  // A selection ending exactly at a line's start doesn't include that line.
+  if (last > first && hi === starts[last]) last--;
+
+  const prefixLen = line => {
+    const m = line.match(/^(?:- |\d+\. )/);
+    return m ? m[0].length : 0;
+  };
+
+  const nonBlank = [];
+  for (let i = first; i <= last; i++) if (lines[i] !== '') nonBlank.push(i);
+
+  const next = lines.slice();
+  let turnedOn = false;
+  if (nonBlank.length === 0) {
+    // Blank line(s). A collapsed caret starts an empty item to type into;
+    // a blank-only selection has nothing to format.
+    if (selStart !== selEnd) return { value, selStart, selEnd };
+    next[first] = kind === 'ol' ? '1. ' : '- ';
+    turnedOn = true;
+  } else if (nonBlank.every(i => itemRe.test(lines[i]))) {
+    for (const i of nonBlank) next[i] = lines[i].slice(prefixLen(lines[i]));
+  } else {
+    let n = 1;
+    for (const i of nonBlank) {
+      next[i] = (kind === 'ol' ? `${n++}. ` : '- ') + lines[i].slice(prefixLen(lines[i]));
+    }
+    turnedOn = true;
+  }
+
+  // Renumber every ordered run that touches the edited range (merges with an
+  // adjacent list continue its numbering; runs split by a toggle-off restart).
+  const seen = new Set();
+  for (let i = Math.max(0, first - 1); i <= Math.min(next.length - 1, last + 1); i++) {
+    if (!LIST_ITEM_RE.ol.test(next[i]) || seen.has(i)) continue;
+    let s = i; while (s > 0 && LIST_ITEM_RE.ol.test(next[s - 1])) s--;
+    let e = i; while (e < next.length - 1 && LIST_ITEM_RE.ol.test(next[e + 1])) e++;
+    let n = 1;
+    for (let k = s; k <= e; k++) { seen.add(k); next[k] = `${n++}. ` + next[k].replace(/^\d+\. /, ''); }
+  }
+
+  // Blank-line guards at the edited range's edges.
+  const isItem = line => LIST_ITEM_RE.ul.test(line) || LIST_ITEM_RE.ol.test(line);
+  const needsGapAbove = first > 0 && next[first - 1] !== '' &&
+    (turnedOn ? !itemRe.test(next[first - 1]) : isItem(next[first - 1]));
+  const needsGapBelow = last < next.length - 1 && next[last + 1] !== '' &&
+    (turnedOn ? !itemRe.test(next[last + 1]) : isItem(next[last + 1]));
+  if (needsGapBelow) next.splice(last + 1, 0, '');
+  if (needsGapAbove) next.splice(first, 0, '');
+
+  // Map the selection: keep each endpoint's offset within its line's CONTENT
+  // (clamping positions that sat inside a removed/changed prefix), then re-seat
+  // it after the line's new prefix at the line's new position.
+  const newIndexOf = i =>
+    i < first ? i
+      : i <= last ? i + (needsGapAbove ? 1 : 0)
+      : i + (needsGapAbove ? 1 : 0) + (needsGapBelow ? 1 : 0);
+  const newStarts = [];
+  { let acc = 0; for (const l of next) { newStarts.push(acc); acc += l.length + 1; } }
+  const mapPos = pos => {
+    const i = lineOf(pos);
+    const ni = newIndexOf(i);
+    const oldPfx = prefixLen(lines[i]);
+    let off = pos - starts[i] - oldPfx;
+    off = Math.max(0, Math.min(off, lines[i].length - oldPfx));
+    return newStarts[ni] + prefixLen(next[ni]) + off;
+  };
+  const ns = mapPos(selStart), ne = mapPos(selEnd);
+  return { value: next.join('\n'), selStart: Math.min(ns, ne), selEnd: Math.max(ns, ne) };
 }
 
 // Splice a `[text](url)` markdown link at the selection, replacing it.

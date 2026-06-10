@@ -28,7 +28,7 @@ const TAG_MARKER = {
 // Returns the reconstructed markdown string.
 export function buildSource(root, onText, onBoundary) {
   let out = '';
-  const walk = (parent) => {
+  const walk = (parent, inListItem = false) => {
     const kids = parent.childNodes;
     if (onBoundary) onBoundary(parent, 0, out.length);
     for (let k = 0; k < kids.length; k++) {
@@ -38,17 +38,34 @@ export function buildSource(root, onText, onBoundary) {
       } else if (child.nodeType === ELEMENT_NODE) {
         const tag = child.tagName.toLowerCase();
         if (tag === 'br') {
-          out += '\n';
+          // Inside a list item a <br> is a browser placeholder (empty <li>) or a
+          // soft break we can't represent on a single item line — emit nothing.
+          if (!inListItem) out += '\n';
         } else {
           const marker = TAG_MARKER[tag];
           // Drop an emptied mark element (no text inside) rather than emit bare
           // delimiters: an empty <strong> must serialize to '' not '****', which
           // would corrupt the source and render literally. Happens when the user
           // deletes all the text inside a mark but the browser keeps the wrapper.
-          if (marker) { if (child.textContent) { out += marker; walk(child); out += marker; } else { walk(child); } }
-          else if (tag === 'a') { out += '['; walk(child); out += '](' + (child.getAttribute('href') || '') + ')'; }
-          else if (tag === 'div' || tag === 'p') { if (out.length) out += '\n'; walk(child); }
-          else { walk(child); } // unknown element -> unwrap to contents
+          if (marker) { if (child.textContent) { out += marker; walk(child, inListItem); out += marker; } else { walk(child, inListItem); } }
+          else if (tag === 'a') { out += '['; walk(child, inListItem); out += '](' + (child.getAttribute('href') || '') + ')'; }
+          else if (tag === 'ul' || tag === 'ol') { walk(child, inListItem); }
+          else if (tag === 'li') {
+            // One source line per item: '- ' / 'N. ' prefix, content, then a
+            // newline between items (the list element itself emits no newlines —
+            // those around it belong to the neighbouring text runs).
+            const siblings = [];
+            for (const n of parent.childNodes) {
+              if (n.nodeType === ELEMENT_NODE && n.tagName.toLowerCase() === 'li') siblings.push(n);
+            }
+            const idx = siblings.indexOf(child);
+            const ordered = parent.tagName.toLowerCase() === 'ol';
+            out += ordered ? `${idx + 1}. ` : '- ';
+            walk(child, true);
+            if (idx < siblings.length - 1) out += '\n';
+          }
+          else if (tag === 'div' || tag === 'p') { if (out.length) out += '\n'; walk(child, inListItem); }
+          else { walk(child, inListItem); } // unknown element -> unwrap to contents
         }
       }
       if (onBoundary) onBoundary(parent, k + 1, out.length);
@@ -90,12 +107,26 @@ export function serializeWithSelection(root, selection) {
 // offsets past the end clamp to the end of the last text node.
 export function locateOffset(root, target) {
   const texts = [];
-  buildSource(root, (node, start) => texts.push({ node, start, len: node.nodeValue.length }));
+  const bounds = [];
+  buildSource(root,
+    (node, start) => texts.push({ node, start, len: node.nodeValue.length }),
+    (parent, idx, srcLen) => bounds.push({ parent, idx, srcLen }));
   for (const t of texts) {
     if (target <= t.start + t.len) {
       return { node: t.node, offset: Math.max(0, Math.min(target - t.start, t.len)) };
     }
   }
+  // Past every text node. An element boundary may still sit deeper into the
+  // source than the last text node — e.g. the caret belongs inside a trailing
+  // empty <li>, whose '- ' prefix contributes source chars but holds no text
+  // node. Prefer the deepest such boundary; otherwise keep the old behaviour
+  // (end of last text node, or root for an empty surface).
+  const lastEnd = texts.length ? texts[texts.length - 1].start + texts[texts.length - 1].len : -1;
+  let best = null;
+  for (const b of bounds) {
+    if (b.srcLen <= target && b.srcLen > lastEnd && (!best || b.srcLen > best.srcLen)) best = b;
+  }
+  if (best) return { node: best.parent, offset: best.idx };
   const last = texts[texts.length - 1];
   if (last) return { node: last.node, offset: last.len };
   return { node: root, offset: 0 };

@@ -182,6 +182,8 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
       if (c.kind === 'admonition') {
         const { title: t } = splitTitleMeta(c.adm.title || '');
         labelMap[c.adm.uuid] = { kind: 'admonition', title: t || c.adm.type };
+      } else if (c.kind === 'tabs') {
+        labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }

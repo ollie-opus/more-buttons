@@ -1,9 +1,11 @@
 /**
  * conflictResolver.js — inline per-field conflict resolution.
  *
- * Renders one row per conflicting field into the form's overlay content with
- * "Use theirs" / "Keep mine" buttons. Resolves once every field has a choice.
- * Styled inline so there is no CSS-file dependency.
+ * Renders one block per conflicting field between the navbar and the form.
+ * Each field shows its two candidate values as selectable tiles ("Current ·
+ * theirs" / "Mine · yours"); resolves once every field has a chosen tile.
+ * Styled by the .mb-conflict rules in config/forms/formsStyling.css, which
+ * form.js injects alongside every overlay.
  */
 
 function esc(s) {
@@ -18,22 +20,27 @@ export class ResolveCancelled extends Error {
 }
 
 /**
- * Render one side of a conflict. Arrays (e.g. component-order conflicts) render
- * as a numbered list with optional capture thumbnails; scalars are escaped text.
+ * Render one candidate value, led by the field's bolded form label ("Title:
+ * abc"). Arrays (e.g. component-order conflicts) render as a numbered list
+ * with optional capture thumbnails; scalars are escaped text; blank/missing
+ * values render an explicit "(empty)" placeholder.
  */
-function renderSide(conflict, value, options) {
+function renderValue(label, value, options) {
+  const lead = `<strong>${esc(label)}:</strong>`;
   if (Array.isArray(value)) {
+    if (!value.length) return `<div class="mb-conflict__value">${lead} <em class="--empty">(empty)</em></div>`;
     const describe = options.describe || (u => ({ title: u }));
     const items = value.map(u => {
       const d = describe(u) || {};
-      const label = d.kind === 'capture'
-        ? `${d.thumbSrc ? `<img src="${esc(d.thumbSrc)}" alt="" style="height:20px;vertical-align:middle;border-radius:3px;margin-right:4px;" />` : ''}Capture`
+      const itemLabel = d.kind === 'capture'
+        ? `${d.thumbSrc ? `<img src="${esc(d.thumbSrc)}" alt="" />` : ''}Capture`
         : esc(d.title || u);
-      return `<li>${label}</li>`;
+      return `<li>${itemLabel}</li>`;
     }).join('');
-    return `<ol style="margin:4px 0 0;padding-left:20px;">${items}</ol>`;
+    return `<div class="mb-conflict__value">${lead}</div><ol class="mb-conflict__value-list">${items}</ol>`;
   }
-  return esc(value);
+  const text = String(value ?? '');
+  return `<div class="mb-conflict__value">${lead} ${text.trim() ? esc(text) : '<em class="--empty">(empty)</em>'}</div>`;
 }
 
 /**
@@ -48,25 +55,33 @@ export function showConflictResolver(formEl, conflicts, options = {}) {
     host.querySelector('[data-conflict-panel]')?.remove();
 
     const panel = document.createElement('div');
+    panel.className = 'mb-conflict';
     panel.setAttribute('data-conflict-panel', '');
-    panel.style.cssText =
-      'border:1px solid #d97706;background:#fffbeb;border-radius:8px;padding:12px;margin:12px 0;';
 
-    const rows = conflicts.map(c => `
-      <div data-conflict-field="${esc(c.field)}" style="padding:8px 0;border-top:1px solid #fde68a;">
-        <p style="margin:0 0 4px;font-weight:600;">⚠ "${esc(c.label)}" was changed elsewhere since you opened this (another tab, device, or person):</p>
-        <div style="margin:0 0 2px;"><strong>current (theirs):</strong> ${renderSide(c, c.theirs, options)}</div>
-        <div style="margin:0 0 6px;"><strong>yours (mine):</strong> ${renderSide(c, c.mine, options)}</div>
-        <div style="display:flex;gap:8px;">
-          <button type="button" class="more-buttons-button" data-choose="theirs">Keep theirs (current)</button>
-          <button type="button" class="more-buttons-button success" data-choose="mine">Keep mine (overwrite)</button>
+    const fields = conflicts.map(c => `
+      <div class="mb-conflict__field" data-conflict-field="${esc(c.field)}">
+        <div class="mb-conflict__options">
+          <button type="button" class="mb-conflict__option" data-choose="theirs">
+            <span class="mb-conflict__side">Theirs (existing)</span>
+            ${renderValue(c.label, c.theirs, options)}
+          </button>
+          <button type="button" class="mb-conflict__option" data-choose="mine">
+            <span class="mb-conflict__side">Yours (overwrite)</span>
+            ${renderValue(c.label, c.mine, options)}
+          </button>
         </div>
       </div>`).join('');
 
     panel.innerHTML =
-      `<div style="font-weight:700;margin-bottom:4px;">Resolve conflicts to save</div>${rows}` +
-      `<div style="margin-top:10px;text-align:right;"><button type="button" class="more-buttons-button secondary" data-conflict-cancel>Cancel</button></div>`;
-    host.prepend(panel);
+      `<div class="mb-conflict__head"><span class="more-buttons-icon">sync_problem</span>Resolve conflicts to save</div>` +
+      `<p class="mb-conflict__desc">These fields changed elsewhere (another tab, device, or person) while you had this open. Pick which value to keep.</p>` +
+      fields +
+      `<div class="mb-conflict__foot"><button type="button" class="more-buttons-button" data-conflict-cancel>Cancel</button></div>`;
+
+    // Sit between the navbar and the form, below the window chrome. When the
+    // form has no wrapper (host === formEl), fall back to prepending into it.
+    if (host === formEl) host.prepend(panel);
+    else host.insertBefore(panel, formEl);
 
     const chosen = {};
     panel.addEventListener('click', e => {
@@ -79,8 +94,7 @@ export function showConflictResolver(formEl, conflicts, options = {}) {
       if (!btn) return;
       const row = btn.closest('[data-conflict-field]');
       chosen[row.dataset.conflictField] = btn.dataset.choose;
-      row.querySelectorAll('[data-choose]').forEach(b => { b.disabled = true; });
-      btn.style.outline = '2px solid #2563eb';
+      row.querySelectorAll('[data-choose]').forEach(b => b.classList.toggle('--chosen', b === btn));
       if (conflicts.every(c => chosen[c.field])) {
         panel.remove();
         resolve(chosen);

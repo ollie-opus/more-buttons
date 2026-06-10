@@ -1,6 +1,7 @@
 import { ensureAdmonitionUUIDs, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
 import { ensureSectionUUIDs } from './sections.js';
 import { ensureCaptureUUIDs } from './components.js';
+import { ensureTabUUIDs } from './contentTabs.js';
 import { contentsApiUrl, authHeader } from './repoClient.js';
 
 let _opQueue = Promise.resolve();
@@ -55,18 +56,20 @@ function isGuideMarkdown(filePath) {
 // Exported for unit testing the dispatch — callers use githubFetchAndPushFile /
 // fetchFileMigratingIdentity, which apply it automatically.
 export function migrateComponentIdentity(filePath, markdown) {
+  // ensureTabUUIDs must run BEFORE ensureCaptureUUIDs: a capture span injected
+  // as a tab's first body line would be misread as the tab's own identity.
   const blockRegex = Object.entries(ADMONITION_TYPE_BY_FILE).find(([k]) => filePath.includes(k))?.[1];
   if (blockRegex) {
     // System updates / status: their top-level block admonitions, plus (for
-    // updates, which embed components) any captures inside update bodies.
+    // updates, which embed components) tab groups + captures inside update bodies.
     const withAdm = ensureAdmonitionUUIDs(markdown, blockRegex);
-    return filePath.includes('system-updates.md') ? ensureCaptureUUIDs(withAdm) : withAdm;
+    return filePath.includes('system-updates.md') ? ensureCaptureUUIDs(ensureTabUUIDs(withAdm)) : withAdm;
   }
   if (isGuideMarkdown(filePath)) {
-    // Mirror createGuideDraft: sections + component admonitions + captures.
-    return ensureCaptureUUIDs(
+    // Mirror createGuideDraft: sections + component admonitions + tabs + captures.
+    return ensureCaptureUUIDs(ensureTabUUIDs(
       ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
-    );
+    ));
   }
   return markdown;
 }

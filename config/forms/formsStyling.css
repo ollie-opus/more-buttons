@@ -2098,6 +2098,41 @@ details[open] .more-buttons-advanced-toggle::before {
   display: none;
 }
 
+/* ── Content Tabs editor ───────────────────────────────────────────────────── */
+
+/* Dynamic strip: tab labels are user content, so let them wrap. */
+.mb-ct-tabs .more-buttons-tab-list {
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.mb-ct-add-tab {
+  color: var(--mb-text-muted);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.mb-ct-add-tab:hover {
+  color: var(--mb-text);
+}
+
+/* Per-tab management row (move left/right, delete tab) */
+.mb-ct-manage {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.mb-ct-manage .more-buttons-button {
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+}
+
+.mb-ct-manage .more-buttons-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* ── Knowledge Base Hierarchy Tree ─────────────────────────────────────────── */
 
 .mb-kb-tree {
@@ -2374,6 +2409,13 @@ details[open] .more-buttons-advanced-toggle::before {
   content: attr(data-placeholder);
   color: var(--mb-text-placeholder);
 }
+.mb-rte__surface ul,
+.mb-rte__surface ol {
+  margin: 4px 0;
+  padding-left: 24px;
+}
+.mb-rte__surface ul { list-style: disc; }
+.mb-rte__surface ol { list-style: decimal; }
 .mb-rte__surface mark { background-color: #fef08a; color: inherit; }
 .mb-rte__surface u { text-decoration: underline; }
 .mb-rte__surface s { text-decoration: line-through; }
@@ -2508,3 +2550,131 @@ details[open] .more-buttons-advanced-toggle::before {
 }
 .mb-component-rail__btn:hover:not(:disabled) { background: var(--mb-bg-subtle); }
 .mb-component-rail__btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ── Conflict resolver (mergeSave) ────────────────────────────────────────────
+ * Shown between the navbar and the form when a save hits concurrent edits.
+ * Uses the same yellow amber as the --amber incident cards / radio pills (the
+ * busy-button amber reads brown at panel scale), a faintly tinted card with
+ * type at form scale. Each field offers its two candidate values as
+ * selectable tiles; the chosen tile takes the radio-pill selected treatment. */
+
+.mb-conflict {
+  --mb-warn: rgb(255, 179, 0);
+  flex-shrink: 0;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--mb-warn) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mb-warn) 45%, transparent);
+  border-radius: 8px;
+}
+
+.mb-conflict__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--mb-text);
+}
+
+.mb-conflict__head .more-buttons-icon {
+  font-size: 1.125rem;
+  color: var(--mb-warn);
+}
+
+.mb-conflict__desc {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--mb-text-muted);
+}
+
+.mb-conflict__field {
+  margin-top: 12px;
+}
+
+.mb-conflict__options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mb-conflict__option {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  background: var(--mb-bg);
+  border: 1px solid var(--mb-border);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background-color 0.14s ease-out, border-color 0.14s ease-out,
+    box-shadow 0.14s ease-out;
+}
+
+.mb-conflict__option:hover {
+  border-color: var(--mb-text-muted);
+  background: color-mix(in srgb, var(--mb-text-muted) 8%, var(--mb-bg));
+}
+
+.mb-conflict__option:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mb-acc-info) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* Selected: faint slate tint + crisp ~2px edge (border + inset ring), the
+   same language as .more-buttons-radio-btn:has(:checked). */
+.mb-conflict__option.--chosen {
+  background: color-mix(in srgb, var(--mb-acc-default) 10%, var(--mb-bg));
+  border-color: var(--mb-acc-default);
+  box-shadow: inset 0 0 0 1px var(--mb-acc-default);
+}
+
+.mb-conflict__side {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mb-text-label);
+}
+
+.mb-conflict__value {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--mb-text);
+  word-break: break-word;
+}
+
+.mb-conflict__value strong {
+  font-weight: 600;
+}
+
+.mb-conflict__value .--empty {
+  color: var(--mb-text-placeholder);
+  font-style: italic;
+}
+
+.mb-conflict__value-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--mb-text);
+}
+
+.mb-conflict__value-list img {
+  height: 20px;
+  vertical-align: middle;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+
+.mb-conflict__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}

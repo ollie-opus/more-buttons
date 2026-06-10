@@ -175,6 +175,65 @@ export function renderHtml(nodes) {
   }).join('');
 }
 
+// ── Block-level lists ─────────────────────────────────────────────────────────
+//
+// The only block constructs the editor understands are flat ordered/unordered
+// lists: lines beginning `- ` or `N. `. Everything else stays a "text" run whose
+// newlines render as <br>, exactly as before. Newline ownership is what makes
+// the mapping round-trip exactly: the '\n' BEFORE a list belongs to the
+// preceding text run, the '\n's BETWEEN items belong to the list, and the '\n'
+// AFTER the last item opens the following text run.
+
+export const LIST_ITEM_RE = {
+  ul: /^- (.*)$/,
+  ol: /^\d+\. (.*)$/,
+};
+
+/**
+ * Parses `text` into block nodes:
+ *   { type: 'text', nodes: inlineNode[] }            — newlines preserved
+ *   { type: 'ul'|'ol', items: inlineNode[][] }       — one entry per item line
+ */
+export function parseDoc(text) {
+  const lines = (text ?? '').split('\n');
+  const blocks = [];
+  let textRun = null;
+  const flushText = () => {
+    if (textRun !== null) { blocks.push({ type: 'text', nodes: parseInline(textRun) }); textRun = null; }
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    const kind = LIST_ITEM_RE.ul.test(lines[i]) ? 'ul' : (LIST_ITEM_RE.ol.test(lines[i]) ? 'ol' : null);
+    if (kind) {
+      if (textRun !== null) textRun += '\n'; // newline before the list stays in the text run
+      flushText();
+      const items = [];
+      while (i < lines.length) {
+        const m = lines[i].match(LIST_ITEM_RE[kind]);
+        if (!m) break;
+        items.push(parseInline(m[1]));
+        i++;
+      }
+      blocks.push({ type: kind, items });
+      if (i < lines.length) textRun = ''; // newline after the list opens the next run
+      continue;
+    }
+    textRun = textRun === null ? lines[i] : textRun + '\n' + lines[i];
+    i++;
+  }
+  flushText();
+  return blocks;
+}
+
+/** Full-document render: list blocks as <ul>/<ol>, text runs as before. */
+export function renderDocHtml(text) {
+  return parseDoc(text).map(b => {
+    if (b.type === 'text') return renderHtml(b.nodes);
+    return `<${b.type}>${b.items.map(it => `<li>${renderHtml(it)}</li>`).join('')}</${b.type}>`;
+  }).join('');
+}
+
 // Maps editor element tag names back to AST mark types. Includes the synonyms a
 // browser may produce (b/i, del/strike) even though we only ever emit the canonical
 // tags from renderHtml.

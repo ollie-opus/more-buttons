@@ -83,6 +83,19 @@ function draftPathOf(livePath) {
   return livePath.replace(/^docs\/pages\//, 'docs/drafts/');
 }
 
+// Inverse of draftPathOf: adopt the module-level guide context from a draft
+// path. Section/admonition openers call this with the file carried in their
+// args so they are self-contained — a form-stack restore (capture-mode cold
+// exit, library round-trip) jumps straight to the deep form without re-running
+// openGuideEntry, which is what normally sets currentGuide.
+function adoptGuideFromDraftPath(draftPath) {
+  if (!draftPath || currentGuide?.draftPath === draftPath) return;
+  currentGuide = {
+    livePath: draftPath.replace(/^docs\/drafts\//, 'docs/pages/'),
+    draftPath,
+  };
+}
+
 // Title from a path's filename, e.g., 'pages/adding-a-new-employee.md' → 'adding-a-new-employee'
 function guideBaseName(livePath) {
   return livePath.split('/').pop().replace(/\.md$/, '');
@@ -122,15 +135,17 @@ function onGuideEntryClick(e, formEl) {
     if (action === 'discard')  { discardGuideDraft(formEl);  return; }
     if (action === 'delete')   { deleteGuide(formEl);        return; }
   }
-  // Edit / create section clicks are dispatched via form actions below.
+  // Edit / create section clicks are dispatched via form actions below. The
+  // draft path rides in the args so the resulting history descriptors are
+  // self-contained (replayable without this guide-entry form having run).
   const editSec = e.target.closest('[data-edit-guide-section]');
   if (editSec) {
-    getFormAction('openEditGuideSection')?.({ uuid: editSec.dataset.editGuideSection });
+    getFormAction('openEditGuideSection')?.({ uuid: editSec.dataset.editGuideSection, file: formEl.dataset.draftPath });
     return;
   }
   const createSec = e.target.closest('[data-create-guide-section]');
   if (createSec) {
-    getFormAction('openCreateGuideSection')?.({ parentUuid: createSec.dataset.createGuideSection });
+    getFormAction('openCreateGuideSection')?.({ parentUuid: createSec.dataset.createGuideSection, file: formEl.dataset.draftPath });
     return;
   }
 }
@@ -474,7 +489,8 @@ function parentOptionsForSection(markdown, editingUuid /* null when creating */,
   return candidates;
 }
 
-registerFormAction('openCreateGuideSection', async ({ parentUuid }) => {
+registerFormAction('openCreateGuideSection', async ({ parentUuid, file }) => {
+  adoptGuideFromDraftPath(file);
   if (!currentGuide) return;
   const draftMarkdown = await readRepoText(currentGuide.draftPath);
   const parent = parentUuid ? locateSectionByUUID(draftMarkdown, parentUuid) : null;
@@ -514,7 +530,8 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid }) => {
   formEl.addEventListener('click', onComponentEditorClick);
 });
 
-registerFormAction('openEditGuideSection', async ({ uuid }) => {
+registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
+  adoptGuideFromDraftPath(file);
   if (!currentGuide) return;
   // Backfill + persist any missing component UUIDs before reading, so captures in
   // pre-migration drafts are reorderable/editable on open (not after a later save).
@@ -762,6 +779,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
     if (c.kind === 'admonition') {
       const n = (numberSteps && c.adm.type === 'step') ? ++stepN : null;
       card = admonitionCard(c.adm, n);
+    } else if (c.kind === 'tabs') {
+      card = tabsComponentCard(c.grp);
     } else {
       card = captureComponentCardFor(c.cap);
     }
@@ -797,6 +816,7 @@ const CONTAINER_NOUN = {
   'guide-admonition': 'admonition',
   'system-update': 'update',
   'system-draft': 'draft',
+  'content-tab': 'tab',
 };
 
 function componentNoun(formEl) {
@@ -839,10 +859,13 @@ async function runChildAction(container, formEl, action) {
     if (action.kind === 'admonition') getFormAction('openCreateGuideAdmonition')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
     else if (action.kind === 'capture-library') runComponentLibraryInsert({ container, insertAt: action.insertAt });
+    else if (action.kind === 'tabs') getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
   } else if (action.type === 'edit-admonition') {
     getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-capture') {
     openCaptureComponentEditor(container, action.uuid);
+  } else if (action.type === 'edit-tabs') {
+    getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   }
 }
 
@@ -871,6 +894,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editTabs = e.target.closest('[data-edit-content-tabs]');
+  if (editTabs) {
+    beginChildNavigation(formEl, { type: 'edit-tabs', uuid: editTabs.dataset.editContentTabs });
+    return;
+  }
+
   const insert = e.target.closest('[data-insert-component-at]');
   if (insert) {
     const idx = parseInt(insert.dataset.insertComponentAt, 10);
@@ -879,6 +908,7 @@ export function onComponentEditorClick(e) {
       admonition: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'admonition', insertAt: i }),
       captureNew: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-new', insertAt: i }),
       captureLibrary: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-library', insertAt: i }),
+      contentTabs: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'tabs', insertAt: i }),
     });
     return;
   }
@@ -895,6 +925,8 @@ function openEditorForComponent(container, component) {
     getFormAction('openEditGuideAdmonition')?.({ uuid: component.adm.uuid, file: container.file });
   } else if (component.kind === 'capture') {
     getFormAction('openEditCaptureComponent')?.({ container, uuid: component.cap.uuid, cap: component.cap });
+  } else if (component.kind === 'tabs') {
+    getFormAction('openEditContentTabs')?.({ uuid: component.grp.uuid, file: container.file });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -939,6 +971,26 @@ function admonitionCard(adm, stepNumber = null) {
     </div>`;
 }
 
+// Card for a content-tabs group: titled "Content tabs" with the tab titles as
+// the preview line. Edit routes through the save-gate via data-edit-content-tabs.
+function tabsComponentCard(grp) {
+  const titles = (grp.tabs ?? []).map(t => t.title).filter(Boolean).join(' · ');
+  const btnAttr = grp.uuid
+    ? `data-edit-content-tabs="${escapeHtml(grp.uuid)}"`
+    : `disabled title="No UUID"`;
+  return `
+    <div class="mb-incident-card --cyan">
+      <div class="mb-incident-card__head">
+        <strong class="mb-incident-card__title">Content tabs</strong>
+        <span class="mb-incident-card__badge">Tabs</span>
+      </div>
+      ${titles ? `<p class="mb-incident-card__body">${escapeHtml(titles)}</p>` : ''}
+      <div class="mb-incident-card__foot --end">
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grp.uuid ? 'Edit' : 'Error'}</button>
+      </div>
+    </div>`;
+}
+
 // ── Submit / delete section ──────────────────────────────────────────────────
 
 // Flip an in-place section create form into an edit-of-new-section form: point
@@ -949,7 +1001,7 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   formEl.dataset.mode = 'edit';
   formEl.dataset.editUuid = newUuid;
   formEl.dataset.editLevel = String(level);
-  replaceCurrentOpener('openEditGuideSection', { uuid: newUuid });
+  replaceCurrentOpener('openEditGuideSection', { uuid: newUuid, file: currentGuide.draftPath });
   formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.removeProperty('display');
   formEl.querySelector('[data-components-row]')?.style.removeProperty('display');
   const listEl = formEl.querySelector('[data-section-components]');
@@ -1013,6 +1065,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       if (c.kind === 'admonition') {
         const { title } = splitTitleMeta(c.adm.title || '');
         labelMap[c.adm.uuid] = { kind: 'admonition', title: title || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+      } else if (c.kind === 'tabs') {
+        labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
@@ -1172,6 +1226,10 @@ registerFormAction('openCreateGuideAdmonition', async ({ container, insertAtInde
 registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
   const containerFile = file || currentGuide?.draftPath;
   if (!containerFile) return;
+  // A drafts-folder file means this admonition lives in a guide draft; adopt
+  // that guide so step numbering and the save-gate's currentGuide fallbacks
+  // work when this opener is the direct target of a form-stack restore.
+  if (containerFile.startsWith('docs/drafts/')) adoptGuideFromDraftPath(containerFile);
   // Backfill + persist missing component UUIDs first (see openEditGuideSection).
   const draftMarkdown = await fetchFileMigratingIdentity(containerFile);
   const adm = locateGuideAdmonition(draftMarkdown, uuid);
@@ -1300,6 +1358,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
       if (c.kind === 'admonition') {
         const { title: t } = splitTitleMeta(c.adm.title || '');
         labelMap[c.adm.uuid] = { kind: 'admonition', title: t || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+      } else if (c.kind === 'tabs') {
+        labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }

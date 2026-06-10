@@ -1,5 +1,5 @@
-import { parseInline, renderHtml, markSpans } from './markdownInline.js';
-import { applyMarker, applyLink, stripFormatting } from './markdownToolbarActions.js';
+import { markSpans, renderDocHtml } from './markdownInline.js';
+import { applyMarker, applyLink, stripFormatting, toggleList } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
@@ -14,6 +14,15 @@ const MARKS = [
   { marker: '~~', tags: ['s', 'strike', 'del'], icon: 'strikethrough_s', label: 'Strikethrough' },
   { marker: '==', tags: ['mark'], icon: 'format_ink_highlighter', label: 'Highlight' },
   { marker: '`', tags: ['code'], icon: 'code', label: 'Code' },
+];
+
+// Block-level list buttons. Unlike MARKS these are never "armed": a collapsed
+// caret always sits on a line, so the toggle acts on that line directly instead
+// of queuing a format for the next typed text. `tag` is the rendered list
+// element that means "the caret is inside this kind" (lights the button).
+const LISTS = [
+  { kind: 'ul', tag: 'ul', icon: 'format_list_bulleted', label: 'Bulleted list' },
+  { kind: 'ol', tag: 'ol', icon: 'format_list_numbered', label: 'Numbered list' },
 ];
 
 export function upgradeTextarea(textarea) {
@@ -99,7 +108,7 @@ function makeBtn(icon, label, onClick) {
 }
 
 function renderSurface(rte) {
-  rte.surface.innerHTML = renderHtml(parseInline(rte.textarea.value || ''));
+  rte.surface.innerHTML = renderDocHtml(rte.textarea.value || '');
 }
 
 // Re-render the visible rich surface from the textarea's current value. Call
@@ -129,7 +138,7 @@ function syncFromSurface(rte) {
   // from the clean source and restore the caret so typing continues unformatted.
   if (hasEmptyMark(rte.surface)) {
     const { selStart } = serializeWithSelection(rte.surface, window.getSelection());
-    rte.surface.innerHTML = renderHtml(parseInline(value));
+    rte.surface.innerHTML = renderDocHtml(value);
     placeCaret(rte.surface, selStart, selStart);
   }
   rte.textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -151,7 +160,7 @@ function applyResult(rte, res) {
     rte.textarea.focus();
     rte.textarea.setSelectionRange(res.selStart, res.selEnd);
   } else {
-    rte.surface.innerHTML = renderHtml(parseInline(res.value));
+    rte.surface.innerHTML = renderDocHtml(res.value);
     rte.surface.focus();
     placeCaret(rte.surface, res.selStart, res.selEnd);
   }
@@ -237,11 +246,21 @@ function refreshActiveStates(rte) {
   const activeTags = rte.mode === 'rich' ? selectionMarkTags(rte) : new Set();
   rte.buttons.forEach(btn => {
     const mark = btn._mark;
-    if (!mark) return; // the link button carries no mark
-    const inside = mark.tags.some(t => activeTags.has(t));
-    const active = (inside || rte.pending.has(mark.marker)) && !rte.pendingOff.has(mark.marker);
-    btn.classList.toggle('--active', active);
-    btn.setAttribute('aria-pressed', String(active));
+    if (mark) {
+      const inside = mark.tags.some(t => activeTags.has(t));
+      const active = (inside || rte.pending.has(mark.marker)) && !rte.pendingOff.has(mark.marker);
+      btn.classList.toggle('--active', active);
+      btn.setAttribute('aria-pressed', String(active));
+      return;
+    }
+    if (btn._list) {
+      // List buttons have no armed state: lit purely when the caret's line is
+      // rendered inside that list kind.
+      const active = activeTags.has(btn._list.tag);
+      btn.classList.toggle('--active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    }
+    // The link / clear buttons carry no state.
   });
 }
 
@@ -266,6 +285,13 @@ function buildButtons(rte) {
     rte.btnGroup.appendChild(btn);
     rte.buttons.push(btn);
   });
+  LISTS.forEach(l => {
+    const btn = makeBtn(l.icon, l.label, () => runTransform(rte, (v, s, e) => toggleList(v, s, e, l.kind)));
+    btn._list = l;
+    rte.btnGroup.appendChild(btn);
+    rte.buttons.push(btn);
+  });
+
   const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());
   rte.btnGroup.appendChild(linkBtn);
   rte.buttons.push(linkBtn);
