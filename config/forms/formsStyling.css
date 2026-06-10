@@ -724,12 +724,18 @@ button.more-buttons-crumb:hover {
 }
 
 .more-buttons-loading-tile .more-buttons-icon {
-  font-size: 28px;
+  font-size: 1.75rem;
   color: var(--mb-text-muted);
 }
 
 .more-buttons-loading-tile .more-buttons-description {
   margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .more-buttons-loading-tile .more-buttons-icon--spin {
+    animation: none;
+  }
 }
 
 .more-buttons-button:disabled {
