@@ -478,7 +478,7 @@ registerFormAction('openPasteMarkdown', async ({ container, insertAtIndex }) => 
 });
 ```
 
-- [ ] **Step 3: Manual smoke check (form opens)**
+- [x] **Step 3: Manual smoke check (form opens)**
 
 Reload the extension at chrome://extensions, open a guide section editor, click "+ Insert Component" → the menu shows the divider + "Paste copied markdown"; clicking it opens the textarea form with the breadcrumb "Paste markdown", with the standard loading veil during the transition. (Insert does nothing yet — that's Task 5.)
 
@@ -563,27 +563,27 @@ git commit -m "feat(components): insertPastedMarkdown — validate, mint fresh u
 
 No new automated coverage is possible for clipboard/DOM/GitHub wiring — verify in the live extension. Reload at chrome://extensions first.
 
-- [ ] **Step 1: Copy — each component type**
+- [x] **Step 1: Copy — each component type**
 
 In a guide section editor: click Copy on an admonition that contains a nested capture, on a plain capture, and on a content-tabs group. Each click flashes "Copied ✓". Paste the clipboard into a scratch editor and confirm: full markdown including nested children, **zero** `data-uuid` occurrences, no stray blank/indent-only lines where spans were.
 
-- [ ] **Step 2: Paste — same page**
+- [x] **Step 2: Paste — same page**
 
 "+ Insert Component" → "Paste copied markdown" → paste the copied admonition → "Insert Markdown". Form closes back to the section editor; the new component appears at the chosen position. Open the draft file on GitHub and confirm the inserted block carries a **new** uuid (different from the source component's).
 
-- [ ] **Step 3: Paste — different page + multi-component**
+- [x] **Step 3: Paste — different page + multi-component**
 
 Copy from one guide, paste into a different guide's section. Also paste two components at once (admonition + capture markdown concatenated with a blank line) and confirm both insert in order. Capture images render (shared asset reference).
 
-- [ ] **Step 4: Negative cases**
+- [x] **Step 4: Negative cases**
 
 Paste plain prose → textarea turns red + explanatory alert, form stays open, nothing committed. Empty textarea → same. Prose above a valid component → rejected.
 
-- [ ] **Step 5: Save-gate + veil behaviour**
+- [x] **Step 5: Save-gate + veil behaviour**
 
 With unsaved parent-form edits, choosing "Paste copied markdown" prompts to save first (standard gate). All transitions show the centered formLoading veil — no inline placeholders anywhere.
 
-- [ ] **Step 6: Final commit (if any fixups) and wrap up**
+- [x] **Step 6: Final commit (if any fixups) and wrap up**
 
 ```bash
 git status   # confirm clean or commit fixups with a fix: message
