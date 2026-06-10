@@ -422,6 +422,9 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
   };
 
   function cleanup() {
+    // Drop any pending/visible loading tile — Escape mid-action should give
+    // instant feedback; the action's finally re-dismisses harmlessly.
+    loadingTile.dismiss();
     document.removeEventListener('keydown', handleKeyDown);
     document.body.style.overflow = previousBodyOverflow;
     if (activeNavObserver) { activeNavObserver.disconnect(); activeNavObserver = null; }
@@ -491,6 +494,9 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // No form element — delegate action buttons (close / back / module fns).
     // Delegation (vs per-button binding) keeps working when a form re-renders
     // its own toolbar after createForm has run.
+    // No loadingTile.show() here — this path handles simple close/back/module
+    // actions on formless overlays; slow programmatic opens from this path are
+    // the spec's noted future opt-in.
     const mod = window.__mbActionsModule;
     content.addEventListener('click', async (e) => {
       const btn = e.target.closest('button[data-action]');
