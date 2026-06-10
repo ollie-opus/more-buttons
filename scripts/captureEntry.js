@@ -5,6 +5,7 @@ import { githubReplaceImage } from './github.js';
 import { writeCaptureMeta } from './captureMeta.js';
 import { captureCard, captureGrid, capturePathField, captureBasePath } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
+import { loadingMarkup } from './loading.js';
 
 // Cold-DOM hand-off for the recapture round-trip. While the user hunts for an
 // element in Capture Mode they can navigate to other pages; a Turbo navigation
@@ -194,7 +195,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
     }
   });
 
-  bodyEl.innerHTML = '<p class="more-buttons-description">Loading…</p>';
+  bodyEl.innerHTML = loadingMarkup();
   await loadRepoImages();
 
   // If a recapture round-trip detached this form and we just replayed it to get

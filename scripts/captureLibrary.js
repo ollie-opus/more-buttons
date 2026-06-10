@@ -4,6 +4,7 @@ import { REPO, authHeader } from './repoClient.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { MANIFEST_PATH, readCaptureMeta, captureMetaPills } from './captureMeta.js';
+import { loadingMarkup } from './loading.js';
 
 const CAPTURE_ROOT = 'docs/assets/occ-captures';
 
@@ -109,7 +110,7 @@ export async function openCaptureLibrary({ mode } = {}) {
 
   const panel = formEl.querySelector('[data-capture-library-panel]');
   if (!panel) return;
-  panel.innerHTML = '<p class="more-buttons-description">Loading…</p>';
+  panel.innerHTML = loadingMarkup();
 
   let blobs;
   try {

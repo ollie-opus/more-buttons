@@ -16,6 +16,7 @@ import { registerFormAction } from './formActions.js';
 import { getComponentContainer } from './componentContainers.js';
 import { captureDimFields } from './components.js';
 import { mergeSave } from './mergeSave.js';
+import { loadingMarkup } from './loading.js';
 
 function applyDimAuto(formEl) {
   const dim = formEl.querySelector('[data-capture-component-dim]');
@@ -58,7 +59,7 @@ export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
 
   const previewEl = formEl.querySelector('[data-capture-component-preview]');
   if (previewEl) {
-    previewEl.innerHTML = '<p class="more-buttons-description">Loading…</p>';
+    previewEl.innerHTML = loadingMarkup();
     const [lightBlob, darkBlob] = await Promise.all([
       readRepoBlob('docs/assets/' + cap.lightFilename).catch(() => null),
       cap.darkFilename ? readRepoBlob('docs/assets/' + cap.darkFilename).catch(() => null) : Promise.resolve(null),

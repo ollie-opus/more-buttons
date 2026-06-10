@@ -3,6 +3,7 @@ import { readRepoText } from './repoClient.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { parseNavBlock, slugify } from './navToml.js';
+import { loadingMarkup } from './loading.js';
 
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 
@@ -82,8 +83,8 @@ async function renderKnowledgeBaseManagement() {
     const livePanel = formEl.querySelector('[data-kb-panel="guides"]');
     const systemPanel = formEl.querySelector('[data-kb-panel="system"]');
 
-    if (livePanel) livePanel.innerHTML = '<p class="more-buttons-description">Loading…</p>';
-    if (systemPanel) systemPanel.innerHTML = '<p class="more-buttons-description">Loading…</p>';
+    if (livePanel) livePanel.innerHTML = loadingMarkup();
+    if (systemPanel) systemPanel.innerHTML = loadingMarkup();
 
     try {
       // One fetch of zensical.toml drives everything: the tree is the union of

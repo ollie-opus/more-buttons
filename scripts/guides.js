@@ -14,7 +14,7 @@
 
 import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
-import { formLoading } from './loading.js';
+import { formLoading, loadingMarkup } from './loading.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
@@ -166,7 +166,7 @@ async function renderGuideEntryContent(formEl) {
 
   if (titleEl) titleEl.textContent = formEl.dataset.guideLabel || guideBaseName(formEl.dataset.livePath);
 
-  contentEl.innerHTML = `<p class="more-buttons-description">Loading draft…</p>`;
+  contentEl.innerHTML = loadingMarkup('Loading draft…');
   actionsEl.innerHTML = '';
 
   let draftMarkdown = '';
