@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Chosen execution approach (2026-06-10):** Subagent-Driven — dispatch a fresh subagent per task via superpowers:subagent-driven-development, with review between tasks. Mark checkboxes `- [x]` as steps complete.
+
 **Goal:** Add a "Copy" button next to Edit on every component card that copies the component's full markdown (uuid spans stripped) to the system clipboard, and a "Paste copied markdown" insert-menu option that opens a textarea form which validates, re-uuids, and commits pasted markdown into the container at the chosen position.
 
 **Architecture:** Pure markdown helpers (`stripUUIDSpans`, `componentMarkdown`, `parsePastedComponents`) live in `scripts/components.js` and are unit-tested in node. UI wiring (copy buttons, insert-menu option, form actions `openPasteMarkdown` / `insertPastedMarkdown`) lives in `scripts/guides.js` + `scripts/insertMenu.js` + `scripts/cardRenderer.js`, following the existing `openCreateGuideAdmonition` / `deleteGuideAdmonition` patterns exactly. One new form HTML (`config/forms/pasteMarkdown.html`) is covered by the existing `config/forms/*` manifest glob — **no manifest.json change is needed** (no new script files).
