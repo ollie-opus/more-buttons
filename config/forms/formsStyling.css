@@ -712,6 +712,26 @@ button.more-buttons-crumb:hover {
   animation: more-buttons-spin 0.9s linear infinite;
 }
 
+/* ── Form loading tile ────────────────────────────────────────────────────── */
+/* Full-screen tile shown during slow form-to-form navigations (see
+   scripts/loadingTile.js). Same surface/width as a real form tile so the
+   swap to the destination form isn't jarring. */
+.more-buttons-overlay-content.more-buttons-loading-tile {
+  min-height: 200px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.more-buttons-loading-tile .more-buttons-icon {
+  font-size: 28px;
+  color: var(--mb-text-muted);
+}
+
+.more-buttons-loading-tile .more-buttons-description {
+  margin: 0;
+}
+
 .more-buttons-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
