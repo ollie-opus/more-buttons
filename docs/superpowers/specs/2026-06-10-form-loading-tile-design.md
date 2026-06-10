@@ -32,9 +32,16 @@ the current form's content.
 
 ## Mechanism
 
-All form button actions funnel through the delegated click handler in
-`scripts/form.js` (~line 743). Entire multi-step chains (library insert → parent
-replay → editor open) run inside that one click's promise.
+Form button actions funnel through the delegated click handler in
+`scripts/form.js` (~line 743). **Correction (post-verification):** the KB card
+interactions do NOT — edit/insert component cards (`onComponentEditorClick`),
+section cards (`onGuideEntryClick`), and the library's insert button each use
+their own delegated listeners with fire-and-forget action dispatch. Those entry
+points arm the tile explicitly (guides.js `beginChildNavigation` +
+`onGuideEntryClick`; captures.js `completeLibraryInsert` + capture-flow
+`onComplete`), with their dispatch chains awaited end-to-end so the `finally`
+cleanup is meaningful, and a re-arm after `replayFormStack` whose intermediate
+render otherwise drops the tile before the commit + editor-open stretch.
 
 1. **`showLoadingTile()` / `dismissLoadingTile()`** — module-level singleton in
    `form.js` (a second `show` while one is pending/visible is a no-op).
