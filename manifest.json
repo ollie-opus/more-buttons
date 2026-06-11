@@ -94,7 +94,8 @@
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js",
-        "scripts/frontmatter.js"
+        "scripts/frontmatter.js",
+        "scripts/iconPicker.js"
       ],
       "matches": ["https://cloud.opus-safety.co.uk/*"]
     },

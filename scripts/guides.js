@@ -38,6 +38,7 @@ import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponen
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 import { readFrontmatterIcon, writeFrontmatterIcon } from './frontmatter.js';
+import { attachIconPicker } from './iconPicker.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -591,6 +592,7 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
     formEl.querySelector('[data-section-parent-row]')?.style.setProperty('display', 'none');
     formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.setProperty('display', 'none');
     formEl.querySelector('[data-section-icon-row]')?.style.removeProperty('display');
+    attachIconPicker(formEl.querySelector('[name="sectionIcon"]')); // fire-and-forget; degrades to plain input
   }
 
   populateParentDropdown(formEl, draftMarkdown, uuid, section.level);

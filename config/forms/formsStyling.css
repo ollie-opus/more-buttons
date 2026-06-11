@@ -2738,3 +2738,53 @@ details[open] .more-buttons-advanced-toggle::before {
   justify-content: flex-end;
   margin-top: 12px;
 }
+
+/* ── Icon picker (lucide search combobox) ─────────────────────────────────── */
+
+.more-buttons-icon-picker {
+  position: relative;
+}
+
+.more-buttons-icon-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--mb-bg-input);
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+  z-index: 30;
+}
+
+.more-buttons-icon-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 9px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--mb-text);
+}
+
+.more-buttons-icon-picker-row:hover,
+.more-buttons-icon-picker-row.active {
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.more-buttons-icon-picker-glyph {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.more-buttons-icon-picker-glyph svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
