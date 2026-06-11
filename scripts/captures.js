@@ -43,6 +43,18 @@ export function buildCaptureLines(list = []) {
   });
 }
 
+// ── Insert decision ───────────────────────────────────────────────────────────
+
+/**
+ * After a component-flow capture, decide which review form opens. 'library'
+ * only when BOTH theme files already exist at the derived path — a half pair
+ * (e.g. left by a partial manual rename) goes through the 'new' form, whose
+ * insert-time conflict flow can repair the missing half.
+ */
+export function chooseInsertBranch(lightExists, darkExists) {
+  return lightExists && darkExists ? 'library' : 'new';
+}
+
 // ── Publish ───────────────────────────────────────────────────────────────────
 
 export function resolveCaptures(list) {
