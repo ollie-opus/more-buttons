@@ -59,6 +59,10 @@ export async function attachIconPicker(input) {
   dropdown.style.display = 'none';
   wrap.appendChild(dropdown);
 
+  // A mousedown anywhere in the dropdown (rows, scrollbar) must not blur the
+  // input — blur would close the list before the interaction lands.
+  dropdown.addEventListener('mousedown', e => e.preventDefault());
+
   let rows = [];
   let active = -1;
 
@@ -95,12 +99,15 @@ export async function attachIconPicker(input) {
       glyph.className = 'more-buttons-icon-picker-glyph';
       row.appendChild(glyph);
       row.appendChild(document.createTextNode(name));
-      // mousedown (not click) beats the input's blur, so the pick lands.
       row.addEventListener('mousedown', e => { e.preventDefault(); select(name); });
       dropdown.appendChild(row);
       rows.push(row);
       fetchSvg(name).then(svg => {
-        if (svg.trimStart().startsWith('<svg')) glyph.innerHTML = svg;
+        // Defense-in-depth: the CDN is trusted-ish but unpinned — never inject
+        // markup that could carry handlers or scripts into the host page.
+        if (svg.trimStart().startsWith('<svg') && !/<script|\bon\w+\s*=/i.test(svg)) {
+          glyph.innerHTML = svg;
+        }
       });
     }
     dropdown.style.display = '';
