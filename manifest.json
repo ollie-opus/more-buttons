@@ -92,7 +92,8 @@
         "scripts/contentTabsEditor.js",
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
-        "scripts/mergeSave.js"
+        "scripts/mergeSave.js",
+        "scripts/frontmatter.js"
       ],
       "matches": ["https://cloud.opus-safety.co.uk/*"]
     },
