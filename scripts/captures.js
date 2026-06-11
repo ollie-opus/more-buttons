@@ -115,6 +115,41 @@ function openInsertedComponentEditor(container, inserted) {
   return getFormAction('openComponentEditor')?.({ container, component });
 }
 
+// Shared by the closure cold path (Turbo nav: closure alive, form DOM gone)
+// and the registered cold-exit intent (hard nav: closure gone too). Replays the
+// originating form stack, commits the buffered captures into the container,
+// and lands in the new capture's editor.
+async function replayAndCommitCapture({ container, insertAt, formStackSnapshot, sessionBuffer }) {
+  if (!container || !formStackSnapshot?.length || !sessionBuffer?.length) return;
+  formLoading.show();
+  try {
+    const ok = await replayFormStack(formStackSnapshot);
+    if (ok) {
+      // The replay's createForm dropped the tile when the parent form
+      // re-rendered; re-arm it to cover the commit + editor-open gap.
+      formLoading.show();
+      const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
+      await openInsertedComponentEditor(container, inserted);
+    }
+  } catch (e) {
+    alert('Failed to insert capture: ' + e.message);
+  } finally {
+    formLoading.dismiss();
+  }
+}
+
+// Cold-exit intent for the component capture flow: a hard navigation during
+// capture mode killed the JS context that held runComponentCaptureFlow's
+// returnTo closures, so captureMode.js dispatches the session's serialised
+// intent here instead (see planColdExit in captureMode.js).
+registerFormAction('completeComponentCaptureInsert', ({ intent, formStackSnapshot, sessionBuffer } = {}) =>
+  replayAndCommitCapture({
+    container: intent?.container,
+    insertAt: intent?.insertAt,
+    formStackSnapshot,
+    sessionBuffer,
+  }));
+
 // "Create a new capture" → screenshot → upload → splice into the container at idx.
 export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }) {
   const formStackSnapshot = snapshotFormStack();
@@ -124,6 +159,9 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
 
   enterCaptureMode({
     formStackSnapshot,
+    // Survives a hard navigation (unlike the returnTo closures below): on cold
+    // exit captureMode dispatches this intent so the capture still commits.
+    intent: { action: 'completeComponentCaptureInsert', container, insertAt },
     // One capture per insert in the Components context: capture mode auto-commits
     // after a single screenshot so the flow lands in the new capture's editor,
     // exactly like inserting an admonition.
@@ -148,23 +186,9 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
           }
           return;
         }
-        // Cold path: the form was torn down by a hard nav. Replay it, then commit.
-        if (!formStackSnapshot?.length || !sessionBuffer.length) return;
-        formLoading.show();
-        try {
-          const ok = await replayFormStack(formStackSnapshot);
-          if (ok) {
-            // The replay's createForm dropped the tile when the parent form
-            // re-rendered; re-arm it to cover the commit + editor-open gap.
-            formLoading.show();
-            const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
-            await openInsertedComponentEditor(container, inserted);
-          }
-        } catch (e) {
-          alert('Failed to insert capture: ' + e.message);
-        } finally {
-          formLoading.dismiss();
-        }
+        // Cold-DOM path: a Turbo navigation tore the form down (this closure
+        // survived, its DOM didn't). Replay the form stack, then commit.
+        await replayAndCommitCapture({ container, insertAt, formStackSnapshot, sessionBuffer });
       },
       // ✕ / Esc: discard everything captured this session and just re-show the
       // form. Nothing is committed to the draft (immediate-save means a commit

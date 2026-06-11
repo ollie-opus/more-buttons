@@ -16,6 +16,9 @@
  *   - ✕ close button / Esc → returnTo.onCancel() if provided (discard), else
  *     falls back to onComplete(buffer) for callers that don't distinguish.
  *   - A second invocation of enterCaptureMode also exits (commit semantics).
+ *   - Cold exit (session restored after a hard nav, returnTo closures dead) →
+ *     dispatches the serialised entry intent through the form-action registry
+ *     (planColdExit). Cold cancel discards, matching the hot cancel semantics.
  *
  * Persistence:
  *   - Settings (resize mode, padding, etc.) → chrome.storage.local (long-lived).
@@ -30,6 +33,7 @@
  */
 
 import { installSelector, screenshotElement, enterResizeMode } from './captureElement.js';
+import { getFormAction } from './formActions.js';
 
 const STORAGE_KEY = 'moreButtonsCaptureSettings';
 const SESSION_KEY = 'moreButtonsCaptureSession';
@@ -58,6 +62,22 @@ function ensureStylesheet() {
 
 let active = null; // { settings, sessionBuffer, returnTo, exit, bar, ... }
 let starting = false; // synchronous re-entry guard while loadSettings() awaits
+
+/**
+ * Decide what a cold exit should dispatch. "Cold" = the JS context that
+ * entered capture mode died in a hard navigation, so the returnTo closures
+ * are gone and the only way back to the originating flow is the serialised
+ * intent carried in the session snapshot. Returns { action, payload } to fire
+ * through the form-action registry, or null when nothing should happen:
+ * a live returnTo owns the exit, cancel means discard, an empty buffer has
+ * nothing to commit, and sessions entered without an intent (standalone
+ * capture mode) have nowhere to deliver to.
+ */
+export function planColdExit({ cancelled, hasLiveReturnTo, intent, formStackSnapshot, sessionBuffer }) {
+  if (hasLiveReturnTo || cancelled) return null;
+  if (!intent?.action || !sessionBuffer?.length) return null;
+  return { action: intent.action, payload: { intent, formStackSnapshot, sessionBuffer } };
+}
 
 async function loadSettings() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
@@ -144,6 +164,12 @@ function buildBar({ settings }) {
  * @param {Array} [opts.formStackSnapshot] — serialisable form stack from
  *   form.js's snapshotFormStack(). Used on cold exit (Done after a hard nav
  *   killed the original JS context) to replay the originating form.
+ * @param {Object} [opts.intent] — serialisable completion intent,
+ *   { action, ...data }. On cold exit the controller dispatches
+ *   getFormAction(intent.action)({ intent, formStackSnapshot, sessionBuffer })
+ *   — the registered handler (captures.js / captureEntry.js) replays the form
+ *   stack and commits the buffer. Without it a cold Done silently drops the
+ *   session buffer, because returnTo closures cannot survive a hard nav.
  */
 export async function enterCaptureMode(opts = {}) {
   // Re-entry while already active = exit. Matches the prior toggle behaviour
@@ -273,6 +299,7 @@ export async function enterCaptureMode(opts = {}) {
     bar,
     wasFormMode: hasReturnTo || !!restored?.wasFormMode,
     formStackSnapshot: opts.formStackSnapshot ?? restored?.formStackSnapshot ?? null,
+    intent: opts.intent ?? restored?.intent ?? null,
     maxCaptures: typeof opts.maxCaptures === 'number' && opts.maxCaptures > 0
       ? opts.maxCaptures
       : (typeof restored?.maxCaptures === 'number' && restored.maxCaptures > 0 ? restored.maxCaptures : null),
@@ -290,6 +317,7 @@ export async function enterCaptureMode(opts = {}) {
       },
       wasFormMode: ctx.wasFormMode,
       formStackSnapshot: ctx.formStackSnapshot,
+      intent: ctx.intent,
       maxCaptures: ctx.maxCaptures,
       sessionBuffer: sessionBuffer.slice(),
     };
@@ -503,6 +531,23 @@ export async function enterCaptureMode(opts = {}) {
         console.error('[captureMode] returnTo.onComplete threw:', e);
       }
       return;
+    }
+
+    // Cold exit: this session was restored after a hard navigation, so no
+    // returnTo closures exist. Deliver the buffer to the originating flow via
+    // the serialised intent recorded at entry (registry handlers replay the
+    // form stack and commit). Without this, Done after a hard nav dropped the
+    // captures on the floor.
+    const cold = planColdExit({
+      cancelled,
+      hasLiveReturnTo: !!opts.returnTo,
+      intent: ctx.intent,
+      formStackSnapshot: ctx.formStackSnapshot,
+      sessionBuffer: sessionBuffer.slice(),
+    });
+    if (cold) {
+      Promise.resolve(getFormAction(cold.action)?.(cold.payload))
+        .catch(e => console.error('[captureMode] cold-exit intent failed:', e));
     }
   }
 

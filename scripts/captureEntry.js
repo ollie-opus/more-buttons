@@ -18,6 +18,22 @@ import { formLoading } from './loading.js';
 // path in captures.js — the working pattern the component editors already use.)
 let pendingRecapture = null; // { lightPath, capture } | null
 
+// Resume a recapture round-trip from a serialised context: stash the captured
+// buffer for the rebuilt entry, then replay the form stack so openCaptureEntry
+// reopens and lands in the compare view. Shared by the closure cold-DOM path
+// (Turbo nav) and the cold-exit intent below (hard nav, closure dead).
+async function completeRecapture({ lightPath, formStackSnapshot, sessionBuffer }) {
+  if (!lightPath || !sessionBuffer?.length || !formStackSnapshot?.length) return;
+  pendingRecapture = { lightPath, capture: sessionBuffer[0] };
+  await replayFormStack(formStackSnapshot);
+}
+
+// Cold-exit intent for the recapture flow: dispatched by captureMode.js when a
+// hard navigation killed startOverride's returnTo closures mid-session (see
+// planColdExit in captureMode.js).
+registerFormAction('completeRecapture', ({ intent, formStackSnapshot, sessionBuffer } = {}) =>
+  completeRecapture({ lightPath: intent?.lightPath, formStackSnapshot, sessionBuffer }));
+
 // lightPath / darkPath are repo-relative paths like "docs/assets/media/occ-captures/foo-light-mode.png"
 export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}) {
   if (!lightPath) return;
@@ -112,6 +128,10 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
     enterCaptureMode({
       maxCaptures: 1,
       formStackSnapshot,
+      // Survives a hard navigation (unlike the returnTo closures below): on cold
+      // exit captureMode dispatches this intent so the recapture still lands in
+      // the compare view.
+      intent: { action: 'completeRecapture', lightPath },
       returnTo: {
         onComplete: async (buffer) => {
           // Hot path: same JS context AND the form is still in the document
@@ -130,9 +150,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
           // form. Rebuild the form stack from the serialisable snapshot, then
           // hand the buffer to the rebuilt entry (via pendingRecapture) so it
           // resumes in the compare view.
-          if (!buffer.length || !formStackSnapshot?.length) return;
-          pendingRecapture = { lightPath, capture: buffer[0] };
-          await replayFormStack(formStackSnapshot);
+          await completeRecapture({ lightPath, formStackSnapshot, sessionBuffer: buffer });
         },
         // ✕ / Esc: re-show the form untouched when it's still here; after a
         // navigation there's nothing in the DOM to re-show (matches the
