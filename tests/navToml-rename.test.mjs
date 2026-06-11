@@ -72,4 +72,19 @@ test('round-trips through replaceNavBlock', () => {
   assert.equal(parseNavBlock(out, 'draft_nav').items[0].children[0].name, 'Adding an Employee');
 });
 
+test('renames all occurrences when the same value appears twice, returning changed === 2', () => {
+  const DUPE_TOML = `nav = [
+  {"Guide A" = "pages/shared.md"},
+  {"Section" = [
+    {"Guide B" = "pages/shared.md"}
+  ]}
+]
+`;
+  const { items } = parseNavBlock(DUPE_TOML, 'nav');
+  const changed = renameByValue(items, 'pages/shared.md', 'Renamed');
+  assert.equal(changed, 2);
+  assert.equal(items[0].name, 'Renamed');
+  assert.equal(items[1].children[0].name, 'Renamed');
+});
+
 console.log(`\n${passed} passed`);

@@ -18,7 +18,7 @@ import { formLoading } from './loading.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
-import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, slugify } from './navToml.js';
+import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, renameByValue, slugify } from './navToml.js';
 import {
   ensureSectionUUIDs, parseSections, buildSectionTree,
   insertSectionUnderParent, moveSectionToParent, deleteSectionByUUID,
@@ -1175,7 +1175,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
   };
   noteLabels(openComponentEditor?.components ?? []);
 
-  await mergeSave({
+  const resolved = await mergeSave({
     formEl,
     file: currentGuide.draftPath,
     onProgress,
@@ -1206,6 +1206,29 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       return updated;
     },
   });
+
+  // The H1 title is also the guide's display name in zensical.toml — keep
+  // nav and draft_nav in step. Skipped when the title didn't change, when
+  // the resolver was cancelled (resolved == null), and for H2/H3 edits.
+  if (resolved && section.level === 1) {
+    const newTitle = (resolved.sectionTitle ?? '').trim();
+    if (newTitle && newTitle !== section.title) {
+      onProgress('Updating navigation…');
+      const value = navValueOf(currentGuide.livePath);
+      await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+        let out = md;
+        for (const key of ['nav', 'draft_nav']) {
+          const { items } = parseNavBlock(out, key);
+          // Only reserialize a block that actually changed — replaceNavBlock
+          // normalizes formatting, which would otherwise make an empty-diff
+          // commit. (githubFetchAndPushFile also skips byte-identical output.)
+          if (renameByValue(items, value, newTitle)) out = replaceNavBlock(out, key, items);
+        }
+        return out;
+      });
+    }
+  }
+
   return { container: { kind: 'guide-section', uuid: editUuid, file: currentGuide.draftPath }, formEl };
 }
 
