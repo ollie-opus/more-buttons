@@ -198,12 +198,15 @@ registerFormAction('completeComponentInsert', async ({ capture } = {}) => {
   formLoading.show();
   try {
     const ok = await replayFormStack(intent.snapshot);
-    if (!ok) return;
+    if (!ok) {
+      alert('Failed to insert capture: could not restore the originating form.');
+      return;
+    }
     // The replay's createForm dropped the tile when the parent form
     // re-rendered; re-arm it to cover the commit gap.
     formLoading.show();
     await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
-    // Clear only on success — a failed commit leaves the intent for a retry.
+    // Clear only on success — a dangling intent is harmless (every flow entry overwrites it) and keeping it errs on the side of not losing a commit target mid-failure.
     pendingComponentInsert = null;
   } catch (e) {
     alert('Failed to insert capture: ' + e.message);
@@ -323,9 +326,9 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
 
 // Review-form Cancel (capture-mode route): drop the pending capture and go
 // hunting again. Re-enters capture mode against the SAME insert intent; Done
-// lands in a fresh review form, while ✕/Esc — or Done with nothing captured —
-// replays the origin form stack instead (the cancelled review form hid itself
-// and is torn down by whatever opens next; there is nothing to re-show).
+// replays the origin stack and lands in a fresh review form (the replay drops
+// the hidden cancelled form from history), while ✕/Esc — or Done with nothing
+// captured — replays the origin form stack instead.
 registerFormAction('reenterComponentCapture', () => {
   const pending = pendingComponentInsert;
   if (!pending) return;
@@ -344,7 +347,17 @@ registerFormAction('reenterComponentCapture', () => {
     returnTo: {
       onComplete: async (sessionBuffer) => {
         if (sessionBuffer.length) {
-          await finishComponentCapture({ ...pending, sessionBuffer });
+          // Replay the origin stack BEFORE deciding: the cancelled review form
+          // was only hidden, so opening the next form directly would append to
+          // a history that still contains it (ghost crumb, back-arrow would
+          // resurrect a cancelled form). The replay rebuilds history from the
+          // origin snapshot, exactly like the cold paths.
+          await replayAndOpenInsertDecision({
+            container: pending.container,
+            insertAt: pending.insertAt,
+            formStackSnapshot: pending.snapshot,
+            sessionBuffer,
+          });
         } else {
           await backToOrigin();
         }
