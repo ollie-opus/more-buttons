@@ -81,6 +81,7 @@
         "scripts/captureLibrary.js",
         "scripts/captureEntry.js",
         "scripts/captureNew.js",
+        "scripts/captureInsertNew.js",
         "scripts/captureCards.js",
         "scripts/integrations.js",
         "scripts/components.js",

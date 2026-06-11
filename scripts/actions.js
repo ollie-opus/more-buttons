@@ -10,6 +10,7 @@ import './guides.js';
 import './captureLibrary.js';
 import './captureEntry.js';
 import './captureNew.js';
+import './captureInsertNew.js';
 import './captureComponent.js';
 import './contentTabsEditor.js';
 import './integrations.js';

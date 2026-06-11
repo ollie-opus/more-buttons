@@ -41,6 +41,7 @@ const FORM_LABELS = {
   knowledgeBaseManagement: 'Knowledge Base',
   captureLibrary: 'Capture Library',
   captureEntry: 'Capture',
+  captureInsertNew: 'New Capture',
   systemUpdatesEntry: 'System Updates',
   systemStatusEntry: 'System Status',
   guideEntry: 'Guide',
