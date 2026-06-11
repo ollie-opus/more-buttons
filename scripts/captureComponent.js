@@ -11,27 +11,12 @@
 
 import { createForm, navigateBack, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { readRepoBlob } from './repoClient.js';
-import { captureCard, captureGrid } from './captureCards.js';
+import { captureCard, captureGrid, captureSizeField, wireCaptureSizeField } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
 import { getComponentContainer } from './componentContainers.js';
 import { captureDimFields } from './components.js';
 import { mergeSave } from './mergeSave.js';
 import { formLoading } from './loading.js';
-
-function applyDimAuto(formEl) {
-  const dim = formEl.querySelector('[data-capture-component-dim]');
-  const sel = formEl.querySelector('[name="dimMode"]');
-  if (!dim || !sel) return;
-  const isAuto = sel.value === 'none';
-  dim.classList.toggle('--auto', isAuto);
-  const val = dim.querySelector('[name="dimValue"]');
-  if (val) {
-    val.disabled = isAuto;
-    // Auto captures are seeded with an empty value (see captureDimFields);
-    // offer the 50px default once the user actually picks a dimension.
-    if (!isAuto && val.value === '') val.value = '50';
-  }
-}
 
 /**
  * @param {Object} opts
@@ -76,12 +61,16 @@ export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
     }
   }
 
-  const sel = formEl.querySelector('[name="dimMode"]');
-  if (sel) {
-    sel.value = cap.dimMode ?? 'none';
-    sel.addEventListener('change', () => applyDimAuto(formEl));
+  // The Dimension control is injected (not static HTML) so its markup comes
+  // from the shared captureSizeField helper. Render from captureDimFields so
+  // an untouched form matches the storage seed exactly (dimValue '' on auto)
+  // — the merge baseline depends on that equality.
+  const sizeHost = formEl.querySelector('[data-capture-component-size]');
+  if (sizeHost) {
+    const dim = captureDimFields(cap);
+    sizeHost.innerHTML = captureSizeField({ dimMode: dim.dimMode, dimValue: dim.dimValue });
+    wireCaptureSizeField(formEl);
   }
-  applyDimAuto(formEl);
   resetDirtyBaseline(formEl);
 }
 
