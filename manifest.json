@@ -20,6 +20,7 @@
         "config/buttons.json",
         "config/automations.json",
         "config/labelColours.json",
+        "config/lucideIcons.json",
         "scripts/actions.js",
         "scripts/admonitions.js",
         "scripts/sections.js",
