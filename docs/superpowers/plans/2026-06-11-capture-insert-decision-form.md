@@ -30,12 +30,12 @@ The working tree contains completed-but-uncommitted cold-exit recovery work (mod
 **Files:**
 - Commit (no edits): `scripts/captureEntry.js`, `scripts/captureMode.js`, `scripts/captures.js`, `tests/captureColdExit.test.mjs`
 
-- [ ] **Step 1: Run the full test suite**
+- [x] **Step 1: Run the full test suite**
 
 Run: `node --test tests/*.test.mjs`
 Expected: all test files pass (`fail 0`).
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit** *(was already committed as 66523da "capture tweaks" — same four files, verified suite-green; not amended)*
 
 ```bash
 git add scripts/captureEntry.js scripts/captureMode.js scripts/captures.js tests/captureColdExit.test.mjs
@@ -50,7 +50,7 @@ git commit -m "feat(captures): cold-exit intent recovery — serialise insert/re
 - Modify: `scripts/captureCards.js` (append new exports)
 - Test: `tests/captureSizeField.test.mjs` (new)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/captureSizeField.test.mjs`:
 
@@ -111,12 +111,12 @@ test('empty, zero, negative, junk all fall back to 50', () => {
 console.log(`\n${passed} passed`);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --test tests/captureSizeField.test.mjs`
 Expected: FAIL — `captureSizeField` is not exported.
 
-- [ ] **Step 3: Implement the helpers**
+- [x] **Step 3: Implement the helpers**
 
 Append to `scripts/captureCards.js` (after `capturePathField`; note `escapeAttr` already exists in this file):
 
@@ -189,12 +189,12 @@ export function readCaptureSizeField(rootEl) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node --test tests/captureSizeField.test.mjs`
 Expected: PASS — `7 passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/captureCards.js tests/captureSizeField.test.mjs
@@ -211,7 +211,7 @@ The Dimension markup is currently static HTML in `config/forms/editCaptureCompon
 - Modify: `config/forms/editCaptureComponent.html`
 - Modify: `scripts/captureComponent.js`
 
-- [ ] **Step 1: Replace the static Dimension block with a placeholder**
+- [x] **Step 1: Replace the static Dimension block with a placeholder**
 
 In `config/forms/editCaptureComponent.html`, replace:
 
@@ -236,7 +236,7 @@ with:
   <div data-capture-component-size></div>
 ```
 
-- [ ] **Step 2: Inject the shared control from `captureComponent.js`**
+- [x] **Step 2: Inject the shared control from `captureComponent.js`**
 
 In `scripts/captureComponent.js`:
 
@@ -278,12 +278,12 @@ with:
 
 (Note: the old flow relied on `createForm`'s storage hydration to fill `dimValue` from the seeded `captureDimFields(cap)`; injected-after-createForm inputs miss hydration, which is why `captureSizeField` receives the values explicitly. `resetDirtyBaseline` stays AFTER injection so the dirty snapshot includes the size inputs.)
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
 
 Run: `node --test tests/*.test.mjs`
 Expected: all pass (notably `captureDimFields.test.mjs` — untouched pure logic).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add config/forms/editCaptureComponent.html scripts/captureComponent.js
@@ -300,7 +300,7 @@ git commit -m "refactor(captures): edit-capture form renders the shared captureS
 - Modify: `scripts/captures.js`
 - Modify: `scripts/captureNew.js`
 
-- [ ] **Step 1: Add the shared helpers to `captures.js`**
+- [x] **Step 1: Add the shared helpers to `captures.js`**
 
 Add to the imports at the top of `scripts/captures.js`:
 
@@ -374,7 +374,7 @@ export async function overwriteCapturePair({ lightPath, darkPath, lightExists, d
 }
 ```
 
-- [ ] **Step 2: Consume them from `captureNew.js`**
+- [x] **Step 2: Consume them from `captureNew.js`**
 
 In `scripts/captureNew.js`:
 
@@ -420,12 +420,12 @@ with:
       } else {
 ```
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
 
 Run: `node --test tests/*.test.mjs`
 Expected: all pass (this also proves `captures.js`'s new imports — `repoClient`, `conflictResolver` — stay node-importable; `captureUuid.test.mjs` imports `captures.js` directly).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/captures.js scripts/captureNew.js
@@ -440,7 +440,7 @@ git commit -m "refactor(captures): extract shared capture-conflict helpers into 
 - Modify: `scripts/captures.js`
 - Test: `tests/captureInsertBranch.test.mjs` (new)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/captureInsertBranch.test.mjs`:
 
@@ -492,12 +492,12 @@ test('auto renders bare image lines (no dim attrs)', () => {
 console.log(`\n${passed} passed`);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --test tests/captureInsertBranch.test.mjs`
 Expected: FAIL — `chooseInsertBranch` is not exported.
 
-- [ ] **Step 3: Implement `chooseInsertBranch`**
+- [x] **Step 3: Implement `chooseInsertBranch`**
 
 Add to `scripts/captures.js`, just above the `// ── Components: capture acquisition…` comment block:
 
@@ -515,12 +515,12 @@ export function chooseInsertBranch(lightExists, darkExists) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node --test tests/captureInsertBranch.test.mjs`
 Expected: PASS — `5 passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/captures.js tests/captureInsertBranch.test.mjs
@@ -540,7 +540,7 @@ New form for the "not in library yet" branch. It calls form actions registered i
 - Modify: `scripts/actions.js` (side-effect import)
 - Modify: `scripts/form.js` (FORM_LABELS)
 
-- [ ] **Step 1: Create `config/forms/captureInsertNew.html`**
+- [x] **Step 1: Create `config/forms/captureInsertNew.html`**
 
 ```html
 <form data-nav id="capture-insert-new-form" data-storage-key="moreButtonsCaptureInsertNew" data-width="90vw" data-height="90vh">
@@ -555,7 +555,7 @@ New form for the "not in library yet" branch. It calls form actions registered i
 </form>
 ```
 
-- [ ] **Step 2: Create `scripts/captureInsertNew.js`**
+- [x] **Step 2: Create `scripts/captureInsertNew.js`**
 
 ```js
 /**
@@ -705,7 +705,7 @@ export async function openCaptureInsertNew({ capture } = {}) {
 registerFormAction('openCaptureInsertNew', openCaptureInsertNew);
 ```
 
-- [ ] **Step 3: Manifest entry**
+- [x] **Step 3: Manifest entry**
 
 In `manifest.json`, in the first `web_accessible_resources` entry's `resources` array, add (next to the other capture scripts — the array lists scripts individually, never globs):
 
@@ -713,7 +713,7 @@ In `manifest.json`, in the first `web_accessible_resources` entry's `resources` 
         "scripts/captureInsertNew.js",
 ```
 
-- [ ] **Step 4: Register via `actions.js` + breadcrumb label**
+- [x] **Step 4: Register via `actions.js` + breadcrumb label**
 
 In `scripts/actions.js`, after `import './captureNew.js';` add:
 
@@ -727,12 +727,12 @@ In `scripts/form.js`, in `FORM_LABELS` (after the `captureEntry: 'Capture',` lin
   captureInsertNew: 'New Capture',
 ```
 
-- [ ] **Step 5: Run the full suite**
+- [x] **Step 5: Run the full suite**
 
 Run: `node --test tests/*.test.mjs`
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add config/forms/captureInsertNew.html scripts/captureInsertNew.js manifest.json scripts/actions.js scripts/form.js
@@ -748,7 +748,7 @@ The existing from-library review form gains the size control and a Cancel button
 **Files:**
 - Modify: `scripts/captureEntry.js`
 
-- [ ] **Step 1: Imports + signature**
+- [x] **Step 1: Imports + signature**
 
 Replace line 1 and line 6 of `scripts/captureEntry.js`:
 
@@ -773,7 +773,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
   const opener = () => openCaptureEntry({ lightPath, darkPath, label, mode, origin });
 ```
 
-- [ ] **Step 2: Size field + Cancel button in `renderPreview`**
+- [x] **Step 2: Size field + Cancel button in `renderPreview`**
 
 Replace `renderPreview` (lines 78–88) with:
 
@@ -796,7 +796,7 @@ Replace `renderPreview` (lines 78–88) with:
 
 (`data-capture-entry-insert-cancel` is deliberately distinct from the compare view's `data-capture-entry-cancel` — `closest('[data-capture-entry-cancel]')` does not match it.)
 
-- [ ] **Step 3: Size values into the insert payload**
+- [x] **Step 3: Size values into the insert payload**
 
 Replace `insertIntoForm` (lines 93–103) with (only the size line and comment change):
 
@@ -821,7 +821,7 @@ Replace `insertIntoForm` (lines 93–103) with (only the size line and comment c
 
 (Behaviour change, intended per spec: library inserts previously hardcoded `dimMode: 'none'` — they now default to height/50 with the control visible.)
 
-- [ ] **Step 4: Cancel handler + click wiring**
+- [x] **Step 4: Cancel handler + click wiring**
 
 Add after `insertIntoForm`:
 
@@ -849,12 +849,12 @@ In the click dispatcher (lines 203–214), add a branch after the `data-capture-
       cancelInsert();
 ```
 
-- [ ] **Step 5: Run the full suite**
+- [x] **Step 5: Run the full suite**
 
 Run: `node --test tests/*.test.mjs`
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/captureEntry.js
@@ -871,7 +871,7 @@ The flow flip: probe-then-review instead of push-then-edit. One commit so the ru
 - Modify: `scripts/captures.js` (everything from `openInsertedComponentEditor` to the end of the file — the named functions are listed in Step 2; line numbers will have shifted since Tasks 4–5 added code above them)
 - Modify: `scripts/captureEntry.js` (one action-name string)
 
-- [ ] **Step 1: Add the two new imports**
+- [x] **Step 1: Add the two new imports**
 
 Extend the github.js import in `scripts/captures.js` with `githubPathExists`, and add `captureBasePath`:
 
@@ -880,7 +880,7 @@ import { githubPushImageIfNotExists, githubReplaceImage, githubPathExists } from
 import { captureBasePath } from './captureCards.js';
 ```
 
-- [ ] **Step 2: Replace the flow section**
+- [x] **Step 2: Replace the flow section**
 
 In `scripts/captures.js`, DELETE all of the following (lines 107–241 of the current file):
 
@@ -1079,7 +1079,7 @@ export function runComponentLibraryInsert({ container, insertAt }) {
 }
 ```
 
-- [ ] **Step 3: Rename the action call in `captureEntry.js`**
+- [x] **Step 3: Rename the action call in `captureEntry.js`**
 
 In `insertIntoForm` (Task 7's version), change:
 
@@ -1093,17 +1093,17 @@ to:
     getFormAction('completeComponentInsert')?.({
 ```
 
-- [ ] **Step 4: Verify nothing else references the old names**
+- [x] **Step 4: Verify nothing else references the old names**
 
 Run: `grep -rn "completeLibraryInsert\|componentLibraryIntent\|openInsertedComponentEditor\|replayAndCommitCapture" scripts/`
 Expected: no output.
 
-- [ ] **Step 5: Run the full suite**
+- [x] **Step 5: Run the full suite**
 
 Run: `node --test tests/*.test.mjs`
 Expected: all pass — in particular `tests/captureColdExit.test.mjs` (the `completeComponentCaptureInsert` action name and `planColdExit` contract are unchanged) and `tests/captureInsertBranch.test.mjs`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/captures.js scripts/captureEntry.js
@@ -1114,12 +1114,12 @@ git commit -m "feat(captures): review-before-push insert flow — probe library,
 
 ### Task 9: Full verification
 
-- [ ] **Step 1: Full suite**
+- [x] **Step 1: Full suite**
 
 Run: `node --test tests/*.test.mjs`
 Expected: all files pass, `fail 0`.
 
-- [ ] **Step 2: Manual verification (requires the human — extension must be reloaded at `chrome://extensions` because manifest.json changed)**
+- [x] **Step 2: Manual verification (requires the human — extension must be reloaded at `chrome://extensions` because manifest.json changed)**
 
 Checklist to walk with the user:
 
@@ -1131,7 +1131,7 @@ Checklist to walk with the user:
 6. **Edit form regression:** open an existing capture component's editor — Dimension control renders/behaves as before (Auto disables the input; save round-trips).
 7. **Cold exit:** enter capture mode from a container form, hard-navigate (e.g. `/sites` → `/sites/{uuid}`), shift-click → Done → form stack replays and the review form opens with the buffered capture.
 
-- [ ] **Step 3: Tick the plan checkboxes and commit any stragglers**
+- [x] **Step 3: Tick the plan checkboxes and commit any stragglers**
 
 ```bash
 git add -A
