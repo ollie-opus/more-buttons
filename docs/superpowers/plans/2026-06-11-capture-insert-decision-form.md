@@ -1,6 +1,8 @@
 # Capture Insert Decision Form Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Chosen execution mode (user-approved 2026-06-11): subagent-driven-development** — fresh subagent per task, review between tasks. Task 9 Step 2 is manual verification that requires the user in the browser (reload the extension at chrome://extensions first — manifest.json changes in Task 6).
 
 **Goal:** After a shift-click in the Components capture flow, nothing is pushed to GitHub; the flow probes whether the capture's derived path already exists in the library and opens a review form (existing `captureEntry` insert mode, or a new `captureInsertNew` form) where the user sets the size and clicks Insert (commits) or Cancel (back to capture mode).
 
