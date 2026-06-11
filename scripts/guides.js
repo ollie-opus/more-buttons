@@ -1216,6 +1216,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     },
   });
 
+  if (!resolved) return null; // resolver cancelled — nothing was saved
+
   // The H1 title is also the guide's display name in zensical.toml — keep
   // nav and draft_nav in step. Runs on every successful H1 save so that a
   // previously-failed toml push self-heals on the next save. Skipped when

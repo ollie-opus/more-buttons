@@ -65,8 +65,9 @@ export async function attachIconPicker(input) {
 
   let rows = [];
   let active = -1;
+  let debounce = null;
 
-  const close = () => { dropdown.style.display = 'none'; active = -1; };
+  const close = () => { clearTimeout(debounce); debounce = null; dropdown.style.display = 'none'; active = -1; };
 
   const select = (name) => {
     input.value = `lucide/${name}`;
@@ -116,7 +117,6 @@ export async function attachIconPicker(input) {
     dropdown.style.display = '';
   };
 
-  let debounce = null;
   input.addEventListener('input', () => {
     clearTimeout(debounce);
     debounce = setTimeout(render, 120);
