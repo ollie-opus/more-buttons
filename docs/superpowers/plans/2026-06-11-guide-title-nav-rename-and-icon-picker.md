@@ -23,7 +23,7 @@
 - Modify: `scripts/navToml.js` (append after `findPathOfValue`, ~line 135)
 - Test: `tests/navToml-rename.test.mjs` (create)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/navToml-rename.test.mjs`:
 
@@ -105,12 +105,12 @@ test('round-trips through replaceNavBlock', () => {
 console.log(`\n${passed} passed`);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node tests/navToml-rename.test.mjs`
 Expected: FAIL — `SyntaxError: The requested module '../scripts/navToml.js' does not provide an export named 'renameByValue'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Append to `scripts/navToml.js` (after `findPathOfValue`):
 
@@ -132,17 +132,17 @@ export function renameByValue(nodes, value, newName) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node tests/navToml-rename.test.mjs`
 Expected: `6 passed`
 
-- [ ] **Step 5: Run the existing suite to check nothing broke**
+- [x] **Step 5: Run the existing suite to check nothing broke**
 
 Run: `for t in tests/*.test.mjs; do node "$t" > /dev/null || echo "FAIL: $t"; done`
 Expected: no `FAIL:` lines
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/navToml.js tests/navToml-rename.test.mjs
@@ -156,7 +156,7 @@ git commit -m "feat(navToml): renameByValue — in-place leaf rename preserving 
 **Files:**
 - Modify: `scripts/guides.js:21` (import) and `scripts/guides.js:1178-1209` (`saveSectionForComponent` edit path)
 
-- [ ] **Step 1: Add `renameByValue` to the navToml import**
+- [x] **Step 1: Add `renameByValue` to the navToml import**
 
 In `scripts/guides.js` line 21, change:
 
@@ -170,7 +170,7 @@ to:
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, renameByValue, slugify } from './navToml.js';
 ```
 
-- [ ] **Step 2: Capture mergeSave's resolved values and push the rename**
+- [x] **Step 2: Capture mergeSave's resolved values and push the rename**
 
 In `saveSectionForComponent` (guides.js ~line 1178), change `await mergeSave({` to:
 
@@ -209,12 +209,12 @@ Notes for the implementer:
 - `navValueOf` (guides.js:106) maps `docs/pages/foo.md` → `pages/foo.md`, the leaf value used by **both** `nav` and `draft_nav`.
 - `mergeSave` returns the resolved values object, or `null` if the user cancelled the conflict resolver (`mergeSave.js:52`).
 
-- [ ] **Step 3: Sanity-check the suite still passes**
+- [x] **Step 3: Sanity-check the suite still passes**
 
 Run: `for t in tests/*.test.mjs; do node "$t" > /dev/null || echo "FAIL: $t"; done`
 Expected: no `FAIL:` lines
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/guides.js
@@ -230,7 +230,7 @@ git commit -m "feat(guides): H1 title save renames the guide in nav/draft_nav (z
 - Modify: `manifest.json` (web_accessible_resources)
 - Test: `tests/frontmatter.test.mjs` (create)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/frontmatter.test.mjs`:
 
@@ -335,12 +335,12 @@ test('writeFrontmatterIcon composes after replaceSectionByUUID (the build() orde
 console.log(`\n${passed} passed`);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node tests/frontmatter.test.mjs`
 Expected: FAIL — `Cannot find module .../scripts/frontmatter.js`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `scripts/frontmatter.js`:
 
@@ -402,12 +402,12 @@ export function writeFrontmatterIcon(md, icon) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node tests/frontmatter.test.mjs`
 Expected: `12 passed`
 
-- [ ] **Step 5: Add the manifest entry**
+- [x] **Step 5: Add the manifest entry**
 
 In `manifest.json`, in the first `web_accessible_resources` block's `resources` array, after `"scripts/mergeSave.js"` add:
 
@@ -418,12 +418,12 @@ In `manifest.json`, in the first `web_accessible_resources` block's `resources` 
 
 (i.e. append `"scripts/frontmatter.js"` as a new last entry — mind the comma on the previous line.)
 
-- [ ] **Step 6: Run the whole suite**
+- [x] **Step 6: Run the whole suite**
 
 Run: `for t in tests/*.test.mjs; do node "$t" > /dev/null || echo "FAIL: $t"; done`
 Expected: no `FAIL:` lines
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/frontmatter.js tests/frontmatter.test.mjs manifest.json
@@ -438,7 +438,7 @@ git commit -m "feat(frontmatter): read/write the icon key in leading YAML frontm
 - Modify: `config/forms/editGuideSection.html` (new row above Title)
 - Modify: `scripts/guides.js` — imports (~line 32), `openEditGuideSection` (lines 543-601), `saveSectionForComponent` (lines 1183-1207)
 
-- [ ] **Step 1: Add the Icon row to the form HTML**
+- [x] **Step 1: Add the Icon row to the form HTML**
 
 In `config/forms/editGuideSection.html`, insert between the section-parent group (ends line 7) and the Title group (starts line 9):
 
@@ -451,7 +451,7 @@ In `config/forms/editGuideSection.html`, insert between the section-parent group
 
 Hidden by default — create mode and H2/H3 edits never show it (frontmatter is per-file, so only the H1 owns it).
 
-- [ ] **Step 2: Import the frontmatter helpers in guides.js**
+- [x] **Step 2: Import the frontmatter helpers in guides.js**
 
 Near the other script imports at the top of `scripts/guides.js` (after the `./mergeSave.js` import or alongside the admonitions import at line 32), add:
 
@@ -459,7 +459,7 @@ Near the other script imports at the top of `scripts/guides.js` (after the `./me
 import { readFrontmatterIcon, writeFrontmatterIcon } from './frontmatter.js';
 ```
 
-- [ ] **Step 3: Seed the icon value when opening an H1 edit**
+- [x] **Step 3: Seed the icon value when opening an H1 edit**
 
 In `openEditGuideSection` (guides.js:560-568), extend the storage seed object:
 
@@ -478,7 +478,7 @@ In `openEditGuideSection` (guides.js:560-568), extend the storage seed object:
 
 (The `: ''` arm matters: the storage key is shared across opens, so an H2 edit must not inherit a stale icon from a previous H1 edit.)
 
-- [ ] **Step 4: Show the row for H1 edits**
+- [x] **Step 4: Show the row for H1 edits**
 
 In the same function, extend the level-1 block (guides.js:587-590):
 
@@ -492,7 +492,7 @@ In the same function, extend the level-1 block (guides.js:587-590):
   }
 ```
 
-- [ ] **Step 5: Add the field to the mergeSave pipeline**
+- [x] **Step 5: Add the field to the mergeSave pipeline**
 
 In `saveSectionForComponent`:
 
@@ -536,12 +536,12 @@ c) build (guides.js:1198-1207) — apply the icon after the section replacement,
 
 Why this is all that's needed: the opener's storage seed → form.js hydration fills the input; `_initialSnapshot` (form.js:1120) then includes `sectionIcon`, so the dirty guard and merge baseline work; `mergeSave`'s `rehydrateFields` pushes the merged value back after save.
 
-- [ ] **Step 6: Run the suite**
+- [x] **Step 6: Run the suite**
 
 Run: `for t in tests/*.test.mjs; do node "$t" > /dev/null || echo "FAIL: $t"; done`
 Expected: no `FAIL:` lines
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add config/forms/editGuideSection.html scripts/guides.js
@@ -557,7 +557,7 @@ git commit -m "feat(guides): Icon field on H1 edits — frontmatter icon read/wr
 - Create: `config/lucideIcons.json` (generated)
 - Modify: `manifest.json`
 
-- [ ] **Step 1: Write the regeneration script**
+- [x] **Step 1: Write the regeneration script**
 
 Create `tools/regen-lucide-icons.sh`:
 
@@ -583,7 +583,7 @@ print(f"Wrote {len(names)} icon names")
 echo "→ $OUT"
 ```
 
-- [ ] **Step 2: Make it executable and run it**
+- [x] **Step 2: Make it executable and run it**
 
 ```bash
 chmod +x tools/regen-lucide-icons.sh
@@ -592,12 +592,12 @@ tools/regen-lucide-icons.sh
 
 Expected output: `Wrote 1912 icon names` (1913 dir entries minus the LICENSE file), then the output path.
 
-- [ ] **Step 3: Spot-check the JSON**
+- [x] **Step 3: Spot-check the JSON**
 
 Run: `python3 -c "import json; n = json.load(open('config/lucideIcons.json')); print(len(n), n[:3], 'user-plus' in n)"`
 Expected: `1912 ['a-arrow-down', 'a-arrow-up', 'a-large-small'] True`
 
-- [ ] **Step 4: Add the manifest entry**
+- [x] **Step 4: Add the manifest entry**
 
 In `manifest.json`, in the first `web_accessible_resources` block, after `"config/labelColours.json"` add:
 
@@ -606,7 +606,7 @@ In `manifest.json`, in the first `web_accessible_resources` block, after `"confi
         "config/lucideIcons.json",
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/regen-lucide-icons.sh config/lucideIcons.json manifest.json
@@ -623,7 +623,7 @@ git commit -m "feat(config): bundle lucide icon name list + regeneration tool"
 - Modify: `config/forms/formsStyling.css` (append)
 - Modify: `scripts/guides.js` (import + attach in `openEditGuideSection`)
 
-- [ ] **Step 1: Create `scripts/iconPicker.js`**
+- [x] **Step 1: Create `scripts/iconPicker.js`**
 
 ```js
 // scripts/iconPicker.js
@@ -751,7 +751,7 @@ export async function attachIconPicker(input) {
 }
 ```
 
-- [ ] **Step 2: Add the manifest entry**
+- [x] **Step 2: Add the manifest entry**
 
 In `manifest.json`, in the first `web_accessible_resources` block, after `"scripts/frontmatter.js"` (added in Task 3) add:
 
@@ -760,7 +760,7 @@ In `manifest.json`, in the first `web_accessible_resources` block, after `"scrip
         "scripts/iconPicker.js"
 ```
 
-- [ ] **Step 3: Append the picker styles to `config/forms/formsStyling.css`**
+- [x] **Step 3: Append the picker styles to `config/forms/formsStyling.css`**
 
 ```css
 /* ── Icon picker (lucide search combobox) ─────────────────────────────────── */
@@ -814,7 +814,7 @@ In `manifest.json`, in the first `web_accessible_resources` block, after `"scrip
 }
 ```
 
-- [ ] **Step 4: Attach the picker for H1 edits in guides.js**
+- [x] **Step 4: Attach the picker for H1 edits in guides.js**
 
 Add the import near the frontmatter import:
 
@@ -833,12 +833,12 @@ Extend the level-1 block in `openEditGuideSection` (the one edited in Task 4 Ste
   }
 ```
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `for t in tests/*.test.mjs; do node "$t" > /dev/null || echo "FAIL: $t"; done`
 Expected: no `FAIL:` lines
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/iconPicker.js manifest.json config/forms/formsStyling.css scripts/guides.js
