@@ -1,9 +1,12 @@
-import { createForm, snapshotFormStack, replayFormStack } from './form.js';
+import { createForm, navigateBack, snapshotFormStack, replayFormStack } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
 import { writeCaptureMeta } from './captureMeta.js';
-import { captureCard, captureGrid, capturePathField, captureBasePath } from './captureCards.js';
+import {
+  captureCard, captureGrid, capturePathField, captureBasePath,
+  captureSizeField, wireCaptureSizeField, readCaptureSizeField,
+} from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 import { formLoading } from './loading.js';
 
@@ -35,11 +38,11 @@ registerFormAction('completeRecapture', ({ intent, formStackSnapshot, sessionBuf
   completeRecapture({ lightPath: intent?.lightPath, formStackSnapshot, sessionBuffer }));
 
 // lightPath / darkPath are repo-relative paths like "docs/assets/media/occ-captures/foo-light-mode.png"
-export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}) {
+export async function openCaptureEntry({ lightPath, darkPath, label, mode, origin = 'library' } = {}) {
   if (!lightPath) return;
 
   const insertMode = mode === 'insert';
-  const opener = () => openCaptureEntry({ lightPath, darkPath, label, mode });
+  const opener = () => openCaptureEntry({ lightPath, darkPath, label, mode, origin });
   const { formEl, overlay } = await createForm('captureEntry', opener);
   if (!formEl) return;
 
@@ -81,15 +84,19 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
       captureGrid([
         captureCard({ theme: 'light', title: 'Light mode', src: lightObjectUrl, alt: label ?? 'light mode' }),
         captureCard({ theme: 'dark', title: 'Dark mode', src: darkObjectUrl, alt: `${label ?? 'capture'} (dark)` }),
-      ]);
+      ]) +
+      (insertMode ? captureSizeField({ dimMode: 'height', dimValue: 50 }) : '');
+    if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
-      ? `<button type="button" class="more-buttons-button" data-capture-entry-insert><span class="more-buttons-icon">add</span>Insert this capture</button>`
+      ? `<button type="button" class="more-buttons-button secondary" data-capture-entry-insert-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+        <button type="button" class="more-buttons-button" data-capture-entry-insert><span class="more-buttons-icon">add</span>Insert this capture</button>`
       : `<button type="button" class="more-buttons-button" data-capture-entry-override><span class="more-buttons-icon">swap_vertical_circle</span>Recapture</button>`;
   }
 
   // Insert mode: reference the existing library asset (no upload). Strip the
   // repo "docs/assets/" prefix so the filename matches what buildCaptureLines
-  // expects, then hand off to captures.js to splice it into the origin form.
+  // expects, then hand off to captures.js to splice it into the origin form
+  // with the size chosen on this form.
   function insertIntoForm() {
     const STRIP = 'docs/assets/';
     const stripPrefix = (p) => (p.startsWith(STRIP) ? p.slice(STRIP.length) : p);
@@ -97,9 +104,25 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
     const darkFilename = darkPath
       ? stripPrefix(darkPath)
       : lightFilename.replace('-light-mode', '-dark-mode');
+    const { dimMode, dimValue } = readCaptureSizeField(bodyEl);
     getFormAction('completeLibraryInsert')?.({
-      capture: { lightFilename, darkFilename, dimMode: 'none', dimValue: null },
+      capture: { lightFilename, darkFilename, dimMode, dimValue },
     });
+  }
+
+  // Insert-mode Cancel. From the library route this is plain back-navigation
+  // (to the library tree); from the capture-mode route it re-enters capture
+  // mode so the user can pick a different element — the just-taken capture is
+  // simply dropped (this form shows the STORED library files; nothing was
+  // pushed).
+  function cancelInsert() {
+    if (origin === 'captureMode') {
+      overlay.style.display = 'none';
+      document.body.style.overflow = '';
+      getFormAction('reenterComponentCapture')?.();
+    } else {
+      navigateBack();
+    }
   }
 
   function renderCompare() {
@@ -203,6 +226,8 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode } = {}
   (formEl.parentElement ?? formEl).addEventListener('click', (e) => {
     if (e.target.closest('[data-capture-entry-insert]')) {
       insertIntoForm();
+    } else if (e.target.closest('[data-capture-entry-insert-cancel]')) {
+      cancelInsert();
     } else if (e.target.closest('[data-capture-entry-override]')) {
       startOverride();
     } else if (e.target.closest('[data-capture-entry-save]')) {
