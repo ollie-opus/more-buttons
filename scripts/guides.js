@@ -1208,24 +1208,32 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
   });
 
   // The H1 title is also the guide's display name in zensical.toml — keep
-  // nav and draft_nav in step. Skipped when the title didn't change, when
-  // the resolver was cancelled (resolved == null), and for H2/H3 edits.
+  // nav and draft_nav in step. Runs on every successful H1 save so that a
+  // previously-failed toml push self-heals on the next save. Skipped when
+  // the resolver was cancelled (resolved == null) and for H2/H3 edits.
+  // renameByValue returns 0 when the name already matches, so unchanged
+  // blocks are not reserialized; githubFetchAndPushFile skips the PUT when
+  // the file is byte-identical — the no-op case costs one GET and no PUT.
   if (resolved && section.level === 1) {
     const newTitle = (resolved.sectionTitle ?? '').trim();
-    if (newTitle && newTitle !== section.title) {
-      onProgress('Updating navigation…');
-      const value = navValueOf(currentGuide.livePath);
-      await githubFetchAndPushFile('zensical.toml', onProgress, md => {
-        let out = md;
-        for (const key of ['nav', 'draft_nav']) {
-          const { items } = parseNavBlock(out, key);
-          // Only reserialize a block that actually changed — replaceNavBlock
-          // normalizes formatting, which would otherwise make an empty-diff
-          // commit. (githubFetchAndPushFile also skips byte-identical output.)
-          if (renameByValue(items, value, newTitle)) out = replaceNavBlock(out, key, items);
-        }
-        return out;
-      });
+    if (newTitle) {
+      try {
+        onProgress('Updating navigation…');
+        const value = navValueOf(currentGuide.livePath);
+        await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+          let out = md;
+          for (const key of ['nav', 'draft_nav']) {
+            const { items } = parseNavBlock(out, key);
+            // Only reserialize a block that actually changed — replaceNavBlock
+            // normalizes formatting, which would otherwise make an empty-diff
+            // commit. (githubFetchAndPushFile also skips byte-identical output.)
+            if (renameByValue(items, value, newTitle)) out = replaceNavBlock(out, key, items);
+          }
+          return out;
+        });
+      } catch (e) {
+        alert(`Section saved, but updating the navigation name failed: ${e.message}. Re-saving the title will retry it.`);
+      }
     }
   }
 

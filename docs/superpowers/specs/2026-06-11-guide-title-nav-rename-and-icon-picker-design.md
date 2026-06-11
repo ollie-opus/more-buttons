@@ -28,15 +28,15 @@ Two gaps in the Edit section form (`editGuideSection`) when it edits a guide's H
   (e.g. `pages/adding-employee.md`) and renames it **in place**, preserving its
   position in the tree (remove+insert would reorder; rename must not).
 - In `saveSectionForComponent` (guides.js), after the markdown push succeeds,
-  and only when:
-  - the edited section is the H1 (level 1), and
-  - the resolved title actually changed,
-
-  fetch `zensical.toml`, apply `renameByValue` to both the `nav` and `draft_nav`
-  blocks (both use the same leaf value, `navValueOf(livePath)` =
-  `pages/<name>.md`), and push via `githubFetchAndPushFile`. If neither block
-  contains the page, skip the toml push entirely (no empty commit —
-  `githubFetchAndPushFile` already skips no-change writes).
+  and only when the edited section is the H1 (level 1) and the resolved title
+  is non-empty, fetch `zensical.toml` and apply `renameByValue` to both the
+  `nav` and `draft_nav` blocks (both use the same leaf value,
+  `navValueOf(livePath)` = `pages/<name>.md`), then push via
+  `githubFetchAndPushFile`. This runs on **every** successful H1 save so that
+  a previously-failed toml push self-heals on the next save. `renameByValue`
+  returns 0 when the name already matches, so unchanged blocks are not
+  reserialized; `githubFetchAndPushFile` skips the PUT when the file is
+  byte-identical — the no-op case costs one GET and no PUT.
 - **Accepted behaviour note:** the live `nav` entry renames immediately on save,
   even though the H1 text change sits in the draft until publish. The live
   site's nav label will lead its page H1 until the draft is published. This is
@@ -100,8 +100,12 @@ Two gaps in the Edit section form (`editGuideSection`) when it edits a guide's H
 
 ## Error handling
 
-- toml rename failure after a successful md push: surfaced via the existing
-  save-progress button text; rename is idempotent so the next save retries it.
+- toml rename failure after a successful md push: caught separately and
+  surfaced via `alert` with a message distinguishing it from a section-save
+  failure (e.g. "Section saved, but updating the navigation name failed: …
+  Re-saving the title will retry it."). The toml push runs on every successful
+  H1 save, so a previously-failed rename self-heals automatically on the next
+  save without user intervention.
 - Preview fetch failures are silent per-row (no preview shown).
 - Icon list load failure degrades the picker to a plain text input.
 
@@ -109,7 +113,8 @@ Two gaps in the Edit section form (`editGuideSection`) when it edits a guide's H
 
 Zero API calls for icon data (names bundled in extension; previews via
 jsdelivr CDN, no auth/rate limits). The only added API cost is one
-`zensical.toml` read+write when an H1 title actually changes.
+`zensical.toml` GET on every H1 save; a PUT is only issued when the content
+actually changes (title differs from current nav entry).
 
 ## Testing
 
