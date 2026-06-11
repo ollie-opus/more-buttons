@@ -711,6 +711,18 @@ async function rerenderOpenComponentEditor() {
   const { components } = readContainerComponents(md, ed.container);
   ed.components = components;
   renderComponents(ed.listEl, components, ed.container.kind === 'guide-section');
+  // This re-render reflects a state ALREADY committed to the repo (every
+  // mutate() lands here), so absorb the rendered component order into the
+  // dirty baseline — only that key, so genuinely unsaved edits (title,
+  // description) still warn. Without this, an immediate-commit insert that
+  // returns to this form (the captures review flow) trips the unsaved-changes
+  // guard on a form whose markdown is already pushed. Batch reorders call
+  // renderComponents directly, not mutate, and correctly stay dirty.
+  const orderField = ed.listEl.closest('form')?.querySelector('[name="componentOrder"]');
+  if (orderField && ed.formEl._initialSnapshot) {
+    ed.formEl._initialSnapshot.componentOrder = orderField.value;
+  }
+  ed.formEl._refreshSaveState?.();
 }
 
 // Builds a file-aware container handler for the registry. `mutate(container, …)`
