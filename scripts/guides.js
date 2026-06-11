@@ -37,6 +37,7 @@ import { escapeHtml, captureComponentCard } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
+import { readFrontmatterIcon, writeFrontmatterIcon } from './frontmatter.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -563,6 +564,7 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
         sectionTitle: section.title,
         sectionDescription: description,
         sectionParent: parentDefault,
+        sectionIcon: section.level === 1 ? readFrontmatterIcon(draftMarkdown) : '',
       },
     });
   }
@@ -583,10 +585,12 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   // Breadcrumb shows the section's identity, e.g. "Section 1: Manager Steps".
   if (treeMatch?.visualLabel) setCrumbLabel(treeMatch.visualLabel);
 
-  // Title sections: hide parent dropdown + Delete.
+  // Title sections: hide parent dropdown + Delete; show the Icon row (the
+  // icon lives in the file's frontmatter, which only the H1 owns).
   if (section.level === 1) {
     formEl.querySelector('[data-section-parent-row]')?.style.setProperty('display', 'none');
     formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.setProperty('display', 'none');
+    formEl.querySelector('[data-section-icon-row]')?.style.removeProperty('display');
   }
 
   populateParentDropdown(formEl, draftMarkdown, uuid, section.level);
@@ -1182,6 +1186,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     resolverOptions: { describe: (uuid) => labelMap[uuid] },
     fieldSpecs: [
       { name: 'sectionTitle', type: 'scalar', label: 'Title' },
+      ...(section.level === 1 ? [{ name: 'sectionIcon', type: 'scalar', label: 'Icon' }] : []),
       { name: 'sectionDescription', type: 'scalar', label: 'Description' },
       { name: 'componentOrder', type: 'orderedUuidList', label: 'Component order' },
     ],
@@ -1191,6 +1196,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       noteLabels(components);
       return {
         sectionTitle: sec?.title ?? '',
+        sectionIcon: readFrontmatterIcon(md),
         sectionDescription: parseComponents(readSectionDescription(md, editUuid).descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE).description ?? '',
         componentOrder: components.map(uuidOfComponent).join(','),
       };
@@ -1202,6 +1208,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
       const newBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), ordered);
       let updated = replaceSectionByUUID(md, editUuid, buildSection(sec.level, (resolved.sectionTitle ?? '').trim(), editUuid, newBody));
+      if (sec.level === 1) updated = writeFrontmatterIcon(updated, (resolved.sectionIcon ?? '').trim());
       if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
       return updated;
     },
