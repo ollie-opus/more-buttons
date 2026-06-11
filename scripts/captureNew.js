@@ -1,10 +1,7 @@
 import { createForm, navigateBack } from './form.js';
-import { pushCaptures } from './captures.js';
-import { githubPathExists, githubReplaceImage, githubPushImageIfNotExists } from './github.js';
-import { writeCaptureMeta } from './captureMeta.js';
-import { readRepoBlob } from './repoClient.js';
+import { pushCaptures, resolveCaptureConflict, overwriteCapturePair } from './captures.js';
+import { githubPathExists } from './github.js';
 import { captureCard, captureGrid, capturePathField, captureBasePath } from './captureCards.js';
-import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { registerFormAction } from './formActions.js';
 
 // `capture` is one entry from Capture Mode's session buffer: it carries
@@ -56,58 +53,6 @@ export async function openCaptureNew({ capture } = {}) {
     statusEl.textContent = msg;
   };
 
-  // A clash with a stored capture is resolved through the standard conflict
-  // panel (conflictResolver.js — the same UI guides use for concurrent-edit
-  // conflicts): one "Capture" field whose tiles carry the stored light
-  // thumbnail vs this capture's. Resolves true only when the user picks
-  // "Yours (overwrite)"; picking theirs or cancelling keeps the library
-  // untouched. The stored thumbnail comes via the contents API (readRepoBlob),
-  // not the raw CDN, so a recently replaced capture can't show stale bytes; a
-  // failed fetch just drops the thumbnail (text-only tile).
-  async function resolveExistingConflict({ base, lightPath, lightExists }) {
-    const theirsBlob = lightExists ? await readRepoBlob(lightPath).catch(() => null) : null;
-    const theirsUrl = theirsBlob ? URL.createObjectURL(theirsBlob) : '';
-    try {
-      const choices = await showConflictResolver(
-        formEl,
-        [{ field: 'capture', label: 'Capture', mine: ['mine'], theirs: ['theirs'] }],
-        {
-          describe: (token) => ({
-            kind: 'capture',
-            thumbSrc: token === 'mine' ? capture.lightDataUrl : theirsUrl,
-          }),
-          head: 'A capture already exists at this path',
-          desc: `The library already has a capture at "${base}". Keep the existing one (you can rename the path and save again), or overwrite it with this capture.`,
-        },
-      );
-      return choices.capture === 'mine';
-    } catch (e) {
-      if (e instanceof ResolveCancelled) return false;
-      throw e;
-    } finally {
-      if (theirsUrl) URL.revokeObjectURL(theirsUrl);
-    }
-  }
-
-  // "Yours (overwrite)": replace the stored files with this capture. Replace
-  // what's there and create what isn't (a manual rename can land on a
-  // half-existing pair), then upsert the manifest entry so padding/resized
-  // follow the new bytes — the same writes captureEntry's recapture save does.
-  async function overwriteExisting({ lightPath, darkPath, lightExists, darkExists }) {
-    const lightB64 = capture.lightDataUrl.split(',')[1];
-    const darkB64 = capture.darkDataUrl.split(',')[1];
-    await (lightExists
-      ? githubReplaceImage(lightPath, lightB64, setStatus)
-      : githubPushImageIfNotExists(lightPath, lightB64, setStatus));
-    await (darkExists
-      ? githubReplaceImage(darkPath, darkB64, setStatus)
-      : githubPushImageIfNotExists(darkPath, darkB64, setStatus));
-    await writeCaptureMeta(
-      [{ lightPath, resized: !!capture.resized, padding: capture.padding || 0 }],
-      setStatus,
-    );
-  }
-
   let busy = false;
 
   async function save() {
@@ -140,12 +85,14 @@ export async function openCaptureNew({ capture } = {}) {
       capture.darkFilename = dark;
 
       if (lightExists || darkExists) {
-        const keepMine = await resolveExistingConflict({ base, lightPath, lightExists });
+        const keepMine = await resolveCaptureConflict({
+          formEl, base, lightPath, lightExists, mineLightDataUrl: capture.lightDataUrl,
+        });
         if (!keepMine) {
           setStatus('Kept the existing capture — rename the path to save yours separately.');
           return;
         }
-        await overwriteExisting({ lightPath, darkPath, lightExists, darkExists });
+        await overwriteCapturePair({ lightPath, darkPath, lightExists, darkExists, capture, onProgress: setStatus });
       } else {
         await pushCaptures([capture], setStatus);
       }

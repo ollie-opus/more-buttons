@@ -15,8 +15,10 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { snapshotFormStack, replayFormStack } from './form.js';
 import { formLoading } from './loading.js';
 import { enterCaptureMode } from './captureMode.js';
-import { githubPushImageIfNotExists } from './github.js';
+import { githubPushImageIfNotExists, githubReplaceImage } from './github.js';
 import { writeCaptureMeta } from './captureMeta.js';
+import { readRepoBlob } from './repoClient.js';
+import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { generateUUID } from './admonitions.js';
 import { getComponentContainer } from './componentContainers.js';
 
@@ -72,6 +74,64 @@ export async function pushCaptures(list = [], onProgress) {
     }
   }
   await writeCaptureMeta(upserts, onProgress);
+}
+
+// ── Library conflicts (shared by captureNew's save and captureInsertNew) ─────
+
+/**
+ * A clash with a stored capture is resolved through the standard conflict
+ * panel (conflictResolver.js — the same UI guides use for concurrent-edit
+ * conflicts): one "Capture" field whose tiles carry the stored light
+ * thumbnail vs the new capture's. Resolves true only when the user picks
+ * "Yours (overwrite)"; picking theirs or cancelling keeps the library
+ * untouched. The stored thumbnail comes via the contents API (readRepoBlob),
+ * not the raw CDN, so a recently replaced capture can't show stale bytes; a
+ * failed fetch just drops the thumbnail (text-only tile).
+ */
+export async function resolveCaptureConflict({ formEl, base, lightPath, lightExists, mineLightDataUrl }) {
+  const theirsBlob = lightExists ? await readRepoBlob(lightPath).catch(() => null) : null;
+  const theirsUrl = theirsBlob ? URL.createObjectURL(theirsBlob) : '';
+  try {
+    const choices = await showConflictResolver(
+      formEl,
+      [{ field: 'capture', label: 'Capture', mine: ['mine'], theirs: ['theirs'] }],
+      {
+        describe: (token) => ({
+          kind: 'capture',
+          thumbSrc: token === 'mine' ? mineLightDataUrl : theirsUrl,
+        }),
+        head: 'A capture already exists at this path',
+        desc: `The library already has a capture at "${base}". Keep the existing one (you can rename the path and save again), or overwrite it with this capture.`,
+      },
+    );
+    return choices.capture === 'mine';
+  } catch (e) {
+    if (e instanceof ResolveCancelled) return false;
+    throw e;
+  } finally {
+    if (theirsUrl) URL.revokeObjectURL(theirsUrl);
+  }
+}
+
+/**
+ * "Yours (overwrite)": replace the stored pair with this capture. Replace
+ * what's there and create what isn't (a manual rename can land on a
+ * half-existing pair), then upsert the manifest entry so padding/resized
+ * follow the new bytes.
+ */
+export async function overwriteCapturePair({ lightPath, darkPath, lightExists, darkExists, capture, onProgress }) {
+  const lightB64 = capture.lightDataUrl.split(',')[1];
+  const darkB64 = capture.darkDataUrl.split(',')[1];
+  await (lightExists
+    ? githubReplaceImage(lightPath, lightB64, onProgress)
+    : githubPushImageIfNotExists(lightPath, lightB64, onProgress));
+  await (darkExists
+    ? githubReplaceImage(darkPath, darkB64, onProgress)
+    : githubPushImageIfNotExists(darkPath, darkB64, onProgress));
+  await writeCaptureMeta(
+    [{ lightPath, resized: !!capture.resized, padding: capture.padding || 0 }],
+    onProgress,
+  );
 }
 
 // ── Components: capture acquisition that commits immediately ───────────────────
