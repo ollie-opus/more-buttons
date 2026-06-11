@@ -80,3 +80,70 @@ export function capturePathField({ label, value, editable = false, hint = '' }) 
     </div>
   `;
 }
+
+/**
+ * "Dimension" form row — the capture size control: height/width/auto select +
+ * px value input. One source of truth for the markup captureComponent.js's
+ * edit form and both insert review forms render. Render with current values,
+ * call wireCaptureSizeField() once after injecting, and readCaptureSizeField()
+ * to read the choice back. The CSS for .more-buttons-capture-dim (and its
+ * .--auto state) already exists in config/forms/formsStyling.css.
+ * dimValue may be a number or string; '' renders an empty input.
+ * @param {{dimMode?:'height'|'width'|'none', dimValue?:number|string}} opts
+ */
+export function captureSizeField({ dimMode = 'height', dimValue = 50 } = {}) {
+  const isAuto = dimMode === 'none';
+  const value = isAuto ? '' : String(dimValue ?? 50);
+  const opt = (v, text) => `<option value="${v}"${dimMode === v ? ' selected' : ''}>${text}</option>`;
+  return `
+    <div class="more-buttons-form-group">
+      <label class="more-buttons-label">Dimension</label>
+      <div class="more-buttons-capture-dim${isAuto ? ' --auto' : ''}" data-capture-size>
+        <select class="more-buttons-capture-dim-mode" name="dimMode">
+          ${opt('height', 'Height')}
+          ${opt('width', 'Width')}
+          ${opt('none', 'Auto')}
+        </select>
+        <input class="more-buttons-capture-dim-value" type="number" name="dimValue" value="${escapeAttr(value)}" min="1"${isAuto ? ' disabled' : ''} />
+        <span class="more-buttons-capture-dim-unit">px</span>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Bind the Auto-mode behaviour to an injected captureSizeField: value input
+ * disabled + '--auto' class while the mode is 'none'; switching back to a
+ * dimension seeds the 50px default into an emptied input. The markup renders
+ * its initial state itself, so this only needs the change listener.
+ */
+export function wireCaptureSizeField(rootEl) {
+  const dim = rootEl.querySelector('[data-capture-size]');
+  const sel = dim?.querySelector('[name="dimMode"]');
+  const val = dim?.querySelector('[name="dimValue"]');
+  if (!dim || !sel || !val) return;
+  sel.addEventListener('change', () => {
+    const isAuto = sel.value === 'none';
+    dim.classList.toggle('--auto', isAuto);
+    val.disabled = isAuto;
+    if (!isAuto && val.value === '') val.value = '50';
+  });
+}
+
+/**
+ * Normalize a raw (dimMode, dimValue-string) choice into the capture
+ * component's canonical shape: Auto carries no value; a dimension falls back
+ * to 50 when the input is empty or invalid. Pure — unit tested.
+ */
+export function normalizeDimChoice(dimMode, rawValue) {
+  if (dimMode === 'none') return { dimMode: 'none', dimValue: null };
+  const v = parseInt(rawValue, 10);
+  return { dimMode, dimValue: Number.isFinite(v) && v > 0 ? v : 50 };
+}
+
+/** Read { dimMode, dimValue } back from an injected captureSizeField. */
+export function readCaptureSizeField(rootEl) {
+  const sel = rootEl.querySelector('[data-capture-size] [name="dimMode"]');
+  const val = rootEl.querySelector('[data-capture-size] [name="dimValue"]');
+  return normalizeDimChoice(sel?.value ?? 'none', val?.value ?? '');
+}
