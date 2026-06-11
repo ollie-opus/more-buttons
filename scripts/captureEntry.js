@@ -105,7 +105,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
       ? stripPrefix(darkPath)
       : lightFilename.replace('-light-mode', '-dark-mode');
     const { dimMode, dimValue } = readCaptureSizeField(bodyEl);
-    getFormAction('completeLibraryInsert')?.({
+    getFormAction('completeComponentInsert')?.({
       capture: { lightFilename, darkFilename, dimMode, dimValue },
     });
   }
@@ -247,7 +247,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
 
   // If a recapture round-trip detached this form and we just replayed it to get
   // back here, resume straight into the compare view with the buffered capture.
-  if (pendingRecapture && pendingRecapture.lightPath === lightPath) {
+  if (!insertMode && pendingRecapture && pendingRecapture.lightPath === lightPath) {
     pendingCapture = pendingRecapture.capture;
     pendingRecapture = null;
     renderCompare();

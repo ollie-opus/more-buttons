@@ -15,7 +15,8 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { snapshotFormStack, replayFormStack } from './form.js';
 import { formLoading } from './loading.js';
 import { enterCaptureMode } from './captureMode.js';
-import { githubPushImageIfNotExists, githubReplaceImage } from './github.js';
+import { githubPushImageIfNotExists, githubReplaceImage, githubPathExists } from './github.js';
+import { captureBasePath } from './captureCards.js';
 import { writeCaptureMeta } from './captureMeta.js';
 import { readRepoBlob } from './repoClient.js';
 import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
@@ -176,32 +177,87 @@ async function commitCapturesIntoContainer(container, insertAt, capList) {
   return inserted;
 }
 
-// Standard Components behaviour: after inserting a component, land in its editor
-// (admonitions do this via their create form). Component capture sessions are
-// capped to one (maxCaptures: 1) and library inserts are always single, so there
-// is exactly one inserted component to open. Routes through guides.js's
-// component-editor dispatch via the form-action registry.
-function openInsertedComponentEditor(container, inserted) {
-  const component = inserted?.[inserted.length - 1];
-  if (!component) return;
-  return getFormAction('openComponentEditor')?.({ container, component });
+// Single pending component-insert intent: where the chosen capture commits.
+// Set when a library browse or a capture-mode decision form opens; consumed by
+// completeComponentInsert. `snapshot` is always the ORIGIN form stack (the
+// container's form), so replaying it never resurrects a stale review form.
+let pendingComponentInsert = null; // { snapshot, container, insertAt } | null
+
+// Commit the chosen capture into the origin container. Called by the Insert
+// button of BOTH review forms (captureEntry insert mode + captureInsertNew):
+// replays the origin form stack, then splices the capture component into the
+// container's markdown. `capture` carries no dataURLs (any upload already
+// happened), so commitCapturesIntoContainer's pushCaptures skips uploading.
+// The component editor deliberately does NOT open — size was already set on
+// the review form (captures-only deviation from insert-lands-in-editor).
+registerFormAction('completeComponentInsert', async ({ capture } = {}) => {
+  const intent = pendingComponentInsert;
+  if (!intent || !capture || !intent.snapshot?.length) return;
+  // The review forms' insert buttons bypass form.js's data-action dispatcher,
+  // so this action arms the loading tile itself.
+  formLoading.show();
+  try {
+    const ok = await replayFormStack(intent.snapshot);
+    if (!ok) return;
+    // The replay's createForm dropped the tile when the parent form
+    // re-rendered; re-arm it to cover the commit gap.
+    formLoading.show();
+    await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
+    // Clear only on success — a failed commit leaves the intent for a retry.
+    pendingComponentInsert = null;
+  } catch (e) {
+    alert('Failed to insert capture: ' + e.message);
+  } finally {
+    formLoading.dismiss();
+  }
+});
+
+// Post-shift-click decision point: probe whether the capture's derived path
+// already exists in the library, then open the matching review form. Nothing
+// is pushed from here — the review forms own all writes (the in-library form
+// uploads nothing at all; captureInsertNew pushes on Insert). On a probe
+// failure, fail loudly and land back on the origin form.
+async function finishComponentCapture({ container, insertAt, snapshot, sessionBuffer }) {
+  const capture = sessionBuffer[0];
+  const lightPath = `docs/assets/${capture.lightFilename}`;
+  const darkPath = `docs/assets/${capture.darkFilename}`;
+  formLoading.show();
+  try {
+    const [lightExists, darkExists] = await Promise.all([
+      githubPathExists(lightPath),
+      githubPathExists(darkPath),
+    ]);
+    pendingComponentInsert = { snapshot, container, insertAt };
+    if (chooseInsertBranch(lightExists, darkExists) === 'library') {
+      await getFormAction('openCaptureEntry')?.({
+        lightPath,
+        darkPath,
+        label: captureBasePath(capture.lightFilename),
+        mode: 'insert',
+        origin: 'captureMode',
+      });
+    } else {
+      await getFormAction('openCaptureInsertNew')?.({ capture });
+    }
+  } catch (e) {
+    alert('Failed to check the capture library: ' + e.message);
+    await replayFormStack(snapshot);
+  } finally {
+    formLoading.dismiss();
+  }
 }
 
 // Shared by the closure cold path (Turbo nav: closure alive, form DOM gone)
-// and the registered cold-exit intent (hard nav: closure gone too). Replays the
-// originating form stack, commits the buffered captures into the container,
-// and lands in the new capture's editor.
-async function replayAndCommitCapture({ container, insertAt, formStackSnapshot, sessionBuffer }) {
+// and the registered cold-exit intent (hard nav: closure gone too). Replays
+// the originating form stack, then runs the decision point so the buffered
+// capture lands in its review form.
+async function replayAndOpenInsertDecision({ container, insertAt, formStackSnapshot, sessionBuffer }) {
   if (!container || !formStackSnapshot?.length || !sessionBuffer?.length) return;
   formLoading.show();
   try {
     const ok = await replayFormStack(formStackSnapshot);
     if (ok) {
-      // The replay's createForm dropped the tile when the parent form
-      // re-rendered; re-arm it to cover the commit + editor-open gap.
-      formLoading.show();
-      const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
-      await openInsertedComponentEditor(container, inserted);
+      await finishComponentCapture({ container, insertAt, snapshot: formStackSnapshot, sessionBuffer });
     }
   } catch (e) {
     alert('Failed to insert capture: ' + e.message);
@@ -215,14 +271,14 @@ async function replayAndCommitCapture({ container, insertAt, formStackSnapshot, 
 // returnTo closures, so captureMode.js dispatches the session's serialised
 // intent here instead (see planColdExit in captureMode.js).
 registerFormAction('completeComponentCaptureInsert', ({ intent, formStackSnapshot, sessionBuffer } = {}) =>
-  replayAndCommitCapture({
+  replayAndOpenInsertDecision({
     container: intent?.container,
     insertAt: intent?.insertAt,
     formStackSnapshot,
     sessionBuffer,
   }));
 
-// "Create a new capture" → screenshot → upload → splice into the container at idx.
+// "Create a new capture" → screenshot → review form (nothing pushed yet).
 export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }) {
   const formStackSnapshot = snapshotFormStack();
   overlay.style.display = 'none';
@@ -232,11 +288,11 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
   enterCaptureMode({
     formStackSnapshot,
     // Survives a hard navigation (unlike the returnTo closures below): on cold
-    // exit captureMode dispatches this intent so the capture still commits.
+    // exit captureMode dispatches this intent so the capture still lands in
+    // its review form.
     intent: { action: 'completeComponentCaptureInsert', container, insertAt },
-    // One capture per insert in the Components context: capture mode auto-commits
-    // after a single screenshot so the flow lands in the new capture's editor,
-    // exactly like inserting an admonition.
+    // One capture per insert in the Components context: capture mode auto-exits
+    // after a single screenshot so the flow lands in the review form.
     maxCaptures: 1,
     returnTo: {
       onComplete: async (sessionBuffer) => {
@@ -244,23 +300,13 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
           overlay.style.display = '';
           document.body.style.overflow = prevBodyOverflow;
           if (sessionBuffer.length) {
-            // Image upload + draft commit + editor open: cover the whole
-            // stretch with the loading tile until the editor form renders.
-            formLoading.show();
-            try {
-              const inserted = await commitCapturesIntoContainer(container, insertAt, sessionBuffer);
-              await openInsertedComponentEditor(container, inserted);
-            } catch (e) {
-              alert('Failed to insert capture: ' + e.message);
-            } finally {
-              formLoading.dismiss();
-            }
+            await finishComponentCapture({ container, insertAt, snapshot: formStackSnapshot, sessionBuffer });
           }
           return;
         }
         // Cold-DOM path: a Turbo navigation tore the form down (this closure
-        // survived, its DOM didn't). Replay the form stack, then commit.
-        await replayAndCommitCapture({ container, insertAt, formStackSnapshot, sessionBuffer });
+        // survived, its DOM didn't). Replay the form stack, then decide.
+        await replayAndOpenInsertDecision({ container, insertAt, formStackSnapshot, sessionBuffer });
       },
       // ✕ / Esc: discard everything captured this session and just re-show the
       // form. Nothing is committed to the draft (immediate-save means a commit
@@ -275,39 +321,42 @@ export function runComponentCaptureFlow({ container, insertAt, formEl, overlay }
   });
 }
 
-// "Add from library" → pick a library capture → splice into the container at idx.
+// Review-form Cancel (capture-mode route): drop the pending capture and go
+// hunting again. Re-enters capture mode against the SAME insert intent; Done
+// lands in a fresh review form, while ✕/Esc — or Done with nothing captured —
+// replays the origin form stack instead (the cancelled review form hid itself
+// and is torn down by whatever opens next; there is nothing to re-show).
+registerFormAction('reenterComponentCapture', () => {
+  const pending = pendingComponentInsert;
+  if (!pending) return;
+  const backToOrigin = async () => {
+    formLoading.show();
+    try {
+      await replayFormStack(pending.snapshot);
+    } finally {
+      formLoading.dismiss();
+    }
+  };
+  enterCaptureMode({
+    formStackSnapshot: pending.snapshot,
+    intent: { action: 'completeComponentCaptureInsert', container: pending.container, insertAt: pending.insertAt },
+    maxCaptures: 1,
+    returnTo: {
+      onComplete: async (sessionBuffer) => {
+        if (sessionBuffer.length) {
+          await finishComponentCapture({ ...pending, sessionBuffer });
+        } else {
+          await backToOrigin();
+        }
+      },
+      onCancel: backToOrigin,
+    },
+  });
+});
+
+// "Add from library" → pick a library capture → review form → commit at idx.
 export function runComponentLibraryInsert({ container, insertAt }) {
-  componentLibraryIntent = { snapshot: snapshotFormStack(), container, insertAt };
+  pendingComponentInsert = { snapshot: snapshotFormStack(), container, insertAt };
   return getFormAction('openCaptureLibrary')?.({ mode: 'insert' });
 }
 
-// componentLibraryIntent remembers where to commit the chosen library capture:
-// it is set when runComponentLibraryInsert starts and consumed when the library
-// completes, committing the capture straight into a container's markdown
-// (see commitCapturesIntoContainer).
-let componentLibraryIntent = null;
-
-// Called from captureEntry.js once the user picks a library capture. Rebuilds
-// the origin form, then commits the chosen capture into the container.
-registerFormAction('completeLibraryInsert', async ({ capture } = {}) => {
-  if (!componentLibraryIntent) return;
-  const intent = componentLibraryIntent;
-  componentLibraryIntent = null;
-  if (!capture || !intent.snapshot?.length) return;
-  // The library's insert button bypasses form.js's data-action dispatcher,
-  // so this action arms the loading tile itself.
-  formLoading.show();
-  try {
-    const ok = await replayFormStack(intent.snapshot);
-    if (!ok) return;
-    // The replay's createForm dropped the tile when the parent form
-    // re-rendered; re-arm it to cover the commit + editor-open gap.
-    formLoading.show();
-    const inserted = await commitCapturesIntoContainer(intent.container, intent.insertAt, [capture]);
-    await openInsertedComponentEditor(intent.container, inserted);
-  } catch (e) {
-    alert('Failed to insert capture: ' + e.message);
-  } finally {
-    formLoading.dismiss();
-  }
-});
