@@ -1,6 +1,6 @@
 # Guide Title → Nav Rename + Icon Picker Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task (execution mode chosen by the user on 2026-06-11: Subagent-Driven — fresh subagent per task, review between tasks). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** When a guide's H1 title is saved, also rename its display name in `nav`/`draft_nav` in `zensical.toml`; add an Icon input (searchable lucide picker with SVG previews) that reads/writes the `icon:` frontmatter key at the top of the guide's markdown file.
 
