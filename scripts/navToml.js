@@ -133,3 +133,19 @@ export function findPathOfValue(nodes, value, trail = []) {
   }
   return null;
 }
+
+// Rename every leaf whose value === value to newName. Returns the number of
+// leaves actually changed (an already-matching name doesn't count, so callers
+// can skip the toml write entirely when nothing moved). Renames in place —
+// unlike removeByValue + insertPath, which would reorder the tree. Mutates.
+export function renameByValue(nodes, value, newName) {
+  let changed = 0;
+  const recurse = (level) => {
+    for (const n of level) {
+      if (n.children) recurse(n.children);
+      else if (n.value === value && n.name !== newName) { n.name = newName; changed++; }
+    }
+  };
+  recurse(nodes);
+  return changed;
+}
