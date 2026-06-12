@@ -28,7 +28,9 @@ const TAG_MARKER = {
 // Returns the reconstructed markdown string.
 export function buildSource(root, onText, onBoundary) {
   let out = '';
-  const walk = (parent, inListItem = false) => {
+  // `depth` is the current list-nesting level: each <li> emits 4 spaces per level
+  // before its prefix, and a nested <ul>/<ol> inside an <li> recurses at depth+1.
+  const walk = (parent, inListItem = false, depth = 0) => {
     const kids = parent.childNodes;
     if (onBoundary) onBoundary(parent, 0, out.length);
     for (let k = 0; k < kids.length; k++) {
@@ -47,25 +49,31 @@ export function buildSource(root, onText, onBoundary) {
           // delimiters: an empty <strong> must serialize to '' not '****', which
           // would corrupt the source and render literally. Happens when the user
           // deletes all the text inside a mark but the browser keeps the wrapper.
-          if (marker) { if (child.textContent) { out += marker; walk(child, inListItem); out += marker; } else { walk(child, inListItem); } }
-          else if (tag === 'a') { out += '['; walk(child, inListItem); out += '](' + (child.getAttribute('href') || '') + ')'; }
-          else if (tag === 'ul' || tag === 'ol') { walk(child, inListItem); }
+          if (marker) { if (child.textContent) { out += marker; walk(child, inListItem, depth); out += marker; } else { walk(child, inListItem, depth); } }
+          else if (tag === 'a') { out += '['; walk(child, inListItem, depth); out += '](' + (child.getAttribute('href') || '') + ')'; }
+          else if (tag === 'ul' || tag === 'ol') {
+            // A nested list lives inside an <li>: open it with a newline and step
+            // one level deeper. A top-level list keeps the current depth.
+            if (inListItem) { out += '\n'; walk(child, false, depth + 1); }
+            else { walk(child, false, depth); }
+          }
           else if (tag === 'li') {
-            // One source line per item: '- ' / 'N. ' prefix, content, then a
-            // newline between items (the list element itself emits no newlines —
-            // those around it belong to the neighbouring text runs).
+            // One source line per item: indentation (4 spaces × depth), a '- ' /
+            // 'N. ' prefix, content (which may include a nested list), then a
+            // newline between items. The list element itself emits no newlines —
+            // those around it belong to the neighbouring text runs.
             const siblings = [];
             for (const n of parent.childNodes) {
               if (n.nodeType === ELEMENT_NODE && n.tagName.toLowerCase() === 'li') siblings.push(n);
             }
             const idx = siblings.indexOf(child);
             const ordered = parent.tagName.toLowerCase() === 'ol';
-            out += ordered ? `${idx + 1}. ` : '- ';
-            walk(child, true);
+            out += '    '.repeat(depth) + (ordered ? `${idx + 1}. ` : '- ');
+            walk(child, true, depth);
             if (idx < siblings.length - 1) out += '\n';
           }
-          else if (tag === 'div' || tag === 'p') { if (out.length) out += '\n'; walk(child, inListItem); }
-          else { walk(child, inListItem); } // unknown element -> unwrap to contents
+          else if (tag === 'div' || tag === 'p') { if (out.length) out += '\n'; walk(child, inListItem, depth); }
+          else { walk(child, inListItem, depth); } // unknown element -> unwrap to contents
         }
       }
       if (onBoundary) onBoundary(parent, k + 1, out.length);

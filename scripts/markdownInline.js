@@ -177,22 +177,58 @@ export function renderHtml(nodes) {
 
 // ── Block-level lists ─────────────────────────────────────────────────────────
 //
-// The only block constructs the editor understands are flat ordered/unordered
-// lists: lines beginning `- ` or `N. `. Everything else stays a "text" run whose
-// newlines render as <br>, exactly as before. Newline ownership is what makes
-// the mapping round-trip exactly: the '\n' BEFORE a list belongs to the
-// preceding text run, the '\n's BETWEEN items belong to the list, and the '\n'
-// AFTER the last item opens the following text run.
+// The block constructs the editor understands are ordered/unordered lists, now
+// with nesting: a list line is `- ` or `N. ` optionally indented by a multiple of
+// 4 spaces, where `indent / 4` is the nesting depth. Everything else stays a
+// "text" run whose newlines render as <br>, exactly as before. Newline ownership
+// is what makes the mapping round-trip exactly: the '\n' BEFORE a list belongs to
+// the preceding text run, the '\n's WITHIN the list (between items and around
+// nested sub-lists) belong to the list, and the '\n' AFTER the last item opens
+// the following text run.
 
 export const LIST_ITEM_RE = {
   ul: /^- (.*)$/,
   ol: /^\d+\. (.*)$/,
 };
 
+// A list line with its nesting depth. Indentation that isn't a clean multiple of
+// 4 spaces is NOT a nested item (the editor never emits such lines) — it stays
+// plain text so a stray indent can't be misread as a level.
+const LIST_LINE_RE = /^( *)(- |\d+\. )(.*)$/;
+export function matchListLine(line) {
+  const m = line.match(LIST_LINE_RE);
+  if (!m || m[1].length % 4 !== 0) return null;
+  return { depth: m[1].length / 4, kind: m[2] === '- ' ? 'ul' : 'ol', content: m[3] };
+}
+
+// Build one list block starting at lines[i], whose items sit at `depth`. A deeper
+// line attaches as a child block of the item above it; a shallower line, or a
+// same-depth line of a different kind, ends the block. Returns [block, nextIndex].
+//   block = { type: 'ul'|'ol', items: { nodes: inlineNode[], children: block[] }[] }
+function parseListBlock(lines, i, depth) {
+  const kind = matchListLine(lines[i]).kind;
+  const items = [];
+  while (i < lines.length) {
+    const it = matchListLine(lines[i]);
+    if (!it || it.depth < depth) break;
+    if (it.depth > depth) {
+      if (!items.length) break; // orphan deeper line with no parent — leave to caller
+      const [sub, next] = parseListBlock(lines, i, it.depth);
+      items[items.length - 1].children.push(sub);
+      i = next;
+      continue;
+    }
+    if (it.kind !== kind) break; // sibling list of the other kind starts a new block
+    items.push({ nodes: parseInline(it.content), children: [] });
+    i++;
+  }
+  return [{ type: kind, items }, i];
+}
+
 /**
  * Parses `text` into block nodes:
- *   { type: 'text', nodes: inlineNode[] }            — newlines preserved
- *   { type: 'ul'|'ol', items: inlineNode[][] }       — one entry per item line
+ *   { type: 'text', nodes: inlineNode[] }   — newlines preserved
+ *   { type: 'ul'|'ol', items: ItemNode[] }  — ItemNode = { nodes, children: block[] }
  */
 export function parseDoc(text) {
   const lines = (text ?? '').split('\n');
@@ -204,18 +240,13 @@ export function parseDoc(text) {
 
   let i = 0;
   while (i < lines.length) {
-    const kind = LIST_ITEM_RE.ul.test(lines[i]) ? 'ul' : (LIST_ITEM_RE.ol.test(lines[i]) ? 'ol' : null);
-    if (kind) {
+    const it = matchListLine(lines[i]);
+    if (it && it.depth === 0) { // a list starts only at a top-level item line
       if (textRun !== null) textRun += '\n'; // newline before the list stays in the text run
       flushText();
-      const items = [];
-      while (i < lines.length) {
-        const m = lines[i].match(LIST_ITEM_RE[kind]);
-        if (!m) break;
-        items.push(parseInline(m[1]));
-        i++;
-      }
-      blocks.push({ type: kind, items });
+      const [block, next] = parseListBlock(lines, i, 0);
+      blocks.push(block);
+      i = next;
       if (i < lines.length) textRun = ''; // newline after the list opens the next run
       continue;
     }
@@ -226,12 +257,14 @@ export function parseDoc(text) {
   return blocks;
 }
 
-/** Full-document render: list blocks as <ul>/<ol>, text runs as before. */
+function renderListBlock(b) {
+  return `<${b.type}>${b.items.map(it =>
+    `<li>${renderHtml(it.nodes)}${it.children.map(renderListBlock).join('')}</li>`).join('')}</${b.type}>`;
+}
+
+/** Full-document render: list blocks as nested <ul>/<ol>, text runs as before. */
 export function renderDocHtml(text) {
-  return parseDoc(text).map(b => {
-    if (b.type === 'text') return renderHtml(b.nodes);
-    return `<${b.type}>${b.items.map(it => `<li>${renderHtml(it)}</li>`).join('')}</${b.type}>`;
-  }).join('');
+  return parseDoc(text).map(b => b.type === 'text' ? renderHtml(b.nodes) : renderListBlock(b)).join('');
 }
 
 // Maps editor element tag names back to AST mark types. Includes the synonyms a

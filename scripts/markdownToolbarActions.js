@@ -437,8 +437,21 @@ export function stripFormatting(value, selStart, selEnd) {
 //   remain (otherwise they'd lazily continue the neighbouring item).
 // - Ordered runs touching the edit are renumbered 1..n (the rich surface
 //   re-serializes to canonical numbering anyway; this keeps markdown mode clean).
+// A list line split into its parts, indentation-aware so nesting survives the
+// transform. `indent` is the leading whitespace, `marker` is '- ' / 'N. ',
+// `content` is the rest. Returns null for a non-item line.
+function splitItem(line) {
+  const m = line.match(/^( *)(- |\d+\. )(.*)$/);
+  return m ? { indent: m[1], marker: m[2], content: m[3] } : null;
+}
+const markerKind = marker => (marker === '- ' ? 'ul' : 'ol');
+// Length of a line's full list prefix (indentation + marker), 0 if not an item.
+function listPrefixLen(line) {
+  const si = splitItem(line);
+  return si ? si.indent.length + si.marker.length : 0;
+}
+
 export function toggleList(value, selStart, selEnd, kind) {
-  const itemRe = LIST_ITEM_RE[kind];
   const lines = value.split('\n');
   const starts = [];
   { let acc = 0; for (const l of lines) { starts.push(acc); acc += l.length + 1; } }
@@ -455,11 +468,6 @@ export function toggleList(value, selStart, selEnd, kind) {
   // A selection ending exactly at a line's start doesn't include that line.
   if (last > first && hi === starts[last]) last--;
 
-  const prefixLen = line => {
-    const m = line.match(/^(?:- |\d+\. )/);
-    return m ? m[0].length : 0;
-  };
-
   const nonBlank = [];
   for (let i = first; i <= last; i++) if (lines[i] !== '') nonBlank.push(i);
 
@@ -471,18 +479,26 @@ export function toggleList(value, selStart, selEnd, kind) {
     if (selStart !== selEnd) return { value, selStart, selEnd };
     next[first] = kind === 'ol' ? '1. ' : '- ';
     turnedOn = true;
-  } else if (nonBlank.every(i => itemRe.test(lines[i]))) {
-    for (const i of nonBlank) next[i] = lines[i].slice(prefixLen(lines[i]));
+  } else if (nonBlank.every(i => { const si = splitItem(lines[i]); return si && markerKind(si.marker) === kind; })) {
+    // Every covered line is already an item of `kind` → toggle OFF (drop the whole
+    // prefix, indentation included, so a de-listed nested item becomes plain text).
+    for (const i of nonBlank) next[i] = splitItem(lines[i]).content;
   } else {
+    // Toggle ON, preserving each line's existing indentation so nesting is kept
+    // when converting between ordered/unordered.
     let n = 1;
     for (const i of nonBlank) {
-      next[i] = (kind === 'ol' ? `${n++}. ` : '- ') + lines[i].slice(prefixLen(lines[i]));
+      const si = splitItem(lines[i]);
+      const indent = si ? si.indent : '';
+      const content = si ? si.content : lines[i];
+      next[i] = indent + (kind === 'ol' ? `${n++}. ` : '- ') + content;
     }
     turnedOn = true;
   }
 
-  // Renumber every ordered run that touches the edited range (merges with an
-  // adjacent list continue its numbering; runs split by a toggle-off restart).
+  // Renumber every top-level ordered run that touches the edited range (merging
+  // with an adjacent list continues its numbering; runs split by a toggle-off
+  // restart). Nested ordered items renumber per-level on re-serialize instead.
   const seen = new Set();
   for (let i = Math.max(0, first - 1); i <= Math.min(next.length - 1, last + 1); i++) {
     if (!LIST_ITEM_RE.ol.test(next[i]) || seen.has(i)) continue;
@@ -492,12 +508,19 @@ export function toggleList(value, selStart, selEnd, kind) {
     for (let k = s; k <= e; k++) { seen.add(k); next[k] = `${n++}. ` + next[k].replace(/^\d+\. /, ''); }
   }
 
-  // Blank-line guards at the edited range's edges.
-  const isItem = line => LIST_ITEM_RE.ul.test(line) || LIST_ITEM_RE.ol.test(line);
+  // Blank-line guards at the edited range's edges. A gap separates the edit from
+  // plain text (always) and from a same-depth list of the other kind; it is NOT
+  // inserted between a nested item and its parent/child (a different depth), which
+  // would break the nesting.
+  const firstSI = splitItem(next[first]), lastSI = splitItem(next[last]);
+  const gapOn = (neighbour, edge) => {
+    const nb = splitItem(neighbour);
+    return !nb || (edge && nb.indent.length === edge.indent.length && markerKind(nb.marker) !== kind);
+  };
   const needsGapAbove = first > 0 && next[first - 1] !== '' &&
-    (turnedOn ? !itemRe.test(next[first - 1]) : isItem(next[first - 1]));
+    (turnedOn ? gapOn(next[first - 1], firstSI) : !!splitItem(next[first - 1]));
   const needsGapBelow = last < next.length - 1 && next[last + 1] !== '' &&
-    (turnedOn ? !itemRe.test(next[last + 1]) : isItem(next[last + 1]));
+    (turnedOn ? gapOn(next[last + 1], lastSI) : !!splitItem(next[last + 1]));
   if (needsGapBelow) next.splice(last + 1, 0, '');
   if (needsGapAbove) next.splice(first, 0, '');
 
@@ -513,13 +536,82 @@ export function toggleList(value, selStart, selEnd, kind) {
   const mapPos = pos => {
     const i = lineOf(pos);
     const ni = newIndexOf(i);
-    const oldPfx = prefixLen(lines[i]);
+    const oldPfx = listPrefixLen(lines[i]);
     let off = pos - starts[i] - oldPfx;
     off = Math.max(0, Math.min(off, lines[i].length - oldPfx));
-    return newStarts[ni] + prefixLen(next[ni]) + off;
+    return newStarts[ni] + listPrefixLen(next[ni]) + off;
   };
   const ns = mapPos(selStart), ne = mapPos(selEnd);
   return { value: next.join('\n'), selStart: Math.min(ns, ne), selEnd: Math.max(ns, ne) };
+}
+
+// Indent (dir = +1) or outdent (dir = -1) every list line the selection covers,
+// by one nesting level (4 spaces). Pure: (value, selStart, selEnd, dir) ->
+// {value, selStart, selEnd}. Non-list lines are left untouched.
+//
+// Guard rails keep the structure valid markdown:
+//   - Indent only to (depth of the item above) + 1 — so the first item of a list,
+//     or a sole child with no sibling above it, can't nest deeper (no parent).
+//   - Outdent floors at depth 0; it never strips the marker (un-listing is the
+//     list button's job, not Tab's).
+export function indentSelection(value, selStart, selEnd, dir) {
+  const lines = value.split('\n');
+  const starts = [];
+  { let acc = 0; for (const l of lines) { starts.push(acc); acc += l.length + 1; } }
+  const lineOf = pos => {
+    for (let i = 0; i < lines.length; i++) {
+      if (pos <= starts[i] + lines[i].length) return i;
+    }
+    return lines.length - 1;
+  };
+  const depthOf = line => { const si = splitItem(line); return si ? si.indent.length / 4 : null; };
+
+  const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
+  const first = lineOf(lo);
+  let last = lineOf(hi);
+  if (last > first && hi === starts[last]) last--;
+
+  const next = lines.slice();
+  for (let i = first; i <= last; i++) {
+    const si = splitItem(lines[i]);
+    if (!si) continue; // not a list line
+    const depth = si.indent.length / 4;
+    let newDepth;
+    if (dir > 0) {
+      const aboveDepth = i > 0 ? depthOf(next[i - 1]) : null; // parent must already exist
+      const maxDepth = aboveDepth === null ? 0 : aboveDepth + 1;
+      newDepth = Math.min(depth + 1, maxDepth);
+    } else {
+      newDepth = Math.max(0, depth - 1);
+    }
+    if (newDepth === depth) continue;
+    next[i] = '    '.repeat(newDepth) + si.marker + si.content;
+  }
+
+  // Indentation only changes leading spaces (line count is unchanged), so map each
+  // endpoint by preserving its offset within the line's content.
+  const newStarts = [];
+  { let acc = 0; for (const l of next) { newStarts.push(acc); acc += l.length + 1; } }
+  const mapPos = pos => {
+    const i = lineOf(pos);
+    const oldPfx = listPrefixLen(lines[i]);
+    const off = Math.max(0, Math.min(pos - starts[i] - oldPfx, lines[i].length - oldPfx));
+    return newStarts[i] + listPrefixLen(next[i]) + off;
+  };
+  const ns = mapPos(selStart), ne = mapPos(selEnd);
+  return { value: next.join('\n'), selStart: Math.min(ns, ne), selEnd: Math.max(ns, ne) };
+}
+
+// Is the source position `pos` on a list-item line? Used to decide whether Tab /
+// Shift+Tab should indent (vs. fall through to the browser's default).
+export function isListLineAt(value, pos) {
+  const lines = value.split('\n');
+  let acc = 0;
+  for (const l of lines) {
+    if (pos <= acc + l.length) return splitItem(l) !== null;
+    acc += l.length + 1;
+  }
+  return false;
 }
 
 // Splice a `[text](url)` markdown link at the selection, replacing it.

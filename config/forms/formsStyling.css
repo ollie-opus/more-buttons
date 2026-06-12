@@ -2476,6 +2476,12 @@ details[open] .more-buttons-advanced-toggle::before {
 }
 .mb-rte__surface ul { list-style: disc; }
 .mb-rte__surface ol { list-style: decimal; }
+/* Nested lists: drop the outer vertical margin so each level only adds indent,
+   not extra gaps, and alternate the bullet glyph so depth reads at a glance. */
+.mb-rte__surface li > ul,
+.mb-rte__surface li > ol { margin: 0; }
+.mb-rte__surface ul ul { list-style: circle; }
+.mb-rte__surface ul ul ul { list-style: square; }
 .mb-rte__surface mark { background-color: #fef08a; color: inherit; }
 .mb-rte__surface u { text-decoration: underline; }
 .mb-rte__surface s { text-decoration: line-through; }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { parseDoc, renderDocHtml } from '../scripts/markdownInline.js';
-import { toggleList } from '../scripts/markdownToolbarActions.js';
+import { toggleList, indentSelection, isListLineAt } from '../scripts/markdownToolbarActions.js';
 import { serialize, locateOffset } from '../scripts/richEditorMapping.js';
 
 let passed = 0;
@@ -147,6 +147,129 @@ test('selection ending exactly at a line start excludes that line', () => {
 test('inline marks inside the line survive the toggle', () => {
   assert.equal(toggleList('**a**', 0, 0, 'ul').value, '- **a**');
   assert.equal(toggleList('- **a**', 3, 3, 'ul').value, '**a**');
+});
+
+// ── nested lists: parse + render ──────────────────────────────────────────────
+
+test('one nested level renders inside its parent <li>', () => {
+  assert.equal(renderDocHtml('- a\n    - b'),
+    '<ul><li>a<ul><li>b</li></ul></li></ul>');
+});
+test('two nested levels render as nested <ul>s', () => {
+  assert.equal(renderDocHtml('- a\n    - b\n        - c'),
+    '<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>');
+});
+test('a nested list can be a different kind from its parent', () => {
+  assert.equal(renderDocHtml('- a\n    1. b'),
+    '<ul><li>a<ol><li>b</li></ol></li></ul>');
+});
+test('the parent item keeps its own siblings after a nested block closes', () => {
+  assert.equal(renderDocHtml('- a\n    - b\n- c'),
+    '<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>');
+});
+test('a nested item carries inline marks', () => {
+  assert.equal(renderDocHtml('- a\n    - **b**'),
+    '<ul><li>a<ul><li><strong>b</strong></li></ul></li></ul>');
+});
+test('a non-multiple-of-4 indent is treated as plain text, not a nested item', () => {
+  // two leading spaces -> not a clean level -> the whole thing is one text run
+  assert.equal(renderDocHtml('- a\n  - b'), '<ul><li>a</li></ul><br>  - b');
+});
+test('parseDoc nests children under the preceding item', () => {
+  const blocks = parseDoc('- a\n    - b');
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].type, 'ul');
+  assert.equal(blocks[0].items.length, 1);
+  assert.equal(blocks[0].items[0].children.length, 1);
+  assert.equal(blocks[0].items[0].children[0].type, 'ul');
+});
+
+// ── nested lists: serialize round-trips ───────────────────────────────────────
+
+test('serialize a nested <ul> indents the child by 4 spaces', () => {
+  const root = el('root', el('ul', el('li', txt('a'), el('ul', el('li', txt('b'))))));
+  assert.equal(serialize(root), '- a\n    - b');
+});
+test('serialize two nested levels indents 4 then 8', () => {
+  const root = el('root',
+    el('ul', el('li', txt('a'),
+      el('ul', el('li', txt('b'),
+        el('ul', el('li', txt('c'))))))));
+  assert.equal(serialize(root), '- a\n    - b\n        - c');
+});
+test('serialize a parent with a nested block and a trailing sibling', () => {
+  const root = el('root',
+    el('ul',
+      el('li', txt('a'), el('ul', el('li', txt('b')))),
+      el('li', txt('c'))));
+  assert.equal(serialize(root), '- a\n    - b\n- c');
+});
+test('serialize a nested ol renumbers from 1 within its level', () => {
+  const root = el('root',
+    el('ul', el('li', txt('a'),
+      el('ol', el('li', txt('b')), el('li', txt('c'))))));
+  assert.equal(serialize(root), '- a\n    1. b\n    2. c');
+});
+test('nested render -> serialize round-trip count check', () => {
+  const html = renderDocHtml('- a\n    - b\n        - c\n- d');
+  assert.equal((html.match(/<li>/g) || []).length, 4);
+  assert.equal((html.match(/<ul>/g) || []).length, 3);
+});
+
+// ── indentSelection ───────────────────────────────────────────────────────────
+
+test('indent nests an item under the sibling above it', () => {
+  assert.equal(indentSelection('- a\n- b', 6, 6, 1).value, '- a\n    - b');
+});
+test('the first item of a list cannot indent (no parent)', () => {
+  assert.deepEqual(indentSelection('- a\n- b', 2, 2, 1), { value: '- a\n- b', selStart: 2, selEnd: 2 });
+});
+test('a sole nested child cannot indent further (no sibling above it)', () => {
+  // b is the only child of a; with no sibling at its own depth, indent is a no-op
+  assert.equal(indentSelection('- a\n    - b', 10, 10, 1).value, '- a\n    - b');
+});
+test('outdent reduces depth by one level', () => {
+  assert.equal(indentSelection('- a\n    - b', 10, 10, -1).value, '- a\n- b');
+});
+test('outdent floors at depth 0 (never un-lists)', () => {
+  assert.deepEqual(indentSelection('- a\n- b', 6, 6, -1), { value: '- a\n- b', selStart: 6, selEnd: 6 });
+});
+test('indent shifts the caret by the added indentation', () => {
+  // caret just after 'b' on line 2; line gains 4 leading spaces -> +4
+  const r = indentSelection('- a\n- b', 7, 7, 1);
+  assert.equal(r.value, '- a\n    - b');
+  assert.equal(r.selStart, 11);
+});
+test('indent preserves an ordered marker and inline content', () => {
+  assert.equal(indentSelection('1. a\n2. b', 8, 8, 1).value, '1. a\n    2. b');
+});
+test('a multi-line selection indents each eligible line', () => {
+  // select across b and c (both depth 0 under a); a stays, b->1, c->1
+  assert.equal(indentSelection('- a\n- b\n- c', 5, 11, 1).value,
+    '- a\n    - b\n    - c');
+});
+test('indenting a non-list line is a no-op for that line', () => {
+  assert.deepEqual(indentSelection('plain', 2, 2, 1), { value: 'plain', selStart: 2, selEnd: 2 });
+});
+
+// ── toggleList tolerates indentation (nesting survives a type-toggle / un-list) ──
+
+test('toggling the other kind on a nested item keeps its indentation', () => {
+  // caret in nested '    - b' -> convert that line to ordered, indent intact
+  assert.equal(toggleList('- a\n    - b', 10, 10, 'ol').value, '- a\n    1. b');
+});
+test('toggling a nested item off strips indentation and marker', () => {
+  assert.equal(toggleList('- a\n    - b', 10, 10, 'ul').value, '- a\n\nb');
+});
+
+// ── isListLineAt ──────────────────────────────────────────────────────────────
+
+test('isListLineAt detects a top-level and a nested item line', () => {
+  assert.equal(isListLineAt('- a\n    - b', 1), true);
+  assert.equal(isListLineAt('- a\n    - b', 9), true);
+});
+test('isListLineAt is false on a plain-text line', () => {
+  assert.equal(isListLineAt('hello\n- a', 2), false);
 });
 
 console.log(`\n${passed} passed`);

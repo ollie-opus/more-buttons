@@ -1,5 +1,5 @@
 import { markSpans, renderDocHtml } from './markdownInline.js';
-import { applyMarker, applyLink, stripFormatting, toggleList } from './markdownToolbarActions.js';
+import { applyMarker, applyLink, stripFormatting, toggleList, indentSelection, isListLineAt } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
@@ -23,6 +23,14 @@ const MARKS = [
 const LISTS = [
   { kind: 'ul', tag: 'ul', icon: 'format_list_bulleted', label: 'Bulleted list' },
   { kind: 'ol', tag: 'ol', icon: 'format_list_numbered', label: 'Numbered list' },
+];
+
+// Indent / outdent the current list item(s) by one nesting level. Like LISTS
+// these act on the caret's line; they're disabled (greyed) unless the caret sits
+// inside a list, since there's nothing to nest otherwise. `dir`: +1 / -1.
+const INDENTS = [
+  { dir: -1, icon: 'format_indent_decrease', label: 'Decrease indent' },
+  { dir: 1, icon: 'format_indent_increase', label: 'Increase indent' },
 ];
 
 export function upgradeTextarea(textarea) {
@@ -259,6 +267,15 @@ function refreshActiveStates(rte) {
       const active = activeTags.has(btn._list.tag);
       btn.classList.toggle('--active', active);
       btn.setAttribute('aria-pressed', String(active));
+      return;
+    }
+    if (btn._indent) {
+      // Indent/outdent only make sense inside a list. In Rich mode grey them out
+      // unless the caret sits within an <li> (live-updated on selectionchange). In
+      // Markdown mode leave them enabled — selectionchange skips that mode, so a
+      // disabled flag would go stale; the transform is a harmless no-op off-list.
+      btn.disabled = rte.mode === 'rich' && !activeTags.has('li');
+      return;
     }
     // The link / clear buttons carry no state.
   });
@@ -288,6 +305,12 @@ function buildButtons(rte) {
   LISTS.forEach(l => {
     const btn = makeBtn(l.icon, l.label, () => runTransform(rte, (v, s, e) => toggleList(v, s, e, l.kind)));
     btn._list = l;
+    rte.btnGroup.appendChild(btn);
+    rte.buttons.push(btn);
+  });
+  INDENTS.forEach(ind => {
+    const btn = makeBtn(ind.icon, ind.label, () => runTransform(rte, (v, s, e) => indentSelection(v, s, e, ind.dir)));
+    btn._indent = ind;
     rte.btnGroup.appendChild(btn);
     rte.buttons.push(btn);
   });
@@ -351,6 +374,18 @@ function attachSurfaceEvents(rte) {
     applyResult(rte, armedInsertion(rte, value, selStart, data));
     clearArmed(rte);
     refreshActiveStates(rte);
+  });
+
+  // Tab / Shift+Tab nest the current list item one level deeper / shallower, but
+  // only when the caret is on a list line — elsewhere Tab keeps its native
+  // behaviour (moving focus out of the editor, which keyboard users rely on).
+  surface.addEventListener('keydown', e => {
+    if (e.key !== 'Tab') return;
+    const { value, selStart } = currentSelection(rte);
+    if (!isListLineAt(value, selStart)) return;
+    e.preventDefault();
+    const dir = e.shiftKey ? -1 : 1;
+    runTransform(rte, (v, s, end) => indentSelection(v, s, end, dir));
   });
 
   surface.addEventListener('input', () => syncFromSurface(rte));
