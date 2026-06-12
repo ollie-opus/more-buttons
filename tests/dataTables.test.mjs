@@ -296,6 +296,7 @@ test('collapseNewlines: line breaks and surrounding space collapse to one space'
   assert.equal(collapseNewlines('a  \r\n  b\n\nc'), 'a b c');
   assert.equal(collapseNewlines('\nabc\n'), 'abc');
   assert.equal(collapseNewlines(null), '');
+  assert.equal(collapseNewlines('a\rb'), 'a b');
 });
 
 console.log(`\n${passed} passed`);

@@ -36,7 +36,7 @@ const INDENTS = [
 // Pure: collapse line breaks (and surrounding whitespace) to single spaces —
 // what inline mode does to pasted text, since a table cell can't hold a newline.
 export function collapseNewlines(text) {
-  return (text ?? '').replace(/\s*\r?\n\s*/g, ' ').trim();
+  return (text ?? '').replace(/\s*[\r\n]+\s*/g, ' ').trim();
 }
 
 // opts.inline: single-line cell mode — no list/indent buttons, Enter blocked,
@@ -101,7 +101,7 @@ export function upgradeTextarea(textarea, opts = {}) {
 
   if (inline) {
     // Markdown view: the raw textarea must obey the same single-line rule.
-    textarea.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+    textarea.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) e.preventDefault(); });
     textarea.addEventListener('paste', e => {
       e.preventDefault();
       const text = collapseNewlines((e.clipboardData || window.clipboardData).getData('text/plain'));
@@ -158,7 +158,20 @@ function hasEmptyMark(surface) {
 // Sync the hidden textarea from the surface and fire input so the dirty-guard
 // and char counter update. Called on every native edit in the surface.
 function syncFromSurface(rte) {
-  const value = serialize(rte.surface);
+  let value = serialize(rte.surface);
+  // Inline mode: native edits the Enter/paste guards can't intercept (e.g. a
+  // text drop) can still serialize multi-line content. Collapse it here — the
+  // sync chokepoint — so a newline never reaches the cell value.
+  if (rte.inline && value.includes('\n')) {
+    const { selStart } = serializeWithSelection(rte.surface, window.getSelection());
+    value = collapseNewlines(value);
+    rte.textarea.value = value;
+    rte.surface.innerHTML = renderDocHtml(value);
+    const caret = Math.min(selStart, value.length);
+    placeCaret(rte.surface, caret, caret);
+    rte.textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
   rte.textarea.value = value;
   // If the edit left an empty mark wrapper, the DOM is non-canonical: serialize
   // already drops the empty mark from the value, but the wrapper still holds the
@@ -403,7 +416,7 @@ function attachSurfaceEvents(rte) {
   // only when the caret is on a list line — elsewhere Tab keeps its native
   // behaviour (moving focus out of the editor, which keyboard users rely on).
   surface.addEventListener('keydown', e => {
-    if (rte.inline && e.key === 'Enter') { e.preventDefault(); return; }
+    if (rte.inline && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); return; }
     if (e.key !== 'Tab') return;
     const { value, selStart } = currentSelection(rte);
     if (!isListLineAt(value, selStart)) return;
