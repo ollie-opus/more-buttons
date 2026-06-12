@@ -182,25 +182,14 @@ that working-tree state.
   absent (jsdom test alongside existing richTextEditor tests if present,
   otherwise pure-transform coverage only).
 
-## Zensical repo changes (user applies)
+## Zensical repo changes (APPLIED by user, 2026-06-12)
 
-1. **Required** in `zensical.toml` (check — may already exist):
+1. `[project.markdown_extensions.tables]` in `zensical.toml`.
 
-   ```toml
-   [project.markdown_extensions.tables]
-   ```
-
-2. **Sortable tables (site-wide)** in `zensical.toml`:
-
-   ```toml
-   [project]
-   extra_javascript = [
-       "https://unpkg.com/tablesort@5.3.0/dist/tablesort.min.js",
-       "javascripts/tablesort.js"
-   ]
-   ```
-
-   New file `docs/javascripts/tablesort.js`:
+2. Sortable tables (site-wide): tablesort entries added to `zensical.toml`
+   `extra_javascript`, and the activation snippet lives at
+   **`docs/assets/javascripts/tablesort.js`** (NOT `docs/javascripts/` — the
+   user's repo keeps JS under `docs/assets/`):
 
    ```javascript
    document$.subscribe(function() {
