@@ -15,9 +15,10 @@ function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
 
 const span = (uuid, indent = '') => `${indent}<span data-uuid="${uuid}" style="display:none"></span>`;
 
-// A canonical 2×2 table, fully migrated.
+// A canonical 2×2 table, fully migrated (new blank-separated format: 6 lines).
 const TABLE_MD = [
   span('TBL'),
+  '',
   '| Method | Description |',
   '| :--- | :---: |',
   '| `GET` | Fetch resource |',
@@ -41,7 +42,7 @@ test('locateDataTables: span, alignment, header, rows, line range', () => {
   assert.equal(t.uuid, 'TBL');
   assert.equal(t.indent, '');
   assert.equal(t.startLine, 0);
-  assert.equal(t.endLine, 5);
+  assert.equal(t.endLine, 6);
   assert.deepEqual(t.align, ['left', 'center']);
   assert.deepEqual(t.header, ['Method', 'Description']);
   assert.deepEqual(t.rows, [['`GET`', 'Fetch resource'], ['`PUT`', 'Update resource']]);
@@ -85,6 +86,50 @@ test('locateDataTables: a span at a different indent is not the table identity',
   assert.equal(t.uuid, null);
 });
 
+// NEW: legacy adjacent form (span immediately before header, no blank) still parses.
+test('locateDataTables: legacy adjacent form (no blank) still parses uuid', () => {
+  const md = [span('LEG'), '| A |', '| --- |', '| x |'].join('\n');
+  const [t] = locateDataTables(md);
+  assert.equal(t.uuid, 'LEG');
+  assert.equal(t.startLine, 0);
+  assert.equal(t.endLine, 4);
+});
+
+// NEW: two blank lines between span and header → span NOT claimed.
+test('locateDataTables: two blank lines between span and header → uuid not claimed', () => {
+  const md = [span('X'), '', '', '| A |', '| --- |'].join('\n');
+  const [t] = locateDataTables(md);
+  assert.equal(t.uuid, null);
+});
+
+// NEW: blank-separated span in a tab body is container-owned; table gets uuid=null.
+test('locateDataTables: blank-separated span owned by tab container is not stolen', () => {
+  const md = [
+    '=== "One"',
+    '',
+    span('TAB', '    '),
+    '',
+    '    | A |',
+    '    | --- |',
+  ].join('\n');
+  const [t] = locateDataTables(md);
+  assert.equal(t.uuid, null, 'tab span must not be stolen as table identity');
+});
+
+// NEW: blank-separated span owned by admonition container is not stolen.
+test('locateDataTables: blank-separated span owned by admonition container is not stolen', () => {
+  const md = [
+    '!!! note',
+    '',
+    span('ADM', '    '),
+    '',
+    '    | A |',
+    '    | --- |',
+  ].join('\n');
+  const [t] = locateDataTables(md);
+  assert.equal(t.uuid, null, 'admonition span must not be stolen as table identity');
+});
+
 // ── buildDataTable ────────────────────────────────────────────────────────────
 
 test('buildDataTable: round-trips through locateDataTables', () => {
@@ -106,19 +151,28 @@ test('buildDataTable: escapes literal pipes so they round-trip', () => {
 
 test('buildDataTable: emits explicit-left divider and pads cells to align width', () => {
   const block = buildDataTable('U', ['left', 'right'], ['A'], [['1', '2', 'extra']]);
-  assert.equal(block.split('\n')[2], '| :--- | ---: |');
+  // Index 0: span, 1: blank, 2: header, 3: divider, 4: row
+  assert.equal(block.split('\n')[3], '| :--- | ---: |');
   const [t] = locateDataTables(block);
   assert.deepEqual(t.header, ['A', '']);
   assert.deepEqual(t.rows, [['1', '2']]);
 });
 
+// NEW: blank line is emitted at index 1.
+test('buildDataTable: emits blank line between span and header', () => {
+  const block = buildDataTable('U', ['left'], ['H'], []);
+  assert.equal(block.split('\n')[1], '', 'line 1 must be blank');
+});
+
 // ── locate/get/replace/delete by UUID ────────────────────────────────────────
 
+// DOC uses TABLE_MD which is now 6 lines.
+// Lines: 0:'# Title', 1:'', 2:'Intro.', 3:'', 4:span, 5:'', 6:header, 7:divider, 8:row, 9:row, 10:'', 11:'After.'
 const DOC = ['# Title', '', 'Intro.', '', TABLE_MD, '', 'After.'].join('\n');
 
 test('locateDataTableByUUID: finds range at top level', () => {
   const loc = locateDataTableByUUID(DOC.split('\n'), 'TBL');
-  assert.deepEqual(loc, { startLine: 4, endLine: 9, indent: '' });
+  assert.deepEqual(loc, { startLine: 4, endLine: 10, indent: '' });
 });
 
 test('locateDataTableByUUID: a non-table span returns null', () => {
@@ -126,7 +180,21 @@ test('locateDataTableByUUID: a non-table span returns null', () => {
   assert.equal(locateDataTableByUUID(md.split('\n'), 'S'), null);
 });
 
-test('getDataTableByUUID: parses an indented (nested) table dedented', () => {
+// NEW: locateDataTableByUUID works with blank-separated form.
+test('locateDataTableByUUID: finds range with blank-separated form (new canonical)', () => {
+  const md = [span('U'), '', '| A |', '| --- |', '| x |'].join('\n');
+  const loc = locateDataTableByUUID(md.split('\n'), 'U');
+  assert.deepEqual(loc, { startLine: 0, endLine: 5, indent: '' });
+});
+
+// NEW: locateDataTableByUUID still works with legacy adjacent form.
+test('locateDataTableByUUID: finds range with legacy adjacent form', () => {
+  const md = [span('U'), '| A |', '| --- |', '| x |'].join('\n');
+  const loc = locateDataTableByUUID(md.split('\n'), 'U');
+  assert.deepEqual(loc, { startLine: 0, endLine: 4, indent: '' });
+});
+
+test('getDataTableByUUID: parses an indented (nested) table dedented — legacy form', () => {
   const md = ['!!! note', '', span('N', '    '), '    | A |', '    | --- |', '    | x |'].join('\n');
   const t = getDataTableByUUID(md, 'N');
   assert.equal(t.uuid, 'N');
@@ -134,13 +202,25 @@ test('getDataTableByUUID: parses an indented (nested) table dedented', () => {
   assert.deepEqual(t.rows, [['x']]);
 });
 
+test('getDataTableByUUID: parses an indented (nested) table dedented — new blank-separated form', () => {
+  const md = ['!!! note', '', span('N', '    '), '    ', '    | A |', '    | --- |', '    | x |'].join('\n');
+  const t = getDataTableByUUID(md, 'N');
+  assert.equal(t.uuid, 'N');
+  assert.equal(t.indent, '    ');
+  assert.deepEqual(t.rows, [['x']]);
+});
+
 test('replaceDataTableByUUID: swaps the block, re-indenting to match', () => {
+  // Use legacy-form nested table for this test; re-indented block is new format.
   const md = ['!!! note', '', span('N', '    '), '    | A |', '    | --- |', '    | x |'].join('\n');
   const out = replaceDataTableByUUID(md, 'N', buildDataTable('N', ['left'], ['B'], [['y']]));
   const t = getDataTableByUUID(out, 'N');
   assert.deepEqual(t.header, ['B']);
   assert.deepEqual(t.rows, [['y']]);
-  assert.ok(out.split('\n')[3].startsWith('    |'));
+  // After re-indent: line 0 '!!! note', 1 '', 2 span, 3 blank, 4 header '    | B |'
+  const outLines = out.split('\n');
+  assert.equal(outLines[3], '', 'blank line is bare (not indented)');
+  assert.ok(outLines[4].startsWith('    |'), 'header is indented');
 });
 
 test('replaceDataTableByUUID: unknown uuid is a no-op', () => {
@@ -166,12 +246,35 @@ test('ensureDataTableUUIDs: migrated document returns the same reference', () =>
   assert.equal(ensureDataTableUUIDs(TABLE_MD), TABLE_MD);
 });
 
-test('ensureDataTableUUIDs: backfills nested (indented) tables too', () => {
+test('ensureDataTableUUIDs: backfills nested (indented) tables too (via full migration pipeline)', () => {
+  // ensureDataTableUUIDs alone cannot claim the span for a table that is the first
+  // non-blank content of a container (the container-owned guard in locateDataTables
+  // correctly prevents stealing). The full migrateComponentIdentity pipeline injects
+  // the container body span first, then ensureDataTableUUIDs adds the table span.
   const md = ['!!! note', '', '    | A |', '    | --- |', '    | x |'].join('\n');
-  const out = ensureDataTableUUIDs(md);
+  const out = migrateComponentIdentity('docs/drafts/g.md', md);
   const [t] = locateDataTables(out);
-  assert.ok(t.uuid);
+  assert.ok(t.uuid, 'table uuid backfilled via full pipeline');
   assert.equal(t.indent, '    ');
+  assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out, 'idempotent');
+});
+
+// NEW: ensureDataTableUUIDs normalizes a legacy-adjacent table (inserts blank).
+test('ensureDataTableUUIDs: normalizes legacy-adjacent table to blank-separated form', () => {
+  const legacyMd = [span('LEG'), '| A |', '| --- |', '| x |'].join('\n');
+  const out = ensureDataTableUUIDs(legacyMd);
+  const lines = out.split('\n');
+  // After normalization: span at 0, blank at 1, header at 2
+  assert.equal(lines[1], '', 'blank line inserted after span');
+  assert.ok(lines[2].startsWith('|'), 'header is now at index 2');
+  // UUID is preserved
+  const [t] = locateDataTables(out);
+  assert.equal(t.uuid, 'LEG', 'uuid preserved after normalization');
+  // Idempotent
+  assert.equal(ensureDataTableUUIDs(out), out, 'second pass is byte-identical');
+  // Parses identically after normalization
+  assert.equal(t.startLine, 0);
+  assert.equal(t.endLine, 5);
 });
 
 // ── components.js integration ─────────────────────────────────────────────────
