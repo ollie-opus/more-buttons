@@ -51,13 +51,18 @@ export function getAdmonitionUUID(body) {
  * lines with a 4-space prefix should strip that before calling this, and
  * re-add it when writing back.
  *
+ * A blank line is inserted between the span and the body content so that
+ * component-identity readers (tables, captures) that look at "the line
+ * immediately before my first line" do not steal the admonition's uuid.
+ * Matches the convention used by injectTabUUID.
+ *
  * @param {string} body - The admonition body (base-indent already stripped).
  * @param {string} uuid - The UUID to embed.
  * @returns {string} Updated body with the UUID span prepended.
  */
 export function injectAdmonitionUUID(body, uuid) {
   const span = `<span data-uuid="${uuid}" style="display:none"></span>`;
-  return body.length ? `${span}\n${body}` : span;
+  return body.length ? `${span}\n\n${body}` : span;
 }
 
 // ── Parse / build ─────────────────────────────────────────────────────────────

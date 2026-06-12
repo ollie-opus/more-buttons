@@ -269,4 +269,23 @@ test('migrateComponentIdentity: tables inside system-update bodies are migrated'
   assert.equal(migrateComponentIdentity('docs/drafts/system-updates.md', out), out);
 });
 
+test('migrateComponentIdentity: table as an admonition\'s first body line gets its OWN uuid', () => {
+  // No blank line between the admonition header and the table body — the case
+  // where the body (when parsed) does NOT start with a blank line, meaning the
+  // injected admonition span would land immediately above the table row.
+  const md = [
+    '!!! note "Title"',
+    '    | A |',
+    '    | --- |',
+    '    | x |',
+  ].join('\n');
+  const out = migrateComponentIdentity('docs/drafts/g.md', md);
+  const spans = [...out.matchAll(/data-uuid="([^"]+)"/g)].map(m => m[1]);
+  assert.equal(spans.length, 2, 'both admonition and table get a uuid span');
+  assert.equal(new Set(spans).size, spans.length, 'admonition and table uuids are distinct');
+  const [t] = locateDataTables(out);
+  assert.ok(t.uuid, 'table has its own uuid');
+  assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out, 'idempotent');
+});
+
 console.log(`\n${passed} passed`);
