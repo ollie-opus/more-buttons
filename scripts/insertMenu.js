@@ -1,8 +1,8 @@
 /**
  * insertMenu.js — small reusable popup menu for the "+ Insert Component" button.
  *
- * Opens anchored to the trigger with four choices — Admonition, Capture,
- * Content tabs, and (below a divider) Paste copied markdown — where Capture
+ * Opens anchored to the trigger with five choices — Admonition, Capture,
+ * Content tabs, Data table, and (below a divider) Paste copied markdown — where Capture
  * expands to a submenu (Create a new capture / Add from library). Closes on
  * outside-click or Escape. Only one menu is open at a time.
  */
@@ -19,7 +19,7 @@ function closeMenu() {
 /**
  * @param {HTMLElement} triggerEl - the clicked "+ Insert Component" button.
  * @param {number} insertAtIndex - component index to insert at.
- * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, pasteMarkdown:Function}} handlers
+ * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, pasteMarkdown:Function}} handlers
  *   Each receives `insertAtIndex`.
  */
 export function openInsertMenu(triggerEl, insertAtIndex, handlers) {
@@ -38,6 +38,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers) {
       </div>
     </div>
     <button type="button" class="mb-popup-menu__item" data-pick="content-tabs" role="menuitem">Content tabs</button>
+    <button type="button" class="mb-popup-menu__item" data-pick="data-table" role="menuitem">Data table</button>
     <div class="mb-popup-menu__divider" role="separator"></div>
     <button type="button" class="mb-popup-menu__item" data-pick="paste-markdown" role="menuitem">Paste copied markdown</button>
   `;
@@ -63,6 +64,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers) {
     else if (kind === 'capture-new') handlers.captureNew?.(insertAtIndex);
     else if (kind === 'capture-library') handlers.captureLibrary?.(insertAtIndex);
     else if (kind === 'content-tabs') handlers.contentTabs?.(insertAtIndex);
+    else if (kind === 'data-table') handlers.dataTable?.(insertAtIndex);
     else if (kind === 'paste-markdown') handlers.pasteMarkdown?.(insertAtIndex);
   };
 

@@ -837,6 +837,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
       card = admonitionCard(c.adm, n);
     } else if (c.kind === 'tabs') {
       card = tabsComponentCard(c.grp);
+    } else if (c.kind === 'table') {
+      card = dataTableCard(c.tbl);
     } else {
       card = captureComponentCardFor(c.cap);
     }
@@ -926,6 +928,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
     else if (action.kind === 'capture-library') await runComponentLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'table') await getFormAction('openCreateDataTable')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'paste-markdown') await getFormAction('openPasteMarkdown')?.({ container, insertAtIndex: action.insertAt });
   } else if (action.type === 'edit-admonition') {
     await getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
@@ -933,6 +936,8 @@ async function runChildAction(container, formEl, action) {
     await openCaptureComponentEditor(container, action.uuid);
   } else if (action.type === 'edit-tabs') {
     await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
+  } else if (action.type === 'edit-table') {
+    await getFormAction('openEditDataTable')?.({ uuid: action.uuid, file: container.file });
   }
 }
 
@@ -973,6 +978,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editTable = e.target.closest('[data-edit-data-table]');
+  if (editTable) {
+    beginChildNavigation(formEl, { type: 'edit-table', uuid: editTable.dataset.editDataTable });
+    return;
+  }
+
   const insert = e.target.closest('[data-insert-component-at]');
   if (insert) {
     const idx = parseInt(insert.dataset.insertComponentAt, 10);
@@ -982,6 +993,7 @@ export function onComponentEditorClick(e) {
       captureNew: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-new', insertAt: i }),
       captureLibrary: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-library', insertAt: i }),
       contentTabs: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'tabs', insertAt: i }),
+      dataTable: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'table', insertAt: i }),
       pasteMarkdown: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'paste-markdown', insertAt: i }),
     });
     return;
@@ -1001,6 +1013,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditCaptureComponent')?.({ container, uuid: component.cap.uuid, cap: component.cap });
   } else if (component.kind === 'tabs') {
     await getFormAction('openEditContentTabs')?.({ uuid: component.grp.uuid, file: container.file });
+  } else if (component.kind === 'table') {
+    await getFormAction('openEditDataTable')?.({ uuid: component.tbl.uuid, file: container.file });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -1098,6 +1112,29 @@ function tabsComponentCard(grp) {
     </div>`;
 }
 
+// Card for a data-table component: "Data table" with a columns × rows summary
+// plus the header names. Edit routes through the save-gate via data-edit-data-table.
+function dataTableCard(tbl) {
+  const cols = tbl.align?.length ?? (tbl.header ?? []).length;
+  const headers = (tbl.header ?? []).filter(Boolean).join(' · ');
+  const summary = `${cols} column${cols === 1 ? '' : 's'} × ${tbl.rows.length} row${tbl.rows.length === 1 ? '' : 's'}${headers ? ` — ${headers}` : ''}`;
+  const btnAttr = tbl.uuid
+    ? `data-edit-data-table="${escapeHtml(tbl.uuid)}"`
+    : `disabled title="No UUID"`;
+  return `
+    <div class="mb-incident-card --purple">
+      <div class="mb-incident-card__head">
+        <strong class="mb-incident-card__title">Data table</strong>
+        <span class="mb-incident-card__badge">Table</span>
+      </div>
+      <p class="mb-incident-card__body">${escapeHtml(summary)}</p>
+      <div class="mb-incident-card__foot --end">
+        ${tbl.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(tbl.uuid)}">Copy</button>` : ''}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${tbl.uuid ? 'Edit' : 'Error'}</button>
+      </div>
+    </div>`;
+}
+
 // ── Submit / delete section ──────────────────────────────────────────────────
 
 // Flip an in-place section create form into an edit-of-new-section form: point
@@ -1174,6 +1211,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.adm.uuid] = { kind: 'admonition', title: title || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
       } else if (c.kind === 'tabs') {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
+      } else if (c.kind === 'table') {
+        labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
@@ -1541,6 +1580,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.adm.uuid] = { kind: 'admonition', title: t || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
       } else if (c.kind === 'tabs') {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
+      } else if (c.kind === 'table') {
+        labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
