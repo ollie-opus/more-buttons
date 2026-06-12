@@ -19,14 +19,21 @@ A data table in guide markdown:
 
 ```markdown
 <span data-uuid="..." style="display:none"></span>
+
 | Method | Description |
 | :----- | :---------- |
 | `GET`  | Fetch resource |
 | `PUT`  | Update resource |
 ```
 
-- **Identity:** UUID span on the line immediately before the header row — same
-  placement rule as a content tabs group span.
+- **Identity:** UUID span separated from the header row by exactly one blank
+  line. (Amended 2026-06-12 after manual verification: the renderer requires
+  a blank line before a pipe table — with the span adjacent, the whole block
+  renders as raw markdown.) The legacy adjacent form is still parsed, and
+  `ensureDataTableUUIDs` normalizes it by inserting the blank on the next
+  fetch/push. A blank-separated span is NOT claimed as the table's identity
+  when it is container-owned (a tab's or admonition's body span — its nearest
+  non-blank line above is a `!!!`/`???`/`===` header at shorter indent).
 - **Alignment:** per column, serialized in the divider row (`:---` left,
   `:---:` center, `---:` right). A column with no colons parses as `left` and
   is rebuilt as `:---` (explicit left).

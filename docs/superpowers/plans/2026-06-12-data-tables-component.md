@@ -12,6 +12,8 @@
 
 **Naming note (deviation from spec):** the form/file/actions use the SINGULAR `editDataTable` (`config/forms/editDataTable.html`, `openCreateDataTable`, `openEditDataTable`, `submitEditDataTable`, `deleteDataTable`, storage key `moreButtonsEditDataTable`) — one form edits one table, matching `editGuideAdmonition`/`editCaptureComponent`. The component kind string is `'table'`, payload key `tbl` (like `'tabs'`/`grp`).
 
+**Format amendment (post-execution, 2026-06-12):** manual verification showed the renderer needs a blank line between the identity span and the header row (adjacent span → whole table emitted as raw markdown). Landed after Task 7 in commits `5aded9a` + `69efcbd`: `buildDataTable` emits span/blank/header; both forms parse (legacy adjacent kept for pre-amendment saves); `ensureDataTableUUIDs` normalizes legacy tables and skips first-content tables of unmigrated containers (idempotency). The code blocks below show the pre-amendment format — `scripts/dataTables.js` is the source of truth.
+
 **Zensical repo:** already done by the user — `[project.markdown_extensions.tables]` enabled, tablesort wired with the activation snippet at `docs/assets/javascripts/tablesort.js`. Nothing to do on that side.
 
 **Working tree:** clean at plan time (the nested-lists rich editor work is committed as `60449d8`). Commit ONLY the files each task names (explicit `git add <paths>`, never `git add -A`).
@@ -24,7 +26,7 @@
 - Create: `scripts/dataTables.js`
 - Test: `tests/dataTables.test.mjs`
 
-- [ ] **Step 1: Write the failing test file**
+- [x] **Step 1: Write the failing test file**
 
 Create `tests/dataTables.test.mjs`:
 
@@ -203,12 +205,12 @@ test('ensureDataTableUUIDs: backfills nested (indented) tables too', () => {
 console.log(`\n${passed} passed`);
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/dataTables.test.mjs`
 Expected: FAIL — `Cannot find module '.../scripts/dataTables.js'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `scripts/dataTables.js`:
 
@@ -484,12 +486,12 @@ export function ensureDataTableUUIDs(markdown) {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `node tests/dataTables.test.mjs`
 Expected: all `ok -` lines, ending `21 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/dataTables.js tests/dataTables.test.mjs
@@ -504,7 +506,7 @@ git commit -m "feat(dataTables): pure pipe-table parse/build/mutate leaf module"
 - Modify: `scripts/components.js` (import block ~line 24; `parseComponents` ~127-172; `buildComponentBody` ~211-235; `uuidOfComponent` ~260-264; `parsePastedComponents` ~292-304; module header comment ~lines 5-12)
 - Test: `tests/dataTables.test.mjs` (append)
 
-- [ ] **Step 1: Append the failing integration tests**
+- [x] **Step 1: Append the failing integration tests**
 
 In `tests/dataTables.test.mjs`, add to the imports at the top:
 
@@ -575,12 +577,12 @@ test('parsePastedComponents: a bare pasted table is recognized and gets a fresh 
 
 (The `console.log` summary line must appear exactly once, at the very end of the file — these appends always go before it.)
 
-- [ ] **Step 2: Run the test to verify the new tests fail**
+- [x] **Step 2: Run the test to verify the new tests fail**
 
 Run: `node tests/dataTables.test.mjs`
 Expected: FAIL — first integration test throws (components list lacks the `'table'` entry; `parseComponents` doesn't know tables yet)
 
-- [ ] **Step 3: Implement the components.js edits**
+- [x] **Step 3: Implement the components.js edits**
 
 In `scripts/components.js`:
 
@@ -662,12 +664,12 @@ and:
 
 Also update the comment above the chain from `(admonitions → tabs → captures, same order as migrateComponentIdentity)` to `(admonitions → tabs → tables → captures, same order as migrateComponentIdentity)`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dataTables.test.mjs && node tests/contentTabs.test.mjs && node tests/componentMarkdown.test.mjs && node tests/componentContainers.test.mjs`
 Expected: all PASS (the last three guard against regressions in shared code)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/components.js tests/dataTables.test.mjs
@@ -682,7 +684,7 @@ git commit -m "feat(components): parse/build/uuid/paste support for kind:'table'
 - Modify: `scripts/github.js` (imports lines 1-5; `migrateComponentIdentity` lines 58-75)
 - Test: `tests/dataTables.test.mjs` (append)
 
-- [ ] **Step 1: Append the failing migration tests**
+- [x] **Step 1: Append the failing migration tests**
 
 Add to the imports of `tests/dataTables.test.mjs`:
 
@@ -742,12 +744,12 @@ test('migrateComponentIdentity: tables inside system-update bodies are migrated'
 });
 ```
 
-- [ ] **Step 2: Run the test to verify the new tests fail**
+- [x] **Step 2: Run the test to verify the new tests fail**
 
 Run: `node tests/dataTables.test.mjs`
 Expected: FAIL — `table uuid backfilled` assertion (migration doesn't call `ensureDataTableUUIDs` yet)
 
-- [ ] **Step 3: Implement the github.js edits**
+- [x] **Step 3: Implement the github.js edits**
 
 (a) Add the import after the `contentTabs.js` import:
 
@@ -782,12 +784,12 @@ import { ensureDataTableUUIDs } from './dataTables.js';
 
 (Do NOT touch guides.js' `createGuideDraft` chain — like tabs, tables are covered by `migrateComponentIdentity` on every fetch/push.)
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node tests/dataTables.test.mjs && node tests/identityMigration.test.mjs && node tests/contentTabs.test.mjs`
 Expected: all PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/github.js tests/dataTables.test.mjs
@@ -803,7 +805,7 @@ git commit -m "feat(github): backfill data-table identity uuids in migrateCompon
 - Modify: `scripts/form.js` (line ~1115, the `upgradeTextarea` forEach)
 - Test: `tests/dataTables.test.mjs` (append — only the pure helper is unit-testable; the DOM behaviour is manually verified in Task 7)
 
-- [ ] **Step 1: Append the failing pure-helper test**
+- [x] **Step 1: Append the failing pure-helper test**
 
 Add to the imports of `tests/dataTables.test.mjs`:
 
@@ -824,12 +826,12 @@ test('collapseNewlines: line breaks and surrounding space collapse to one space'
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node tests/dataTables.test.mjs`
 Expected: FAIL — `collapseNewlines` is not exported
 
-- [ ] **Step 3: Implement the richTextEditor.js edits**
+- [x] **Step 3: Implement the richTextEditor.js edits**
 
 (a) Add the exported pure helper near the top (after the `INDENTS` const):
 
@@ -945,7 +947,7 @@ At the top of the `keydown` listener:
 // pasted newlines collapsed. Default (multiline) behaviour is unchanged.
 ```
 
-- [ ] **Step 4: Implement the form.js edit**
+- [x] **Step 4: Implement the form.js edit**
 
 Replace line ~1115:
 
@@ -962,12 +964,12 @@ with:
 
 (`data-richtext="inline"` opts a textarea into inline mode; bare `data-richtext` keeps today's behaviour.)
 
-- [ ] **Step 5: Run the tests to verify they pass (and nothing regressed)**
+- [x] **Step 5: Run the tests to verify they pass (and nothing regressed)**
 
 Run: `node tests/dataTables.test.mjs && node tests/richTextEditor.test.mjs && node tests/markdownLists.test.mjs && node tests/richEditorMapping.test.mjs && node tests/markdownToolbarActions.test.mjs`
 Expected: all PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/richTextEditor.js scripts/form.js tests/dataTables.test.mjs
@@ -988,7 +990,7 @@ git commit -m "feat(richTextEditor): opt-in inline mode (data-richtext=\"inline\
 
 No unit test — this is DOM/orchestration glue verified manually in Task 7 (the project's test harness has no DOM).
 
-- [ ] **Step 1: Create `config/forms/editDataTable.html`**
+- [x] **Step 1: Create `config/forms/editDataTable.html`**
 
 ```html
 <form data-nav data-dirty-guard id="edit-data-table-form" data-storage-key="moreButtonsEditDataTable" data-width="90vw" data-height="90vh">
@@ -1034,7 +1036,7 @@ No unit test — this is DOM/orchestration glue verified manually in Task 7 (the
 
 (Visible inputs are deliberately UNNAMED — selecting cells must never false-dirty the form; the hidden `tableState` JSON is the only named field, exactly the contentTabs pattern.)
 
-- [ ] **Step 2: Append the CSS to `config/forms/formsStyling.css`**
+- [x] **Step 2: Append the CSS to `config/forms/formsStyling.css`**
 
 Insert immediately after the "Content Tabs editor" section (before `/* ── Knowledge Base Hierarchy Tree ─...`):
 
@@ -1092,7 +1094,7 @@ Insert immediately after the "Content Tabs editor" section (before `/* ── Kn
 }
 ```
 
-- [ ] **Step 3: Create `scripts/dataTablesEditor.js`**
+- [x] **Step 3: Create `scripts/dataTablesEditor.js`**
 
 ```js
 /**
@@ -1518,7 +1520,7 @@ registerFormAction('deleteDataTable', async ({ formEl, content }) => {
 });
 ```
 
-- [ ] **Step 4: Register the form label in `scripts/form.js`**
+- [x] **Step 4: Register the form label in `scripts/form.js`**
 
 In `FORM_LABELS` (after `editContentTabs: 'Edit Content Tabs',`):
 
@@ -1526,7 +1528,7 @@ In `FORM_LABELS` (after `editContentTabs: 'Edit Content Tabs',`):
   editDataTable: 'Edit Data Table',
 ```
 
-- [ ] **Step 5: Load the module in `scripts/actions.js`**
+- [x] **Step 5: Load the module in `scripts/actions.js`**
 
 After `import './contentTabsEditor.js';`:
 
@@ -1534,7 +1536,7 @@ After `import './contentTabsEditor.js';`:
 import './dataTablesEditor.js';
 ```
 
-- [ ] **Step 6: Add both scripts to `manifest.json`**
+- [x] **Step 6: Add both scripts to `manifest.json`**
 
 In `web_accessible_resources[].resources`, after `"scripts/contentTabsEditor.js",`:
 
@@ -1545,7 +1547,7 @@ In `web_accessible_resources[].resources`, after `"scripts/contentTabsEditor.js"
 
 (Required — omission causes "Failed to fetch dynamically imported module". Reload the extension at chrome://extensions after this change.)
 
-- [ ] **Step 7: Sanity-check the module graph parses**
+- [x] **Step 7: Sanity-check the module graph parses**
 
 Run: `node --input-type=module -e "import('./scripts/dataTables.js').then(() => console.log('dataTables ok'))"`
 Expected: `dataTables ok`
@@ -1555,7 +1557,7 @@ dataTablesEditor.js can't be imported under node (its import chain pulls guides.
 Run: `node --check --input-type=module < scripts/dataTablesEditor.js`
 Expected: no output (exit 0)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add config/forms/editDataTable.html scripts/dataTablesEditor.js config/forms/formsStyling.css scripts/form.js scripts/actions.js manifest.json
@@ -1571,7 +1573,7 @@ git commit -m "feat(dataTables): grid + shared inline rich editor form for data 
 - Modify: `scripts/systemUpdates.js` (noteLabels ~185-196)
 - Modify: `scripts/insertMenu.js` (header comment, JSDoc, menu HTML ~31-43, pick dispatch ~60-67)
 
-- [ ] **Step 1: guides.js — render branch + card**
+- [x] **Step 1: guides.js — render branch + card**
 
 In `renderComponents` (~line 838), add the branch:
 
@@ -1610,7 +1612,7 @@ function dataTableCard(tbl) {
 }
 ```
 
-- [ ] **Step 2: guides.js — save-gate delegates and dispatch**
+- [x] **Step 2: guides.js — save-gate delegates and dispatch**
 
 (a) In `onComponentEditorClick`, after the `editTabs` block (~line 974):
 
@@ -1650,7 +1652,7 @@ function dataTableCard(tbl) {
   }
 ```
 
-- [ ] **Step 3: guides.js — BOTH noteLabels sites (lines ~1170 and ~1537)**
+- [x] **Step 3: guides.js — BOTH noteLabels sites (lines ~1170 and ~1537)**
 
 In each `const noteLabels = comps => {` function, add after the `'tabs'` branch (skipping it crashes the merge resolver on `c.cap.uuid`):
 
@@ -1659,7 +1661,7 @@ In each `const noteLabels = comps => {` function, add after the `'tabs'` branch 
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
 ```
 
-- [ ] **Step 4: systemUpdates.js — noteLabels (~line 185)**
+- [x] **Step 4: systemUpdates.js — noteLabels (~line 185)**
 
 Same branch, after the `'tabs'` case:
 
@@ -1668,7 +1670,7 @@ Same branch, after the `'tabs'` case:
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
 ```
 
-- [ ] **Step 5: insertMenu.js**
+- [x] **Step 5: insertMenu.js**
 
 (a) Header comment: change "four choices — Admonition, Capture, Content tabs, and (below a divider) Paste copied markdown" to "five choices — Admonition, Capture, Content tabs, Data table, and (below a divider) Paste copied markdown".
 
@@ -1686,12 +1688,12 @@ Same branch, after the `'tabs'` case:
     else if (kind === 'data-table') handlers.dataTable?.(insertAtIndex);
 ```
 
-- [ ] **Step 6: Run the whole test suite**
+- [x] **Step 6: Run the whole test suite**
 
 Run: `for f in tests/*.test.mjs; do echo "== $f"; node "$f" || break; done`
 Expected: every file prints its `ok -` lines and `N passed`; no failures. (Some capture tests may need network-free runs — if a pre-existing test fails identically on `main`, note it and move on.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/guides.js scripts/systemUpdates.js scripts/insertMenu.js
@@ -1702,12 +1704,12 @@ git commit -m "feat(guides): wire data-table cards, insert menu entry, edit disp
 
 ### Task 7: Verification
 
-- [ ] **Step 1: Full test suite**
+- [x] **Step 1: Full test suite**
 
 Run: `for f in tests/*.test.mjs; do echo "== $f"; node "$f" || break; done`
 Expected: all pass.
 
-- [ ] **Step 2: Manual verification checklist (user / extension reload required)**
+- [x] **Step 2: Manual verification checklist (user / extension reload required)**
 
 Reload the unpacked extension at chrome://extensions (manifest changed), then on the target site:
 
@@ -1724,7 +1726,7 @@ Reload the unpacked extension at chrome://extensions (manifest changed), then on
 11. Insert a data table inside a content-tab's component list (tables nest in tabs; the reverse is impossible by design).
 12. Publish the draft and confirm zensical renders the table (and click-to-sort works, via the user's tablesort setup).
 
-- [ ] **Step 3: Check off plan items and commit the plan doc**
+- [x] **Step 3: Check off plan items and commit the plan doc**
 
 ```bash
 git add docs/superpowers/plans/2026-06-12-data-tables-component.md
