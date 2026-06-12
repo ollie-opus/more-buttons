@@ -170,11 +170,10 @@ export function locateDataTables(markdown) {
         const prevPrevLine = lines[i - 2];
         const sm2 = prevPrevLine.match(UUID_SPAN_LINE_RE);
         if (sm2 && lineIndent(prevPrevLine) === indent && !isContainerOwnedSpan(lines, i - 2)) {
-          // Verify there's not a second blank above the span (two blank separator means not claimed).
-          // Only one blank is allowed; the line directly above the span must exist and be non-blank,
-          // or the span is at the start of the document. (The check is: lines[i-1] is blank and
-          // lines[i-2] is the span — that's already confirmed. We just need to make sure there isn't
-          // ANOTHER blank between span and header via the container-owned logic above.)
+          // Exactly one blank between span and header: two-or-more blanks can't
+          // reach here — lines[i-2] would then be blank and fail the span-regex
+          // match above. The container-owned guard keeps a tab's or admonition's
+          // body span (also blank-separated) from being claimed as the table's.
           uuid = sm2[1];
           startLine = i - 2; // include the span AND the blank in range
         }
@@ -344,9 +343,15 @@ export function deleteDataTableByUUID(markdown, uuid) {
  *   | Header |
  *   | :--- |
  *
- * NOTE: in github.js' migrateComponentIdentity this must run AFTER
- * ensureTabUUIDs — a table span injected as a tab's first body line would
- * otherwise be misread as the tab's own identity (same rule as captures).
+ * NOTE: this must run AFTER ensureAdmonitionUUIDs and ensureTabUUIDs (as it
+ * does in github.js' migrateComponentIdentity and parsePastedComponents) —
+ * a table span injected as a tab's first body line would otherwise be
+ * misread as the tab's own identity (same rule as captures). A table that is
+ * the first non-blank content of a still-unmigrated container is therefore
+ * deliberately SKIPPED (no backfill) rather than given a span that would
+ * occupy the container's body-span slot; it gets its own span on the next
+ * pass, once the container chain has minted the container's span. This keeps
+ * the function idempotent even when called standalone.
  *
  * @param {string} markdown
  * @returns {string}
@@ -359,25 +364,20 @@ export function ensureDataTableUUIDs(markdown) {
   for (let k = tables.length - 1; k >= 0; k--) {
     const t = tables[k];
     if (t.uuid === null) {
-      // Backfill: insert span line AND blank line before the header.
-      // Idempotency guard for the nested case: if a UUID span already sits at
-      // startLine-2 (with a blank at startLine-1) and that span is NOT container-owned,
-      // it was inserted by a previous pass of this function and we must not insert again.
-      // If the span IS container-owned (e.g. a tab/admonition body span), we still need
-      // to insert a new table span before the header.
-      const spanAboveIdx = t.startLine - 2;
-      const alreadyHasNonContainerSpanAbove = t.startLine >= 2 &&
-        /^\s*$/.test(lines[t.startLine - 1]) &&
-        UUID_SPAN_LINE_RE.test(lines[spanAboveIdx]) &&
-        lineIndent(lines[spanAboveIdx]) === t.indent &&
-        !isContainerOwnedSpan(lines, spanAboveIdx);
-      if (!alreadyHasNonContainerSpanAbove) {
-        lines.splice(t.startLine, 0,
-          `${t.indent}<span data-uuid="${generateUUID()}" style="display:none"></span>`,
-          '',
-        );
-        modified = true;
-      }
+      // Backfill: insert span line AND blank line before the header — UNLESS
+      // the table is the first non-blank content of a still-unmigrated
+      // container. There, the injected span would occupy the container's
+      // body-span slot, look container-owned on re-parse, and never be
+      // claimed (a naive pass would re-inject forever). Skip it instead:
+      // every production chain runs ensureAdmonitionUUIDs / ensureTabUUIDs
+      // first, which puts the container's own span between its header and
+      // the table, after which this pass backfills normally.
+      if (isContainerOwnedSpan(lines, t.startLine)) continue;
+      lines.splice(t.startLine, 0,
+        `${t.indent}<span data-uuid="${generateUUID()}" style="display:none"></span>`,
+        '',
+      );
+      modified = true;
     } else {
       // Check for legacy adjacent form: span at startLine, header immediately after.
       // Detect by checking the line after startLine is a table row (no blank between).

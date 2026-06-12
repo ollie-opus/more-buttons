@@ -203,7 +203,7 @@ test('getDataTableByUUID: parses an indented (nested) table dedented — legacy 
 });
 
 test('getDataTableByUUID: parses an indented (nested) table dedented — new blank-separated form', () => {
-  const md = ['!!! note', '', span('N', '    '), '    ', '    | A |', '    | --- |', '    | x |'].join('\n');
+  const md = ['!!! note', '', span('N', '    '), '', '    | A |', '    | --- |', '    | x |'].join('\n');
   const t = getDataTableByUUID(md, 'N');
   assert.equal(t.uuid, 'N');
   assert.equal(t.indent, '    ');
@@ -257,6 +257,17 @@ test('ensureDataTableUUIDs: backfills nested (indented) tables too (via full mig
   assert.ok(t.uuid, 'table uuid backfilled via full pipeline');
   assert.equal(t.indent, '    ');
   assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out, 'idempotent');
+});
+
+test('ensureDataTableUUIDs: standalone on an unmigrated container is a no-op (table waits for the container chain)', () => {
+  // A bare table that is the FIRST content of a container without its own
+  // uuid span yet: backfilling here would put the table span in the
+  // container's body-span slot (container-owned on re-parse, never claimed,
+  // re-injected forever). The function must skip it and return the input
+  // unchanged; the full pipeline (container chains first) backfills it.
+  const md = ['!!! note', '', '    | A |', '    | --- |', '    | x |'].join('\n');
+  assert.equal(ensureDataTableUUIDs(md), md, 'first pass is a no-op');
+  assert.equal(ensureDataTableUUIDs(ensureDataTableUUIDs(md)), md, 'repeated passes stay a no-op');
 });
 
 // NEW: ensureDataTableUUIDs normalizes a legacy-adjacent table (inserts blank).
