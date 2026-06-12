@@ -8,6 +8,7 @@ import { parseComponents, buildComponentBody, uuidOfComponent, parsePastedCompon
 import { GUIDE_ADMONITION_TYPES_RE } from '../scripts/admonitions.js';
 import { migrateComponentIdentity } from '../scripts/github.js';
 import { locateTabGroups } from '../scripts/contentTabs.js';
+import { collapseNewlines } from '../scripts/richTextEditor.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -286,6 +287,15 @@ test('migrateComponentIdentity: table as an admonition\'s first body line gets i
   const [t] = locateDataTables(out);
   assert.ok(t.uuid, 'table has its own uuid');
   assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out, 'idempotent');
+});
+
+// ── richTextEditor inline mode (pure helper) ──────────────────────────────────
+
+test('collapseNewlines: line breaks and surrounding space collapse to one space', () => {
+  assert.equal(collapseNewlines('a\nb'), 'a b');
+  assert.equal(collapseNewlines('a  \r\n  b\n\nc'), 'a b c');
+  assert.equal(collapseNewlines('\nabc\n'), 'abc');
+  assert.equal(collapseNewlines(null), '');
 });
 
 console.log(`\n${passed} passed`);

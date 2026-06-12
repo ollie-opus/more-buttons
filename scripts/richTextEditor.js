@@ -33,9 +33,18 @@ const INDENTS = [
   { dir: 1, icon: 'format_indent_increase', label: 'Increase indent' },
 ];
 
-export function upgradeTextarea(textarea) {
+// Pure: collapse line breaks (and surrounding whitespace) to single spaces —
+// what inline mode does to pasted text, since a table cell can't hold a newline.
+export function collapseNewlines(text) {
+  return (text ?? '').replace(/\s*\r?\n\s*/g, ' ').trim();
+}
+
+// opts.inline: single-line cell mode — no list/indent buttons, Enter blocked,
+// pasted newlines collapsed. Default (multiline) behaviour is unchanged.
+export function upgradeTextarea(textarea, opts = {}) {
   if (textarea.dataset.rteReady === '1') return; // idempotent
   textarea.dataset.rteReady = '1';
+  const inline = opts.inline === true;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'mb-rte';
@@ -61,7 +70,7 @@ export function upgradeTextarea(textarea) {
   surface.className = 'mb-rte__surface';
   surface.contentEditable = 'true';
   surface.setAttribute('role', 'textbox');
-  surface.setAttribute('aria-multiline', 'true');
+  surface.setAttribute('aria-multiline', String(!inline));
   if (textarea.placeholder) surface.dataset.placeholder = textarea.placeholder;
 
   // The textarea stays the form value / source of truth (raw markdown); hidden
@@ -74,7 +83,7 @@ export function upgradeTextarea(textarea) {
   wrapper.appendChild(textarea);
 
   const rte = {
-    textarea, surface, toolbar, btnGroup, richTab, mdTab, buttons: [], mode: 'rich',
+    textarea, surface, toolbar, btnGroup, richTab, mdTab, buttons: [], mode: 'rich', inline,
     // Google-Docs-style "armed" formatting for the next typed text when there is
     // no selection. `pending` = marks to turn ON (wrap the text); `pendingOff` =
     // marks to turn OFF (escape past the enclosing mark's close), set when you
@@ -89,6 +98,17 @@ export function upgradeTextarea(textarea) {
   attachSurfaceEvents(rte);
   attachSelectionTracking(rte);
   setMode(rte, 'rich', { focus: false }); // initial render, no focus steal during hydration
+
+  if (inline) {
+    // Markdown view: the raw textarea must obey the same single-line rule.
+    textarea.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+    textarea.addEventListener('paste', e => {
+      e.preventDefault();
+      const text = collapseNewlines((e.clipboardData || window.clipboardData).getData('text/plain'));
+      textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
 
   wrapper._rte = rte; // expose for tests / later wiring
   return rte;
@@ -302,18 +322,20 @@ function buildButtons(rte) {
     rte.btnGroup.appendChild(btn);
     rte.buttons.push(btn);
   });
-  LISTS.forEach(l => {
-    const btn = makeBtn(l.icon, l.label, () => runTransform(rte, (v, s, e) => toggleList(v, s, e, l.kind)));
-    btn._list = l;
-    rte.btnGroup.appendChild(btn);
-    rte.buttons.push(btn);
-  });
-  INDENTS.forEach(ind => {
-    const btn = makeBtn(ind.icon, ind.label, () => runTransform(rte, (v, s, e) => indentSelection(v, s, e, ind.dir)));
-    btn._indent = ind;
-    rte.btnGroup.appendChild(btn);
-    rte.buttons.push(btn);
-  });
+  if (!rte.inline) {
+    LISTS.forEach(l => {
+      const btn = makeBtn(l.icon, l.label, () => runTransform(rte, (v, s, e) => toggleList(v, s, e, l.kind)));
+      btn._list = l;
+      rte.btnGroup.appendChild(btn);
+      rte.buttons.push(btn);
+    });
+    INDENTS.forEach(ind => {
+      const btn = makeBtn(ind.icon, ind.label, () => runTransform(rte, (v, s, e) => indentSelection(v, s, e, ind.dir)));
+      btn._indent = ind;
+      rte.btnGroup.appendChild(btn);
+      rte.buttons.push(btn);
+    });
+  }
 
   const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());
   rte.btnGroup.appendChild(linkBtn);
@@ -366,6 +388,7 @@ function attachSurfaceEvents(rte) {
   // right context. Only plain text insertions consume the armed state;
   // navigation and deletion leave it for the selectionchange handler to clear.
   surface.addEventListener('beforeinput', e => {
+    if (rte.inline && (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak')) { e.preventDefault(); return; }
     if (!isArmed(rte) || e.inputType !== 'insertText') return;
     const data = e.data;
     if (data == null || data === '') return;
@@ -380,6 +403,7 @@ function attachSurfaceEvents(rte) {
   // only when the caret is on a list line — elsewhere Tab keeps its native
   // behaviour (moving focus out of the editor, which keyboard users rely on).
   surface.addEventListener('keydown', e => {
+    if (rte.inline && e.key === 'Enter') { e.preventDefault(); return; }
     if (e.key !== 'Tab') return;
     const { value, selStart } = currentSelection(rte);
     if (!isListLineAt(value, selStart)) return;
@@ -394,7 +418,8 @@ function attachSurfaceEvents(rte) {
   // armed, the pasted text is wrapped in it.
   surface.addEventListener('paste', e => {
     e.preventDefault();
-    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    let text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    if (rte.inline) text = collapseNewlines(text);
     const { value, selStart, selEnd } = currentSelection(rte);
     if (isArmed(rte)) {
       applyResult(rte, armedInsertion(rte, value, selStart, text));

@@ -1112,7 +1112,8 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // Upgrade opted-in Description textareas to the rich-text editor. Runs here,
     // after hydration set textarea.value, and before the dirty-guard snapshot so
     // the snapshot still sees the original markdown (no false-dirty).
-    formEl.querySelectorAll('textarea[data-richtext]').forEach(upgradeTextarea);
+    formEl.querySelectorAll('textarea[data-richtext]').forEach(ta =>
+      upgradeTextarea(ta, { inline: ta.dataset.richtext === 'inline' }));
 
     // Snapshot baseline for dirty-guard forms after hydration completes so
     // later edits can be detected when the user tries to navigate away.
