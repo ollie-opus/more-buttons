@@ -4,6 +4,8 @@ import {
   locateDataTableByUUID, replaceDataTableByUUID, deleteDataTableByUUID,
   ensureDataTableUUIDs,
 } from '../scripts/dataTables.js';
+import { parseComponents, buildComponentBody, uuidOfComponent, parsePastedComponents } from '../scripts/components.js';
+import { GUIDE_ADMONITION_TYPES_RE } from '../scripts/admonitions.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -167,6 +169,61 @@ test('ensureDataTableUUIDs: backfills nested (indented) tables too', () => {
   const [t] = locateDataTables(out);
   assert.ok(t.uuid);
   assert.equal(t.indent, '    ');
+});
+
+// ── components.js integration ─────────────────────────────────────────────────
+
+test('parseComponents: tables interleave with admonitions in document order', () => {
+  const md = [
+    'Section description.',
+    '',
+    '!!! note "First"',
+    '',
+    `    ${span('A1')}`,
+    '    Note text.',
+    '',
+    TABLE_MD,
+  ].join('\n');
+  const { description, components } = parseComponents(md, GUIDE_ADMONITION_TYPES_RE);
+  assert.equal(description, 'Section description.');
+  assert.deepEqual(components.map(c => c.kind), ['admonition', 'table']);
+  assert.equal(components[1].tbl.uuid, 'TBL');
+  assert.deepEqual(components[1].tbl.header, ['Method', 'Description']);
+});
+
+test('parseComponents: a table nested inside an admonition is NOT a top-level component', () => {
+  const nested = [
+    '!!! note "Outer"',
+    '',
+    `    ${span('A1')}`,
+    `    ${span('N')}`,
+    '    | A |',
+    '    | --- |',
+    '    | x |',
+  ].join('\n');
+  const { components } = parseComponents(nested, GUIDE_ADMONITION_TYPES_RE);
+  assert.deepEqual(components.map(c => c.kind), ['admonition']);
+});
+
+test('buildComponentBody: rebuilds a table component; round-trips', () => {
+  const comp = { kind: 'table', tbl: { uuid: 'TBL', align: ['left', 'center'], header: ['Method', 'Description'], rows: [['`GET`', 'Fetch resource'], ['`PUT`', 'Update resource']] } };
+  const body = buildComponentBody(null, 'Desc.', [comp]);
+  const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+  assert.equal(description, 'Desc.');
+  assert.equal(components[0].kind, 'table');
+  assert.deepEqual(components[0].tbl, comp.tbl);
+});
+
+test('uuidOfComponent: table branch', () => {
+  assert.equal(uuidOfComponent({ kind: 'table', tbl: { uuid: 'TBL' } }), 'TBL');
+});
+
+test('parsePastedComponents: a bare pasted table is recognized and gets a fresh uuid', () => {
+  const { components, error } = parsePastedComponents('| A | B |\n| --- | --- |\n| 1 | 2 |');
+  assert.equal(error, null);
+  assert.equal(components.length, 1);
+  assert.equal(components[0].kind, 'table');
+  assert.ok(components[0].tbl.uuid);
 });
 
 console.log(`\n${passed} passed`);

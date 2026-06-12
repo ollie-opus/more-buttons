@@ -9,6 +9,7 @@
  *   - a tab group    (consecutive `=== "Title"` content-tab headers — one
  *                     component per GROUP; each tab inside is itself a
  *                     component container, see contentTabs.js)
+ *   - a data table  (a markdown pipe table — see dataTables.js)
  *
  * Historically captures and admonitions were stored segregated (description →
  * all captures → all sub-admonitions). This module parses a body into a single
@@ -22,6 +23,7 @@ import { parseAdmonitions, buildAdmonition, generateUUID, GUIDE_ADMONITION_TYPES
 import { buildSectionUUIDSpan } from './sections.js';
 import { buildCaptureLines } from './captures.js';
 import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
+import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 
 // Per-line light-capture matcher (mirrors captures.js' parseExistingCaptures,
 // but line-addressable so we can interleave with admonitions by position).
@@ -143,6 +145,11 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   const topCaptures = locateCaptureLines(src)
     .filter(c => c.indent === '' && !inAnyRange(c.startLine, admRanges));
 
+  // Immediate-child data tables (indent 0; tables inside admonitions / tabs
+  // are indented, but guard against pathological overlaps anyway).
+  const tbls = locateDataTables(src)
+    .filter(t => t.indent === '' && !inAnyRange(t.startLine, admRanges));
+
   const items = [
     ...adms.map(adm => ({ kind: 'admonition', adm, startLine: adm.headerLine, endLine: adm.endLine })),
     ...grps.map(g => ({
@@ -150,6 +157,12 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
       grp: { uuid: g.uuid ?? null, tabs: g.tabs },
       startLine: g.startLine,
       endLine: g.endLine,
+    })),
+    ...tbls.map(t => ({
+      kind: 'table',
+      tbl: { uuid: t.uuid ?? null, align: t.align, header: t.header, rows: t.rows },
+      startLine: t.startLine,
+      endLine: t.endLine,
     })),
     ...topCaptures.map(c => ({
       kind: 'capture',
@@ -165,6 +178,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   const components = items.map(it => {
     if (it.kind === 'admonition') return { kind: 'admonition', adm: it.adm };
     if (it.kind === 'tabs') return { kind: 'tabs', grp: it.grp };
+    if (it.kind === 'table') return { kind: 'table', tbl: it.tbl };
     return { kind: 'capture', cap: it.cap };
   });
 
@@ -226,6 +240,8 @@ export function buildComponentBody(uuid, description, components) {
       lines.push(buildAdmonition(a.prefix, a.type, a.title, body).trim());
     } else if (c.kind === 'tabs') {
       lines.push(buildTabGroup(c.grp.uuid, c.grp.tabs));
+    } else if (c.kind === 'table') {
+      lines.push(buildDataTable(c.tbl.uuid, c.tbl.align, c.tbl.header, c.tbl.rows));
     } else {
       // buildCaptureLines emits a leading '' we don't want (we add our own).
       lines.push(...buildCaptureLines([c.cap]).slice(1));
@@ -256,10 +272,11 @@ export function admonitionComponent(adm) {
   return { kind: 'admonition', adm };
 }
 
-/** The stable UUID of a component (admonition, capture, or tab group). */
+/** The stable UUID of a component (admonition, capture, tab group, or data table). */
 export function uuidOfComponent(c) {
   if (c.kind === 'admonition') return c.adm.uuid;
   if (c.kind === 'tabs') return c.grp.uuid;
+  if (c.kind === 'table') return c.tbl.uuid;
   return c.cap.uuid;
 }
 
@@ -282,7 +299,7 @@ export function componentMarkdown(component) {
  * Validates pasted markdown for the "Paste copied markdown" insert flow.
  * Strips any uuid spans the paste carried (fresh identities are always minted —
  * pasting into the same page can never duplicate a uuid), backfills new uuids
- * (admonitions → tabs → captures, same order as migrateComponentIdentity), and
+ * (admonitions → tabs → tables → captures, same order as migrateComponentIdentity), and
  * parses the result. Valid = at least one recognized component and no stray
  * prose outside component blocks.
  *
@@ -292,10 +309,10 @@ export function componentMarkdown(component) {
 export function parsePastedComponents(text) {
   const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  const withUuids = ensureCaptureUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)));
+  const withUuids = ensureCaptureUUIDs(ensureDataTableUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE))));
   const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
   if (components.length === 0) {
-    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture or content tabs).' };
+    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs or data table).' };
   }
   if (description.trim() !== '') {
     return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };
