@@ -1,6 +1,6 @@
 # Data Tables Component Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development — the user chose subagent-driven execution (fresh subagent per task, review between tasks). Steps use checkbox (`- [ ]`) syntax for tracking; check them off as you go.
 
 **Goal:** Add a 4th component kind, "Data table" (markdown pipe table with per-column alignment and rich-text-editable cells), alongside admonitions, captures, and content tabs.
 
