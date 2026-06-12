@@ -91,6 +91,8 @@
         "scripts/captureComponent.js",
         "scripts/contentTabs.js",
         "scripts/contentTabsEditor.js",
+        "scripts/dataTables.js",
+        "scripts/dataTablesEditor.js",
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js",

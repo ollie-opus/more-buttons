@@ -13,6 +13,7 @@ import './captureNew.js';
 import './captureInsertNew.js';
 import './captureComponent.js';
 import './contentTabsEditor.js';
+import './dataTablesEditor.js';
 import './integrations.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';

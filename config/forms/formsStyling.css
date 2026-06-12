@@ -2193,6 +2193,58 @@ details[open] .more-buttons-advanced-toggle::before {
   cursor: default;
 }
 
+/* ── Data Table editor ─────────────────────────────────────────────────────── */
+
+.mb-dt-grid-wrap {
+  overflow-x: auto;
+  margin-bottom: 14px;
+}
+
+.mb-dt-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.mb-dt-cell {
+  border: 1px solid var(--mb-border-subtle);
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 90px;
+}
+
+.mb-dt-cell--header {
+  font-weight: 600;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.mb-dt-cell:hover {
+  background: rgba(127, 127, 127, 0.10);
+}
+
+.mb-dt-cell--selected {
+  outline: 2px solid var(--mb-radio-checked-bg);
+  outline-offset: -2px;
+}
+
+.mb-dt-cell__empty {
+  color: var(--mb-text-muted);
+  opacity: 0.6;
+}
+
+/* The structure-controls row reuses .mb-ct-manage; it just needs to wrap. */
+.mb-dt-manage {
+  flex-wrap: wrap;
+}
+
+/* Segmented Left / Center / Right control (reuses .more-buttons-tab look). */
+.mb-dt-align {
+  display: inline-flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--mb-border-subtle);
+}
+
 /* ── Knowledge Base Hierarchy Tree ─────────────────────────────────────────── */
 
 .mb-kb-tree {

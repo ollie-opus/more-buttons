@@ -1,0 +1,39 @@
+<form data-nav data-dirty-guard id="edit-data-table-form" data-storage-key="moreButtonsEditDataTable" data-width="90vw" data-height="90vh">
+  <h2 data-dt-heading>Edit data table</h2>
+
+  <div class="mb-dt-grid-wrap">
+    <table class="mb-dt-grid" data-dt-grid></table>
+  </div>
+
+  <div class="mb-ct-manage mb-dt-manage">
+    <button type="button" class="more-buttons-button secondary" data-dt-add="row"><span class="more-buttons-icon">add</span>Add row</button>
+    <button type="button" class="more-buttons-button secondary" data-dt-add="col"><span class="more-buttons-icon">add</span>Add column</button>
+    <button type="button" class="more-buttons-button secondary" data-dt-move="up"><span class="more-buttons-icon">arrow_upward</span>Row up</button>
+    <button type="button" class="more-buttons-button secondary" data-dt-move="down"><span class="more-buttons-icon">arrow_downward</span>Row down</button>
+    <button type="button" class="more-buttons-button secondary" data-dt-move="left"><span class="more-buttons-icon">arrow_back</span>Column left</button>
+    <button type="button" class="more-buttons-button secondary" data-dt-move="right"><span class="more-buttons-icon">arrow_forward</span>Column right</button>
+    <button type="button" class="more-buttons-button danger" data-dt-delete="row"><span class="more-buttons-icon">delete</span>Delete row</button>
+    <button type="button" class="more-buttons-button danger" data-dt-delete="col"><span class="more-buttons-icon">delete</span>Delete column</button>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Alignment</label>
+    <div class="mb-dt-align">
+      <button type="button" class="more-buttons-tab" data-dt-align="left">Left</button>
+      <button type="button" class="more-buttons-tab" data-dt-align="center">Center</button>
+      <button type="button" class="more-buttons-tab" data-dt-align="right">Right</button>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label" data-dt-editing>Cell</label>
+    <textarea data-dt-cell rows="2" data-richtext="inline" placeholder="Inline markdown"></textarea>
+  </div>
+
+  <input type="hidden" name="tableState" />
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditDataTable" data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteDataTable" data-delete-table-btn><span class="more-buttons-icon">delete</span>Delete</button>
+  </div>
+</form>
