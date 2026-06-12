@@ -14,7 +14,7 @@
 
 **Zensical repo:** already done by the user — `[project.markdown_extensions.tables]` enabled, tablesort wired with the activation snippet at `docs/assets/javascripts/tablesort.js`. Nothing to do on that side.
 
-**Working tree caution:** `scripts/richTextEditor.js`, `scripts/markdownInline.js`, `scripts/markdownToolbarActions.js`, `scripts/richEditorMapping.js`, `config/forms/formsStyling.css`, `tests/markdownLists.test.mjs` carry uncommitted nested-lists changes. Build on top of them; commit ONLY the files each task names (use explicit `git add <paths>`, never `git add -A`).
+**Working tree:** clean at plan time (the nested-lists rich editor work is committed as `60449d8`). Commit ONLY the files each task names (explicit `git add <paths>`, never `git add -A`).
 
 ---
 
@@ -974,8 +974,6 @@ git add scripts/richTextEditor.js scripts/form.js tests/dataTables.test.mjs
 git commit -m "feat(richTextEditor): opt-in inline mode (data-richtext=\"inline\") for single-line cells"
 ```
 
-NOTE: richTextEditor.js and form.js may carry uncommitted nested-lists hunks from earlier work. If `git status` shows them already modified before this task, this commit will include those hunks — flag it to the user at the review checkpoint instead of trying to untangle, OR commit the pre-existing hunks first as their own commit if they are verifiably the nested-lists work.
-
 ---
 
 ### Task 5: The Data Table form — HTML, CSS, editor module, wiring
@@ -1563,8 +1561,6 @@ Expected: no output (exit 0)
 git add config/forms/editDataTable.html scripts/dataTablesEditor.js config/forms/formsStyling.css scripts/form.js scripts/actions.js manifest.json
 git commit -m "feat(dataTables): grid + shared inline rich editor form for data table components"
 ```
-
-NOTE: formsStyling.css carries uncommitted nested-lists hunks — same handling as Task 4's note.
 
 ---
 
