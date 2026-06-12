@@ -4,8 +4,10 @@ import {
   locateDataTableByUUID, replaceDataTableByUUID, deleteDataTableByUUID,
   ensureDataTableUUIDs,
 } from '../scripts/dataTables.js';
-import { parseComponents, buildComponentBody, uuidOfComponent, parsePastedComponents } from '../scripts/components.js';
+import { parseComponents, buildComponentBody, uuidOfComponent, parsePastedComponents, readTabComponents } from '../scripts/components.js';
 import { GUIDE_ADMONITION_TYPES_RE } from '../scripts/admonitions.js';
+import { migrateComponentIdentity } from '../scripts/github.js';
+import { locateTabGroups } from '../scripts/contentTabs.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -224,6 +226,47 @@ test('parsePastedComponents: a bare pasted table is recognized and gets a fresh 
   assert.equal(components.length, 1);
   assert.equal(components[0].kind, 'table');
   assert.ok(components[0].tbl.uuid);
+});
+
+// ── github.js identity migration ──────────────────────────────────────────────
+
+test('migrateComponentIdentity: backfills table uuids in guide markdown; idempotent', () => {
+  const md = ['# Title', '', '| A |', '| --- |', '| x |'].join('\n');
+  const out = migrateComponentIdentity('docs/drafts/g.md', md);
+  const [t] = locateDataTables(out);
+  assert.ok(t.uuid, 'table uuid backfilled');
+  assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out);
+});
+
+test('migrateComponentIdentity: a table as a tab\'s first content is not stolen as the tab uuid', () => {
+  const md = [
+    '# Title', '',
+    '=== "One"', '',
+    '    | A |',
+    '    | --- |',
+    '    | x |',
+  ].join('\n');
+  const out = migrateComponentIdentity('docs/drafts/g.md', md);
+  const [g] = locateTabGroups(out);
+  const { components } = readTabComponents(out, g.tabs[0].uuid);
+  assert.equal(components.length, 1);
+  assert.equal(components[0].kind, 'table');
+  assert.notEqual(g.tabs[0].uuid, components[0].tbl.uuid);
+  assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out);
+});
+
+test('migrateComponentIdentity: tables inside system-update bodies are migrated', () => {
+  const md = [
+    '??? feature-release "Feature release: X<span class="meta">5th June 2026</span>"',
+    '',
+    '    | A |',
+    '    | --- |',
+    '    | x |',
+  ].join('\n');
+  const out = migrateComponentIdentity('docs/drafts/system-updates.md', md);
+  const [t] = locateDataTables(out);
+  assert.ok(t.uuid, 'table uuid backfilled inside the update body');
+  assert.equal(migrateComponentIdentity('docs/drafts/system-updates.md', out), out);
 });
 
 console.log(`\n${passed} passed`);
