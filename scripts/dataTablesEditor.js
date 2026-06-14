@@ -30,6 +30,7 @@ import { getDataTableByUUID, buildDataTable, replaceDataTableByUUID, deleteDataT
 import { spliceIntoContainer } from './guides.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
 import { renderDocHtml } from './markdownInline.js';
+import { escapeHtml } from './cardRenderer.js';
 
 const STORAGE_KEY = 'moreButtonsEditDataTable';
 
@@ -388,7 +389,123 @@ async function saveDataTable(formEl, onProgress = () => {}) {
   return persistDataTableEdit(formEl, onProgress);
 }
 
+// ── Per-row (tabbed) editor ─────────────────────────────────────────────────
+//
+// A child form of the grid. Tabs = columns; the active tab edits one cell of a
+// fixed row (selected.row), reusing the shared formEl._dt + tableState. The
+// header row (row === -1) edits the column titles, so typing live-renames the
+// active tab. Alignment is a column property, surfaced in every tab.
+
+function clampRowIndex(st, row) {
+  return row === -1 ? -1 : Math.max(0, Math.min(row, st.rows.length - 1));
+}
+
+function renderRowStrip(formEl) {
+  const strip = formEl.querySelector('[data-dtr-strip]');
+  const st = formEl._dt;
+  if (!strip || !st) return;
+  strip.innerHTML = st.header.map((h, i) =>
+    `<button type="button" class="more-buttons-tab${i === st.selected.col ? ' --active' : ''}" data-dtr-tab="${i}">${escapeHtml((h ?? '').trim() || `Column ${i + 1}`)}</button>`
+  ).join('');
+}
+
+function refreshRowAlign(formEl) {
+  const st = formEl._dt;
+  formEl.querySelectorAll('[data-dt-align]').forEach(btn =>
+    btn.classList.toggle('--active', st.align[st.selected.col] === btn.dataset.dtAlign));
+}
+
+// Push the active column's cell into the editor + light its alignment.
+function loadRowCell(formEl) {
+  const st = formEl._dt;
+  const ta = formEl.querySelector('[data-dt-cell]');
+  if (ta) { ta.value = cellAt(st, st.selected.row, st.selected.col); syncSurfaceFromTextarea(ta); }
+  refreshRowAlign(formEl);
+}
+
+function wireRowEditor(formEl) {
+  // The rich editor re-dispatches surface edits as bubbling `input` events on
+  // its textarea, so this one listener covers both views.
+  formEl.addEventListener('input', e => {
+    if (!e.target.matches?.('[data-dt-cell]')) return;
+    const st = formEl._dt;
+    setCellAt(st, st.selected.row, st.selected.col, e.target.value);
+    if (st.selected.row === -1) renderRowStrip(formEl); // header rename → live tab label
+    syncTableState(formEl);
+    formEl._refreshSaveState?.();
+  });
+
+  formEl.addEventListener('click', e => {
+    const tabBtn = e.target.closest('[data-dtr-tab]');
+    if (tabBtn) {
+      formEl._dt.selected.col = parseInt(tabBtn.dataset.dtrTab, 10);
+      renderRowStrip(formEl);
+      loadRowCell(formEl);
+      return;
+    }
+    const alignBtn = e.target.closest('[data-dt-align]');
+    if (alignBtn) {
+      const st = formEl._dt;
+      st.align[st.selected.col] = alignBtn.dataset.dtAlign;
+      refreshRowAlign(formEl);
+      syncTableState(formEl);
+      formEl._refreshSaveState?.();
+      return;
+    }
+  });
+}
+
+registerFormAction('openEditDataTableRow', async ({ uuid, file, row } = {}) => {
+  if (!uuid || !file || row == null) return;
+  let md;
+  try {
+    md = await fetchFileMigratingIdentity(file);
+  } catch (e) {
+    alert('Failed to load file: ' + e.message);
+    return;
+  }
+  const tbl = getDataTableByUUID(md, uuid);
+  if (!tbl) { alert('Data table not found.'); return; }
+  const fallback = { align: tbl.align, header: tbl.header, rows: tbl.rows };
+  if (!isFormReplay()) await seedStorage(fallback);
+
+  const { formEl } = await createForm('editDataTableRow');
+  if (!formEl) return;
+  formEl.dataset.mode = 'edit';
+  formEl.dataset.tableUuid = uuid;
+  formEl.dataset.containerFile = file;
+
+  await initStateFromStorage(formEl, fallback, file, uuid);
+  const st = formEl._dt;
+  const rowIdx = clampRowIndex(st, row);
+  st.selected = { row: rowIdx, col: 0 };
+  formEl.dataset.rowIndex = String(rowIdx);
+
+  const heading = formEl.querySelector('[data-dtr-heading]');
+  if (heading) heading.textContent = rowIdx === -1 ? 'Edit header' : `Edit row ${rowIdx + 1}`;
+  setCrumbLabel(rowIdx === -1 ? 'Header' : `Row ${rowIdx + 1}`);
+
+  wireRowEditor(formEl);
+  renderRowStrip(formEl);
+  loadRowCell(formEl);
+  syncTableState(formEl);
+  resetDirtyBaseline(formEl);
+});
+
 // ── Form actions ──────────────────────────────────────────────────────────────
+
+registerFormAction('submitEditDataTableRow', async ({ formEl, content }) => {
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
+  try {
+    const res = await persistDataTableEdit(formEl, s => setButtonBusy(btn, s));
+    if (res) { await navigateBack(); return; } // back to the grid, which re-renders from storage
+    formEl._refreshSaveState?.();
+  } catch (e) {
+    formEl._refreshSaveState?.();
+    alert('Failed to save data table: ' + e.message);
+  }
+});
 
 registerFormAction('submitEditDataTable', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-save-state]');
