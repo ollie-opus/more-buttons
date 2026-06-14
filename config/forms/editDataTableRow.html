@@ -1,0 +1,27 @@
+<form data-nav data-dirty-guard id="edit-data-table-row-form" data-storage-key="moreButtonsEditDataTable" data-width="90vw" data-height="90vh">
+  <h2 data-dtr-heading>Edit row</h2>
+
+  <div class="more-buttons-tabs mb-dtr-tabs">
+    <div class="more-buttons-tab-list" data-dtr-strip></div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Alignment</label>
+    <div class="mb-dt-align">
+      <button type="button" class="more-buttons-tab" data-dt-align="left">Left</button>
+      <button type="button" class="more-buttons-tab" data-dt-align="center">Center</button>
+      <button type="button" class="more-buttons-tab" data-dt-align="right">Right</button>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Cell</label>
+    <textarea data-dt-cell rows="2" data-richtext="inline" placeholder="Inline markdown"></textarea>
+  </div>
+
+  <input type="hidden" name="tableState" />
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditDataTableRow" data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
+  </div>
+</form>
