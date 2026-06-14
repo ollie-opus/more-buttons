@@ -27,7 +27,7 @@ import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js'
 import { generateUUID } from './admonitions.js';
 import { getComponentContainer } from './componentContainers.js';
 import { getDataTableByUUID, buildDataTable, replaceDataTableByUUID, deleteDataTableByUUID } from './dataTables.js';
-import { spliceIntoContainer } from './guides.js';
+import { spliceIntoContainer, beginChildNavigation } from './guides.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
 import { renderDocHtml } from './markdownInline.js';
 import { escapeHtml } from './cardRenderer.js';
@@ -89,9 +89,16 @@ function renderGrid(formEl) {
       + (sel && sel.row === row && sel.col === col ? ' mb-dt-cell--selected' : '');
     return `<${tag} class="${cls}" data-dt-cell-at="${row}:${col}">${cellPreview(text)}</${tag}>`;
   };
+  // Right-most Edit column — one button per row (incl. the header, row -1).
+  const editCell = row => {
+    const tag = row === -1 ? 'th' : 'td';
+    const cls = 'mb-dt-edit-cell' + (row === -1 ? ' mb-dt-cell--header' : '');
+    const label = row === -1 ? 'header' : `row ${row + 1}`;
+    return `<${tag} class="${cls}"><button type="button" class="mb-dt-edit-btn" data-edit-table-row="${row}" title="Edit ${label}"><span class="more-buttons-icon">edit</span></button></${tag}>`;
+  };
   grid.innerHTML =
-    `<thead><tr>${st.header.map((h, c) => cell(-1, c, h)).join('')}</tr></thead>` +
-    `<tbody>${st.rows.map((r, ri) => `<tr>${r.map((v, c) => cell(ri, c, v)).join('')}</tr>`).join('')}</tbody>`;
+    `<thead><tr>${st.header.map((h, c) => cell(-1, c, h)).join('')}${editCell(-1)}</tr></thead>` +
+    `<tbody>${st.rows.map((r, ri) => `<tr>${r.map((v, c) => cell(ri, c, v)).join('')}${editCell(ri)}</tr>`).join('')}</tbody>`;
   refreshControls(formEl);
 }
 
@@ -216,6 +223,11 @@ function wireTableEditor(formEl) {
   });
 
   formEl.addEventListener('click', e => {
+    const editRow = e.target.closest('[data-edit-table-row]');
+    if (editRow) {
+      beginChildNavigation(formEl, { type: 'edit-table-row', row: parseInt(editRow.dataset.editTableRow, 10) });
+      return;
+    }
     const cellEl = e.target.closest('[data-dt-cell-at]');
     if (cellEl) {
       const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
@@ -274,6 +286,8 @@ registerFormAction('openCreateDataTable', async ({ container, insertAtIndex } = 
   formEl.dataset.insertAtIndex = insertAtIndex == null ? '' : String(insertAtIndex);
   formEl.dataset.tableUuid = '';
   formEl.dataset.containerFile = container.file;
+  formEl.dataset.componentNoun = 'data table';
+  formEl._componentSaver = () => saveDataTableForRow(formEl);
 
   const heading = formEl.querySelector('[data-dt-heading]');
   if (heading) heading.textContent = 'Add data table';
@@ -308,6 +322,8 @@ registerFormAction('openEditDataTable', async ({ uuid, file } = {}) => {
   formEl.dataset.mode = 'edit';
   formEl.dataset.tableUuid = uuid;
   formEl.dataset.containerFile = file;
+  formEl.dataset.componentNoun = 'data table';
+  formEl._componentSaver = () => saveDataTableForRow(formEl);
 
   const heading = formEl.querySelector('[data-dt-heading]');
   if (heading) heading.textContent = 'Edit data table';
@@ -387,6 +403,18 @@ async function saveDataTable(formEl, onProgress = () => {}) {
     return res;
   }
   return persistDataTableEdit(formEl, onProgress);
+}
+
+// The grid form is the PARENT of the per-row form. The save-gate calls this to
+// persist (create → splice + transition; edit → whole-table rewrite) before
+// opening a row child, so the table always has a uuid in the file by then.
+// The `edit-table-row` branch re-reads the saved identity from the grid form's
+// dataset (tableUuid/containerFile), so for that flow only the truthiness of
+// this return matters; the container payload is kept for the saver contract.
+async function saveDataTableForRow(formEl, onProgress = () => {}) {
+  const res = await saveDataTable(formEl, onProgress);
+  if (!res) return null;
+  return { container: { kind: 'table', uuid: res.uuid, file: res.file }, formEl };
 }
 
 // ── Per-row (tabbed) editor ─────────────────────────────────────────────────
