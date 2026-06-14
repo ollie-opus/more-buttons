@@ -8,6 +8,8 @@
 
 **Tech Stack:** Vanilla ES modules (Chrome extension, no build step). Tests via Node's built-in runner (`node --test tests/*.test.mjs`) with `node:assert/strict`. **No DOM test harness — the editor wiring, new form, and navigation are verified manually in the browser** (consistent with `dataTablesEditor.js`, which has no unit test). The existing `tests/dataTables.test.mjs` is run as a regression guard since the markdown primitives are untouched.
 
+**Execution approach (chosen): Subagent-Driven.** Implement task-by-task using the `superpowers:subagent-driven-development` skill — a fresh subagent per task with two-stage review between tasks. Tasks are ordered so the extension always loads (no broken intermediate state). Because there is no DOM test harness, the implementing agent must reload the unpacked extension at `chrome://extensions` and perform the browser verification steps (Task 7, and the smoke test in Task 4) — `node --check` / `node --test` alone do not exercise the wiring.
+
 ---
 
 ## Reference: files and patterns
