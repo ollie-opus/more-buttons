@@ -905,7 +905,7 @@ async function ensureContainerReady(formEl) {
   return await saver();
 }
 
-async function beginChildNavigation(formEl, action) {
+export async function beginChildNavigation(formEl, action) {
   const ready = await ensureContainerReady(formEl);
   if (!ready) return;
   // Card clicks bypass form.js's data-action dispatcher, so the loading veil
@@ -938,6 +938,11 @@ async function runChildAction(container, formEl, action) {
     await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-table') {
     await getFormAction('openEditDataTable')?.({ uuid: action.uuid, file: container.file });
+  } else if (action.type === 'edit-table-row') {
+    // The data-table grid form is the parent here; after ensureContainerReady
+    // the saved table's uuid/file live on its dataset (set by the opener or the
+    // create→edit transition).
+    await getFormAction('openEditDataTableRow')?.({ uuid: formEl.dataset.tableUuid, file: formEl.dataset.containerFile, row: action.row });
   }
 }
 
