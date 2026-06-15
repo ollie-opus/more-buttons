@@ -2245,6 +2245,37 @@ details[open] .more-buttons-advanced-toggle::before {
   border-bottom: 1px solid var(--mb-border-subtle);
 }
 
+/* Right-most per-row Edit column in the grid. */
+.mb-dt-edit-cell {
+  border: 1px solid var(--mb-border-subtle);
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+  padding: 2px 6px;
+}
+
+.mb-dt-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--mb-text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.mb-dt-edit-btn:hover {
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--mb-text);
+}
+
+/* Column tab strip on the per-row editor. */
+.mb-dtr-tabs {
+  margin-bottom: 14px;
+}
+
 /* ── Knowledge Base Hierarchy Tree ─────────────────────────────────────────── */
 
 .mb-kb-tree {
