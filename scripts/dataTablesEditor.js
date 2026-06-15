@@ -1,15 +1,16 @@
 /**
  * dataTablesEditor.js — the "Data table" overlay for a pipe-table component.
  *
- * One form edits a whole TABLE: a clickable grid (header + body cells, each
- * preview rendered from its inline markdown), structure controls (add / move /
- * delete rows and columns), a per-column alignment segment, and ONE shared
- * rich-text cell editor bound to the selected cell (inline mode — no lists,
+ * The grid form edits a whole TABLE: a clickable grid (header + body cells,
+ * each preview rendered from its inline markdown) and structure controls
+ * (add / move / delete rows and columns). Clicking a cell selects it; the
+ * right-most Edit column opens the per-row (tabbed) child form, which owns
+ * content + per-column alignment editing (inline rich text — no lists,
  * no line breaks; see richTextEditor.js).
  *
  * Editor state lives in formEl._dt, mirrored into ONE hidden named input
- * (`tableState`, JSON) for dirty tracking — the grid and the cell editor are
- * deliberately UNNAMED so selecting cells never false-dirties the form
+ * (`tableState`, JSON) for dirty tracking — the grid itself is deliberately
+ * UNNAMED so selecting cells never false-dirties the form
  * (contentTabsEditor's pattern).
  *
  * Save model: whole-table last-write-wins (same v1 trade-off as content
@@ -38,7 +39,7 @@ const STORAGE_KEY = 'moreButtonsEditDataTable';
 //
 // formEl._dt = { uuid, file, selected: {row, col}, align, header, rows }
 //   - selected.row === -1 addresses the header row; a cell is ALWAYS selected
-//     (default header 0), so the shared editor is never unbound.
+//     (default header 0), which drives the structure button-bar.
 
 function starterTable() {
   return {
@@ -102,8 +103,7 @@ function renderGrid(formEl) {
   refreshControls(formEl);
 }
 
-// Enable/disable the structure controls for the current selection, and light
-// the selected column's alignment segment.
+// Enable/disable the structure controls for the current selection.
 function refreshControls(formEl) {
   const st = formEl._dt;
   const sel = st.selected;
@@ -115,26 +115,6 @@ function refreshControls(formEl) {
   q('[data-dt-move="right"]').disabled = sel.col >= st.align.length - 1;
   q('[data-dt-delete="row"]').disabled = !onBody || st.rows.length <= 1;
   q('[data-dt-delete="col"]').disabled = st.align.length <= 1;
-  formEl.querySelectorAll('[data-dt-align]').forEach(btn => {
-    btn.classList.toggle('--active', st.align[sel.col] === btn.dataset.dtAlign);
-  });
-}
-
-function editingLabel(st) {
-  const sel = st.selected;
-  const colName = (st.header[sel.col] ?? '').trim() || `Column ${sel.col + 1}`;
-  return sel.row === -1 ? `Editing: Header · ${colName}` : `Editing: Row ${sel.row + 1} · ${colName}`;
-}
-
-// Push the selected cell's state into the shared editor.
-function loadSelectedCell(formEl) {
-  const st = formEl._dt;
-  const label = formEl.querySelector('[data-dt-editing]');
-  if (label) label.textContent = editingLabel(st);
-  const ta = formEl.querySelector('[data-dt-cell]');
-  if (!ta) return;
-  ta.value = cellAt(st, st.selected.row, st.selected.col);
-  syncSurfaceFromTextarea(ta);
 }
 
 // ── Structure operations ──────────────────────────────────────────────────────
@@ -142,7 +122,6 @@ function loadSelectedCell(formEl) {
 function afterStructureChange(formEl) {
   clampSelection(formEl._dt);
   renderGrid(formEl);
-  loadSelectedCell(formEl);
   syncTableState(formEl);
   formEl._refreshSaveState?.();
 }
@@ -195,33 +174,9 @@ function deleteSelected(formEl, what) {
   afterStructureChange(formEl);
 }
 
-function setAlign(formEl, align) {
-  const st = formEl._dt;
-  st.align[st.selected.col] = align;
-  afterStructureChange(formEl);
-}
-
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
 function wireTableEditor(formEl) {
-  // The rich editor re-dispatches surface edits as bubbling `input` events on
-  // its textarea, so this one listener covers both views.
-  formEl.addEventListener('input', e => {
-    if (!e.target.matches?.('[data-dt-cell]')) return;
-    const st = formEl._dt;
-    setCellAt(st, st.selected.row, st.selected.col, e.target.value);
-    // Live-update just the selected cell's preview — a full grid re-render
-    // here would be wasteful (the editor keeps focus either way).
-    const cellEl = formEl.querySelector(`[data-dt-cell-at="${st.selected.row}:${st.selected.col}"]`);
-    if (cellEl) cellEl.innerHTML = cellPreview(e.target.value);
-    if (st.selected.row === -1) {
-      const label = formEl.querySelector('[data-dt-editing]');
-      if (label) label.textContent = editingLabel(st); // header rename renames the label
-    }
-    syncTableState(formEl);
-    formEl._refreshSaveState?.();
-  });
-
   formEl.addEventListener('click', e => {
     const editRow = e.target.closest('[data-edit-table-row]');
     if (editRow) {
@@ -233,7 +188,6 @@ function wireTableEditor(formEl) {
       const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
       formEl._dt.selected = { row, col };
       renderGrid(formEl);
-      loadSelectedCell(formEl);
       return;
     }
     const add = e.target.closest('[data-dt-add]');
@@ -242,8 +196,6 @@ function wireTableEditor(formEl) {
     if (move) { if (!move.disabled) moveSelected(formEl, move.dataset.dtMove); return; }
     const del = e.target.closest('[data-dt-delete]');
     if (del) { if (!del.disabled) deleteSelected(formEl, del.dataset.dtDelete); return; }
-    const alignBtn = e.target.closest('[data-dt-align]');
-    if (alignBtn) { setAlign(formEl, alignBtn.dataset.dtAlign); return; }
   });
 }
 
@@ -296,7 +248,6 @@ registerFormAction('openCreateDataTable', async ({ container, insertAtIndex } = 
   await initStateFromStorage(formEl, initial, container.file, null);
   wireTableEditor(formEl);
   renderGrid(formEl);
-  loadSelectedCell(formEl);
   syncTableState(formEl);
   resetDirtyBaseline(formEl);
 });
@@ -332,7 +283,6 @@ registerFormAction('openEditDataTable', async ({ uuid, file } = {}) => {
   await initStateFromStorage(formEl, fallback, file, uuid);
   wireTableEditor(formEl);
   renderGrid(formEl);
-  loadSelectedCell(formEl);
   syncTableState(formEl);
   resetDirtyBaseline(formEl);
 });
