@@ -14,9 +14,19 @@
     </div>
   </div>
 
-  <div class="more-buttons-form-group">
+  <!-- Text cell editor — hidden while a capture occupies the cell. -->
+  <div class="more-buttons-form-group" data-dtr-text-group>
     <label class="more-buttons-label">Cell</label>
     <textarea data-dt-cell rows="2" data-richtext="inline" placeholder="Inline markdown"></textarea>
+  </div>
+
+  <!-- Capture component group (like admonition/section). Holds 0-or-1 capture;
+       Edit opens the shared editCaptureComponent form (size + delete). -->
+  <div class="more-buttons-form-group" data-components-row>
+    <label class="more-buttons-label">Capture</label>
+    <div>
+      <div data-dtr-components></div>
+    </div>
   </div>
 
   <input type="hidden" name="tableState" />

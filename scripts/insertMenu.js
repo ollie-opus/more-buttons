@@ -21,14 +21,20 @@ function closeMenu() {
  * @param {number} insertAtIndex - component index to insert at.
  * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, pasteMarkdown:Function}} handlers
  *   Each receives `insertAtIndex`.
+ * @param {{capturesOnly?: boolean}} [opts] - capturesOnly renders just the two
+ *   capture choices flat (no submenu / other kinds), for hosts where a cell can
+ *   only hold a capture (data-table cells).
  */
-export function openInsertMenu(triggerEl, insertAtIndex, handlers) {
+export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
   closeMenu();
 
   const menu = document.createElement('div');
   menu.className = 'mb-popup-menu';
   menu.setAttribute('role', 'menu');
-  menu.innerHTML = `
+  menu.innerHTML = opts.capturesOnly ? `
+    <button type="button" class="mb-popup-menu__item" data-pick="capture-new" role="menuitem">Create a new capture</button>
+    <button type="button" class="mb-popup-menu__item" data-pick="capture-library" role="menuitem">Add from library</button>
+  ` : `
     <button type="button" class="mb-popup-menu__item" data-pick="admonition" role="menuitem">Admonition</button>
     <div class="mb-popup-menu__item mb-popup-menu__item--has-sub" data-pick="capture" role="menuitem" aria-haspopup="true" tabindex="0">
       <span>Capture</span><span class="mb-popup-menu__chev" aria-hidden="true">›</span>

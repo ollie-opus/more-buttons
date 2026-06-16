@@ -16,6 +16,119 @@
 
 import { cropBoxPx } from './captureGeometry.js';
 
+console.log('[CAPDBG] 📄 captureElement.js loaded — CAPDBG-BUILD-12');
+
+// A "motion signature" of the element's ancestor chain: every ancestor's
+// transform + opacity. JS-driven (rAF) popover animations never appear in
+// document.getAnimations(), but they DO move these computed values — so we
+// detect "still animating" by watching this signature change frame to frame.
+function capdbgMotionSig(el) {
+  let node = el; const parts = [];
+  while (node && node.nodeType === 1) {
+    const cs = getComputedStyle(node);
+    if ((cs.transform && cs.transform !== 'none') || (cs.opacity && cs.opacity !== '1')) {
+      parts.push(`${node.tagName.toLowerCase()}${node.id ? '#' + node.id : ''}:T=${cs.transform};O=${cs.opacity}`);
+    }
+    node = node.parentElement;
+  }
+  return parts.join(' || ') || '(no transforms/opacity)';
+}
+
+// Wait until the ancestor motion signature is unchanged for `needFrames`
+// consecutive animation frames (or `maxMs` elapses). Settles popover
+// enter/exit scale+fade animations before we screenshot, so the compositor
+// isn't mid-resample (which yields soft + sub-pixel-offset captures).
+function capdbgWaitForStable(el, { maxMs = 2000, needFrames = 3 } = {}) {
+  return new Promise(resolve => {
+    const t0 = performance.now();
+    let prev = capdbgMotionSig(el), stable = 0, frames = 0;
+    const tick = () => {
+      frames++;
+      const cur = capdbgMotionSig(el);
+      if (cur === prev) stable++; else { stable = 0; prev = cur; }
+      const elapsed = performance.now() - t0;
+      if (stable >= needFrames || elapsed > maxMs) {
+        resolve({ waitedMs: Math.round(elapsed), frames, finalSig: cur, timedOut: stable < needFrames });
+      } else {
+        requestAnimationFrame(tick);
+      }
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+// Temporarily de-promote layer-forming ancestors (transform / will-change) so
+// they paint inline into the main surface at full device resolution for the
+// screenshot, instead of being captured as a low-res standalone GPU layer.
+// Only neutralizes IDENTITY transforms (matrix(1,0,0,1,0,0)/none) so position
+// never shifts; skips real transforms. Returns a restore() fn.
+function capdbgNeutralizeLayers(el) {
+  const touched = [];
+  let node = el;
+  while (node && node.nodeType === 1) {
+    const cs = getComputedStyle(node);
+    const t = cs.transform;
+    const hasTransform = t && t !== 'none';
+    const isIdentity = !hasTransform || t === 'matrix(1, 0, 0, 1, 0, 0)';
+    const promotes = hasTransform || (cs.willChange && cs.willChange !== 'auto');
+    if (promotes && isIdentity) {
+      touched.push({
+        node,
+        transform: node.style.transform,
+        transformPriority: node.style.getPropertyPriority('transform'),
+        willChange: node.style.willChange,
+        willChangePriority: node.style.getPropertyPriority('will-change'),
+      });
+      node.style.setProperty('transform', 'none', 'important');
+      node.style.setProperty('will-change', 'auto', 'important');
+    } else if (promotes && !isIdentity) {
+      console.warn(`[CAPDBG] NOT neutralizing ${node.tagName.toLowerCase()}${node.id ? '#' + node.id : ''} — non-identity transform ${t} (would move it)`);
+    }
+    node = node.parentElement;
+  }
+  console.log(`[CAPDBG] neutralized ${touched.length} layer-promoting ancestor(s) for capture`);
+  return () => {
+    for (const r of touched) {
+      if (r.transform) r.node.style.setProperty('transform', r.transform, r.transformPriority);
+      else r.node.style.removeProperty('transform');
+      if (r.willChange) r.node.style.setProperty('will-change', r.willChange, r.willChangePriority);
+      else r.node.style.removeProperty('will-change');
+    }
+  };
+}
+
+// CAPDBG: dump the element's compositing context — its ancestor chain with any
+// layer-promoting / raster-affecting CSS, plus top-layer (dialog/popover) state.
+// A popup element is often promoted to its own GPU layer, which can be rastered
+// at low res and only upgraded lazily → intermittent soft captures.
+function capdbgDescribeContext(el) {
+  const PROPS = ['transform', 'scale', 'translate', 'rotate', 'zoom', 'willChange',
+    'filter', 'backdropFilter', 'opacity', 'position', 'contain', 'isolation',
+    'mixBlendMode', 'perspective', 'clipPath', 'mask', 'overflow'];
+  const BORING = new Set(['none', 'normal', 'auto', 'static', 'visible', '1', '0px', 'visible visible']);
+  const chain = [];
+  let node = el, depth = 0;
+  while (node && node.nodeType === 1 && depth < 40) {
+    const cs = getComputedStyle(node);
+    const flags = {};
+    for (const p of PROPS) {
+      const v = cs[p];
+      if (v && !BORING.has(v) && !(p === 'opacity' && v === '1')) flags[p] = v;
+    }
+    const tag = node.tagName.toLowerCase();
+    const cls = (node.className?.toString?.() || '').trim().split(/\s+/).filter(Boolean).slice(0, 3).join('.');
+    const id = node.id ? `#${node.id}` : '';
+    chain.push(`${tag}${id}${cls ? '.' + cls : ''}${Object.keys(flags).length ? ' ' + JSON.stringify(flags) : ''}`);
+    node = node.parentElement;
+    depth++;
+  }
+  let topLayer = [];
+  try { if (el.matches(':popover-open')) topLayer.push('popover-open'); } catch {}
+  try { const d = el.closest('dialog'); if (d) topLayer.push(`dialog${d.open ? '(open)' : ''}`); } catch {}
+  try { const p = el.closest('[popover]'); if (p) topLayer.push('has[popover]'); } catch {}
+  return { topLayer: topLayer.length ? topLayer.join(',') : 'none', chain };
+}
+
 // ── Hover + Shift-arm selector ────────────────────────────────────────────────
 
 export function installSelector({ onPick, onArmedChange, getPadding }) {
@@ -351,6 +464,7 @@ export async function screenshotElement(el, { theme, customRect = null, settings
   const padding = Math.max(0, parseInt(settings.capturePadding, 10) || 0);
 
   let sampledBgColor = null;
+  let restoreLayerStyles = null;
 
   const rectListener = (msg, _sender, sendResponse) => {
     if (msg.type !== 'getRectForCapture') return false;
@@ -358,6 +472,7 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     if (customRect) {
       if (padding > 0) sampledBgColor = sampleBackgroundColor(el);
       requestAnimationFrame(() => requestAnimationFrame(() => {
+        console.log(`[CAPDBG] theme=${theme} step3 rect-read (customRect): devicePixelRatio=${window.devicePixelRatio} rect=`, { x: customRect.left, y: customRect.top, width: customRect.width, height: customRect.height });
         sendResponse({
           x:      customRect.left,
           y:      customRect.top,
@@ -368,10 +483,25 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     } else {
       el.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
       if (padding > 0) sampledBgColor = sampleBackgroundColor(el);
-      requestAnimationFrame(() => requestAnimationFrame(() => {
+      (async () => {
+        // Wait for popover/ancestor enter-exit animations (scale+fade) to settle
+        // so we don't screenshot a layer mid-resample → soft + offset capture.
+        const stab = await capdbgWaitForStable(el);
+        // De-promote layer-forming ancestors so the capture samples a full-res
+        // inline paint, not the popover's low-res GPU layer. Restored once the
+        // screenshot returns (after `await response` below).
+        restoreLayerStyles = capdbgNeutralizeLayers(el);
+        // Let the de-promoted, full-res re-raster land before we capture.
+        await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
         const r = el.getBoundingClientRect();
+        const running = document.getAnimations().filter(a => a.playState === 'running');
+        const animSummary = running.slice(0, 6).map(a =>
+          `${a.effect?.target?.tagName || '?'}.${(a.effect?.target?.className?.toString?.() || '').trim().split(/\s+/)[0] || ''}:${a.transitionProperty || a.animationName || '?'}@${Math.round(a.currentTime || 0)}`);
+        console.log(`[CAPDBG] theme=${theme} step3 WAIT-FOR-STABLE: waited=${stab.waitedMs}ms frames=${stab.frames} timedOut=${stab.timedOut} finalMotion="${stab.finalSig}"`);
+        console.log(`[CAPDBG] theme=${theme} step3 rect-read: devicePixelRatio=${window.devicePixelRatio} rect=`, { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height });
+        console.log(`[CAPDBG] theme=${theme} step3 state: scrollX=${window.scrollX} scrollY=${window.scrollY} innerW=${window.innerWidth} innerH=${window.innerHeight} vv=${window.visualViewport ? `${Math.round(visualViewport.width)}x${Math.round(visualViewport.height)}@top${Math.round(visualViewport.offsetTop)}/scale${visualViewport.scale}` : 'na'} animsRunning=${running.length}`, animSummary);
         sendResponse({ x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height });
-      }));
+      })();
     }
     return true;
   };
@@ -389,11 +519,18 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     o.style.display = 'none';
   });
 
+  const dprAtSend = window.devicePixelRatio;
+  console.log(`[CAPDBG] [CAPDBG-BUILD-12] theme=${theme} step1 send: devicePixelRatio=${dprAtSend} scale=${scale}`);
+  if (!customRect) {
+    const ctx = capdbgDescribeContext(el);
+    console.log(`[CAPDBG] theme=${theme} ELEMENT CONTEXT: topLayer=${ctx.topLayer}`);
+    console.log('[CAPDBG] ancestor chain (element → root), with layer/raster-affecting CSS:', ctx.chain);
+  }
   const response = await new Promise(resolve =>
     chrome.runtime.sendMessage({
       type: 'captureTab',
       scale,
-      devicePixelRatio: window.devicePixelRatio,
+      devicePixelRatio: dprAtSend,
       forcedTheme: theme,
       themeDelay: theme ? (settings.themeDelay ?? 500) : 0,
       // Element captures take a 4-device-px margin (cropped off afterwards);
@@ -402,6 +539,8 @@ export async function screenshotElement(el, { theme, customRect = null, settings
       tight: !!customRect,
     }, resolve)
   );
+
+  if (restoreLayerStyles) restoreLayerStyles();
 
   hiddenOverlays.forEach((o, i) => { o.style.display = prevOverlayDisplay[i] ?? ''; });
 

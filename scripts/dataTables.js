@@ -225,6 +225,66 @@ export function buildDataTable(uuid, align, header, rows) {
   ].join('\n');
 }
 
+// ── Cell captures (inline, single-line) ───────────────────────────────────────
+//
+// A capture normally serializes as a multi-line block (a hidden identity span
+// plus two image lines — see captures.js buildCaptureLines). A pipe-table cell
+// is ONE physical line, so a capture living in a cell is flattened onto that
+// line: an optional inline identity span, then the light and dark theme images
+// (space-separated) carrying the same `#only-light`/`#only-dark` +
+// `{ … loading=lazy }` grammar the block form uses. A cell is EXCLUSIVELY text
+// or a capture — parseCellCapture reports which.
+
+// Whole-(trimmed)-cell match: optional leading span, light image, optional dim
+// attrs, then the dark partner on the SAME line (its attrs ignored — they mirror
+// the light image's, which is what we read).
+const CELL_CAPTURE_RE =
+  /^(?:<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>)?\s*!\[\]\(\.\.\/assets\/([^)#]+)#only-light\)(?:\{\s*([^}]+?)\s*\})?\s*!\[\]\(\.\.\/assets\/[^)#]+#only-dark\)(?:\{[^}]*\})?$/;
+
+// Local copy of captures' dim-attr parse (this leaf module must not import
+// components.js, which imports this).
+function parseCellDimAttrs(attrs) {
+  if (!attrs) return { dimMode: 'none', dimValue: null };
+  const widthMatch = attrs.match(/width="(\d+)"/);
+  const heightMatch = attrs.match(/height:\s*(\d+)px/);
+  const dimMode = widthMatch ? 'width' : 'height';
+  const dimValue = widthMatch ? parseInt(widthMatch[1], 10) : (heightMatch ? parseInt(heightMatch[1], 10) : 50);
+  return { dimMode, dimValue };
+}
+
+/**
+ * Interprets one cell string as either inline text or a capture. Returns
+ * `{ text, capture }` where exactly one is meaningful: a capture cell yields
+ * `capture = { uuid|null, lightFilename, darkFilename, dimMode, dimValue }` and
+ * `text = ''`; any other cell yields `capture = null` and `text` = the original.
+ */
+export function parseCellCapture(cell) {
+  const str = (cell ?? '').trim();
+  const m = str.match(CELL_CAPTURE_RE);
+  if (!m) return { text: cell ?? '', capture: null };
+  const lightFilename = m[2];
+  const darkFilename = lightFilename.replace('-light-mode', '-dark-mode');
+  const { dimMode, dimValue } = parseCellDimAttrs(m[3]);
+  return { text: '', capture: { uuid: m[1] ?? null, lightFilename, darkFilename, dimMode, dimValue } };
+}
+
+/**
+ * Serializes a capture descriptor to the single-line inline cell form (inverse
+ * of parseCellCapture). Mirrors captures.js buildCaptureLines' attribute
+ * grammar, flattened onto one line. Returns '' for an incomplete descriptor.
+ */
+export function serializeCellCapture(cap) {
+  if (!cap || !cap.lightFilename || !cap.darkFilename) return '';
+  const light = `![](../assets/${cap.lightFilename}#only-light)`;
+  const dark = `![](../assets/${cap.darkFilename}#only-dark)`;
+  const spanPart = cap.uuid ? `<span data-uuid="${cap.uuid}" style="display:none"></span>` : '';
+  if (cap.dimMode === 'none' || cap.dimValue == null) {
+    return `${spanPart}${light} ${dark}`;
+  }
+  const dimAttr = cap.dimMode === 'width' ? `width="${cap.dimValue}"` : `style="height: ${cap.dimValue}px"`;
+  return `${spanPart}${light}{ ${dimAttr} loading=lazy } ${dark}{ ${dimAttr} loading=lazy }`;
+}
+
 // ── Locate / replace / delete by UUID ─────────────────────────────────────────
 
 /**

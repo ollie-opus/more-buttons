@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   locateDataTables, buildDataTable, splitRowCells, getDataTableByUUID,
   locateDataTableByUUID, replaceDataTableByUUID, deleteDataTableByUUID,
-  ensureDataTableUUIDs,
+  ensureDataTableUUIDs, parseCellCapture, serializeCellCapture,
 } from '../scripts/dataTables.js';
 import { parseComponents, buildComponentBody, uuidOfComponent, parsePastedComponents, readTabComponents } from '../scripts/components.js';
 import { GUIDE_ADMONITION_TYPES_RE } from '../scripts/admonitions.js';
@@ -411,6 +411,78 @@ test('collapseNewlines: line breaks and surrounding space collapse to one space'
   assert.equal(collapseNewlines('\nabc\n'), 'abc');
   assert.equal(collapseNewlines(null), '');
   assert.equal(collapseNewlines('a\rb'), 'a b');
+});
+
+// ── Cell captures (inline, single-line) ───────────────────────────────────────
+
+const CAP = {
+  uuid: 'CAP1',
+  lightFilename: 'media/occ-captures/uncategorised/abc-light-mode.png',
+  darkFilename: 'media/occ-captures/uncategorised/abc-dark-mode.png',
+  dimMode: 'width',
+  dimValue: 120,
+};
+
+test('serializeCellCapture: width mode is one line, span + both themed images', () => {
+  const s = serializeCellCapture(CAP);
+  assert.ok(!s.includes('\n'), 'no newline — fits a single table-cell line');
+  assert.match(s, /data-uuid="CAP1"/);
+  assert.match(s, /abc-light-mode\.png#only-light\)\{ width="120" loading=lazy \}/);
+  assert.match(s, /abc-dark-mode\.png#only-dark\)\{ width="120" loading=lazy \}/);
+});
+
+test('serializeCellCapture: height mode emits style="height: Npx"', () => {
+  const s = serializeCellCapture({ ...CAP, dimMode: 'height', dimValue: 64 });
+  assert.match(s, /#only-light\)\{ style="height: 64px" loading=lazy \}/);
+});
+
+test('serializeCellCapture: none mode emits bare images, no attr braces', () => {
+  const s = serializeCellCapture({ ...CAP, dimMode: 'none', dimValue: null });
+  assert.ok(!s.includes('{'), 'no attribute list when auto-sized');
+  assert.match(s, /#only-light\) !\[\]\(\.\.\/assets\/[^)]*#only-dark\)$/);
+});
+
+test('serializeCellCapture: incomplete descriptor → empty string', () => {
+  assert.equal(serializeCellCapture(null), '');
+  assert.equal(serializeCellCapture({ lightFilename: 'x' }), '');
+});
+
+test('parseCellCapture: plain text cell → text, no capture', () => {
+  assert.deepEqual(parseCellCapture('`GET` fetch'), { text: '`GET` fetch', capture: null });
+  assert.deepEqual(parseCellCapture(''), { text: '', capture: null });
+});
+
+test('parseCellCapture round-trips serializeCellCapture (width)', () => {
+  const { text, capture } = parseCellCapture(serializeCellCapture(CAP));
+  assert.equal(text, '');
+  assert.deepEqual(capture, CAP);
+});
+
+test('parseCellCapture round-trips serializeCellCapture (height + none)', () => {
+  for (const mode of [{ dimMode: 'height', dimValue: 64 }, { dimMode: 'none', dimValue: null }]) {
+    const cap = { ...CAP, ...mode };
+    assert.deepEqual(parseCellCapture(serializeCellCapture(cap)).capture, cap);
+  }
+});
+
+test('parseCellCapture: capture without an identity span → uuid null', () => {
+  const noSpan = serializeCellCapture({ ...CAP, uuid: null });
+  const { capture } = parseCellCapture(noSpan);
+  assert.equal(capture.uuid, null);
+  assert.equal(capture.lightFilename, CAP.lightFilename);
+});
+
+test('parseCellCapture: tolerates surrounding whitespace from cell trimming', () => {
+  const { capture } = parseCellCapture('  ' + serializeCellCapture(CAP) + '  ');
+  assert.deepEqual(capture, CAP);
+});
+
+test('cell capture survives a full data-table build/parse round-trip', () => {
+  const cellMd = serializeCellCapture(CAP);
+  const md = buildDataTable('TBL', ['left', 'left'], ['Step', 'Shot'], [['Click', cellMd]]);
+  const t = getDataTableByUUID(md, 'TBL');
+  assert.deepEqual(parseCellCapture(t.rows[0][1]).capture, CAP, 'capture cell intact after pipe-table round-trip');
+  assert.equal(parseCellCapture(t.rows[0][0]).capture, null, 'sibling text cell unaffected');
 });
 
 console.log(`\n${passed} passed`);

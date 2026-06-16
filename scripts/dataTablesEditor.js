@@ -13,10 +13,15 @@
  * UNNAMED so selecting cells never false-dirties the form
  * (contentTabsEditor's pattern).
  *
- * Save model: whole-table last-write-wins (same v1 trade-off as content
- * tabs). Tables are NOT component containers — nothing nests inside a cell —
- * so there is no registerComponentContainer here and no child save-gate; the
- * form is only ever a CHILD of a section / admonition / tab / update container.
+ * Save model: the TABLE is whole-table last-write-wins (same v1 trade-off as
+ * content tabs). A single twist: a body cell may hold ONE capture, and captures
+ * follow the app-wide immediate-save Components model. So each cell is exposed
+ * as a tiny `data-table-cell` component container (0-or-1 capture); inserting /
+ * editing / deleting a capture commits straight to the draft via the shared
+ * capture flows + editCaptureComponent, exactly like every other component. The
+ * row editor therefore carries the standard component save-gate (_componentSaver
+ * flushes the whole-table state before any child navigation) and re-hydrates its
+ * table from the file, so the two save models stay consistent.
  */
 
 import { registerFormAction } from './formActions.js';
@@ -26,12 +31,17 @@ import {
 } from './form.js';
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { generateUUID } from './admonitions.js';
-import { getComponentContainer } from './componentContainers.js';
-import { getDataTableByUUID, buildDataTable, replaceDataTableByUUID, deleteDataTableByUUID } from './dataTables.js';
+import { getComponentContainer, registerComponentContainer } from './componentContainers.js';
+import {
+  getDataTableByUUID, buildDataTable, replaceDataTableByUUID, deleteDataTableByUUID,
+  parseCellCapture, serializeCellCapture,
+} from './dataTables.js';
 import { spliceIntoContainer, beginChildNavigation } from './guides.js';
+import { openInsertMenu } from './insertMenu.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
 import { renderDocHtml } from './markdownInline.js';
-import { escapeHtml } from './cardRenderer.js';
+import { escapeHtml, captureComponentCard } from './cardRenderer.js';
+import { assetCdnUrl } from './repoClient.js';
 
 const STORAGE_KEY = 'moreButtonsEditDataTable';
 
@@ -75,6 +85,13 @@ function syncTableState(formEl) {
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 function cellPreview(text) {
+  // A capture cell holds dual (light+dark) inline image markdown; preview it as
+  // a single light-mode thumbnail rather than letting the mini-renderer stack
+  // both themed images.
+  const { capture } = parseCellCapture(text ?? '');
+  if (capture) {
+    return `<img class="mb-dt-cell__capture" src="${escapeHtml(assetCdnUrl('docs/assets/' + capture.lightFilename))}" alt="" loading="lazy" />`;
+  }
   return renderDocHtml(text ?? '') || '<span class="mb-dt-cell__empty">…</span>';
 }
 
@@ -91,11 +108,13 @@ function renderGrid(formEl) {
     return `<${tag} class="${cls}" data-dt-cell-at="${row}:${col}">${cellPreview(text)}</${tag}>`;
   };
   // Right-most Edit column — one button per row (incl. the header, row -1).
+  // Reuses the component-card edit button (.mb-incident-card__edit); the accent
+  // vars it needs are supplied by .mb-dt-edit-cell in formsStyling.css.
   const editCell = row => {
     const tag = row === -1 ? 'th' : 'td';
     const cls = 'mb-dt-edit-cell' + (row === -1 ? ' mb-dt-cell--header' : '');
     const label = row === -1 ? 'header' : `row ${row + 1}`;
-    return `<${tag} class="${cls}"><button type="button" class="mb-dt-edit-btn" data-edit-table-row="${row}" title="Edit ${label}"><span class="more-buttons-icon">edit</span></button></${tag}>`;
+    return `<${tag} class="${cls}"><button type="button" class="mb-incident-card__edit" data-edit-table-row="${row}" title="Edit ${label}">Edit</button></${tag}>`;
   };
   grid.innerHTML =
     `<thead><tr>${st.header.map((h, c) => cell(-1, c, h)).join('')}${editCell(-1)}</tr></thead>` +
@@ -393,17 +412,80 @@ function refreshRowAlign(formEl) {
     btn.classList.toggle('--active', st.align[st.selected.col] === btn.dataset.dtAlign));
 }
 
-// Push the active column's cell into the editor + light its alignment.
+// The active cell parsed into { text, capture } (exclusive — see dataTables.js).
+function activeCell(formEl) {
+  const st = formEl._dt;
+  return parseCellCapture(cellAt(st, st.selected.row, st.selected.col));
+}
+
+// The cell-container ref the save-gate uses: a body cell is a `data-table-cell`
+// container identified by `tableUuid@row,col`. Kept current on formEl.dataset so
+// containerFromForm (guides.js) resolves to the SELECTED cell.
+function cellRefOf(tableUuid, row, col) { return `${tableUuid}@${row},${col}`; }
+function selectedCellRef(formEl) {
+  const st = formEl._dt;
+  return cellRefOf(formEl.dataset.tableUuid, st.selected.row, st.selected.col);
+}
+
+// Render the active cell's Components group: the capture card (Edit → the shared
+// editCaptureComponent form, which owns size + delete) when the cell holds one,
+// otherwise the standard "+ Insert capture" empty-state button. Header cells
+// (row -1) never hold captures, so the group stays empty there.
+function renderRowComponents(formEl) {
+  const host = formEl.querySelector('[data-dtr-components]');
+  if (!host) return;
+  const onHeader = formEl._dt.selected.row === -1;
+  const { capture } = activeCell(formEl);
+  host.innerHTML = onHeader ? '' : (capture
+    ? captureComponentCard({
+        thumbSrc: assetCdnUrl('docs/assets/' + capture.lightFilename),
+        btnAttr: `data-edit-component="${escapeHtml(capture.uuid ?? '')}"`,
+      })
+    : `<button type="button" class="mb-insert-component__empty" data-dtr-insert-capture><span class="mb-adm-empty__icon">+</span> Insert capture</button>`);
+  // Keep the save-gate's container identity pointed at the selected cell.
+  formEl.dataset.editUuid = selectedCellRef(formEl);
+}
+
+// Push the active cell into the editor — text editor when the cell is text (or a
+// header), capture card when it holds a capture (exclusive) — and light its
+// alignment. The text editor is hidden while a capture occupies the cell.
 function loadRowCell(formEl) {
   const st = formEl._dt;
-  const ta = formEl.querySelector('[data-dt-cell]');
-  if (ta) { ta.value = cellAt(st, st.selected.row, st.selected.col); syncSurfaceFromTextarea(ta); }
+  const { text, capture } = activeCell(formEl);
+  const onHeader = st.selected.row === -1;
+  const hasCapture = !!capture && !onHeader;
+
+  const textGroup = formEl.querySelector('[data-dtr-text-group]');
+  if (textGroup) textGroup.hidden = hasCapture;
+  // Header cells (column titles) can't hold captures — hide the whole group.
+  const compGroup = formEl.querySelector('[data-components-row]');
+  if (compGroup) compGroup.hidden = onHeader;
+  if (!hasCapture) {
+    const ta = formEl.querySelector('[data-dt-cell]');
+    if (ta) { ta.value = text; syncSurfaceFromTextarea(ta); }
+  }
+  renderRowComponents(formEl);
   refreshRowAlign(formEl);
+}
+
+// "+ Insert capture" → captures-only menu → the shared capture flows, routed
+// through the component save-gate (beginChildNavigation flushes the whole-table
+// state first). Inserting into a text cell replaces its text (exclusive model).
+function openCellCaptureMenu(formEl, anchorBtn) {
+  const hasText = !!activeCell(formEl).text.trim();
+  const dispatch = (kind) => {
+    if (hasText && !confirm('This cell has text. Replace it with a capture?')) return;
+    beginChildNavigation(formEl, { type: 'insert', kind, insertAt: 0 });
+  };
+  openInsertMenu(anchorBtn, 0, {
+    captureNew: () => dispatch('capture-new'),
+    captureLibrary: () => dispatch('capture-library'),
+  }, { capturesOnly: true });
 }
 
 function wireRowEditor(formEl) {
   // The rich editor re-dispatches surface edits as bubbling `input` events on
-  // its textarea, so this one listener covers both views.
+  // its textarea, so this listener covers the in-view text editor.
   formEl.addEventListener('input', e => {
     if (!e.target.matches?.('[data-dt-cell]')) return;
     const st = formEl._dt;
@@ -430,7 +512,28 @@ function wireRowEditor(formEl) {
       formEl._refreshSaveState?.();
       return;
     }
+    // The capture card's Edit → shared edit-capture flow (size + delete live in
+    // editCaptureComponent), routed through the save-gate like every container.
+    const editCap = e.target.closest('[data-edit-component]');
+    if (editCap) {
+      beginChildNavigation(formEl, { type: 'edit-capture', uuid: editCap.dataset.editComponent });
+      return;
+    }
+    const insertCap = e.target.closest('[data-dtr-insert-capture]');
+    if (insertCap) { openCellCaptureMenu(formEl, insertCap); return; }
   });
+}
+
+// Whole-table save used as the row editor's component save-gate hook: flush the
+// in-flight table to the draft, then hand back the SELECTED cell as the container
+// the pending child (capture insert / edit) will act on.
+async function saveRowForComponent(formEl) {
+  const res = await persistDataTableEdit(formEl);
+  if (!res) return null;
+  return {
+    container: { kind: 'data-table-cell', uuid: selectedCellRef(formEl), file: formEl.dataset.containerFile },
+    formEl,
+  };
 }
 
 registerFormAction('openEditDataTableRow', async ({ uuid, file, row } = {}) => {
@@ -445,13 +548,24 @@ registerFormAction('openEditDataTableRow', async ({ uuid, file, row } = {}) => {
   const tbl = getDataTableByUUID(md, uuid);
   if (!tbl) { alert('Data table not found.'); return; }
   const fallback = { align: tbl.align, header: tbl.header, rows: tbl.rows };
-  if (!isFormReplay()) await seedStorage(fallback);
+  // The row editor sources its table from the FILE on every open (incl. replay):
+  // the save-gate flushes any in-flight whole-table edits before any navigation
+  // away, so the file is authoritative, and cell captures committed immediately
+  // by editCaptureComponent / the capture flows always round-trip. Seeding
+  // storage from the file keeps the grid's back-navigation re-render correct.
+  await seedStorage(fallback);
 
   const { formEl } = await createForm('editDataTableRow');
   if (!formEl) return;
   formEl.dataset.mode = 'edit';
   formEl.dataset.tableUuid = uuid;
   formEl.dataset.containerFile = file;
+  // Make the row editor a component host: each cell is a `data-table-cell`
+  // container (resolved per-selection via dataset.editUuid in renderRowComponents),
+  // and the save-gate flushes the whole table before opening a capture child.
+  formEl.dataset.componentContainerKind = 'data-table-cell';
+  formEl.dataset.componentNoun = 'data table';
+  formEl._componentSaver = () => saveRowForComponent(formEl);
 
   await initStateFromStorage(formEl, fallback, file, uuid);
   const st = formEl._dt;
@@ -468,6 +582,84 @@ registerFormAction('openEditDataTableRow', async ({ uuid, file, row } = {}) => {
   loadRowCell(formEl);
   syncTableState(formEl);
   resetDirtyBaseline(formEl);
+});
+
+// ── data-table-cell component container ─────────────────────────────────────
+//
+// Each body cell is a leaf container holding 0-or-1 capture. The cell is keyed
+// by `tableUuid@row,col` so the registry's (md, uuid) contract carries the
+// coordinates. Insert / edit / delete go through the shared capture flows +
+// editCaptureComponent, which commit to the draft via these helpers. After any
+// commit, the live row editor (if mounted) is re-hydrated from the file so its
+// in-memory `_dt` — the whole-table save's source of truth — never goes stale.
+
+function parseCellRef(ref) {
+  const [tableUuid, rc = ''] = String(ref).split('@');
+  const [row, col] = rc.split(',').map(n => parseInt(n, 10));
+  return { tableUuid, row, col };
+}
+
+function readCellComponents(md, cellRef) {
+  const { tableUuid, row, col } = parseCellRef(cellRef);
+  const tbl = getDataTableByUUID(md, tableUuid);
+  if (!tbl) return { description: '', components: [] };
+  const cellStr = row === -1 ? tbl.header[col] : tbl.rows[row]?.[col];
+  const { capture } = parseCellCapture(cellStr ?? '');
+  return { description: '', components: capture ? [{ kind: 'capture', cap: capture }] : [] };
+}
+
+function writeCellBody(md, cellRef, _description, components) {
+  const { tableUuid, row, col } = parseCellRef(cellRef);
+  const tbl = getDataTableByUUID(md, tableUuid);
+  if (!tbl) return md;
+  const cap = components.find(c => c.kind === 'capture')?.cap;
+  const cellStr = cap ? serializeCellCapture(cap) : '';
+  const header = tbl.header.slice();
+  const rows = tbl.rows.map(r => r.slice());
+  if (row === -1) header[col] = cellStr; else if (rows[row]) rows[row][col] = cellStr;
+  return replaceDataTableByUUID(md, tableUuid, buildDataTable(tableUuid, tbl.align, header, rows));
+}
+
+function cellExists(md, cellRef) {
+  return !!getDataTableByUUID(md, parseCellRef(cellRef).tableUuid);
+}
+
+// Re-read the table from the file into the live row editor's `_dt` and re-render.
+// Used after a capture commit so the whole-table save can't clobber it. A no-op
+// when the row editor isn't the mounted form (e.g. delete happens from the
+// editCaptureComponent child — the row editor re-reads the file on navigate-back).
+// `select` (the committed cell's coords) is surfaced so an insert lands the user
+// on the cell they just filled rather than the replay's reset column.
+async function refreshLiveRowFormFromFile(select) {
+  const formEl = document.getElementById('edit-data-table-row-form');
+  if (!formEl?.isConnected || !formEl._dt) return;
+  const md = await fetchFileMigratingIdentity(formEl.dataset.containerFile);
+  const tbl = getDataTableByUUID(md, formEl.dataset.tableUuid);
+  if (!tbl) return;
+  const st = formEl._dt;
+  st.align = tbl.align; st.header = tbl.header; st.rows = tbl.rows;
+  if (select && Number.isInteger(select.col)) st.selected = { row: select.row, col: select.col };
+  clampSelection(st);
+  syncTableState(formEl);
+  await seedStorage(st);
+  renderRowStrip(formEl);
+  loadRowCell(formEl);
+  resetDirtyBaseline(formEl);
+}
+
+registerComponentContainer('data-table-cell', {
+  readComponents: readCellComponents,
+  writeBody: writeCellBody,
+  exists: cellExists,
+  mutate: async (container, transform, onProgress) => {
+    await githubFetchAndPushFile(container.file, onProgress || (() => {}), md => {
+      if (!cellExists(md, container.uuid)) throw new Error('Parent table no longer exists.');
+      const { description, components } = readCellComponents(md, container.uuid);
+      const next = transform(components, description) || components;
+      return writeCellBody(md, container.uuid, description, next);
+    });
+    await refreshLiveRowFormFromFile(parseCellRef(container.uuid));
+  },
 });
 
 // ── Form actions ──────────────────────────────────────────────────────────────

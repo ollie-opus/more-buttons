@@ -2233,6 +2233,16 @@ details[open] .more-buttons-advanced-toggle::before {
   opacity: 0.6;
 }
 
+/* Capture thumbnail inside a grid cell — kept small so rows stay scannable. */
+.mb-dt-cell__capture {
+  display: block;
+  max-width: 160px;
+  max-height: 64px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
 /* The structure-controls row reuses .mb-ct-manage; it just needs to wrap. */
 .mb-dt-manage {
   flex-wrap: wrap;
@@ -2245,30 +2255,17 @@ details[open] .more-buttons-advanced-toggle::before {
   border-bottom: 1px solid var(--mb-border-subtle);
 }
 
-/* Right-most per-row Edit column in the grid. */
+/* Right-most per-row Edit column in the grid. The button reuses the
+   component-card edit style (.mb-incident-card__edit); supply the accent
+   vars it expects (default grey, matching an uncoloured card). */
 .mb-dt-edit-cell {
+  --mb-accent: rgb(158, 158, 158);
+  --mb-card-edit-fg-hover: #fff;
   border: 1px solid var(--mb-border-subtle);
   width: 1%;
   white-space: nowrap;
   text-align: center;
   padding: 2px 6px;
-}
-
-.mb-dt-edit-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: none;
-  background: none;
-  color: var(--mb-text-muted);
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.mb-dt-edit-btn:hover {
-  background: rgba(127, 127, 127, 0.12);
-  color: var(--mb-text);
 }
 
 /* Column tab strip on the per-row editor. */

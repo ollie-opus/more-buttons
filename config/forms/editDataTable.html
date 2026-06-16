@@ -1,10 +1,6 @@
 <form data-nav data-dirty-guard id="edit-data-table-form" data-storage-key="moreButtonsEditDataTable" data-width="90vw" data-height="90vh">
   <h2 data-dt-heading>Edit data table</h2>
 
-  <div class="mb-dt-grid-wrap">
-    <table class="mb-dt-grid" data-dt-grid></table>
-  </div>
-
   <div class="mb-ct-manage mb-dt-manage">
     <button type="button" class="more-buttons-button secondary" data-dt-add="row"><span class="more-buttons-icon">add</span>Add row</button>
     <button type="button" class="more-buttons-button secondary" data-dt-add="col"><span class="more-buttons-icon">add</span>Add column</button>
@@ -14,6 +10,10 @@
     <button type="button" class="more-buttons-button secondary" data-dt-move="right"><span class="more-buttons-icon">arrow_forward</span>Column right</button>
     <button type="button" class="more-buttons-button danger" data-dt-delete="row"><span class="more-buttons-icon">delete</span>Delete row</button>
     <button type="button" class="more-buttons-button danger" data-dt-delete="col"><span class="more-buttons-icon">delete</span>Delete column</button>
+  </div>
+
+  <div class="mb-dt-grid-wrap">
+    <table class="mb-dt-grid" data-dt-grid></table>
   </div>
 
   <input type="hidden" name="tableState" />
