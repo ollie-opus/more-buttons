@@ -114,3 +114,55 @@ export function cropBoxPx(cropDip, imgWidth, imgHeight) {
   const h = Math.min(Math.max(1, cropDip.h * pxPerDipY), imgHeight - y);
   return { x, y, w, h };
 }
+
+/**
+ * Resolve an element's four CSS corner radii into clamped {x, y} ellipse radii
+ * in BITMAP pixels, for the rounded-corner capture mask.
+ *
+ * CSS paints every corner as an ELLIPSE: the horizontal radius resolves against
+ * the box width, the vertical against the height. getComputedStyle keeps each
+ * border-*-radius as one token "H" (H==V) or two tokens "H V" (elliptical /
+ * slash syntax), and — crucially — keeps percentages UNRESOLVED ("25%", not a
+ * px pair). So a percentage corner is `% of width` wide by `% of height` tall.
+ * The old mask read only the first token and resolved it against width for both
+ * axes, drawing a circle: it over-rounded the short axis of wide/short and
+ * percentage-radius elements (clipping real content) and squared-off true
+ * ellipses — the two reported capture bugs.
+ *
+ * Each axis is scaled by its own bitmap-px-per-CSS-px (sx, sy), then the single
+ * CSS overlap-clamp factor (CSS Backgrounds-3 §5.5) shrinks every radius if two
+ * radii on an edge would overlap. Symmetric px radii (the common case) are
+ * returned unchanged (x === y), so circular corners and pills are unaffected.
+ *
+ * @param {{ tl: string, tr: string, br: string, bl: string }} corners
+ *   computed borderTopLeft / TopRight / BottomRight / BottomLeft-Radius strings
+ * @param {{ elW: number, elH: number, w: number, h: number, sx: number, sy: number }} box
+ *   elW/elH: element box in CSS px; w/h: canvas size (element box in bitmap px);
+ *   sx/sy: bitmap px per CSS px on each axis
+ * @returns {{ tl: {x,y}, tr: {x,y}, br: {x,y}, bl: {x,y} }} radii in bitmap px
+ */
+export function resolveCornerRadii(corners, { elW, elH, w, h, sx, sy }) {
+  const axis = (tok, dim, scale) => {
+    const t = tok.trim();
+    return t.endsWith('%')
+      ? (parseFloat(t) / 100) * dim * scale
+      : (parseFloat(t) || 0) * scale;
+  };
+  const corner = (val) => {
+    const [hTok, vTok = hTok] = val.trim().split(/\s+/);
+    return { x: axis(hTok, elW, sx), y: axis(vTok, elH, sy) };
+  };
+
+  const tl = corner(corners.tl), tr = corner(corners.tr),
+        br = corner(corners.br), bl = corner(corners.bl);
+
+  // One factor f = min over the four edges of edge-length / sum-of-its-two
+  // radii, applied to every radius (both axes). A zero-radius edge makes its
+  // term Infinity, which Math.min ignores, so f stays 1 for square corners.
+  const f = Math.min(1,
+    w / (tl.x + tr.x), w / (bl.x + br.x),   // top & bottom edges (horizontal radii)
+    h / (tl.y + bl.y), h / (tr.y + br.y));  // left & right edges (vertical radii)
+  if (f < 1) for (const c of [tl, tr, br, bl]) { c.x *= f; c.y *= f; }
+
+  return { tl, tr, br, bl };
+}

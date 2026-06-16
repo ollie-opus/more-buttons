@@ -14,7 +14,7 @@
  * No module-level lifecycle. The controller owns mode state.
  */
 
-import { cropBoxPx } from './captureGeometry.js';
+import { cropBoxPx, resolveCornerRadii } from './captureGeometry.js';
 
 console.log('[CAPDBG] 📄 captureElement.js loaded — CAPDBG-BUILD-12');
 
@@ -302,7 +302,7 @@ function applyBorderRadiusMask(src, el, cropDip) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const { width: elW } = el.getBoundingClientRect();
+      const { width: elW, height: elH } = el.getBoundingClientRect();
       const cs = getComputedStyle(el);
 
       // The captured bitmap contains the element plus a background margin (the
@@ -327,32 +327,32 @@ function applyBorderRadiusMask(src, el, cropDip) {
       const ctx = canvas.getContext('2d');
 
       const sx = ew / elW;
-      function parseR(val, dim, scale) {
-        const v = val.trim().split(/\s+/)[0];
-        if (v.endsWith('%')) return (parseFloat(v) / 100) * dim * scale;
-        return (parseFloat(v) || 0) * scale;
-      }
+      const sy = eh / elH;
 
-      let tl = parseR(cs.borderTopLeftRadius,     elW, sx);
-      let tr = parseR(cs.borderTopRightRadius,    elW, sx);
-      let br = parseR(cs.borderBottomRightRadius, elW, sx);
-      let bl = parseR(cs.borderBottomLeftRadius,  elW, sx);
-
-      // getComputedStyle returns the *unclamped* radius (e.g. "9999px" for a
-      // pill), but CSS scales all radii down by a single factor when the two
-      // radii along any edge would overlap. Reproduce that clamp here against the
-      // element's own box, otherwise large/pill radii feed arcTo() values bigger
-      // than the box and the clip path becomes malformed (no rounded ends). The
-      // factor stays 1 for normal radii.
-      const f = Math.min(1, w / (tl + tr), h / (tr + br), w / (br + bl), h / (bl + tl));
-      if (f < 1) { tl *= f; tr *= f; br *= f; bl *= f; }
+      // CSS corners are ELLIPSES (rx,ry). getComputedStyle keeps each
+      // border-*-radius as "H" or "H V" with percentages UNRESOLVED ("25%"), so
+      // resolve the horizontal token against width and the vertical against
+      // height, scale each axis by its own bitmap-px-per-CSS-px, then apply the
+      // single CSS overlap-clamp (see resolveCornerRadii). Drawn with
+      // ctx.ellipse — arcTo is circular-only and would force ry = rx, which
+      // over-rounds the short axis and slices the corners off wide/short or
+      // percentage-radius elements (buttons, chips, pills).
+      const { tl, tr, br, bl } = resolveCornerRadii(
+        {
+          tl: cs.borderTopLeftRadius,
+          tr: cs.borderTopRightRadius,
+          br: cs.borderBottomRightRadius,
+          bl: cs.borderBottomLeftRadius,
+        },
+        { elW, elH, w, h, sx, sy }
+      );
 
       ctx.beginPath();
-      ctx.moveTo(tl, 0);
-      ctx.lineTo(w - tr, 0);  ctx.arcTo(w, 0, w, tr, tr);
-      ctx.lineTo(w, h - br);  ctx.arcTo(w, h, w - br, h, br);
-      ctx.lineTo(bl, h);      ctx.arcTo(0, h, 0, h - bl, bl);
-      ctx.lineTo(0, tl);      ctx.arcTo(0, 0, tl, 0, tl);
+      ctx.moveTo(tl.x, 0);
+      ctx.lineTo(w - tr.x, 0);  ctx.ellipse(w - tr.x, tr.y, tr.x, tr.y, 0, -Math.PI / 2, 0);
+      ctx.lineTo(w, h - br.y);  ctx.ellipse(w - br.x, h - br.y, br.x, br.y, 0, 0, Math.PI / 2);
+      ctx.lineTo(bl.x, h);      ctx.ellipse(bl.x, h - bl.y, bl.x, bl.y, 0, Math.PI / 2, Math.PI);
+      ctx.lineTo(0, tl.y);      ctx.ellipse(tl.x, tl.y, tl.x, tl.y, 0, Math.PI, 1.5 * Math.PI);
       ctx.closePath();
       ctx.clip();
       // Draw the full bitmap shifted so the element's top-left lands at (0,0); the

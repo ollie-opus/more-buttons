@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { computeCaptureClip, cropBoxPx } from '../scripts/captureGeometry.js';
+import { computeCaptureClip, cropBoxPx, resolveCornerRadii } from '../scripts/captureGeometry.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -130,6 +130,47 @@ test('cropBoxPx: clamps to the bitmap bounds', () => {
 test('cropBoxPx: falls back to the full bitmap when no crop box is supplied', () => {
   const box = cropBoxPx(null, 640, 480);
   assert.deepEqual(box, { x: 0, y: 0, w: 640, h: 480 });
+});
+
+// ── resolveCornerRadii: the rounded-corner mask shape ─────────────────────────
+// Box helper: 2x bitmap of the CSS box (Retina scale-1 capture), so sx=sy=2.
+const box = (elW, elH) => ({ elW, elH, w: elW * 2, h: elH * 2, sx: 2, sy: 2 });
+const same = (s) => ({ tl: s, tr: s, br: s, bl: s });
+
+test('resolveCornerRadii: symmetric px radius is unchanged (circular corners, common case)', () => {
+  const r = resolveCornerRadii(same('8px'), box(100, 40));
+  for (const c of ['tl', 'tr', 'br', 'bl']) assert.deepEqual(r[c], { x: 16, y: 16 });
+});
+
+test('resolveCornerRadii: percentage resolves per-axis — vertical uses HEIGHT, not width (symptom A)', () => {
+  // 120x28 button, border-radius:25%. CSS paints rx=25% of width, ry=25% of
+  // height. The old mask used 25% of width for BOTH axes and drew a circle,
+  // over-rounding the short axis and clipping content.
+  const r = resolveCornerRadii(same('25%'), box(120, 28));
+  // rx = 0.25*120*2 = 60 ; ry = 0.25*28*2 = 14 ; clamp f = 1 (no overlap)
+  for (const c of ['tl', 'tr', 'br', 'bl']) assert.deepEqual(r[c], { x: 60, y: 14 });
+});
+
+test('resolveCornerRadii: explicit elliptical "H V" keeps the vertical token (not dropped)', () => {
+  const r = resolveCornerRadii({ tl: '40px 8px', tr: '0px', br: '0px', bl: '0px' }, box(200, 100));
+  assert.deepEqual(r.tl, { x: 80, y: 16 }); // 40*2 by 8*2 — old code dropped the 8px
+  assert.deepEqual(r.tr, { x: 0, y: 0 });
+});
+
+test('resolveCornerRadii: oversized pill radius clamps to the half-height semicircle', () => {
+  const r = resolveCornerRadii(same('9999px'), box(120, 32));
+  // f collapses every radius to h/2 = 32 bitmap px → correct pill ends
+  for (const c of ['tl', 'tr', 'br', 'bl']) assert.deepEqual(r[c], { x: 32, y: 32 });
+});
+
+test('resolveCornerRadii: 50% on a square box is a full circle', () => {
+  const r = resolveCornerRadii(same('50%'), box(64, 64));
+  for (const c of ['tl', 'tr', 'br', 'bl']) assert.deepEqual(r[c], { x: 64, y: 64 });
+});
+
+test('resolveCornerRadii: zero radius everywhere yields a plain rectangle (no NaN/Infinity)', () => {
+  const r = resolveCornerRadii(same('0px'), box(100, 40));
+  for (const c of ['tl', 'tr', 'br', 'bl']) assert.deepEqual(r[c], { x: 0, y: 0 });
 });
 
 console.log(`\n${passed} passed`);
