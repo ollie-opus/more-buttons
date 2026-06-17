@@ -166,3 +166,48 @@ export function resolveCornerRadii(corners, { elW, elH, w, h, sx, sy }) {
 
   return { tl, tr, br, bl };
 }
+
+/**
+ * Is a computed `transform` string identity, OR settled close enough to identity
+ * that pinning it to `none` for the capture is visually negligible?
+ *
+ * Capture de-promotes layer-forming ancestors (transform/will-change → none) so
+ * the element paints inline at full resolution. The gate for "safe to pin" used
+ * to be an EXACT string match against `matrix(1, 0, 0, 1, 0, 0)`. But rAF
+ * animation libraries ease toward scale 1.0 and the final sampled frame is
+ * routinely a hair off — `matrix(0.9998, 0, 0, 0.9998, …)` — and a scale about a
+ * non-origin transform-origin also leaves a sub-pixel translation component. The
+ * exact test let those settled residuals slip through unpinned, so the layer
+ * stayed promoted (low-res) AND the still-drifting transform changed the box
+ * between the rect read and the screenshot, slicing the element's right edge.
+ *
+ * Tolerances separate a settled easing residual (snap it to none, which captures
+ * the animation's resting state) from a deliberate transform like
+ * translate(40px) / scale(1.4) / rotate(8deg) (leave promoted — pinning would
+ * actually move it). Handles `matrix()` and `matrix3d()`; any other form
+ * (unparseable) is treated as a real transform.
+ *
+ * @param {string} t  getComputedStyle(node).transform
+ * @returns {boolean}
+ */
+export function transformIsNearIdentity(t) {
+  if (!t || t === 'none') return true;
+  const m = t.match(/matrix(3d)?\(([^)]+)\)/);
+  if (!m) return false;
+  const v = m[2].split(',').map(s => parseFloat(s));
+  if (v.some(n => Number.isNaN(n))) return false;
+  const S = 1e-2; // linear part (scale / skew / rotation) tolerance
+  const T = 1;    // translation tolerance, CSS px
+  if (m[1]) {     // matrix3d: 16 column-major values
+    if (v.length !== 16) return false;
+    const linIdx = [0, 1, 2, 4, 5, 6, 8, 9, 10];
+    const linId  = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    for (let i = 0; i < 9; i++) if (Math.abs(v[linIdx[i]] - linId[i]) > S) return false;
+    return Math.abs(v[12]) <= T && Math.abs(v[13]) <= T && Math.abs(v[14]) <= T;
+  }
+  if (v.length !== 6) return false; // matrix(a, b, c, d, e, f)
+  const [a, b, c, d, e, f] = v;
+  return Math.abs(a - 1) <= S && Math.abs(d - 1) <= S
+      && Math.abs(b) <= S && Math.abs(c) <= S
+      && Math.abs(e) <= T && Math.abs(f) <= T;
+}

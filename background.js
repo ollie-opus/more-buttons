@@ -1,7 +1,7 @@
 import { computeCaptureClip } from './scripts/captureGeometry.js';
 
 // Bump this on every capture-debug change so we can prove the running code.
-const CAPDBG_BUILD = 'CAPDBG-BUILD-12';
+const CAPDBG_BUILD = 'CAPDBG-BUILD-15';
 console.log(`[CAPDBG] ⚙️ background.js loaded — ${CAPDBG_BUILD}`);
 
 chrome.runtime.onInstalled.addListener(() => {

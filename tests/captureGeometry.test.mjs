@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { computeCaptureClip, cropBoxPx, resolveCornerRadii } from '../scripts/captureGeometry.js';
+import { computeCaptureClip, cropBoxPx, resolveCornerRadii, transformIsNearIdentity } from '../scripts/captureGeometry.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -171,6 +171,38 @@ test('resolveCornerRadii: 50% on a square box is a full circle', () => {
 test('resolveCornerRadii: zero radius everywhere yields a plain rectangle (no NaN/Infinity)', () => {
   const r = resolveCornerRadii(same('0px'), box(100, 40));
   for (const c of ['tl', 'tr', 'br', 'bl']) assert.deepEqual(r[c], { x: 0, y: 0 });
+});
+
+// ── transformIsNearIdentity: the de-promotion gate ────────────────────────────
+
+test('transformIsNearIdentity: none / empty / exact identity are identity', () => {
+  assert.equal(transformIsNearIdentity('none'), true);
+  assert.equal(transformIsNearIdentity(''), true);
+  assert.equal(transformIsNearIdentity(undefined), true);
+  assert.equal(transformIsNearIdentity('matrix(1, 0, 0, 1, 0, 0)'), true);
+});
+
+test('transformIsNearIdentity: settled easing residual counts as identity (THE REGRESSION)', () => {
+  // rAF easing lands a hair off 1.0 — the old exact-string gate skipped these,
+  // leaving the layer promoted (low-res) and the box drifting (right-edge crop).
+  assert.equal(transformIsNearIdentity('matrix(0.9998, 0, 0, 0.9998, 0, 0)'), true);
+  // scale about a centered transform-origin leaves a sub-px translation too
+  assert.equal(transformIsNearIdentity('matrix(0.9994, 0, 0, 0.9994, 0.3, 0.18)'), true);
+  // matrix3d form (libraries force GPU with translateZ)
+  assert.equal(transformIsNearIdentity('matrix3d(0.9997, 0, 0, 0, 0, 0.9997, 0, 0, 0, 0, 1, 0, 0.2, 0.1, 0, 1)'), true);
+});
+
+test('transformIsNearIdentity: deliberate transforms are NOT identity (must stay promoted)', () => {
+  assert.equal(transformIsNearIdentity('matrix(1, 0, 0, 1, 40, 0)'), false);   // translate(40px)
+  assert.equal(transformIsNearIdentity('matrix(1.4, 0, 0, 1.4, 0, 0)'), false); // scale(1.4)
+  assert.equal(transformIsNearIdentity('matrix(0.92, 0, 0, 0.92, 0, 0)'), false); // mid-animation scale
+  assert.equal(transformIsNearIdentity('matrix(0.99, -0.14, 0.14, 0.99, 0, 0)'), false); // rotate(8deg)
+  assert.equal(transformIsNearIdentity('matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 50, 0, 0, 1)'), false); // translate3d(50px)
+});
+
+test('transformIsNearIdentity: unparseable / unexpected forms are treated as real', () => {
+  assert.equal(transformIsNearIdentity('rotate(8deg)'), false); // not a matrix form
+  assert.equal(transformIsNearIdentity('matrix(1, 0, 0, 1, 0)'), false); // wrong arg count
 });
 
 console.log(`\n${passed} passed`);
