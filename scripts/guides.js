@@ -18,7 +18,7 @@ import { formLoading } from './loading.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
-import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, findPathOfValue, renameByValue, slugify } from './navToml.js';
+import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, removeByValueSlug, findPathOfValue, findPathByValueSlug, valueSlug, renameByValue, renameByValueSlug, slugify, setPathByValueSlug } from './navToml.js';
 import {
   ensureSectionUUIDs, parseSections, buildSectionTree,
   insertSectionUnderParent, moveSectionToParent, deleteSectionByUUID,
@@ -78,8 +78,17 @@ let currentGuide = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Resolve a nav/draft_nav leaf value to the live page path. By convention every
+// leaf value (in BOTH nav and draft_nav) is pages/<slug>.md and the live page
+// lives at docs/pages/<slug>.md — drafting state is conveyed by which array the
+// entry sits in, not by the path. We normalize defensively: a stray
+// drafts/<slug>.md value (legacy or hand-authored TOML) must NOT resolve under
+// docs/drafts/, or it collapses livePath onto draftPath and turns the publish's
+// live-page write into a destructive no-op — which once silently dropped a live
+// page while still deleting its draft. See the guard in publishGuideDraft.
 function livePathFromNav(filePath) {
-  return filePath.startsWith('docs/') ? filePath : 'docs/' + filePath;
+  const rel = filePath.replace(/^docs\//, '').replace(/^drafts\//, 'pages/');
+  return 'docs/' + (rel.startsWith('pages/') ? rel : 'pages/' + rel);
 }
 
 function draftPathOf(livePath) {
@@ -105,8 +114,18 @@ function guideBaseName(livePath) {
 }
 
 // Nav leaf value for the current guide, e.g. 'pages/foo.md' (drops leading docs/).
+// Used for `nav` entries, which always point at the live page.
 function navValueOf(livePath) {
   return livePath.replace(/^docs\//, '');
+}
+
+// draft_nav leaf value for the current guide, e.g. 'drafts/foo.md'. By convention
+// a draft_nav entry references the in-progress draft file (docs/drafts/<slug>.md),
+// NOT the live page — drafting is the only state a draft_nav entry represents, so
+// it points at the file that actually holds the draft content. On publish the
+// entry is promoted into `nav` with its navValueOf (pages/) value instead.
+function draftNavValueOf(livePath) {
+  return navValueOf(livePath).replace(/^pages\//, 'drafts/');
 }
 
 // ── Entry form: open + re-render ──────────────────────────────────────────────
@@ -158,6 +177,13 @@ function onGuideEntryClick(e, formEl) {
       .finally(() => formLoading.dismiss());
     return;
   }
+  const pageSettings = e.target.closest('[data-edit-page-settings]');
+  if (pageSettings) {
+    formLoading.show();
+    Promise.resolve(getFormAction('openEditPageSettings')?.({ file: formEl.dataset.draftPath }))
+      .finally(() => formLoading.dismiss());
+    return;
+  }
 }
 
 async function renderGuideEntryContent(formEl) {
@@ -197,11 +223,27 @@ async function renderGuideEntryContent(formEl) {
   // Draft exists — render the section tree.
   const { title } = buildSectionTree(draftMarkdown);
   const treeHtml = renderGuideSectionTree(draftMarkdown);
-  contentEl.innerHTML = treeHtml;
+  // Page settings sits in its own block above the section tree (page-level
+  // frontmatter, e.g. the icon — distinct from any one section).
+  contentEl.innerHTML = renderPageSettingsNode() + treeHtml;
   actionsEl.innerHTML = `
     <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
     <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
     <button type="button" class="more-buttons-button danger" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
+}
+
+// A standalone tree block (separate from the section tree) for page-level
+// settings. One node today — opens the Page settings form.
+function renderPageSettingsNode() {
+  return `
+    <div class="mb-kb-tree mb-kb-tree--page-settings">
+      <div class="mb-kb-node">
+        <button class="mb-kb-node-row" type="button" data-edit-page-settings>
+          <span class="mb-kb-node-icon material-symbols-outlined">tune</span>
+          <strong>Page settings</strong>
+        </button>
+      </div>
+    </div>`;
 }
 
 function renderGuideSectionTree(markdown) {
@@ -275,9 +317,12 @@ async function createGuideDraft(formEl) {
     await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
       const navItems = parseNavBlock(md, 'nav').items;
       const draftItems = parseNavBlock(md, 'draft_nav').items;
-      removeByValue(draftItems, value);
+      // Clear any stale draft entry by slug, then mirror the live nav location with
+      // the draft file's value (drafts/<slug>.md) — a draft_nav entry references the
+      // draft, not the live page.
+      removeByValueSlug(draftItems, valueSlug(value));
       const loc = findPathOfValue(navItems, value);
-      insertPath(draftItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), value);
+      insertPath(draftItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), draftNavValueOf(currentGuide.livePath));
       return replaceNavBlock(md, 'draft_nav', draftItems);
     });
     await renderGuideEntryContent(formEl);
@@ -302,20 +347,36 @@ async function publishGuideDraft(formEl) {
       restoreButton(btn, snap);
       return;
     }
+    // Fail-safe behind livePathFromNav's normalization: never delete the draft
+    // (below) unless the live page is a genuinely distinct file under
+    // docs/pages/. If the two paths ever collapse, the live-page write is a
+    // silent no-op and the delete would erase the only copy of the content.
+    if (currentGuide.livePath === currentGuide.draftPath ||
+        !currentGuide.livePath.startsWith('docs/pages/')) {
+      throw new Error(
+        `Refusing to publish "${currentGuide.livePath}": it does not resolve to a ` +
+        `distinct docs/pages/ file (draft is "${currentGuide.draftPath}"). The nav ` +
+        `entry value is likely malformed — it should be pages/<slug>.md.`,
+      );
+    }
     await githubFetchAndPushFile(currentGuide.livePath, s => setButtonBusy(btn, s), () => draftMarkdown);
     setButtonBusy(btn, 'Deleting draft…');
     await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
     // Promote into nav (mirroring its draft_nav location) and drop from draft_nav.
     setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
+    const slug = valueSlug(value);
     await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
       const navItems = parseNavBlock(md, 'nav').items;
       const draftItems = parseNavBlock(md, 'draft_nav').items;
-      const loc = findPathOfValue(draftItems, value);
+      // Match the draft entry by slug, not exact value: a legacy/hand-authored
+      // draft_nav leaf may carry a drafts/<slug>.md value, which exact matching
+      // misses — dropping its display name and section location on promotion.
+      const loc = findPathByValueSlug(draftItems, slug);
       if (!findPathOfValue(navItems, value)) {
         insertPath(navItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), value);
       }
-      removeByValue(draftItems, value);
+      removeByValueSlug(draftItems, slug);
       let out = replaceNavBlock(md, 'nav', navItems);
       out = replaceNavBlock(out, 'draft_nav', draftItems);
       return out;
@@ -340,7 +401,7 @@ async function discardGuideDraft(formEl) {
     const value = navValueOf(currentGuide.livePath);
     await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
       const draftItems = parseNavBlock(md, 'draft_nav').items;
-      removeByValue(draftItems, value);
+      removeByValueSlug(draftItems, valueSlug(value));
       return replaceNavBlock(md, 'draft_nav', draftItems);
     });
     await renderGuideEntryContent(formEl);
@@ -372,7 +433,7 @@ async function deleteGuide(formEl) {
       const navItems = parseNavBlock(md, 'nav').items;
       const draftItems = parseNavBlock(md, 'draft_nav').items;
       removeByValue(navItems, value);
-      removeByValue(draftItems, value);
+      removeByValueSlug(draftItems, valueSlug(value));
       let out = replaceNavBlock(md, 'nav', navItems);
       out = replaceNavBlock(out, 'draft_nav', draftItems);
       return out;
@@ -417,7 +478,8 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
   if (!slug) { alert('Please enter a title.'); return; }
 
   const segments = pathRaw.split('/').map(s => s.trim()).filter(Boolean);
-  const value = `pages/${slug}.md`;
+  const value = `pages/${slug}.md`;        // live-page value, used for the nav conflict check
+  const draftValue = `drafts/${slug}.md`;  // draft_nav references the draft file itself
   const draftPath = `docs/drafts/${slug}.md`;
 
   let draftWritten = false;
@@ -452,7 +514,7 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
     if (btn) btn.textContent = 'Updating navigation…';
     await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
       const items = parseNavBlock(md, 'draft_nav').items;
-      insertPath(items, segments, title, value);
+      insertPath(items, segments, title, draftValue);
       return replaceNavBlock(md, 'draft_nav', items);
     });
 
@@ -565,7 +627,6 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
         sectionTitle: section.title,
         sectionDescription: description,
         sectionParent: parentDefault,
-        sectionIcon: section.level === 1 ? readFrontmatterIcon(draftMarkdown) : '',
       },
     });
   }
@@ -586,13 +647,11 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   // Breadcrumb shows the section's identity, e.g. "Section 1: Manager Steps".
   if (treeMatch?.visualLabel) setCrumbLabel(treeMatch.visualLabel);
 
-  // Title sections: hide parent dropdown + Delete; show the Icon row (the
-  // icon lives in the file's frontmatter, which only the H1 owns).
+  // Title sections: hide parent dropdown + Delete. The page icon now lives in
+  // the separate Page settings form, not on the H1 section.
   if (section.level === 1) {
     formEl.querySelector('[data-section-parent-row]')?.style.setProperty('display', 'none');
     formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.setProperty('display', 'none');
-    formEl.querySelector('[data-section-icon-row]')?.style.removeProperty('display');
-    attachIconPicker(formEl.querySelector('[name="sectionIcon"]')); // fire-and-forget; degrades to plain input
   }
 
   populateParentDropdown(formEl, draftMarkdown, uuid, section.level);
@@ -1232,7 +1291,6 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     resolverOptions: { describe: (uuid) => labelMap[uuid] },
     fieldSpecs: [
       { name: 'sectionTitle', type: 'scalar', label: 'Title' },
-      ...(section.level === 1 ? [{ name: 'sectionIcon', type: 'scalar', label: 'Icon' }] : []),
       { name: 'sectionDescription', type: 'scalar', label: 'Description' },
       { name: 'componentOrder', type: 'orderedUuidList', label: 'Component order' },
     ],
@@ -1242,7 +1300,6 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       noteLabels(components);
       return {
         sectionTitle: sec?.title ?? '',
-        sectionIcon: readFrontmatterIcon(md),
         sectionDescription: parseComponents(readSectionDescription(md, editUuid).descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE).description ?? '',
         componentOrder: components.map(uuidOfComponent).join(','),
       };
@@ -1254,7 +1311,6 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
       const newBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), ordered);
       let updated = replaceSectionByUUID(md, editUuid, buildSection(sec.level, (resolved.sectionTitle ?? '').trim(), editUuid, newBody));
-      if (sec.level === 1) updated = writeFrontmatterIcon(updated, (resolved.sectionIcon ?? '').trim());
       if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
       return updated;
     },
@@ -1277,12 +1333,17 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         const value = navValueOf(currentGuide.livePath);
         await githubFetchAndPushFile('zensical.toml', onProgress, md => {
           let out = md;
+          const slug = valueSlug(value);
           for (const key of ['nav', 'draft_nav']) {
             const { items } = parseNavBlock(out, key);
             // Only reserialize a block that actually changed — replaceNavBlock
             // normalizes formatting, which would otherwise make an empty-diff
             // commit. (githubFetchAndPushFile also skips byte-identical output.)
-            if (renameByValue(items, value, newTitle)) out = replaceNavBlock(out, key, items);
+            // draft_nav matches by slug so a legacy drafts/-valued entry still renames.
+            const renamed = key === 'draft_nav'
+              ? renameByValueSlug(items, slug, newTitle)
+              : renameByValue(items, value, newTitle);
+            if (renamed) out = replaceNavBlock(out, key, items);
           }
           return out;
         });
@@ -1309,6 +1370,59 @@ registerFormAction('submitEditGuideSection', async ({ formEl, content }) => {
   } catch (e) {
     formEl._refreshSaveState?.();
     alert('Failed to save section: ' + e.message);
+  }
+});
+
+// ── Page settings (frontmatter-level: icon, …) ────────────────────────────────
+
+registerFormAction('openEditPageSettings', async ({ file }) => {
+  adoptGuideFromDraftPath(file);
+  if (!currentGuide) return;
+  const draftMarkdown = await readRepoText(currentGuide.draftPath);
+  const slug = guideBaseName(currentGuide.livePath);
+
+  if (!isFormReplay()) {
+    // Current draft_nav folder path → prefill the Path field (slugs joined by '/').
+    let pathValue = '';
+    try {
+      const tomlText = await readRepoText('zensical.toml');
+      const draftItems = parseNavBlock(tomlText, 'draft_nav').items;
+      const loc = findPathByValueSlug(draftItems, slug);
+      pathValue = (loc?.segments ?? []).join('/');
+    } catch { /* best-effort prefill; empty path = root */ }
+    await chrome.storage.local.set({
+      moreButtonsEditPageSettings: { icon: readFrontmatterIcon(draftMarkdown), path: pathValue },
+    });
+  }
+
+  const { formEl } = await createForm('editPageSettings');
+  if (!formEl) return;
+  formEl.dataset.containerFile = currentGuide.draftPath;
+  setCrumbLabel('Page settings');
+  // Filename is fixed; only the folder moves. Show the real <slug>.md as the suffix.
+  const suffix = formEl.querySelector('[data-path-suffix]');
+  if (suffix) suffix.textContent = `/${slug}.md`;
+  attachIconPicker(formEl.querySelector('[name="icon"]')); // fire-and-forget; degrades to plain input
+});
+
+registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
+  if (!currentGuide) return;
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
+  try {
+    const resolved = await mergeSave({
+      formEl,
+      file: currentGuide.draftPath,
+      onProgress: s => setButtonBusy(btn, s),
+      fieldSpecs: [{ name: 'icon', type: 'scalar', label: 'Icon' }],
+      readFresh: md => ({ icon: readFrontmatterIcon(md) }),
+      build: (md, resolved) => writeFrontmatterIcon(md, (resolved.icon ?? '').trim()),
+    });
+    if (!resolved) { formEl._refreshSaveState?.(); return; }
+    formEl._refreshSaveState?.();
+  } catch (e) {
+    formEl._refreshSaveState?.();
+    alert('Failed to save page settings: ' + e.message);
   }
 });
 
