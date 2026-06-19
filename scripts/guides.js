@@ -906,6 +906,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
       card = tabsComponentCard(c.grp);
     } else if (c.kind === 'table') {
       card = dataTableCard(c.tbl);
+    } else if (c.kind === 'grid') {
+      card = gridCard(c.grid);
     } else {
       card = captureComponentCardFor(c.cap);
     }
@@ -942,6 +944,7 @@ const CONTAINER_NOUN = {
   'system-update': 'update',
   'system-draft': 'draft',
   'content-tab': 'tab',
+  'grid-cell': 'cell',
 };
 
 function componentNoun(formEl) {
@@ -996,6 +999,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'capture-library') await runComponentLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'table') await getFormAction('openCreateDataTable')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'grid') await getFormAction('openCreateGrid')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'paste-markdown') await getFormAction('openPasteMarkdown')?.({ container, insertAtIndex: action.insertAt });
   } else if (action.type === 'edit-admonition') {
     await getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
@@ -1005,6 +1009,8 @@ async function runChildAction(container, formEl, action) {
     await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-table') {
     await getFormAction('openEditDataTable')?.({ uuid: action.uuid, file: container.file });
+  } else if (action.type === 'edit-grid') {
+    await getFormAction('openEditGrid')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-table-row') {
     // The data-table grid form is the parent here; after ensureContainerReady
     // the saved table's uuid/file live on its dataset (set by the opener or the
@@ -1056,6 +1062,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editGrid = e.target.closest('[data-edit-grid]');
+  if (editGrid) {
+    beginChildNavigation(formEl, { type: 'edit-grid', uuid: editGrid.dataset.editGrid });
+    return;
+  }
+
   const insert = e.target.closest('[data-insert-component-at]');
   if (insert) {
     const idx = parseInt(insert.dataset.insertComponentAt, 10);
@@ -1066,6 +1078,7 @@ export function onComponentEditorClick(e) {
       captureLibrary: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-library', insertAt: i }),
       contentTabs: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'tabs', insertAt: i }),
       dataTable: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'table', insertAt: i }),
+      grid: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'grid', insertAt: i }),
       pasteMarkdown: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'paste-markdown', insertAt: i }),
     });
     return;
@@ -1087,6 +1100,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditContentTabs')?.({ uuid: component.grp.uuid, file: container.file });
   } else if (component.kind === 'table') {
     await getFormAction('openEditDataTable')?.({ uuid: component.tbl.uuid, file: container.file });
+  } else if (component.kind === 'grid') {
+    await getFormAction('openEditGrid')?.({ uuid: component.grid.uuid, file: container.file });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -1207,6 +1222,29 @@ function dataTableCard(tbl) {
     </div>`;
 }
 
+// Card for a grid component: "Grid" with a cell-count + flavor summary. Edit
+// routes through the save-gate via data-edit-grid.
+function gridCard(grid) {
+  const n = (grid.cells ?? []).length;
+  const flavorLabel = grid.flavor === 'card' ? 'Cards' : 'Plain';
+  const summary = `${n} cell${n === 1 ? '' : 's'} — ${flavorLabel}`;
+  const btnAttr = grid.uuid
+    ? `data-edit-grid="${escapeHtml(grid.uuid)}"`
+    : `disabled title="No UUID"`;
+  return `
+    <div class="mb-incident-card --teal">
+      <div class="mb-incident-card__head">
+        <strong class="mb-incident-card__title">Grid</strong>
+        <span class="mb-incident-card__badge">Grid</span>
+      </div>
+      <p class="mb-incident-card__body">${escapeHtml(summary)}</p>
+      <div class="mb-incident-card__foot --end">
+        ${grid.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(grid.uuid)}">Copy</button>` : ''}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grid.uuid ? 'Edit' : 'Error'}</button>
+      </div>
+    </div>`;
+}
+
 // ── Submit / delete section ──────────────────────────────────────────────────
 
 // Flip an in-place section create form into an edit-of-new-section form: point
@@ -1285,6 +1323,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else if (c.kind === 'table') {
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
+      } else if (c.kind === 'grid') {
+        labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
@@ -1730,6 +1770,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else if (c.kind === 'table') {
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
+      } else if (c.kind === 'grid') {
+        labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
