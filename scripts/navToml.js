@@ -134,6 +134,67 @@ export function findPathOfValue(nodes, value, trail = []) {
   return null;
 }
 
+// The slug identifying a logical page regardless of pages/ vs drafts/ prefix:
+// 'pages/archiving-an-asset.md' and 'drafts/archiving-an-asset.md' both → 'archiving-an-asset'.
+// Drafting state is which array an entry sits in, not its path, so draft_nav
+// reconciliation matches on this slug — tolerating legacy/hand-authored entries
+// whose value still carries a drafts/ prefix (which exact-value matching misses).
+export function valueSlug(value) {
+  return slugify(String(value).split('/').pop().replace(/\.md$/, ''));
+}
+
+// findPathOfValue, but matching on valueSlug instead of the exact value.
+export function findPathByValueSlug(nodes, slug, trail = []) {
+  for (const n of nodes) {
+    if (n.children) {
+      const found = findPathByValueSlug(n.children, slug, [...trail, slugify(n.name)]);
+      if (found) return found;
+    } else if (n.value !== undefined && valueSlug(n.value) === slug) {
+      return { segments: trail, leafName: n.name };
+    }
+  }
+  return null;
+}
+
+// removeByValue, but matching on valueSlug instead of the exact value.
+export function removeByValueSlug(nodes, slug) {
+  const recurse = (level) => {
+    for (let i = level.length - 1; i >= 0; i--) {
+      const n = level[i];
+      if (n.children) {
+        recurse(n.children);
+        if (n.children.length === 0) level.splice(i, 1);
+      } else if (n.value !== undefined && valueSlug(n.value) === slug) {
+        level.splice(i, 1);
+      }
+    }
+  };
+  recurse(nodes);
+  return nodes;
+}
+
+// Move (or create) the leaf identified by valueSlug === slug to the section path
+// `newSegments`. Preserves the existing leaf's display name when found, else uses
+// `fallbackName`; sets the leaf value to `value`. Returns { changed:false } and
+// leaves nodes untouched when an existing leaf is already at the target path —
+// callers skip the toml write to avoid an empty-diff commit. Mutates + returns
+// { changed }. removeByValueSlug runs across the whole tree first, so the
+// subsequent insertPath cannot create a duplicate.
+export function setPathByValueSlug(nodes, slug, newSegments, { value, fallbackName } = {}) {
+  const loc = findPathByValueSlug(nodes, slug);
+  const targetSlugs = newSegments.map(slugify);
+  if (loc) {
+    const currSlugs = loc.segments.map(slugify);
+    const same = currSlugs.length === targetSlugs.length
+      && currSlugs.every((s, i) => s === targetSlugs[i]);
+    if (same) return { changed: false };
+  }
+  const leafName = loc?.leafName ?? fallbackName ?? '';
+  removeByValueSlug(nodes, slug);
+  insertPath(nodes, newSegments, leafName, value);
+  return { changed: true };
+}
+
 // Rename every leaf whose value === value to newName. Returns the number of
 // leaves actually changed (an already-matching name doesn't count, so callers
 // can skip the toml write entirely when nothing moved). Renames in place —
@@ -144,6 +205,19 @@ export function renameByValue(nodes, value, newName) {
     for (const n of level) {
       if (n.children) recurse(n.children);
       else if (n.value === value && n.name !== newName) { n.name = newName; changed++; }
+    }
+  };
+  recurse(nodes);
+  return changed;
+}
+
+// renameByValue, but matching on valueSlug instead of the exact value.
+export function renameByValueSlug(nodes, slug, newName) {
+  let changed = 0;
+  const recurse = (level) => {
+    for (const n of level) {
+      if (n.children) recurse(n.children);
+      else if (n.value !== undefined && valueSlug(n.value) === slug && n.name !== newName) { n.name = newName; changed++; }
     }
   };
   recurse(nodes);
