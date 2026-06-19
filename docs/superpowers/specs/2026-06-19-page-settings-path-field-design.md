@@ -21,7 +21,16 @@ Saving the path moves the guide's leaf in **`draft_nav` only**, not `nav`.
   `nav` entry, so moving `draft_nav` is complete and clean. This is the common case.
 - **Published-and-re-drafted guide**: the live `nav` leaf stays in its old folder.
 
-### Known limitation (accepted)
+### Known limitation — RESOLVED 2026-06-19 (follow-up)
+
+> **Update:** the divergence described below was fixed in a follow-up, not left
+> accepted. Two changes: (1) `publishGuideDraft` now *relocates* the live `nav`
+> entry to the draft's location via `setPathByValueSlug` (commit
+> `fix(pageSettings): relocate live nav to draft location on publish`); (2) the KB
+> tree prunes live leaves that have a draft via `pruneLeavesByBase`, so a drafted
+> page renders once at its draft placement (commit `fix(kbTree): draft_nav
+> placement wins over stale live nav`). The original analysis is kept below for
+> context.
 
 For a guide that is already published *and* being re-drafted, moving only
 `draft_nav` causes divergence:
