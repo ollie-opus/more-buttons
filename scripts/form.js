@@ -50,6 +50,7 @@ const FORM_LABELS = {
   editCaptureComponent: 'Edit Capture',
   editContentTabs: 'Edit Content Tabs',
   editDataTable: 'Edit Data Table',
+  editGrid: 'Edit Grid',
   reportIncident: 'Report Incident',
   updateIncident: 'Update Incident',
   logSystemUpdate: 'Log System Update',

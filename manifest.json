@@ -93,6 +93,8 @@
         "scripts/contentTabsEditor.js",
         "scripts/dataTables.js",
         "scripts/dataTablesEditor.js",
+        "scripts/grid.js",
+        "scripts/gridEditor.js",
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js",
