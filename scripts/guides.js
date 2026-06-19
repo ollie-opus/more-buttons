@@ -373,9 +373,17 @@ async function publishGuideDraft(formEl) {
       // draft_nav leaf may carry a drafts/<slug>.md value, which exact matching
       // misses — dropping its display name and section location on promotion.
       const loc = findPathByValueSlug(draftItems, slug);
-      if (!findPathOfValue(navItems, value)) {
-        insertPath(navItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), value);
-      }
+      // Move the live nav entry to wherever the draft sits, so a Path edited on the
+      // draft takes effect on publish. For a never-published guide this creates the
+      // nav leaf; for a republished one whose Path changed, this RELOCATES the stale
+      // live entry instead of leaving it behind (the old insert-only-if-absent check
+      // skipped already-present entries, so the live nav never followed the draft).
+      // setPathByValueSlug keeps the existing nav display name when present, else
+      // uses the draft's leaf name.
+      setPathByValueSlug(navItems, slug, loc?.segments ?? [], {
+        value,
+        fallbackName: loc?.leafName ?? guideBaseName(currentGuide.livePath),
+      });
       removeByValueSlug(draftItems, slug);
       let out = replaceNavBlock(md, 'nav', navItems);
       out = replaceNavBlock(out, 'draft_nav', draftItems);
