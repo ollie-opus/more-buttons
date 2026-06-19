@@ -8,6 +8,8 @@
 
 **Tech Stack:** Plain ES modules (Chrome MV3 extension). Tests are standalone `.test.mjs` files using `node:assert/strict` and a tiny inline `test()` harness, run with `node tests/<file>.test.mjs`. No build step.
 
+**Execution approach (chosen):** subagent-driven-development — dispatch a fresh subagent per task, with a two-stage review between tasks. Execute tasks **in order** (1 → 9); tasks 1–3 are pure-module and independently testable, 4–8 are wiring that depends on 1–3, and 9 is final verification. Work on a dedicated branch (`feature/grid-component`); commit per task as each task's final step specifies.
+
 ---
 
 ## Design decisions (locked in spec `docs/superpowers/specs/2026-06-19-grid-component-design.md`)
@@ -924,6 +926,899 @@ git add scripts/components.js tests/grid.test.mjs
 git commit -m "feat(grid): wire grid kind into components.js ordered model"
 ```
 
-<!-- PLAN-APPEND-HERE -->
+### Task 3: `scripts/github.js` — backfill grid UUIDs on fetch/push
+
+**Files:**
+- Modify: `scripts/github.js`
+- Test: `tests/grid.test.mjs` (the two `migrateComponentIdentity` tests added in Task 2)
+
+- [ ] **Step 1: Confirm the migration tests currently fail**
+
+Run: `node tests/grid.test.mjs`
+Expected: the two `migrateComponentIdentity` tests FAIL (grids not yet backfilled).
+
+- [ ] **Step 2: Edit `scripts/github.js` — import `ensureGridUUIDs`**
+
+Add after the existing `import { ensureDataTableUUIDs } from './dataTables.js';` line (line 5):
+
+```js
+import { ensureGridUUIDs } from './grid.js';
+```
+
+- [ ] **Step 3: Edit both chains in `migrateComponentIdentity`**
+
+Insert `ensureGridUUIDs` between `ensureTabUUIDs` and `ensureDataTableUUIDs` in BOTH branches. Replace the system-updates return line:
+
+```js
+    return filePath.includes('system-updates.md') ? ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(withAdm)))) : withAdm;
+```
+
+and replace the guide-markdown return block:
+
+```js
+    return ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
+      ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
+    ))));
+```
+
+Also update the ordering comment at the top of the function to read:
+
+```js
+  // ensureTabUUIDs + ensureGridUUIDs must run BEFORE ensureDataTableUUIDs and
+  // ensureCaptureUUIDs: a table/capture span injected as a tab's or grid cell's
+  // first body line would be misread as that container's own identity.
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `node tests/grid.test.mjs`
+Expected: PASS — full file, ending `… passed` (all grid + components + migration tests green).
+
+- [ ] **Step 5: Guard the existing migration test**
+
+Run: `node tests/identityMigration.test.mjs`
+Expected: PASS (the new chain link must not break existing migration behaviour).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/github.js
+git commit -m "feat(grid): backfill grid UUIDs in migrateComponentIdentity"
+```
+
+### Task 4: `scripts/guides.js` — card, render branch, dispatch, label maps
+
+No new unit test (these are DOM/dispatch wiring verified by the Task 9 smoke test). Each edit adds one `grid` branch parallel to the existing `tabs`/`table` branches.
+
+**Files:**
+- Modify: `scripts/guides.js`
+
+- [ ] **Step 1: Add `gridCard` builder**
+
+Insert immediately after the `dataTableCard` function (ends ~line 1200):
+
+```js
+// Card for a grid component: "Grid" with a cell-count + flavor summary. Edit
+// routes through the save-gate via data-edit-grid.
+function gridCard(grid) {
+  const n = (grid.cells ?? []).length;
+  const flavorLabel = grid.flavor === 'card' ? 'Cards' : 'Plain';
+  const summary = `${n} cell${n === 1 ? '' : 's'} — ${flavorLabel}`;
+  const btnAttr = grid.uuid
+    ? `data-edit-grid="${escapeHtml(grid.uuid)}"`
+    : `disabled title="No UUID"`;
+  return `
+    <div class="mb-incident-card --teal">
+      <div class="mb-incident-card__head">
+        <strong class="mb-incident-card__title">Grid</strong>
+        <span class="mb-incident-card__badge">Grid</span>
+      </div>
+      <p class="mb-incident-card__body">${escapeHtml(summary)}</p>
+      <div class="mb-incident-card__foot --end">
+        ${grid.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(grid.uuid)}">Copy</button>` : ''}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grid.uuid ? 'Edit' : 'Error'}</button>
+      </div>
+    </div>`;
+}
+```
+
+- [ ] **Step 2: Add the `grid` branch to `renderComponents`**
+
+In the `components.forEach` card switch (~line 894–903), add before the final `else { card = captureComponentCardFor(c.cap); }`:
+
+```js
+    } else if (c.kind === 'grid') {
+      card = gridCard(c.grid);
+```
+
+- [ ] **Step 3: Add insert + edit dispatch in `runChildAction`**
+
+In the `action.type === 'insert'` block, after the `else if (action.kind === 'table') …` line (~990):
+
+```js
+    else if (action.kind === 'grid') await getFormAction('openCreateGrid')?.({ container, insertAtIndex: action.insertAt });
+```
+
+After the `else if (action.type === 'edit-table')` block and before `else if (action.type === 'edit-table-row')` (~1000), add:
+
+```js
+  } else if (action.type === 'edit-grid') {
+    await getFormAction('openEditGrid')?.({ uuid: action.uuid, file: container.file });
+```
+
+- [ ] **Step 4: Add the edit-grid card handler + insert-menu handler in `onComponentEditorClick`**
+
+After the `editTable` block (~line 1049), add:
+
+```js
+  const editGrid = e.target.closest('[data-edit-grid]');
+  if (editGrid) {
+    beginChildNavigation(formEl, { type: 'edit-grid', uuid: editGrid.dataset.editGrid });
+    return;
+  }
+```
+
+In the `openInsertMenu(anchor, idx, { … })` handler map (~1055–1062), add after the `dataTable:` line:
+
+```js
+      grid: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'grid', insertAt: i }),
+```
+
+- [ ] **Step 5: Add the `grid` branch to `openEditorForComponent`**
+
+After the `else if (component.kind === 'table')` branch (~1080), add:
+
+```js
+  } else if (component.kind === 'grid') {
+    await getFormAction('openEditGrid')?.({ uuid: component.grid.uuid, file: container.file });
+```
+
+- [ ] **Step 6: Add `grid` to both conflict-resolver label maps**
+
+In `saveSectionForComponent`'s `noteLabels` (~line 1278) add after the `table` branch:
+
+```js
+      } else if (c.kind === 'grid') {
+        labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
+```
+
+In `persistAdmonitionEdit`'s `noteLabels` (~line 1690) add the identical branch after its `table` branch:
+
+```js
+      } else if (c.kind === 'grid') {
+        labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
+```
+
+- [ ] **Step 7: Add the `grid-cell` container noun**
+
+In `CONTAINER_NOUN` (~line 931–937) add:
+
+```js
+  'grid-cell': 'cell',
+```
+
+- [ ] **Step 8: Sanity-check the module parses (no test yet)**
+
+Run: `node --check scripts/guides.js`
+Expected: no output (syntax OK).
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add scripts/guides.js
+git commit -m "feat(grid): card, render branch, dispatch + label maps in guides.js"
+```
+
+### Task 5: `insertMenu.js` + `systemUpdates.js`
+
+**Files:**
+- Modify: `scripts/insertMenu.js`
+- Modify: `scripts/systemUpdates.js`
+
+- [ ] **Step 1: Add the "Grid" menu item to `insertMenu.js`**
+
+In the non-`capturesOnly` `menu.innerHTML` template, add after the `data-pick="data-table"` button line (~47):
+
+```js
+    <button type="button" class="mb-popup-menu__item" data-pick="grid" role="menuitem">Grid</button>
+```
+
+- [ ] **Step 2: Add the `grid` dispatch in `pick()`**
+
+After the `else if (kind === 'data-table') handlers.dataTable?.(insertAtIndex);` line (~73):
+
+```js
+    else if (kind === 'grid') handlers.grid?.(insertAtIndex);
+```
+
+- [ ] **Step 3: Update the `handlers` JSDoc**
+
+In the `@param {{…}} handlers` line (~22), add `grid:Function` to the destructured shape so the contract stays documented:
+
+```js
+ * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, grid:Function, pasteMarkdown:Function}} handlers
+```
+
+- [ ] **Step 4: Add the `grid` branch to the `systemUpdates.js` label map**
+
+In `noteLabels` (~line 192–193), after the `else if (c.kind === 'table')` branch:
+
+```js
+      } else if (c.kind === 'grid') {
+        labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
+```
+
+- [ ] **Step 5: Sanity-check both modules parse**
+
+Run: `node --check scripts/insertMenu.js && node --check scripts/systemUpdates.js`
+Expected: no output.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/insertMenu.js scripts/systemUpdates.js
+git commit -m "feat(grid): insert-menu item + system-updates label map"
+```
+
+### Task 6: `config/forms/editGrid.html` — the overlay form
+
+Clone of `editContentTabs.html`: per-cell Title dropped, a Card/Generic flavor toggle added (segmented buttons, not radios — keeps every visible input unnamed so cell switching never false-dirties the form; flavor lives in `gridState`). No manifest edit (forms are wildcard-served via `config/forms/*`).
+
+**Files:**
+- Create: `config/forms/editGrid.html`
+
+- [ ] **Step 1: Create `config/forms/editGrid.html`**
+
+```html
+<form data-nav data-dirty-guard id="edit-grid-form" data-storage-key="moreButtonsEditGrid" data-width="90vw" data-height="90vh">
+  <h2 data-grid-heading>Edit grid</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Style</label>
+    <div class="more-buttons-tab-list mb-grid-flavor">
+      <button type="button" class="more-buttons-tab" data-grid-flavor="card">Cards</button>
+      <button type="button" class="more-buttons-tab" data-grid-flavor="generic">Plain</button>
+    </div>
+  </div>
+
+  <div class="more-buttons-tabs mb-grid-cells">
+    <div class="more-buttons-tab-list" data-grid-strip></div>
+  </div>
+
+  <div class="mb-grid-manage">
+    <button type="button" class="more-buttons-button secondary" data-grid-move="left"><span class="more-buttons-icon">arrow_back</span>Move left</button>
+    <button type="button" class="more-buttons-button secondary" data-grid-move="right"><span class="more-buttons-icon">arrow_forward</span>Move right</button>
+    <button type="button" class="more-buttons-button danger" data-grid-delete-cell><span class="more-buttons-icon">tab_close</span>Delete cell</button>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Cell content</label>
+    <textarea data-grid-description rows="6" data-richtext placeholder="Markdown allowed"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group" data-components-row>
+    <label class="more-buttons-label">Components</label>
+    <div>
+      <div data-grid-cell-components></div>
+    </div>
+  </div>
+
+  <input type="hidden" name="gridState" />
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditGrid" data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteGrid" data-delete-grid-btn><span class="more-buttons-icon">delete</span>Delete</button>
+  </div>
+</form>
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add config/forms/editGrid.html
+git commit -m "feat(grid): editGrid overlay form"
+```
+
+### Task 7: `scripts/gridEditor.js` — the overlay editor
+
+Full clone of `contentTabsEditor.js` with three changes: (1) no per-cell title; strip labels are "Cell N"; (2) a grid-level Card/Generic flavor toggle stored in `gridState`; (3) each cell is a `grid-cell` container (no +4 dedent). Everything else — the single hidden `gridState` JSON input, unnamed visible inputs, `installRefreshHook`, the whole-object last-write-wins save re-reading each cell's components — mirrors content-tabs exactly.
+
+**Files:**
+- Create: `scripts/gridEditor.js`
+
+- [ ] **Step 1: Create `scripts/gridEditor.js`**
+
+```js
+/**
+ * gridEditor.js — the "Grid" overlay for a grid component.
+ *
+ * One form edits a whole GRID: a flavor toggle (Card / Generic), a dynamic cell
+ * strip, ONE active panel below it (rich cell content + the active cell's
+ * Components list), and add / move / delete-cell management. Each cell is itself
+ * a component container ('grid-cell', uuid = the CELL's uuid), so admonitions,
+ * captures, content tabs, data tables and nested grids can be inserted into the
+ * active cell through the standard save-gate machinery in guides.js.
+ *
+ * Mirrors contentTabsEditor.js. Differences: cells have no title (Zensical grid
+ * cells are title-less); a grid-level `flavor` toggle; and cell bodies live in
+ * `<div markdown>` (md_in_html, no +4 indent) so the container read/write needs
+ * no dedent. Editor state lives in `formEl._grid`, mirrored into ONE hidden
+ * named input (`gridState`, JSON) for dirty tracking; visible per-cell inputs
+ * are deliberately UNNAMED.
+ */
+
+import { registerFormAction } from './formActions.js';
+import {
+  createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack,
+  resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton,
+} from './form.js';
+import { readRepoText } from './repoClient.js';
+import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
+import { generateUUID, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
+import {
+  parseComponents, buildComponentBody, uuidOfComponent, reorderComponents,
+  readGridCellComponents, writeGridCellBody, gridCellExists,
+} from './components.js';
+import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
+import { getGridByUUID, buildGrid, replaceGridByUUID, deleteGridByUUID } from './grid.js';
+import { makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
+import { syncSurfaceFromTextarea } from './richTextEditor.js';
+import { escapeHtml } from './cardRenderer.js';
+
+const STORAGE_KEY = 'moreButtonsEditGrid';
+
+// Each CELL is a component container: children read and write through the
+// registry like any other container.
+registerComponentContainer('grid-cell', makeContainerHandler(readGridCellComponents, writeGridCellBody, gridCellExists));
+
+// ── Editor state ──────────────────────────────────────────────────────────────
+//
+// formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order }] }
+
+function newCell() {
+  return { uuid: generateUUID(), description: '', order: null };
+}
+
+function cellsFromGrid(grid) {
+  return grid.cells.map(c => {
+    const { description } = parseComponents(c.body, GUIDE_ADMONITION_TYPES_RE);
+    return { uuid: c.uuid ?? generateUUID(), description, order: null };
+  });
+}
+
+// Mirror the state into the single named input that drives dirty tracking.
+function syncGridState(formEl) {
+  const input = formEl.querySelector('[name="gridState"]');
+  if (input) input.value = JSON.stringify({ flavor: formEl._grid.flavor, cells: formEl._grid.cells });
+}
+
+// Pull the active cell's visible (unnamed) field back into state.
+function stashActiveCell(formEl) {
+  const st = formEl._grid;
+  const c = st?.cells[st.active];
+  if (!c) return;
+  const desc = formEl.querySelector('[data-grid-description]');
+  if (desc) c.description = desc.value;
+}
+
+// Push the active cell's state into the visible field.
+function loadActiveCellFields(formEl) {
+  const st = formEl._grid;
+  const c = st?.cells[st.active];
+  if (!c) return;
+  // containerFromForm targets the ACTIVE cell; the grid uuid stays in
+  // formEl.dataset.gridUuid for save/delete.
+  formEl.dataset.editUuid = c.uuid;
+  const desc = formEl.querySelector('[data-grid-description]');
+  if (desc) { desc.value = c.description; syncSurfaceFromTextarea(desc); }
+}
+
+function renderStrip(formEl) {
+  const strip = formEl.querySelector('[data-grid-strip]');
+  const st = formEl._grid;
+  if (!strip || !st) return;
+  strip.innerHTML = st.cells.map((c, i) =>
+    `<button type="button" class="more-buttons-tab${i === st.active ? ' --active' : ''}" data-grid-cell="${i}">Cell ${i + 1}</button>`
+  ).join('') + `<button type="button" class="more-buttons-tab mb-grid-add-cell" data-grid-add title="Add cell">+ Add cell</button>`;
+
+  const left = formEl.querySelector('[data-grid-move="left"]');
+  const right = formEl.querySelector('[data-grid-move="right"]');
+  const del = formEl.querySelector('[data-grid-delete-cell]');
+  if (left) left.disabled = st.active <= 0;
+  if (right) right.disabled = st.active >= st.cells.length - 1;
+  if (del) del.disabled = st.cells.length <= 1;
+}
+
+function renderFlavor(formEl) {
+  const st = formEl._grid;
+  formEl.querySelectorAll('[data-grid-flavor]').forEach(btn => {
+    btn.classList.toggle('--active', btn.dataset.gridFlavor === st.flavor);
+  });
+}
+
+// Render the active cell's component list and point the shared open-editor
+// tracking at it, so inserts/mutations re-render in place.
+async function mountActiveCellComponents(formEl, md = null) {
+  const st = formEl._grid;
+  const c = st?.cells[st.active];
+  if (!c) return;
+  const listEl = formEl.querySelector('[data-grid-cell-components]');
+  const file = formEl.dataset.containerFile;
+  let components = [];
+  if (formEl.dataset.mode !== 'create' && file) {
+    try {
+      const source = md ?? await readRepoText(file);
+      components = reorderComponents(readGridCellComponents(source, c.uuid).components, c.order ?? []);
+    } catch { components = []; }
+  }
+  renderComponents(listEl, components, false); // grids never number steps
+  const ed = { formEl, listEl, container: { kind: 'grid-cell', uuid: c.uuid, file }, components };
+  ed._mountedOrder = components.map(uuidOfComponent);
+  formEl._gridEditor = ed;
+  setOpenComponentEditor(ed);
+}
+
+// Sync an in-editor rail reorder into the owning cell's batch order + gridState.
+function syncActiveOrderFromEditor(formEl) {
+  const ed = formEl._gridEditor;
+  const st = formEl._grid;
+  if (!ed || !st || !Array.isArray(ed.components)) return;
+  const cell = st.cells.find(c => c.uuid === ed.container.uuid);
+  if (!cell) return;
+  const cur = ed.components.map(uuidOfComponent);
+  const mounted = ed._mountedOrder ?? cur;
+  if (cell.order == null && cur.join(',') === mounted.join(',')) return; // untouched
+  cell.order = cur;
+  syncGridState(formEl);
+}
+
+function installRefreshHook(formEl) {
+  const orig = formEl._refreshSaveState;
+  formEl._refreshSaveState = () => { syncActiveOrderFromEditor(formEl); orig?.(); };
+}
+
+// ── Cell + flavor management ───────────────────────────────────────────────────
+
+async function activateCell(formEl, index) {
+  stashActiveCell(formEl);
+  const st = formEl._grid;
+  st.active = Math.max(0, Math.min(index, st.cells.length - 1));
+  loadActiveCellFields(formEl);
+  renderStrip(formEl);
+  syncGridState(formEl);
+  formEl._refreshSaveState?.();
+  await mountActiveCellComponents(formEl);
+}
+
+async function addCell(formEl) {
+  stashActiveCell(formEl);
+  const st = formEl._grid;
+  st.cells.push(newCell());
+  await activateCell(formEl, st.cells.length - 1);
+}
+
+function moveActiveCell(formEl, dir) {
+  stashActiveCell(formEl);
+  const st = formEl._grid;
+  const i = st.active;
+  const j = i + dir;
+  if (j < 0 || j >= st.cells.length) return;
+  [st.cells[i], st.cells[j]] = [st.cells[j], st.cells[i]];
+  st.active = j; // the active cell travels with the move
+  renderStrip(formEl);
+  syncGridState(formEl);
+  formEl._refreshSaveState?.();
+}
+
+async function deleteActiveCell(formEl) {
+  const st = formEl._grid;
+  if (st.cells.length <= 1) {
+    alert('A grid needs at least one cell — use Delete below to remove the whole grid.');
+    return;
+  }
+  stashActiveCell(formEl);
+  if (!confirm(`Delete cell ${st.active + 1}? Its contents are removed when you save.`)) return;
+  st.cells.splice(st.active, 1);
+  st.active = Math.min(st.active, st.cells.length - 1);
+  loadActiveCellFields(formEl);
+  renderStrip(formEl);
+  syncGridState(formEl);
+  formEl._refreshSaveState?.();
+  await mountActiveCellComponents(formEl);
+}
+
+function setFlavor(formEl, flavor) {
+  const st = formEl._grid;
+  if (st.flavor === flavor) return;
+  stashActiveCell(formEl);
+  st.flavor = flavor;
+  renderFlavor(formEl);
+  syncGridState(formEl);
+  formEl._refreshSaveState?.();
+}
+
+// ── Wiring ────────────────────────────────────────────────────────────────────
+
+function wireGridEditor(formEl) {
+  formEl.addEventListener('input', e => {
+    if (e.target.matches?.('[data-grid-description]')) {
+      stashActiveCell(formEl);
+      syncGridState(formEl);
+      formEl._refreshSaveState?.();
+    }
+  });
+
+  formEl.addEventListener('click', e => {
+    const cellBtn = e.target.closest('[data-grid-cell]');
+    if (cellBtn) { activateCell(formEl, parseInt(cellBtn.dataset.gridCell, 10)); return; }
+    if (e.target.closest('[data-grid-add]')) { addCell(formEl); return; }
+    const move = e.target.closest('[data-grid-move]');
+    if (move) { if (!move.disabled) moveActiveCell(formEl, move.dataset.gridMove === 'left' ? -1 : 1); return; }
+    const del = e.target.closest('[data-grid-delete-cell]');
+    if (del) { if (!del.disabled) deleteActiveCell(formEl); return; }
+    const flavor = e.target.closest('[data-grid-flavor]');
+    if (flavor) { setFlavor(formEl, flavor.dataset.gridFlavor); return; }
+  });
+
+  // Shared component delegation: rails, edit buttons, "+ Insert Component".
+  formEl.addEventListener('click', onComponentEditorClick);
+}
+
+// ── State init / storage ───────────────────────────────────────────────────────
+
+async function initStateFromStorage(formEl, fallbackCells, fallbackFlavor, file, gridUuid) {
+  let cells = fallbackCells;
+  let flavor = fallbackFlavor;
+  try {
+    const res = await chrome.storage.local.get(STORAGE_KEY);
+    const raw = res?.[STORAGE_KEY]?.gridState;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.cells) && parsed.cells.length) cells = parsed.cells;
+      if (parsed?.flavor === 'card' || parsed?.flavor === 'generic') flavor = parsed.flavor;
+    }
+  } catch { /* fall back to markdown-derived state */ }
+  formEl._grid = { gridUuid, file, cells, flavor, active: 0 };
+}
+
+function seedStorage(flavor, cells) {
+  return chrome.storage.local.set({ [STORAGE_KEY]: { gridState: JSON.stringify({ flavor, cells }) } });
+}
+
+// ── Openers ───────────────────────────────────────────────────────────────────
+
+registerFormAction('openCreateGrid', async ({ container, insertAtIndex } = {}) => {
+  if (!container?.file) return;
+  const initialCells = [newCell(), newCell()];
+  const initialFlavor = 'card';
+  if (!isFormReplay()) await seedStorage(initialFlavor, initialCells);
+
+  const { formEl } = await createForm('editGrid');
+  if (!formEl) return;
+  formEl.dataset.mode = 'create';
+  formEl.dataset.parentKind = container.kind;
+  formEl.dataset.parentUuid = container.uuid;
+  formEl.dataset.parentFile = container.file;
+  formEl.dataset.insertAtIndex = insertAtIndex == null ? '' : String(insertAtIndex);
+  formEl.dataset.gridUuid = '';
+  formEl.dataset.componentContainerKind = 'grid-cell';
+  formEl.dataset.containerFile = container.file;
+  formEl.dataset.componentNoun = 'grid';
+
+  const heading = formEl.querySelector('[data-grid-heading]');
+  if (heading) heading.textContent = 'Add grid';
+  formEl.parentElement?.querySelector('[data-delete-grid-btn]')?.style.setProperty('display', 'none');
+
+  await initStateFromStorage(formEl, initialCells, initialFlavor, container.file, null);
+  formEl._componentSaver = () => saveGridForComponent(formEl);
+  wireGridEditor(formEl);
+  loadActiveCellFields(formEl);
+  renderStrip(formEl);
+  renderFlavor(formEl);
+  syncGridState(formEl);
+  await mountActiveCellComponents(formEl);
+  installRefreshHook(formEl);
+  resetDirtyBaseline(formEl);
+});
+
+registerFormAction('openEditGrid', async ({ uuid, file } = {}) => {
+  if (!uuid || !file) return;
+  let md;
+  try {
+    md = await fetchFileMigratingIdentity(file);
+  } catch (e) {
+    alert('Failed to load file: ' + e.message);
+    return;
+  }
+  const grid = getGridByUUID(md, uuid);
+  if (!grid) { alert('Grid not found.'); return; }
+  const mdCells = cellsFromGrid(grid);
+  if (!isFormReplay()) await seedStorage(grid.flavor, mdCells);
+
+  const { formEl } = await createForm('editGrid');
+  if (!formEl) return;
+  formEl.dataset.mode = 'edit';
+  formEl.dataset.gridUuid = uuid;
+  formEl.dataset.componentContainerKind = 'grid-cell';
+  formEl.dataset.containerFile = file;
+  formEl.dataset.componentNoun = 'grid';
+
+  const heading = formEl.querySelector('[data-grid-heading]');
+  if (heading) heading.textContent = 'Edit grid';
+  setCrumbLabel('Grid');
+
+  await initStateFromStorage(formEl, mdCells, grid.flavor, file, uuid);
+  formEl._componentSaver = () => saveGridForComponent(formEl);
+  wireGridEditor(formEl);
+  loadActiveCellFields(formEl);
+  renderStrip(formEl);
+  renderFlavor(formEl);
+  syncGridState(formEl);
+  await mountActiveCellComponents(formEl, md);
+  installRefreshHook(formEl);
+  resetDirtyBaseline(formEl);
+});
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+function validateGrid(st) {
+  if (!st?.cells.length) { alert('Add at least one cell.'); return false; }
+  return true;
+}
+
+async function persistNewGrid(formEl, onProgress = () => {}) {
+  stashActiveCell(formEl);
+  const st = formEl._grid;
+  if (!validateGrid(st)) return null;
+  const parent = {
+    kind: formEl.dataset.parentKind,
+    uuid: formEl.dataset.parentUuid,
+    file: formEl.dataset.parentFile,
+  };
+  const handler = getComponentContainer(parent.kind);
+  if (!handler) { alert('Unknown parent container.'); return null; }
+
+  const gridUuid = generateUUID();
+  const gridCells = st.cells.map(c => ({
+    uuid: c.uuid,
+    body: buildComponentBody(c.uuid, c.description, []),
+  }));
+  const insertAtRaw = formEl.dataset.insertAtIndex;
+  const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
+
+  await spliceIntoContainer(parent, insertAt, [{ kind: 'grid', grid: { uuid: gridUuid, flavor: st.flavor, cells: gridCells } }], onProgress);
+  return { gridUuid, file: parent.file };
+}
+
+async function transitionGridCreateToEdit(formEl, gridUuid, file) {
+  formEl.dataset.mode = 'edit';
+  formEl.dataset.gridUuid = gridUuid;
+  formEl.dataset.containerFile = file;
+  formEl._grid.gridUuid = gridUuid;
+  formEl._grid.cells.forEach(c => { c.order = null; });
+  replaceCurrentOpener('openEditGrid', { uuid: gridUuid, file });
+  const heading = formEl.querySelector('[data-grid-heading]');
+  if (heading) heading.textContent = 'Edit grid';
+  setCrumbLabel('Grid');
+  formEl.parentElement?.querySelector('[data-delete-grid-btn]')?.style.removeProperty('display');
+  syncGridState(formEl);
+  await seedStorage(formEl._grid.flavor, formEl._grid.cells);
+  await mountActiveCellComponents(formEl);
+  resetDirtyBaseline(formEl);
+}
+
+// Whole-grid save, last-write-wins on flavor/cell list. Components are preserved
+// per cell: each surviving cell's CURRENT components are re-read from fresh
+// markdown, an in-flight batch reorder applied, and the grid rebuilt in order.
+async function persistGridEdit(formEl, onProgress = () => {}) {
+  stashActiveCell(formEl);
+  const st = formEl._grid;
+  if (!validateGrid(st)) return null;
+  const file = formEl.dataset.containerFile;
+  const gridUuid = formEl.dataset.gridUuid;
+
+  let found = true;
+  await githubFetchAndPushFile(file, onProgress, md => {
+    if (!getGridByUUID(md, gridUuid)) { found = false; return md; }
+    const gridCells = st.cells.map(c => {
+      const { components } = readGridCellComponents(md, c.uuid);
+      const ordered = c.order ? reorderComponents(components, c.order) : components;
+      return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered) };
+    });
+    return replaceGridByUUID(md, gridUuid, buildGrid(gridUuid, st.flavor, gridCells));
+  });
+  if (!found) {
+    alert('This grid was deleted in another session — your changes can’t be saved.');
+    return null;
+  }
+
+  st.cells.forEach(c => { c.order = null; }); // the file is canonical again
+  syncGridState(formEl);
+  await seedStorage(st.flavor, st.cells);
+  await mountActiveCellComponents(formEl);
+  resetDirtyBaseline(formEl);
+  return { gridUuid, file };
+}
+
+// Persist the grid form for the save-gate. Returns { container, formEl } where
+// container = the ACTIVE cell, so child flows insert into it.
+async function saveGridForComponent(formEl, onProgress = () => {}) {
+  if (formEl.dataset.mode === 'create') {
+    const res = await persistNewGrid(formEl, onProgress);
+    if (!res) return null;
+    await transitionGridCreateToEdit(formEl, res.gridUuid, res.file);
+  } else {
+    const res = await persistGridEdit(formEl, onProgress);
+    if (!res) return null;
+  }
+  return {
+    container: { kind: 'grid-cell', uuid: formEl.dataset.editUuid, file: formEl.dataset.containerFile },
+    formEl,
+  };
+}
+
+// ── Form actions ──────────────────────────────────────────────────────────────
+
+registerFormAction('submitEditGrid', async ({ formEl, content }) => {
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
+  try {
+    await saveGridForComponent(formEl, s => setButtonBusy(btn, s));
+    formEl._refreshSaveState?.();
+  } catch (e) {
+    formEl._refreshSaveState?.();
+    alert('Failed to save grid: ' + e.message);
+  }
+});
+
+registerFormAction('deleteGrid', async ({ formEl, content }) => {
+  const gridUuid = formEl.dataset.gridUuid;
+  const file = formEl.dataset.containerFile;
+  if (!gridUuid || !file) return;
+  if (!confirm('Delete this grid? All of its cells and their contents are removed.')) return;
+  const btn = content?.querySelector('[data-action="deleteGrid"]');
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
+  try {
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteGridByUUID(md, gridUuid));
+    await chrome.storage.local.remove(STORAGE_KEY);
+    await navigateBack();
+  } catch (e) {
+    restoreButton(btn, snap);
+    alert('Failed to delete grid: ' + e.message);
+  }
+});
+```
+
+- [ ] **Step 2: Sanity-check the module parses**
+
+Run: `node --check scripts/gridEditor.js`
+Expected: no output.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add scripts/gridEditor.js
+git commit -m "feat(grid): gridEditor overlay (clone of content-tabs editor)"
+```
+
+### Task 8: Registration — `manifest.json` + `actions.js` + `form.js`
+
+This makes the new scripts loadable and the form's breadcrumb correct. **A manifest change requires reloading the unpacked extension** at `chrome://extensions` — without that, even a correct manifest throws "Failed to fetch dynamically imported module".
+
+**Files:**
+- Modify: `manifest.json`
+- Modify: `scripts/actions.js`
+- Modify: `scripts/form.js`
+
+- [ ] **Step 1: Add both scripts to `manifest.json` `web_accessible_resources`**
+
+After the `"scripts/dataTablesEditor.js",` line (line 95), add:
+
+```json
+        "scripts/grid.js",
+        "scripts/gridEditor.js",
+```
+
+(Both modules must be listed individually — scripts are not globbed. `grid.js` loads transitively via `components.js`/`github.js`/`gridEditor.js`, but listing it explicitly matches the convention used for every other leaf serializer, e.g. `contentTabs.js`, `dataTables.js`.)
+
+- [ ] **Step 2: Import the editor in `scripts/actions.js`**
+
+After the `import './dataTablesEditor.js';` line (line 16), add:
+
+```js
+import './gridEditor.js';
+```
+
+(This side-effect import runs `registerComponentContainer('grid-cell', …)` and the `openCreateGrid`/`openEditGrid`/`submitEditGrid`/`deleteGrid` `registerFormAction` calls.)
+
+- [ ] **Step 3: Add the breadcrumb label in `scripts/form.js`**
+
+In `FORM_LABELS` (line 40–57), after the `editDataTable: 'Edit Data Table',` line, add:
+
+```js
+  editGrid: 'Edit Grid',
+```
+
+- [ ] **Step 4: Sanity-check manifest is valid JSON and modules parse**
+
+Run: `node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest ok')" && node --check scripts/actions.js && node --check scripts/form.js`
+Expected: `manifest ok` and no syntax errors.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add manifest.json scripts/actions.js scripts/form.js
+git commit -m "feat(grid): register grid scripts, editor import + breadcrumb label"
+```
+
+### Task 9: Full verification + manual smoke test
+
+**Files:** none (verification only)
+
+- [ ] **Step 1: Run the whole test suite**
+
+Run: `for f in tests/*.test.mjs; do echo "== $f"; node "$f" || exit 1; done`
+Expected: every file ends in `… passed` with no failures. Pay attention to `grid.test.mjs`, `contentTabs.test.mjs`, `dataTables.test.mjs`, `componentMarkdown.test.mjs`, `componentContainers.test.mjs`, `identityMigration.test.mjs`.
+
+- [ ] **Step 2: Syntax-check every touched/new script**
+
+Run: `for f in scripts/grid.js scripts/gridEditor.js scripts/components.js scripts/guides.js scripts/github.js scripts/insertMenu.js scripts/systemUpdates.js scripts/form.js scripts/actions.js; do node --check "$f" && echo "ok $f"; done`
+Expected: `ok` for each.
+
+- [ ] **Step 3: Reload the unpacked extension**
+
+In Chrome: `chrome://extensions` → More Buttons → Reload. (Mandatory after the `manifest.json` change.)
+
+- [ ] **Step 4: Manual smoke test — create + author a grid**
+
+Open a guide draft → a section editor → **+ Insert Component → Grid**. Verify:
+- The grid editor opens immediately (editor-hop), showing **2 cells** and the **Cards** flavor active.
+- Type cell content; switch cells via the strip (no false "unsaved" prompt on switch).
+- Toggle **Plain**/**Cards** — marks the form dirty.
+- Add / Move left / Move right / Delete cell behave; Delete cell is disabled at 1 cell.
+- **Save to draft** → reopen the section: a **Grid** card (teal, "N cells — Cards/Plain") renders in the component list.
+
+- [ ] **Step 5: Manual smoke test — nested components survive a whole-grid save**
+
+Edit the grid → into a cell, **+ Insert Component → Admonition** (and a **Capture**). Confirm each lands in its editor, saves, and appears in the cell's components list. Back in the grid, change the flavor and **Save** again → reopen → the admonition and capture are still inside that cell (whole-grid save re-read worked).
+
+- [ ] **Step 6: Manual smoke test — markdown shape, copy/paste, migration**
+
+- Open the draft `.md` on GitHub (or via the repo) and confirm the block matches §"Markdown shape": `<div class="grid" markdown>` wrapper, `<div class="card" markdown>` (or `<div markdown>`) cells, hidden uuid spans.
+- Use the grid card's **Copy**, then **+ Insert Component → Paste copied markdown** into another section → a new grid appears with FRESH uuids (no duplicates).
+- Confirm grids render correctly on the built Zensical site (cards flow into columns; `md_in_html` + `attr_list` already enabled).
+
+- [ ] **Step 7: Final commit (if any verification fixes were made)**
+
+```bash
+git add -A && git commit -m "test(grid): verification fixes"  # only if needed
+```
+
+---
+
+## Self-review (completed by plan author)
+
+**Spec coverage** — every spec section maps to a task:
+- §"Markdown shape" / grid.js serializer → Task 1.
+- D1 both flavors → flavor toggle in Task 6 (form) + Task 7 (editor); `buildGrid`/`locateGrids` flavor in Task 1.
+- D2 full component-container cells → `grid-cell` registration (Task 7) + `readGridCellComponents`/`writeGridCellBody`/`gridCellExists` (Task 2).
+- D3 1-D cell list → content-tabs strip clone (Task 7); no 2-D toolbar.
+- D4 editor-hop → `openEditorForComponent` grid branch (Task 4 Step 5).
+- D5 whole-grid last-write-wins → `persistGridEdit` (Task 7).
+- D6 toml extensions already present → no `navToml.js` task (noted in header + smoke test).
+- Registration points (components/guides/insertMenu/form/actions/manifest/github/systemUpdates) → Tasks 2–5, 8.
+- UUID ensure-chain order → Task 2 Step 9 + Task 3 Step 3, with `getCellBodyUUID` disambiguation in Task 1.
+
+**Placeholder scan** — no TBD/TODO; every code step shows full code; every test step shows assertions; every run step shows the command + expected output.
+
+**Type/name consistency** — verified across tasks: component shape `{ kind: 'grid', grid: { uuid, flavor, cells: [{ uuid, body }] } }`; container kind `'grid-cell'`; helpers `readGridCellComponents`/`writeGridCellBody`/`gridCellExists`; form name `editGrid`; storage key `moreButtonsEditGrid`; state `formEl._grid` / `formEl._gridEditor`; hidden input `gridState`; serializer exports `locateGrids`/`buildGrid`/`getGridByUUID`/`locateGridByUUID`/`locateGridCellByUUID`/`replaceGridByUUID`/`deleteGridByUUID`/`ensureGridUUIDs`/`GRID_OPEN_RE`. The data attributes used in `editGrid.html` (`data-grid-strip`/`data-grid-cell`/`data-grid-add`/`data-grid-move`/`data-grid-delete-cell`/`data-grid-flavor`/`data-grid-description`/`data-grid-cell-components`/`data-grid-heading`/`data-edit-grid`/`data-delete-grid-btn`) match those queried in `gridEditor.js` and `guides.js`.
+
+
+
+
+
+
+
 
 
