@@ -318,7 +318,7 @@ export function componentMarkdown(component) {
  * Validates pasted markdown for the "Paste copied markdown" insert flow.
  * Strips any uuid spans the paste carried (fresh identities are always minted —
  * pasting into the same page can never duplicate a uuid), backfills new uuids
- * (admonitions → tabs → tables → captures, same order as migrateComponentIdentity), and
+ * (admonitions → tabs → grids → tables → captures, same order as migrateComponentIdentity), and
  * parses the result. Valid = at least one recognized component and no stray
  * prose outside component blocks.
  *
