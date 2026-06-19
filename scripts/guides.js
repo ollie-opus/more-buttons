@@ -37,7 +37,7 @@ import { escapeHtml, captureComponentCard } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
-import { readFrontmatterIcon, writeFrontmatterIcon } from './frontmatter.js';
+import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readHideTitle, writeHideTitle } from './frontmatter.js';
 import { attachIconPicker } from './iconPicker.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1438,8 +1438,18 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
       const loc = findPathByValueSlug(draftItems, slug);
       pathValue = (loc?.segments ?? []).join('/');
     } catch { /* best-effort prefill; empty path = root */ }
+    // Reflect the current `hide:` frontmatter list onto the three checkboxes;
+    // the Page Title checkbox reflects the body-level hide-title marker.
+    const hide = readFrontmatterHide(draftMarkdown);
     await chrome.storage.local.set({
-      moreButtonsEditPageSettings: { icon: readFrontmatterIcon(draftMarkdown), path: pathValue },
+      moreButtonsEditPageSettings: {
+        icon: readFrontmatterIcon(draftMarkdown),
+        path: pathValue,
+        hideNavigation: hide.includes('navigation'),
+        hideToc: hide.includes('toc'),
+        hidePath: hide.includes('path'),
+        hideTitle: readHideTitle(draftMarkdown),
+      },
     });
   }
 
@@ -1462,9 +1472,47 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
       formEl,
       file: currentGuide.draftPath,
       onProgress: s => setButtonBusy(btn, s),
-      fieldSpecs: [{ name: 'icon', type: 'scalar', label: 'Icon' }],
-      readFresh: md => ({ icon: readFrontmatterIcon(md) }),
-      build: (md, resolved) => writeFrontmatterIcon(md, (resolved.icon ?? '').trim()),
+      // Each hide checkbox is an independent boolean field: two-state booleans
+      // can never truly collide in the 3-way merge, so toggles from a concurrent
+      // session merge cleanly without ever raising a conflict.
+      fieldSpecs: [
+        { name: 'icon', type: 'scalar', label: 'Icon' },
+        { name: 'hideNavigation', type: 'scalar', label: 'Hide navigation' },
+        { name: 'hideToc', type: 'scalar', label: 'Hide table of contents' },
+        { name: 'hidePath', type: 'scalar', label: 'Hide path' },
+        { name: 'hideTitle', type: 'scalar', label: 'Hide page title' },
+      ],
+      readFresh: md => {
+        const hide = readFrontmatterHide(md);
+        return {
+          icon: readFrontmatterIcon(md),
+          hideNavigation: hide.includes('navigation'),
+          hideToc: hide.includes('toc'),
+          hidePath: hide.includes('path'),
+          hideTitle: readHideTitle(md),
+        };
+      },
+      build: (md, resolved) => {
+        let out = writeFrontmatterIcon(md, (resolved.icon ?? '').trim());
+        const want = {
+          navigation: !!resolved.hideNavigation,
+          toc: !!resolved.hideToc,
+          path: !!resolved.hidePath,
+        };
+        // Rebuild the list from the checkboxes, but preserve (in place) any hide
+        // values we don't own — an unrelated save must never silently drop a
+        // flag we have no checkbox for.
+        const managed = ['navigation', 'toc', 'path'];
+        const next = [];
+        for (const v of readFrontmatterHide(out)) {
+          if (!managed.includes(v)) next.push(v);            // unmanaged → keep
+          else if (want[v] && !next.includes(v)) next.push(v); // still wanted → keep position
+        }
+        for (const k of managed) if (want[k] && !next.includes(k)) next.push(k);
+        out = writeFrontmatterHide(out, next);
+        // Page Title lives in the body (a scoped <style> marker), not frontmatter.
+        return writeHideTitle(out, !!resolved.hideTitle);
+      },
     });
     if (!resolved) { formEl._refreshSaveState?.(); return; }
 

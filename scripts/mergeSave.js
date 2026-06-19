@@ -87,6 +87,10 @@ function rehydrateFields(formEl, fieldSpecs, resolved) {
     const els = formEl.querySelectorAll(`[name="${spec.name}"]`);
     if (els.length && els[0].type === 'radio') {
       els.forEach(r => { r.checked = (r.value === String(val)); });
+    } else if (els[0]?.type === 'checkbox') {
+      // A boolean scalar backed by a single checkbox — reflect the merged value
+      // onto `.checked`, not `.value` (which would leave the box visually stale).
+      els[0].checked = !!val;
     } else if (els[0]) {
       els[0].value = val ?? '';
       // If this is a rich-text textarea, re-render its visible surface too —
