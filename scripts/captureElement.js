@@ -16,13 +16,11 @@
 
 import { cropBoxPx, resolveCornerRadii, transformIsNearIdentity } from './captureGeometry.js';
 
-console.log('[CAPDBG] 📄 captureElement.js loaded — CAPDBG-BUILD-15');
-
 // A "motion signature" of the element's ancestor chain: every ancestor's
 // transform + opacity. JS-driven (rAF) popover animations never appear in
 // document.getAnimations(), but they DO move these computed values — so we
 // detect "still animating" by watching this signature change frame to frame.
-function capdbgMotionSig(el) {
+function motionSignature(el) {
   let node = el; const parts = [];
   while (node && node.nodeType === 1) {
     const cs = getComputedStyle(node);
@@ -38,17 +36,17 @@ function capdbgMotionSig(el) {
 // consecutive animation frames (or `maxMs` elapses). Settles popover
 // enter/exit scale+fade animations before we screenshot, so the compositor
 // isn't mid-resample (which yields soft + sub-pixel-offset captures).
-function capdbgWaitForStable(el, { maxMs = 2000, needFrames = 3 } = {}) {
+function waitForStable(el, { maxMs = 2000, needFrames = 3 } = {}) {
   return new Promise(resolve => {
     const t0 = performance.now();
-    let prev = capdbgMotionSig(el), stable = 0, frames = 0;
+    let prev = motionSignature(el), stable = 0, frames = 0;
     const tick = () => {
       frames++;
-      const cur = capdbgMotionSig(el);
+      const cur = motionSignature(el);
       if (cur === prev) stable++; else { stable = 0; prev = cur; }
       const elapsed = performance.now() - t0;
       if (stable >= needFrames || elapsed > maxMs) {
-        resolve({ waitedMs: Math.round(elapsed), frames, finalSig: cur, timedOut: stable < needFrames });
+        resolve();
       } else {
         requestAnimationFrame(tick);
       }
@@ -61,7 +59,7 @@ function capdbgWaitForStable(el, { maxMs = 2000, needFrames = 3 } = {}) {
 // @keyframes animations on transform sit ABOVE inline `!important` in the
 // cascade, so while one runs, `transform: none !important` is silently ignored
 // and the element stays GPU-promoted. We must cancel these before de-promoting.
-function capdbgAnimAffectsTransform(a) {
+function animAffectsTransform(a) {
   if (a.transitionProperty != null) return a.transitionProperty === 'transform' || a.transitionProperty === 'all';
   try { return a.effect.getKeyframes().some(k => 'transform' in k); } catch { return false; }
 }
@@ -71,99 +69,50 @@ function capdbgAnimAffectsTransform(a) {
 // screenshot, instead of being captured as a low-res standalone GPU layer.
 // Neutralizes identity AND settled-near-identity transforms (see
 // transformIsNearIdentity) so an animation that eased to matrix(0.9998,…) — not
-// the exact identity string — is still pinned; skips deliberate transforms so
-// nothing visible moves. Returns a restore() fn.
-function capdbgNeutralizeLayers(el) {
+// the exact identity string — is still pinned; deliberate (non-identity)
+// transforms are skipped so nothing visible moves. Returns a restore() fn.
+//
+// The full-res re-raster this triggers is asynchronous, so the service worker
+// waits its themeDelay AFTER reading the rect (i.e. after this runs) to let the
+// raster commit before Page.captureScreenshot — see background.js.
+function neutralizeLayers(el) {
   const touched = [];
   let node = el;
   while (node && node.nodeType === 1) {
     const cs = getComputedStyle(node);
     const t = cs.transform;
     const hasTransform = t && t !== 'none';
-    const isIdentity = transformIsNearIdentity(t);
-    const exactIdentity = !hasTransform || t === 'matrix(1, 0, 0, 1, 0, 0)';
     const promotes = hasTransform || (cs.willChange && cs.willChange !== 'auto');
-    const label = `${node.tagName.toLowerCase()}${node.id ? '#' + node.id : ''}`;
-    if (promotes && isIdentity) {
-      // A non-exact near-identity is the regression case: the old exact-string
-      // gate skipped it, leaving the layer promoted (low-res) and its residual
-      // transform free to drift between rect-read and capture (right-edge crop).
-      if (!exactIdentity) console.log(`[CAPDBG] snapped settled near-identity transform ${t} → none on ${label}`);
-      // THE FIX: a running transform transition/animation (e.g. the popover's
-      // theme-switch scale, which getAnimations() reports) outranks inline
-      // !important, so the transform:none below is ignored and the layer stays
-      // GPU-promoted — composited at a sub-pixel offset that slices the capture's
-      // right edge. Cancel those animations and disable transitions FIRST so the
-      // de-promotion actually takes. (Settled at identity, cancel is invisible;
-      // restored after the shot.)
-      let cancelled = 0;
-      for (const a of node.getAnimations()) {
-        if (capdbgAnimAffectsTransform(a)) { try { a.cancel(); cancelled++; } catch {} }
-      }
-      touched.push({
-        node,
-        transform: node.style.transform,
-        transformPriority: node.style.getPropertyPriority('transform'),
-        willChange: node.style.willChange,
-        willChangePriority: node.style.getPropertyPriority('will-change'),
-        transition: node.style.transition,
-        transitionPriority: node.style.getPropertyPriority('transition'),
-      });
-      node.style.setProperty('transition', 'none', 'important'); // block a fresh transition when transform flips to none
+    if (promotes && transformIsNearIdentity(t)) {
+      // A running/filling transform transition/animation outranks inline
+      // !important, so transform:none would be ignored and the layer stays
+      // GPU-promoted. The popover's enter/theme animation is usually scale +
+      // FADE with fill:forwards: it holds the element at opacity:1 via the
+      // ANIMATION, not the base CSS (opacity:0, the hidden pre-enter state). So
+      // commitStyles() FIRST bakes the settled animated frame (opacity, transform,
+      // …) into inline styles that survive the cancel; cancel() then frees the
+      // transform so the transform:none pin below can de-promote, while the baked
+      // opacity keeps the element visible. (No-op when no transform animation is
+      // present, e.g. a statically-promoted popover.)
+      const affecting = node.getAnimations().filter(animAffectsTransform);
+      for (const a of affecting) { try { a.commitStyles(); } catch {} }
+      for (const a of affecting) { try { a.cancel(); } catch {} }
+      // Snapshot the post-commit inline style; restore() reverts to exactly this,
+      // so the popover stays visually identical to its resting (filled) frame.
+      touched.push({ node, css: node.getAttribute('style') });
+      // No `transition:none` pin: identity→none is a zero-delta change so no
+      // transition fires, and the cssText snapshot above reverts what we set here.
       node.style.setProperty('transform', 'none', 'important');
       node.style.setProperty('will-change', 'auto', 'important');
-      // Verify it actually took — if an animation we missed is still overriding,
-      // the computed transform stays non-none and we'd capture promoted again.
-      const after = getComputedStyle(node).transform;
-      console.log(`[CAPDBG] de-promoted ${label}: cancelled ${cancelled} transform-anim(s); computed transform now ${after}${after !== 'none' ? ' ⚠️ STILL PROMOTED' : ''}`);
-    } else if (promotes && !isIdentity) {
-      console.warn(`[CAPDBG] NOT neutralizing ${label} — non-identity transform ${t} (would move it)`);
     }
     node = node.parentElement;
   }
-  console.log(`[CAPDBG] neutralized ${touched.length} layer-promoting ancestor(s) for capture`);
   return () => {
     for (const r of touched) {
-      if (r.transform) r.node.style.setProperty('transform', r.transform, r.transformPriority);
-      else r.node.style.removeProperty('transform');
-      if (r.willChange) r.node.style.setProperty('will-change', r.willChange, r.willChangePriority);
-      else r.node.style.removeProperty('will-change');
-      if (r.transition) r.node.style.setProperty('transition', r.transition, r.transitionPriority);
-      else r.node.style.removeProperty('transition');
+      if (r.css == null) r.node.removeAttribute('style');
+      else r.node.setAttribute('style', r.css);
     }
   };
-}
-
-// CAPDBG: dump the element's compositing context — its ancestor chain with any
-// layer-promoting / raster-affecting CSS, plus top-layer (dialog/popover) state.
-// A popup element is often promoted to its own GPU layer, which can be rastered
-// at low res and only upgraded lazily → intermittent soft captures.
-function capdbgDescribeContext(el) {
-  const PROPS = ['transform', 'scale', 'translate', 'rotate', 'zoom', 'willChange',
-    'filter', 'backdropFilter', 'opacity', 'position', 'contain', 'isolation',
-    'mixBlendMode', 'perspective', 'clipPath', 'mask', 'overflow'];
-  const BORING = new Set(['none', 'normal', 'auto', 'static', 'visible', '1', '0px', 'visible visible']);
-  const chain = [];
-  let node = el, depth = 0;
-  while (node && node.nodeType === 1 && depth < 40) {
-    const cs = getComputedStyle(node);
-    const flags = {};
-    for (const p of PROPS) {
-      const v = cs[p];
-      if (v && !BORING.has(v) && !(p === 'opacity' && v === '1')) flags[p] = v;
-    }
-    const tag = node.tagName.toLowerCase();
-    const cls = (node.className?.toString?.() || '').trim().split(/\s+/).filter(Boolean).slice(0, 3).join('.');
-    const id = node.id ? `#${node.id}` : '';
-    chain.push(`${tag}${id}${cls ? '.' + cls : ''}${Object.keys(flags).length ? ' ' + JSON.stringify(flags) : ''}`);
-    node = node.parentElement;
-    depth++;
-  }
-  let topLayer = [];
-  try { if (el.matches(':popover-open')) topLayer.push('popover-open'); } catch {}
-  try { const d = el.closest('dialog'); if (d) topLayer.push(`dialog${d.open ? '(open)' : ''}`); } catch {}
-  try { const p = el.closest('[popover]'); if (p) topLayer.push('has[popover]'); } catch {}
-  return { topLayer: topLayer.length ? topLayer.join(',') : 'none', chain };
 }
 
 // ── Hover + Shift-arm selector ────────────────────────────────────────────────
@@ -490,11 +439,19 @@ function deriveFilename(el, forcedTheme) {
 }
 
 /**
- * Single screenshot. The controller calls this once per theme.
+ * Screenshot the element for one theme. The controller calls this once per theme
+ * (light + dark are two awaits in the controller).
  *
- * @returns {Promise<{ dataUrl: string, filename: string, appliedPadding: number } | null>}
- *   null if the underlying screenshot failed (e.g. CDP attach refused).
- *   appliedPadding is the padding actually applied (0 if none / no sampleable bg).
+ * The target may live inside a GPU-promoted popover (an identity transform forces
+ * its own compositor layer, which Chrome rasters at low resolution). We settle any
+ * enter/exit animation (waitForStable), then de-promote layer-forming ancestors
+ * (neutralizeLayers) so they re-raster inline at full device resolution. That
+ * re-raster is async, so the service worker waits its themeDelay AFTER reading the
+ * rect — i.e. after de-promotion — to let it commit before Page.captureScreenshot
+ * (see background.js). Layers are restored once the screenshot returns.
+ *
+ * @returns {Promise<{ dataUrl, filename, appliedPadding } | null>} null on hard
+ *   failure (e.g. CDP attach refused).
  */
 export async function screenshotElement(el, { theme, customRect = null, settings }) {
   const scale = Math.max(1, parseFloat(settings.scale) || 2);
@@ -502,7 +459,6 @@ export async function screenshotElement(el, { theme, customRect = null, settings
 
   let sampledBgColor = null;
   let restoreLayerStyles = null;
-  let sentRect = null; // the exact rect handed to the SW, for post-capture drift check
 
   const rectListener = (msg, _sender, sendResponse) => {
     if (msg.type !== 'getRectForCapture') return false;
@@ -510,7 +466,6 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     if (customRect) {
       if (padding > 0) sampledBgColor = sampleBackgroundColor(el);
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        console.log(`[CAPDBG] theme=${theme} step3 rect-read (customRect): devicePixelRatio=${window.devicePixelRatio} rect=`, { x: customRect.left, y: customRect.top, width: customRect.width, height: customRect.height });
         sendResponse({
           x:      customRect.left,
           y:      customRect.top,
@@ -522,24 +477,18 @@ export async function screenshotElement(el, { theme, customRect = null, settings
       el.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
       if (padding > 0) sampledBgColor = sampleBackgroundColor(el);
       (async () => {
-        // Wait for popover/ancestor enter-exit animations (scale+fade) to settle
-        // so we don't screenshot a layer mid-resample → soft + offset capture.
-        const stab = await capdbgWaitForStable(el);
+        // Settle popover/ancestor enter-exit animations (scale+fade) so we don't
+        // screenshot a layer mid-resample → soft + offset capture.
+        await waitForStable(el);
         // De-promote layer-forming ancestors so the capture samples a full-res
         // inline paint, not the popover's low-res GPU layer. Restored once the
         // screenshot returns (after `await response` below).
-        restoreLayerStyles = capdbgNeutralizeLayers(el);
-        // Let the de-promoted, full-res re-raster land before we capture.
+        restoreLayerStyles = neutralizeLayers(el);
+        // Flush the de-promote style/layout locally; the SW's post-rect themeDelay
+        // gives the async full-res re-raster time to commit before capture.
         await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
         const r = el.getBoundingClientRect();
-        const running = document.getAnimations().filter(a => a.playState === 'running');
-        const animSummary = running.slice(0, 6).map(a =>
-          `${a.effect?.target?.tagName || '?'}.${(a.effect?.target?.className?.toString?.() || '').trim().split(/\s+/)[0] || ''}:${a.transitionProperty || a.animationName || '?'}@${Math.round(a.currentTime || 0)}`);
-        console.log(`[CAPDBG] theme=${theme} step3 WAIT-FOR-STABLE: waited=${stab.waitedMs}ms frames=${stab.frames} timedOut=${stab.timedOut} finalMotion="${stab.finalSig}"`);
-        console.log(`[CAPDBG] theme=${theme} step3 rect-read: devicePixelRatio=${window.devicePixelRatio} rect=`, { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height });
-        console.log(`[CAPDBG] theme=${theme} step3 state: scrollX=${window.scrollX} scrollY=${window.scrollY} innerW=${window.innerWidth} innerH=${window.innerHeight} vv=${window.visualViewport ? `${Math.round(visualViewport.width)}x${Math.round(visualViewport.height)}@top${Math.round(visualViewport.offsetTop)}/scale${visualViewport.scale}` : 'na'} animsRunning=${running.length}`, animSummary);
-        sentRect = { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height };
-        sendResponse(sentRect);
+        sendResponse({ x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height });
       })();
     }
     return true;
@@ -558,18 +507,11 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     o.style.display = 'none';
   });
 
-  const dprAtSend = window.devicePixelRatio;
-  console.log(`[CAPDBG] [CAPDBG-BUILD-15] theme=${theme} step1 send: devicePixelRatio=${dprAtSend} scale=${scale}`);
-  if (!customRect) {
-    const ctx = capdbgDescribeContext(el);
-    console.log(`[CAPDBG] theme=${theme} ELEMENT CONTEXT: topLayer=${ctx.topLayer}`);
-    console.log('[CAPDBG] ancestor chain (element → root), with layer/raster-affecting CSS:', ctx.chain);
-  }
   const response = await new Promise(resolve =>
     chrome.runtime.sendMessage({
       type: 'captureTab',
       scale,
-      devicePixelRatio: dprAtSend,
+      devicePixelRatio: window.devicePixelRatio,
       forcedTheme: theme,
       themeDelay: theme ? (settings.themeDelay ?? 500) : 0,
       // Element captures take a 4-device-px margin (cropped off afterwards);
@@ -578,26 +520,6 @@ export async function screenshotElement(el, { theme, customRect = null, settings
       tight: !!customRect,
     }, resolve)
   );
-
-  // DRIFT CHECK: re-read the element box now the screenshot is back but BEFORE we
-  // restore the layers — same de-promoted state the capture saw. If this differs
-  // from the rect we sent, the element moved/resized during the capture window
-  // (SW round-trip + themeDelay), so the crop — locked to the sent rect — slices
-  // whichever edge grew. A right-only positive dWidth/dx pins the left-anchored
-  // right-edge crop; all-zero means the geometry was stable and the crop is
-  // coming from the clip/crop math or coordinate space instead.
-  if (sentRect && !customRect) {
-    const n = el.getBoundingClientRect();
-    const post = { x: n.left + window.scrollX, y: n.top + window.scrollY, width: n.width, height: n.height };
-    const round3 = v => Math.round(v * 1000) / 1000;
-    const drift = {
-      dx: round3(post.x - sentRect.x), dy: round3(post.y - sentRect.y),
-      dW: round3(post.width - sentRect.width), dH: round3(post.height - sentRect.height),
-      dRight: round3((post.x + post.width) - (sentRect.x + sentRect.width)),
-    };
-    const moved = drift.dx || drift.dy || drift.dW || drift.dH;
-    console.log(`[CAPDBG] [CAPDBG-BUILD-15] theme=${theme} POST-CAPTURE DRIFT ${moved ? '⚠️ MOVED' : 'none'}:`, drift, { sent: sentRect, post });
-  }
 
   if (restoreLayerStyles) restoreLayerStyles();
 

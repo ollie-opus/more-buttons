@@ -11,9 +11,16 @@ const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 // drafted" — they never show the Drafting pill (Live only).
 const DRAFT_PILL_EXEMPT = new Set(['system-updates.md', 'system-status.md']);
 
+// The filename shared by a page's live and draft entries: "pages/foo.md" and
+// "drafts/foo.md" both → "foo.md". Filenames are globally unique (drafts/ is flat
+// and submitCreateGuide rejects slug collisions), so this is a safe identity key
+// for uniting a nav (live) leaf with its draft_nav (draft) counterpart.
+const baseOf = (value) => String(value).split('/').pop();
+
 // Merge two lists of normalized nav nodes. Sections are merged by slug of their
 // display name (so nav "Guides" and draft_nav "Guides" combine); leaves are
-// unioned by value (first display name wins).
+// unioned by filename — NOT exact value — so a live "pages/foo.md" and its draft
+// "drafts/foo.md" collapse to one node (first display name wins; nav passed first).
 function mergeNavNodes(listA, listB) {
   const out = [];
   for (const node of [...listA, ...listB]) {
@@ -21,34 +28,35 @@ function mergeNavNodes(listA, listB) {
       const existing = out.find(n => n.children && slugify(n.name) === slugify(node.name));
       if (existing) existing.children = mergeNavNodes(existing.children, node.children);
       else out.push({ name: node.name, children: mergeNavNodes(node.children, []) });
-    } else if (!out.some(n => n.value === node.value)) {
+    } else if (!out.some(n => n.value !== undefined && baseOf(n.value) === baseOf(node.value))) {
       out.push({ name: node.name, value: node.value });
     }
   }
   return out;
 }
 
-// Collect every leaf value in a node list into `set`.
+// Collect every leaf's filename (baseOf its value) into `set`.
 function collectValues(nodes, set) {
   for (const n of nodes) {
     if (n.children) collectValues(n.children, set);
-    else set.add(n.value);
+    else set.add(baseOf(n.value));
   }
   return set;
 }
 
 // Tag each tree leaf with Live / Drafting pills. navFiles/draftFiles are sets of
-// nav leaf *values* (e.g. "pages/foo.md"), so no folder listing is needed.
+// leaf *filenames* (e.g. "foo.md") — keyed on basename so a node merged from a
+// pages/ nav entry and a drafts/ draft_nav entry matches both sets.
 function decorateKbPills(panel, draftFiles, navFiles) {
   panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
     const file = leaf.dataset.kbFile || '';
-    const base = file.split('/').pop();
+    const base = baseOf(file);
     if (!file) return;
     const pills = [];
-    if (!DRAFT_PILL_EXEMPT.has(base) && draftFiles.has(file)) {
+    if (!DRAFT_PILL_EXEMPT.has(base) && draftFiles.has(base)) {
       pills.push('<span class="mb-kb-pill --drafting">Drafting</span>');
     }
-    if (navFiles.has(file)) {
+    if (navFiles.has(base)) {
       pills.push('<span class="mb-kb-pill --live">Live</span>');
     }
     if (pills.length) {

@@ -2282,6 +2282,11 @@ details[open] .more-buttons-advanced-toggle::before {
   padding: 2px 0;
 }
 
+/* Page settings is its own block above the section tree — set it apart. */
+.mb-kb-tree--page-settings {
+  margin-bottom: 34px; /* ≈ one missing tree row (30px) + the 4px inter-row gap */
+}
+
 .mb-kb-node {
   display: flex;
   flex-direction: column;
