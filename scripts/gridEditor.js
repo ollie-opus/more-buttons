@@ -55,18 +55,19 @@ registerComponentContainer('grid-cell', makeContainerHandler(readGridCellCompone
 
 // ── Editor state ──────────────────────────────────────────────────────────────
 //
-// formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order, nComponents }] }
+// formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order, spill, nComponents }] }
 //   - `active` is the SELECTED tile in the parent, and the EDITED cell in the child.
+//   - `spill` is the per-cell "allow spill" flag (→ class="spill" on the cell div).
 //   - `nComponents` is a render-only tile annotation; it is NOT persisted in gridState.
 
 function newCell() {
-  return { uuid: generateUUID(), description: '', order: null, nComponents: 0 };
+  return { uuid: generateUUID(), description: '', order: null, spill: false, nComponents: 0 };
 }
 
 function cellsFromGrid(grid) {
   return grid.cells.map(c => {
     const { description, components } = parseComponents(c.body, GUIDE_ADMONITION_TYPES_RE);
-    return { uuid: c.uuid ?? generateUUID(), description, order: null, nComponents: components.length };
+    return { uuid: c.uuid ?? generateUUID(), description, order: null, spill: !!c.spill, nComponents: components.length };
   });
 }
 
@@ -74,7 +75,7 @@ function cellsFromGrid(grid) {
 // is deliberately excluded so a tile's component count never affects the form's
 // dirty/persist state.
 function slimCells(cells) {
-  return cells.map(c => ({ uuid: c.uuid, description: c.description, order: c.order ?? null }));
+  return cells.map(c => ({ uuid: c.uuid, description: c.description, order: c.order ?? null, spill: !!c.spill }));
 }
 
 // Mirror the state into the single named input that drives dirty tracking.
@@ -92,6 +93,8 @@ function stashActiveCell(formEl) {
   if (!c) return;
   const desc = formEl.querySelector('[data-grid-description]');
   if (desc) c.description = desc.value;
+  const spill = formEl.querySelector('[data-grid-allow-spill]');
+  if (spill) c.spill = spill.checked;
 }
 
 // Push the active cell's state into the visible field (child only).
@@ -104,6 +107,8 @@ function loadActiveCellFields(formEl) {
   formEl.dataset.editUuid = c.uuid;
   const desc = formEl.querySelector('[data-grid-description]');
   if (desc) { desc.value = c.description; syncSurfaceFromTextarea(desc); }
+  const spill = formEl.querySelector('[data-grid-allow-spill]');
+  if (spill) spill.checked = !!c.spill;
 }
 
 // Refresh each cell's render-only component count from fresh markdown (parent
@@ -299,7 +304,7 @@ function wireGridEditor(formEl) {
 // buttons, "+ Insert Component").
 function wireGridCellEditor(formEl) {
   formEl.addEventListener('input', e => {
-    if (e.target.matches?.('[data-grid-description]')) {
+    if (e.target.matches?.('[data-grid-description], [data-grid-allow-spill]')) {
       stashActiveCell(formEl);
       syncGridState(formEl);
       formEl._refreshSaveState?.();
@@ -467,6 +472,7 @@ async function persistNewGrid(formEl, onProgress = () => {}) {
   const gridCells = st.cells.map(c => ({
     uuid: c.uuid,
     body: buildComponentBody(c.uuid, c.description, []),
+    spill: c.spill,
   }));
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
@@ -507,7 +513,7 @@ async function persistGridEdit(formEl, onProgress = () => {}) {
     const gridCells = st.cells.map(c => {
       const { components } = readGridCellComponents(md, c.uuid);
       const ordered = c.order ? reorderComponents(components, c.order) : components;
-      return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered) };
+      return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered), spill: c.spill };
     });
     return replaceGridByUUID(md, gridUuid, buildGrid(gridUuid, st.flavor, gridCells));
   });

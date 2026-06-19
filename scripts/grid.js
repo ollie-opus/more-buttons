@@ -22,8 +22,10 @@
 import { generateUUID } from './admonitions.js';
 
 export const GRID_OPEN_RE = /^(\s*)<div class="grid" markdown>\s*$/;
-// A cell opener: `<div class="card" markdown>` (group2='card') or `<div markdown>`.
-const CELL_OPEN_RE = /^(\s*)<div(?: class="(card)")? markdown>\s*$/;
+// A cell opener: `<div class="…" markdown>` or `<div markdown>`. group2 is the
+// full class string (e.g. "card", "spill", "card spill") or undefined; flavor and
+// the per-cell "spill" flag are derived from its space-separated tokens.
+const CELL_OPEN_RE = /^(\s*)<div(?: class="([^"]*)")? markdown>\s*$/;
 // Any div opener (depth counting inside cell bodies / nested grids).
 const DIV_OPEN_ANY_RE = /^\s*<div(?:\s|>)/;
 const DIV_CLOSE_RE = /^\s*<\/div>\s*$/;
@@ -75,7 +77,7 @@ function injectCellUUID(body, uuid) {
  * callers wanting immediate children filter on `indent === ''`.
  *
  * @returns {Array<{uuid: string|null, flavor: 'card'|'generic', indent: string,
- *   cells: Array<{uuid: string|null, body: string}>, startLine: number, endLine: number}>}
+ *   cells: Array<{uuid: string|null, body: string, spill: boolean}>, startLine: number, endLine: number}>}
  *   `body` is dedented by the grid indent, blank-trimmed; `startLine` includes
  *   the grid span when present; `endLine` is exclusive.
  */
@@ -100,12 +102,15 @@ export function locateGrids(markdown) {
     let depth = 1;             // inside the wrapper div
     let j = i + 1;
     let cellStart = -1;        // first line after a cell's open div, or -1
+    let cellSpill = false;     // the open cell's "spill" class, applied on close
     while (j < lines.length && depth > 0) {
       const line = lines[j];
       const isClose = DIV_CLOSE_RE.test(line);
       const cm = (!isClose && depth === 1) ? line.match(CELL_OPEN_RE) : null;
       if (cm && cm[1] === indent) {
-        if (cm[2] === 'card') flavor = 'card';
+        const classes = cm[2] ? cm[2].split(/\s+/) : [];
+        if (classes.includes('card')) flavor = 'card';
+        cellSpill = classes.includes('spill');
         cellStart = j + 1;
         depth++;               // entered the cell div
         j++;
@@ -119,8 +124,9 @@ export function locateGrids(markdown) {
           while (raw.length && raw[0] === '') raw.shift();
           while (raw.length && raw[raw.length - 1] === '') raw.pop();
           const body = raw.join('\n');
-          cells.push({ uuid: getCellBodyUUID(body), body });
+          cells.push({ uuid: getCellBodyUUID(body), body, spill: cellSpill });
           cellStart = -1;
+          cellSpill = false;
         }
         j++;
         continue;
@@ -136,6 +142,18 @@ export function locateGrids(markdown) {
 }
 
 /**
+ * A cell's opening `<div … markdown>` tag. The class list carries `card` (from
+ * the grid's flavor) and/or `spill` (the per-cell "allow spill" flag); a generic,
+ * non-spill cell has no class attribute at all.
+ */
+function cellOpenTag(flavor, spill) {
+  const classes = [];
+  if (flavor === 'card') classes.push('card');
+  if (spill) classes.push('spill');
+  return `<div${classes.length ? ` class="${classes.join(' ')}"` : ''} markdown>`;
+}
+
+/**
  * Builds a complete grid block (no outer indent) from its parts. Inverse of
  * locateGrids for a single grid. Cell bodies are provided WITH their own
  * identity span as the first line (callers build them via
@@ -143,18 +161,17 @@ export function locateGrids(markdown) {
  *
  * @param {string} uuid - the grid's identity span value.
  * @param {'card'|'generic'} flavor
- * @param {Array<{body: string}>} cells
+ * @param {Array<{body: string, spill?: boolean}>} cells
  * @returns {string}
  */
 export function buildGrid(uuid, flavor, cells) {
-  const cellOpen = `<div${flavor === 'card' ? ' class="card"' : ''} markdown>`;
   const lines = [
     `<span data-uuid="${uuid}" style="display:none"></span>`,
     '<div class="grid" markdown>',
   ];
   for (const c of cells) {
     lines.push('');
-    lines.push(cellOpen);
+    lines.push(cellOpenTag(flavor, c.spill));
     lines.push('');
     const body = (c.body ?? '').replace(/^\n+/, '').replace(/\n+$/, '');
     if (body.length) lines.push(body);
@@ -286,7 +303,7 @@ export function ensureGridUUIDs(markdown) {
       let uuid = c.uuid;
       if (!uuid) { uuid = generateUUID(); body = injectCellUUID(body, uuid); }
       if (uuid !== c.uuid || body !== c.body) changed = true;
-      return { uuid, body };
+      return { uuid, body, spill: c.spill };
     });
     if (!changed) continue;
 
