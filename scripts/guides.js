@@ -1419,6 +1419,27 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
       build: (md, resolved) => writeFrontmatterIcon(md, (resolved.icon ?? '').trim()),
     });
     if (!resolved) { formEl._refreshSaveState?.(); return; }
+
+    // Path lives in zensical.toml (draft_nav), not the markdown frontmatter, so it
+    // is a separate best-effort push — mirrors the H1-title rename. A failure here
+    // must not roll back the icon save.
+    try {
+      const pathRaw = formEl.querySelector('[name="path"]')?.value ?? '';
+      const newSegments = pathRaw.split('/').map(s => s.trim()).filter(Boolean);
+      const slug = guideBaseName(currentGuide.livePath);
+      setButtonBusy(btn, 'Updating path…');
+      await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
+        const { items } = parseNavBlock(md, 'draft_nav');
+        const { changed } = setPathByValueSlug(items, slug, newSegments, {
+          value: draftNavValueOf(currentGuide.livePath),
+          fallbackName: slug,
+        });
+        return changed ? replaceNavBlock(md, 'draft_nav', items) : md;
+      });
+    } catch (e) {
+      alert(`Icon saved, but updating the path failed: ${e.message}. Re-saving retries it.`);
+    }
+
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
