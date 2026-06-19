@@ -35,6 +35,23 @@ function mergeNavNodes(listA, listB) {
   return out;
 }
 
+// Drop every leaf whose filename is in `bases`; prune folders left empty.
+// Used to make draft_nav the authority for a page's tree location: a page that
+// has a draft renders ONLY at its draft_nav placement, never also at its (possibly
+// stale, post-Path-edit) live nav placement — which otherwise shows the page twice.
+function pruneLeavesByBase(nodes, bases) {
+  const out = [];
+  for (const n of nodes) {
+    if (n.children) {
+      const kids = pruneLeavesByBase(n.children, bases);
+      if (kids.length) out.push({ name: n.name, children: kids });
+    } else if (!bases.has(baseOf(n.value))) {
+      out.push(n);
+    }
+  }
+  return out;
+}
+
 // Collect every leaf's filename (baseOf its value) into `set`.
 function collectValues(nodes, set) {
   for (const n of nodes) {
@@ -103,7 +120,10 @@ async function renderKnowledgeBaseManagement() {
       const draftFiles = collectValues(draftNav, new Set());
 
       if (livePanel) {
-        const guideNav = nav.filter(n => !EXCLUDED_SECTIONS.has(n.name));
+        // Strip live leaves that have a draft so draft_nav owns their placement;
+        // the live nav entry may sit in a stale folder after a Path edit, which
+        // would otherwise render the page twice (once live, once drafting).
+        const guideNav = pruneLeavesByBase(nav.filter(n => !EXCLUDED_SECTIONS.has(n.name)), draftFiles);
         const merged = mergeNavNodes(guideNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
         livePanel.innerHTML = renderKbHierarchy(merged);
         decorateKbPills(livePanel, draftFiles, navFiles);
