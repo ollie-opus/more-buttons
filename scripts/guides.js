@@ -1016,6 +1016,11 @@ async function runChildAction(container, formEl, action) {
     // the saved table's uuid/file live on its dataset (set by the opener or the
     // create→edit transition).
     await getFormAction('openEditDataTableRow')?.({ uuid: formEl.dataset.tableUuid, file: formEl.dataset.containerFile, row: action.row });
+  } else if (action.type === 'edit-grid-cell') {
+    // The grid form is the parent here; after ensureContainerReady the saved
+    // grid's uuid/file live on its dataset (set by the opener or the create→edit
+    // transition).
+    await getFormAction('openEditGridCell')?.({ uuid: formEl.dataset.gridUuid, file: formEl.dataset.containerFile, index: action.index });
   }
 }
 

@@ -408,8 +408,10 @@ function renderRowStrip(formEl) {
 
 function refreshRowAlign(formEl) {
   const st = formEl._dt;
-  formEl.querySelectorAll('[data-dt-align]').forEach(btn =>
-    btn.classList.toggle('--active', st.align[st.selected.col] === btn.dataset.dtAlign));
+  formEl.querySelectorAll('[data-dt-align]').forEach(label => {
+    const input = label.querySelector('input');
+    if (input) input.checked = (st.align[st.selected.col] === label.dataset.dtAlign);
+  });
 }
 
 // The active cell parsed into { text, capture } (exclusive — see dataTables.js).

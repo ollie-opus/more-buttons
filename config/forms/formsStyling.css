@@ -266,6 +266,14 @@ button.more-buttons-crumb:hover {
   margin-bottom: 22px;
 }
 
+/* Section divider inside a form (e.g. between the grid Style group and its
+   structure controls). */
+.more-buttons-hr {
+  border: 0;
+  border-top: 1px solid var(--mb-border-subtle);
+  margin: 6px 0 18px;
+}
+
 .more-buttons-label {
   font-weight: 500;
   color: var(--mb-text-label);
@@ -2248,13 +2256,6 @@ details[open] .more-buttons-advanced-toggle::before {
   flex-wrap: wrap;
 }
 
-/* Segmented Left / Center / Right control (reuses .more-buttons-tab look). */
-.mb-dt-align {
-  display: inline-flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--mb-border-subtle);
-}
-
 /* Right-most per-row Edit column in the grid. The button reuses the
    component-card edit style (.mb-incident-card__edit); supply the accent
    vars it expects (default grey, matching an uncoloured card). */
@@ -2271,6 +2272,54 @@ details[open] .more-buttons-advanced-toggle::before {
 /* Column tab strip on the per-row editor. */
 .mb-dtr-tabs {
   margin-bottom: 14px;
+}
+
+/* ── Grid editor ───────────────────────────────────────────────────────────── */
+
+/* Structure controls reuse .mb-ct-manage; let them wrap like the data table. */
+.mb-grid-manage {
+  flex-wrap: wrap;
+}
+
+/* Square cell tiles — component-card styling laid out in a wrapping grid. */
+.mb-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 160px);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.mb-grid-cell-tile {
+  height: 160px;
+  margin-bottom: 0;            /* the grid gap owns spacing */
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+
+/* Selected tile: same accent outline as a selected data-table cell. */
+.mb-grid-cell-tile.--selected {
+  outline: 2px solid var(--mb-radio-checked-bg);
+  outline-offset: -2px;
+}
+
+/* Body fills the middle and clamps; the foot (Edit) pins to the bottom-right. */
+.mb-grid-cell-tile .mb-incident-card__body {
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.mb-grid-cell-tile .mb-incident-card__foot {
+  margin-top: auto;
+}
+
+.mb-grid-cell-tile__empty {
+  color: var(--mb-text-muted);
+  opacity: 0.65;
+  font-style: italic;
 }
 
 /* ── Knowledge Base Hierarchy Tree ─────────────────────────────────────────── */

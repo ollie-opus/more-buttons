@@ -1,19 +1,29 @@
 /**
  * gridEditor.js — the "Grid" overlay for a grid component.
  *
- * One form edits a whole GRID: a flavor toggle (Card / Generic), a dynamic cell
- * strip, ONE active panel below it (rich cell content + the active cell's
- * Components list), and add / move / delete-cell management. Each cell is itself
- * a component container ('grid-cell', uuid = the CELL's uuid), so admonitions,
- * captures, content tabs, data tables and nested grids can be inserted into the
- * active cell through the standard save-gate machinery in guides.js.
+ * Two forms, mirroring the data-table editor (editDataTable → editDataTableRow):
  *
- * Mirrors contentTabsEditor.js. Differences: cells have no title (Zensical grid
- * cells are title-less); a grid-level `flavor` toggle; and cell bodies live in
- * `<div markdown>` (md_in_html, no +4 indent) so the container read/write needs
- * no dedent. Editor state lives in `formEl._grid`, mirrored into ONE hidden
- * named input (`gridState`, JSON) for dirty tracking; visible per-cell inputs
- * are deliberately UNNAMED.
+ *   • editGrid (PARENT) — a flavor toggle (Card / Plain), a structure bar
+ *     (add / move / delete cell) and a clickable strip of SQUARE cell TILES.
+ *     Clicking a tile selects it (drives the structure bar); its Edit button
+ *     drills into the per-cell child form. The parent owns no cell content.
+ *
+ *   • editGridCell (CHILD) — edits ONE cell: rich content + that cell's
+ *     Components list. Each cell is a component container ('grid-cell', uuid =
+ *     the CELL's uuid), so admonitions, captures, content tabs, data tables and
+ *     nested grids insert into it through the standard save-gate in guides.js.
+ *
+ * Save model (mirrors the data table): the whole grid is last-write-wins on
+ * flavor + cell list. Both forms persist via persistGridEdit, which re-reads each
+ * surviving cell's components from fresh markdown so a per-cell save never
+ * clobbers a sibling. The two forms share state through ONE storage key
+ * (`moreButtonsEditGrid`) → a hidden named input (`gridState`, JSON) for dirty
+ * tracking; the child reads it on open, and on save seeds it back so the parent's
+ * back-navigation re-render is correct. Visible per-cell inputs are UNNAMED, and
+ * `nComponents` is a render-only tile annotation kept out of `gridState`.
+ *
+ * Cell bodies live in `<div markdown>` (md_in_html, no +4 indent) so the
+ * container read/write needs no dedent.
  */
 
 import { registerFormAction } from './formActions.js';
@@ -30,7 +40,10 @@ import {
 } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { getGridByUUID, buildGrid, replaceGridByUUID, deleteGridByUUID } from './grid.js';
-import { makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
+import {
+  makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick,
+  setOpenComponentEditor, beginChildNavigation,
+} from './guides.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
 import { escapeHtml } from './cardRenderer.js';
 
@@ -42,26 +55,37 @@ registerComponentContainer('grid-cell', makeContainerHandler(readGridCellCompone
 
 // ── Editor state ──────────────────────────────────────────────────────────────
 //
-// formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order }] }
+// formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order, nComponents }] }
+//   - `active` is the SELECTED tile in the parent, and the EDITED cell in the child.
+//   - `nComponents` is a render-only tile annotation; it is NOT persisted in gridState.
 
 function newCell() {
-  return { uuid: generateUUID(), description: '', order: null };
+  return { uuid: generateUUID(), description: '', order: null, nComponents: 0 };
 }
 
 function cellsFromGrid(grid) {
   return grid.cells.map(c => {
-    const { description } = parseComponents(c.body, GUIDE_ADMONITION_TYPES_RE);
-    return { uuid: c.uuid ?? generateUUID(), description, order: null };
+    const { description, components } = parseComponents(c.body, GUIDE_ADMONITION_TYPES_RE);
+    return { uuid: c.uuid ?? generateUUID(), description, order: null, nComponents: components.length };
   });
+}
+
+// The slim cell shape that drives dirty tracking + cross-form storage. `nComponents`
+// is deliberately excluded so a tile's component count never affects the form's
+// dirty/persist state.
+function slimCells(cells) {
+  return cells.map(c => ({ uuid: c.uuid, description: c.description, order: c.order ?? null }));
 }
 
 // Mirror the state into the single named input that drives dirty tracking.
 function syncGridState(formEl) {
   const input = formEl.querySelector('[name="gridState"]');
-  if (input) input.value = JSON.stringify({ flavor: formEl._grid.flavor, cells: formEl._grid.cells });
+  const st = formEl._grid;
+  if (input) input.value = JSON.stringify({ flavor: st.flavor, cells: slimCells(st.cells) });
 }
 
-// Pull the active cell's visible (unnamed) field back into state.
+// Pull the active cell's visible (unnamed) field back into state. A no-op in the
+// parent (no content field) — only the child carries the description textarea.
 function stashActiveCell(formEl) {
   const st = formEl._grid;
   const c = st?.cells[st.active];
@@ -70,7 +94,7 @@ function stashActiveCell(formEl) {
   if (desc) c.description = desc.value;
 }
 
-// Push the active cell's state into the visible field.
+// Push the active cell's state into the visible field (child only).
 function loadActiveCellFields(formEl) {
   const st = formEl._grid;
   const c = st?.cells[st.active];
@@ -82,13 +106,51 @@ function loadActiveCellFields(formEl) {
   if (desc) { desc.value = c.description; syncSurfaceFromTextarea(desc); }
 }
 
-function renderStrip(formEl) {
-  const strip = formEl.querySelector('[data-grid-strip]');
+// Refresh each cell's render-only component count from fresh markdown (parent
+// only — the child never renders tiles). Cells absent from `md` (added but not
+// yet saved) keep a 0 count.
+function enrichCellCounts(formEl, md) {
   const st = formEl._grid;
-  if (!strip || !st) return;
-  strip.innerHTML = st.cells.map((c, i) =>
-    `<button type="button" class="more-buttons-tab${i === st.active ? ' --active' : ''}" data-grid-cell="${i}">Cell ${i + 1}</button>`
-  ).join('') + `<button type="button" class="more-buttons-tab mb-grid-add-cell" data-grid-add title="Add cell">+ Add cell</button>`;
+  if (!st) return;
+  for (const c of st.cells) {
+    try { c.nComponents = readGridCellComponents(md, c.uuid).components.length; }
+    catch { c.nComponents = c.nComponents ?? 0; }
+  }
+}
+
+// ── Parent: tiles + flavor rendering ────────────────────────────────────────────
+
+// A plain-text, single-line preview of the cell's content for the tile body.
+function tilePreview(cell) {
+  const text = (cell.description ?? '')
+    .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
+    .replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '')
+    .replace(/\n+/g, ' ')
+    .trim();
+  if (text) return escapeHtml(text.length > 160 ? text.slice(0, 160) + '…' : text);
+  return `<span class="mb-grid-cell-tile__empty">No text</span>`;
+}
+
+// Render the square cell tiles + sync the structure-bar enablement.
+function renderTiles(formEl) {
+  const host = formEl.querySelector('[data-grid-tiles]');
+  const st = formEl._grid;
+  if (!host || !st) return;
+  host.innerHTML = st.cells.map((c, i) => {
+    const sel = i === st.active ? ' --selected' : '';
+    const n = c.nComponents ?? 0;
+    return `
+      <div class="mb-incident-card --grey mb-grid-cell-tile${sel}" data-grid-cell="${i}">
+        <div class="mb-incident-card__head">
+          <strong class="mb-incident-card__title">Cell ${i + 1}</strong>
+        </div>
+        <p class="mb-incident-card__body">${tilePreview(c)}</p>
+        <div class="mb-incident-card__foot${n ? '' : ' --end'}">
+          ${n ? `<span class="mb-incident-card__meta">${n} component${n === 1 ? '' : 's'}</span>` : ''}
+          <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>
+        </div>
+      </div>`;
+  }).join('');
 
   const left = formEl.querySelector('[data-grid-move="left"]');
   const right = formEl.querySelector('[data-grid-move="right"]');
@@ -100,18 +162,22 @@ function renderStrip(formEl) {
 
 function renderFlavor(formEl) {
   const st = formEl._grid;
-  formEl.querySelectorAll('[data-grid-flavor]').forEach(btn => {
-    btn.classList.toggle('--active', btn.dataset.gridFlavor === st.flavor);
+  formEl.querySelectorAll('[name="gridFlavor"]').forEach(input => {
+    input.checked = (input.value === st.flavor);
   });
 }
 
+// ── Child: component list ───────────────────────────────────────────────────────
+
 // Render the active cell's component list and point the shared open-editor
-// tracking at it, so inserts/mutations re-render in place.
+// tracking at it, so inserts/mutations re-render in place. No-op in the parent,
+// which has no component list element.
 async function mountActiveCellComponents(formEl, md = null) {
   const st = formEl._grid;
   const c = st?.cells[st.active];
   if (!c) return;
   const listEl = formEl.querySelector('[data-grid-cell-components]');
+  if (!listEl) return;
   const file = formEl.dataset.containerFile;
   let components = [];
   if (formEl.dataset.mode !== 'create' && file) {
@@ -146,60 +212,57 @@ function installRefreshHook(formEl) {
   formEl._refreshSaveState = () => { syncActiveOrderFromEditor(formEl); orig?.(); };
 }
 
-// ── Cell + flavor management ───────────────────────────────────────────────────
+// ── Parent: cell + flavor management ─────────────────────────────────────────────
 
-async function activateCell(formEl, index) {
-  stashActiveCell(formEl);
+// Select a tile (drives the structure bar + which cell the Edit button opens).
+function activateCell(formEl, index) {
   const st = formEl._grid;
   st.active = Math.max(0, Math.min(index, st.cells.length - 1));
-  loadActiveCellFields(formEl);
-  renderStrip(formEl);
-  syncGridState(formEl);
-  formEl._refreshSaveState?.();
-  await mountActiveCellComponents(formEl);
+  formEl.dataset.editUuid = st.cells[st.active]?.uuid ?? '';
+  renderTiles(formEl);
 }
 
-async function addCell(formEl) {
-  stashActiveCell(formEl);
+function addCell(formEl) {
   const st = formEl._grid;
   st.cells.push(newCell());
-  await activateCell(formEl, st.cells.length - 1);
+  st.active = st.cells.length - 1;
+  formEl.dataset.editUuid = st.cells[st.active].uuid;
+  renderTiles(formEl);
+  syncGridState(formEl);
+  formEl._refreshSaveState?.();
 }
 
 function moveActiveCell(formEl, dir) {
-  stashActiveCell(formEl);
   const st = formEl._grid;
   const i = st.active;
   const j = i + dir;
   if (j < 0 || j >= st.cells.length) return;
   [st.cells[i], st.cells[j]] = [st.cells[j], st.cells[i]];
   st.active = j; // the active cell travels with the move
-  renderStrip(formEl);
+  formEl.dataset.editUuid = st.cells[st.active].uuid;
+  renderTiles(formEl);
   syncGridState(formEl);
   formEl._refreshSaveState?.();
 }
 
-async function deleteActiveCell(formEl) {
+function deleteActiveCell(formEl) {
   const st = formEl._grid;
   if (st.cells.length <= 1) {
     alert('A grid needs at least one cell — use Delete below to remove the whole grid.');
     return;
   }
-  stashActiveCell(formEl);
   if (!confirm(`Delete cell ${st.active + 1}? Its contents are removed when you save.`)) return;
   st.cells.splice(st.active, 1);
   st.active = Math.min(st.active, st.cells.length - 1);
-  loadActiveCellFields(formEl);
-  renderStrip(formEl);
+  formEl.dataset.editUuid = st.cells[st.active]?.uuid ?? '';
+  renderTiles(formEl);
   syncGridState(formEl);
   formEl._refreshSaveState?.();
-  await mountActiveCellComponents(formEl);
 }
 
 function setFlavor(formEl, flavor) {
   const st = formEl._grid;
   if (st.flavor === flavor) return;
-  stashActiveCell(formEl);
   st.flavor = flavor;
   renderFlavor(formEl);
   syncGridState(formEl);
@@ -208,7 +271,33 @@ function setFlavor(formEl, flavor) {
 
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
+// Parent: flavor toggle, tile selection, drill-in to a cell, structure bar.
 function wireGridEditor(formEl) {
+  formEl.addEventListener('change', e => {
+    if (e.target.name === 'gridFlavor') setFlavor(formEl, e.target.value);
+  });
+
+  formEl.addEventListener('click', e => {
+    const editBtn = e.target.closest('[data-grid-edit-cell]');
+    if (editBtn) {
+      const i = parseInt(editBtn.dataset.gridEditCell, 10);
+      activateCell(formEl, i);
+      beginChildNavigation(formEl, { type: 'edit-grid-cell', index: i });
+      return;
+    }
+    const tile = e.target.closest('[data-grid-cell]');
+    if (tile) { activateCell(formEl, parseInt(tile.dataset.gridCell, 10)); return; }
+    if (e.target.closest('[data-grid-add]')) { addCell(formEl); return; }
+    const move = e.target.closest('[data-grid-move]');
+    if (move) { if (!move.disabled) moveActiveCell(formEl, move.dataset.gridMove === 'left' ? -1 : 1); return; }
+    const del = e.target.closest('[data-grid-delete-cell]');
+    if (del) { if (!del.disabled) deleteActiveCell(formEl); return; }
+  });
+}
+
+// Child: rich content edits + the shared component delegation (rails, edit
+// buttons, "+ Insert Component").
+function wireGridCellEditor(formEl) {
   formEl.addEventListener('input', e => {
     if (e.target.matches?.('[data-grid-description]')) {
       stashActiveCell(formEl);
@@ -216,20 +305,6 @@ function wireGridEditor(formEl) {
       formEl._refreshSaveState?.();
     }
   });
-
-  formEl.addEventListener('click', e => {
-    const cellBtn = e.target.closest('[data-grid-cell]');
-    if (cellBtn) { activateCell(formEl, parseInt(cellBtn.dataset.gridCell, 10)); return; }
-    if (e.target.closest('[data-grid-add]')) { addCell(formEl); return; }
-    const move = e.target.closest('[data-grid-move]');
-    if (move) { if (!move.disabled) moveActiveCell(formEl, move.dataset.gridMove === 'left' ? -1 : 1); return; }
-    const del = e.target.closest('[data-grid-delete-cell]');
-    if (del) { if (!del.disabled) deleteActiveCell(formEl); return; }
-    const flavor = e.target.closest('[data-grid-flavor]');
-    if (flavor) { setFlavor(formEl, flavor.dataset.gridFlavor); return; }
-  });
-
-  // Shared component delegation: rails, edit buttons, "+ Insert Component".
   formEl.addEventListener('click', onComponentEditorClick);
 }
 
@@ -251,10 +326,10 @@ async function initStateFromStorage(formEl, fallbackCells, fallbackFlavor, file,
 }
 
 function seedStorage(flavor, cells) {
-  return chrome.storage.local.set({ [STORAGE_KEY]: { gridState: JSON.stringify({ flavor, cells }) } });
+  return chrome.storage.local.set({ [STORAGE_KEY]: { gridState: JSON.stringify({ flavor, cells: slimCells(cells) }) } });
 }
 
-// ── Openers ───────────────────────────────────────────────────────────────────
+// ── Openers (parent) ────────────────────────────────────────────────────────────
 
 registerFormAction('openCreateGrid', async ({ container, insertAtIndex } = {}) => {
   if (!container?.file) return;
@@ -270,7 +345,6 @@ registerFormAction('openCreateGrid', async ({ container, insertAtIndex } = {}) =
   formEl.dataset.parentFile = container.file;
   formEl.dataset.insertAtIndex = insertAtIndex == null ? '' : String(insertAtIndex);
   formEl.dataset.gridUuid = '';
-  formEl.dataset.componentContainerKind = 'grid-cell';
   formEl.dataset.containerFile = container.file;
   formEl.dataset.componentNoun = 'grid';
 
@@ -281,12 +355,10 @@ registerFormAction('openCreateGrid', async ({ container, insertAtIndex } = {}) =
   await initStateFromStorage(formEl, initialCells, initialFlavor, container.file, null);
   formEl._componentSaver = () => saveGridForComponent(formEl);
   wireGridEditor(formEl);
-  loadActiveCellFields(formEl);
-  renderStrip(formEl);
+  formEl.dataset.editUuid = formEl._grid.cells[0]?.uuid ?? '';
+  renderTiles(formEl);
   renderFlavor(formEl);
   syncGridState(formEl);
-  await mountActiveCellComponents(formEl);
-  installRefreshHook(formEl);
   resetDirtyBaseline(formEl);
 });
 
@@ -308,7 +380,6 @@ registerFormAction('openEditGrid', async ({ uuid, file } = {}) => {
   if (!formEl) return;
   formEl.dataset.mode = 'edit';
   formEl.dataset.gridUuid = uuid;
-  formEl.dataset.componentContainerKind = 'grid-cell';
   formEl.dataset.containerFile = file;
   formEl.dataset.componentNoun = 'grid';
 
@@ -317,11 +388,56 @@ registerFormAction('openEditGrid', async ({ uuid, file } = {}) => {
   setCrumbLabel('Grid');
 
   await initStateFromStorage(formEl, mdCells, grid.flavor, file, uuid);
+  enrichCellCounts(formEl, md);
   formEl._componentSaver = () => saveGridForComponent(formEl);
   wireGridEditor(formEl);
-  loadActiveCellFields(formEl);
-  renderStrip(formEl);
+  formEl.dataset.editUuid = formEl._grid.cells[formEl._grid.active]?.uuid ?? '';
+  renderTiles(formEl);
   renderFlavor(formEl);
+  syncGridState(formEl);
+  resetDirtyBaseline(formEl);
+});
+
+// ── Opener (child) ──────────────────────────────────────────────────────────────
+
+registerFormAction('openEditGridCell', async ({ uuid, file, index } = {}) => {
+  if (!uuid || !file || index == null) return;
+  let md;
+  try {
+    md = await fetchFileMigratingIdentity(file);
+  } catch (e) {
+    alert('Failed to load file: ' + e.message);
+    return;
+  }
+  const grid = getGridByUUID(md, uuid);
+  if (!grid) { alert('Grid not found.'); return; }
+  const mdCells = cellsFromGrid(grid);
+  // The save-gate flushed any in-flight whole-grid edits before navigating here,
+  // so the file is authoritative; seed storage from it (covers capture-mode and
+  // back-navigation replays) and let the parent re-render from it on the way back.
+  await seedStorage(grid.flavor, mdCells);
+
+  const { formEl } = await createForm('editGridCell');
+  if (!formEl) return;
+  formEl.dataset.mode = 'edit';
+  formEl.dataset.gridUuid = uuid;
+  formEl.dataset.containerFile = file;
+  // Make the cell editor a component host: this cell is a `grid-cell` container,
+  // and the save-gate flushes the whole grid before opening a component child.
+  formEl.dataset.componentContainerKind = 'grid-cell';
+  formEl.dataset.componentNoun = 'grid';
+  formEl._componentSaver = () => saveGridCellForComponent(formEl);
+
+  await initStateFromStorage(formEl, mdCells, grid.flavor, file, uuid);
+  const st = formEl._grid;
+  st.active = Math.max(0, Math.min(index, st.cells.length - 1));
+
+  const heading = formEl.querySelector('[data-grid-cell-heading]');
+  if (heading) heading.textContent = `Edit cell ${st.active + 1}`;
+  setCrumbLabel(`Cell ${st.active + 1}`);
+
+  wireGridCellEditor(formEl);
+  loadActiveCellFields(formEl);
   syncGridState(formEl);
   await mountActiveCellComponents(formEl, md);
   installRefreshHook(formEl);
@@ -372,7 +488,6 @@ async function transitionGridCreateToEdit(formEl, gridUuid, file) {
   formEl.parentElement?.querySelector('[data-delete-grid-btn]')?.style.removeProperty('display');
   syncGridState(formEl);
   await seedStorage(formEl._grid.flavor, formEl._grid.cells);
-  await mountActiveCellComponents(formEl);
   resetDirtyBaseline(formEl);
 }
 
@@ -404,13 +519,13 @@ async function persistGridEdit(formEl, onProgress = () => {}) {
   st.cells.forEach(c => { c.order = null; }); // the file is canonical again
   syncGridState(formEl);
   await seedStorage(st.flavor, st.cells);
-  await mountActiveCellComponents(formEl);
+  await mountActiveCellComponents(formEl); // child re-renders its cell; parent no-ops
   resetDirtyBaseline(formEl);
   return { gridUuid, file };
 }
 
-// Persist the grid form for the save-gate. Returns { container, formEl } where
-// container = the ACTIVE cell, so child flows insert into it.
+// Persist the parent grid form for the save-gate. Returns { container, formEl }
+// where container = the ACTIVE cell, so child flows insert into it.
 async function saveGridForComponent(formEl, onProgress = () => {}) {
   if (formEl.dataset.mode === 'create') {
     const res = await persistNewGrid(formEl, onProgress);
@@ -426,6 +541,18 @@ async function saveGridForComponent(formEl, onProgress = () => {}) {
   };
 }
 
+// Whole-grid save used as the CHILD cell editor's component save-gate hook: flush
+// the in-flight grid to the draft, then hand back the EDITED cell as the container
+// the pending child (component insert / edit) will act on.
+async function saveGridCellForComponent(formEl, onProgress = () => {}) {
+  const res = await persistGridEdit(formEl, onProgress);
+  if (!res) return null;
+  return {
+    container: { kind: 'grid-cell', uuid: formEl.dataset.editUuid, file: formEl.dataset.containerFile },
+    formEl,
+  };
+}
+
 // ── Form actions ──────────────────────────────────────────────────────────────
 
 registerFormAction('submitEditGrid', async ({ formEl, content }) => {
@@ -433,6 +560,19 @@ registerFormAction('submitEditGrid', async ({ formEl, content }) => {
   setButtonBusy(btn, 'Saving…');
   try {
     await saveGridForComponent(formEl, s => setButtonBusy(btn, s));
+    formEl._refreshSaveState?.();
+  } catch (e) {
+    formEl._refreshSaveState?.();
+    alert('Failed to save grid: ' + e.message);
+  }
+});
+
+registerFormAction('submitEditGridCell', async ({ formEl, content }) => {
+  const btn = content.querySelector('[data-save-state]');
+  setButtonBusy(btn, 'Saving…');
+  try {
+    const res = await persistGridEdit(formEl, s => setButtonBusy(btn, s));
+    if (res) { await navigateBack(); return; } // back to the grid, which re-renders from storage
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();

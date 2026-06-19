@@ -3,33 +3,22 @@
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Style</label>
-    <div class="more-buttons-tab-list mb-grid-flavor">
-      <button type="button" class="more-buttons-tab" data-grid-flavor="card">Cards</button>
-      <button type="button" class="more-buttons-tab" data-grid-flavor="generic">Plain</button>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="gridFlavor" value="card" /> Cards</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="gridFlavor" value="generic" /> Plain</label>
     </div>
   </div>
 
-  <div class="more-buttons-tabs mb-grid-cells">
-    <div class="more-buttons-tab-list" data-grid-strip></div>
-  </div>
+  <hr class="more-buttons-hr" />
 
-  <div class="mb-grid-manage">
+  <div class="mb-ct-manage mb-grid-manage">
+    <button type="button" class="more-buttons-button secondary" data-grid-add><span class="more-buttons-icon">add</span>Add cell</button>
     <button type="button" class="more-buttons-button secondary" data-grid-move="left"><span class="more-buttons-icon">arrow_back</span>Move left</button>
     <button type="button" class="more-buttons-button secondary" data-grid-move="right"><span class="more-buttons-icon">arrow_forward</span>Move right</button>
     <button type="button" class="more-buttons-button danger" data-grid-delete-cell><span class="more-buttons-icon">tab_close</span>Delete cell</button>
   </div>
 
-  <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Cell content</label>
-    <textarea data-grid-description rows="6" data-richtext placeholder="Markdown allowed"></textarea>
-  </div>
-
-  <div class="more-buttons-form-group" data-components-row>
-    <label class="more-buttons-label">Components</label>
-    <div>
-      <div data-grid-cell-components></div>
-    </div>
-  </div>
+  <div class="mb-grid-cells" data-grid-tiles></div>
 
   <input type="hidden" name="gridState" />
 

@@ -1,0 +1,21 @@
+<form data-nav data-dirty-guard id="edit-grid-cell-form" data-storage-key="moreButtonsEditGrid" data-width="90vw" data-height="90vh">
+  <h2 data-grid-cell-heading>Edit cell</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Cell content</label>
+    <textarea data-grid-description rows="6" data-richtext placeholder="Markdown allowed"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group" data-components-row>
+    <label class="more-buttons-label">Components</label>
+    <div>
+      <div data-grid-cell-components></div>
+    </div>
+  </div>
+
+  <input type="hidden" name="gridState" />
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditGridCell" data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
+  </div>
+</form>

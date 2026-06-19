@@ -51,6 +51,7 @@ const FORM_LABELS = {
   editContentTabs: 'Edit Content Tabs',
   editDataTable: 'Edit Data Table',
   editGrid: 'Edit Grid',
+  editGridCell: 'Edit Cell',
   reportIncident: 'Report Incident',
   updateIncident: 'Update Incident',
   logSystemUpdate: 'Log System Update',
