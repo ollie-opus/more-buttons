@@ -3,6 +3,7 @@ import { ensureSectionUUIDs } from './sections.js';
 import { ensureCaptureUUIDs } from './components.js';
 import { ensureTabUUIDs } from './contentTabs.js';
 import { ensureDataTableUUIDs } from './dataTables.js';
+import { ensureGridUUIDs } from './grid.js';
 import { contentsApiUrl, authHeader } from './repoClient.js';
 
 let _opQueue = Promise.resolve();
@@ -57,21 +58,21 @@ function isGuideMarkdown(filePath) {
 // Exported for unit testing the dispatch — callers use githubFetchAndPushFile /
 // fetchFileMigratingIdentity, which apply it automatically.
 export function migrateComponentIdentity(filePath, markdown) {
-  // ensureTabUUIDs must run BEFORE ensureDataTableUUIDs and ensureCaptureUUIDs:
-  // a table/capture span injected as a tab's first body line would be misread
-  // as the tab's own identity.
+  // ensureTabUUIDs + ensureGridUUIDs must run BEFORE ensureDataTableUUIDs and
+  // ensureCaptureUUIDs: a table/capture span injected as a tab's or grid cell's
+  // first body line would be misread as that container's own identity.
   const blockRegex = Object.entries(ADMONITION_TYPE_BY_FILE).find(([k]) => filePath.includes(k))?.[1];
   if (blockRegex) {
     // System updates / status: their top-level block admonitions, plus (for
     // updates, which embed components) tab groups + captures inside update bodies.
     const withAdm = ensureAdmonitionUUIDs(markdown, blockRegex);
-    return filePath.includes('system-updates.md') ? ensureCaptureUUIDs(ensureDataTableUUIDs(ensureTabUUIDs(withAdm))) : withAdm;
+    return filePath.includes('system-updates.md') ? ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(withAdm)))) : withAdm;
   }
   if (isGuideMarkdown(filePath)) {
     // Mirror createGuideDraft: sections + component admonitions + tabs + tables + captures.
-    return ensureCaptureUUIDs(ensureDataTableUUIDs(ensureTabUUIDs(
+    return ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
       ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
-    )));
+    ))));
   }
   return markdown;
 }
