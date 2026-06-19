@@ -24,6 +24,7 @@ import { buildSectionUUIDSpan } from './sections.js';
 import { buildCaptureLines } from './captures.js';
 import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
+import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from './grid.js';
 
 // Per-line light-capture matcher (mirrors captures.js' parseExistingCaptures,
 // but line-addressable so we can interleave with admonitions by position).
@@ -135,23 +136,37 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     .filter(a => a.indent === '');
   const admRanges = adms.map(a => [a.headerLine, a.endLine]);
 
-  // Immediate-child tab groups (indent 0; groups nested inside admonitions are
-  // indented, but guard against pathological overlaps anyway).
-  const grps = locateTabGroups(src)
+  // Immediate-child grids (indent 0). Grid cells hold their own components at
+  // indent 0 (md_in_html does not indent), so grids must be located first and
+  // their ranges used to exclude grid-internal admonitions/tabs/tables/captures.
+  const grids = locateGrids(src)
     .filter(g => g.indent === '' && !inAnyRange(g.startLine, admRanges));
+  const gridRanges = grids.map(g => [g.startLine, g.endLine]);
+  const inContainer = (line) => inAnyRange(line, admRanges) || inAnyRange(line, gridRanges);
 
-  // Top-level captures: indent 0 and not buried inside an admonition block.
-  // (Captures inside tab groups are indented +4, so already excluded.)
+  // Immediate-child tab groups (indent 0; groups nested inside admonitions/grids
+  // are excluded by range).
+  const grps = locateTabGroups(src)
+    .filter(g => g.indent === '' && !inContainer(g.startLine));
+
+  // Top-level captures: indent 0 and not buried inside an admonition or grid.
   const topCaptures = locateCaptureLines(src)
-    .filter(c => c.indent === '' && !inAnyRange(c.startLine, admRanges));
+    .filter(c => c.indent === '' && !inContainer(c.startLine));
 
-  // Immediate-child data tables (indent 0; tables inside admonitions / tabs
-  // are indented, but guard against pathological overlaps anyway).
+  // Immediate-child data tables (indent 0; tables inside admonitions/grids excluded).
   const tbls = locateDataTables(src)
-    .filter(t => t.indent === '' && !inAnyRange(t.startLine, admRanges));
+    .filter(t => t.indent === '' && !inContainer(t.startLine));
 
   const items = [
-    ...adms.map(adm => ({ kind: 'admonition', adm, startLine: adm.headerLine, endLine: adm.endLine })),
+    ...adms
+      .filter(a => !inAnyRange(a.headerLine, gridRanges))
+      .map(adm => ({ kind: 'admonition', adm, startLine: adm.headerLine, endLine: adm.endLine })),
+    ...grids.map(g => ({
+      kind: 'grid',
+      grid: { uuid: g.uuid ?? null, flavor: g.flavor, cells: g.cells },
+      startLine: g.startLine,
+      endLine: g.endLine,
+    })),
     ...grps.map(g => ({
       kind: 'tabs',
       grp: { uuid: g.uuid ?? null, tabs: g.tabs },
@@ -179,6 +194,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     if (it.kind === 'admonition') return { kind: 'admonition', adm: it.adm };
     if (it.kind === 'tabs') return { kind: 'tabs', grp: it.grp };
     if (it.kind === 'table') return { kind: 'table', tbl: it.tbl };
+    if (it.kind === 'grid') return { kind: 'grid', grid: it.grid };
     return { kind: 'capture', cap: it.cap };
   });
 
@@ -242,6 +258,8 @@ export function buildComponentBody(uuid, description, components) {
       lines.push(buildTabGroup(c.grp.uuid, c.grp.tabs));
     } else if (c.kind === 'table') {
       lines.push(buildDataTable(c.tbl.uuid, c.tbl.align, c.tbl.header, c.tbl.rows));
+    } else if (c.kind === 'grid') {
+      lines.push(buildGrid(c.grid.uuid, c.grid.flavor, c.grid.cells));
     } else {
       // buildCaptureLines emits a leading '' we don't want (we add our own).
       lines.push(...buildCaptureLines([c.cap]).slice(1));
@@ -277,6 +295,7 @@ export function uuidOfComponent(c) {
   if (c.kind === 'admonition') return c.adm.uuid;
   if (c.kind === 'tabs') return c.grp.uuid;
   if (c.kind === 'table') return c.tbl.uuid;
+  if (c.kind === 'grid') return c.grid.uuid;
   return c.cap.uuid;
 }
 
@@ -309,10 +328,10 @@ export function componentMarkdown(component) {
 export function parsePastedComponents(text) {
   const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  const withUuids = ensureCaptureUUIDs(ensureDataTableUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE))));
+  const withUuids = ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)))));
   const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
   if (components.length === 0) {
-    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs or data table).' };
+    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table or grid).' };
   }
   if (description.trim() !== '') {
     return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };
@@ -381,6 +400,50 @@ export function writeTabBody(md, tabUuid, description, components) {
     '',
     ...indented,
     ...lines.slice(loc.endLine),
+  ].join('\n');
+}
+
+// ── Grid-cell containers (a single cell's body holds an ordered component list) ─
+
+/**
+ * Reads the component list of the CELL identified by `cellUuid` out of the raw
+ * document (any nesting depth). The cell body is dedented by the grid indent and
+ * parsed like any container body — its own identity span is stripped by the
+ * description extraction, same as tab bodies.
+ */
+export function readGridCellComponents(md, cellUuid) {
+  const lines = (md ?? '').split('\n');
+  const loc = locateGridCellByUUID(lines, cellUuid);
+  if (!loc) return { description: '', components: [] };
+  const body = lines.slice(loc.openLine + 1, loc.closeLine)
+    .map(l => (loc.indent && l.startsWith(loc.indent)) ? l.slice(loc.indent.length) : l)
+    .join('\n');
+  return parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+}
+
+/** True when the CELL identified by `cellUuid` exists anywhere in the document. */
+export function gridCellExists(md, cellUuid) {
+  return locateGridCellByUUID((md ?? '').split('\n'), cellUuid) != null;
+}
+
+/**
+ * Rebuilds the body of the CELL identified by `cellUuid` from a description +
+ * ordered component list (via buildComponentBody, which re-embeds the cell's own
+ * identity span), re-indents it under the cell, and splices it in. Inverse of
+ * readGridCellComponents.
+ */
+export function writeGridCellBody(md, cellUuid, description, components) {
+  const lines = (md ?? '').split('\n');
+  const loc = locateGridCellByUUID(lines, cellUuid);
+  if (!loc) return md;
+  const body = buildComponentBody(cellUuid, description, components);
+  const indented = body.split('\n').map(l => (l.length ? loc.indent + l : l));
+  return [
+    ...lines.slice(0, loc.openLine + 1),
+    '',
+    ...indented,
+    '',
+    ...lines.slice(loc.closeLine),
   ].join('\n');
 }
 

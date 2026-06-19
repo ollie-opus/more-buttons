@@ -3,6 +3,11 @@ import {
   locateGrids, buildGrid, getGridByUUID, locateGridCellByUUID,
   replaceGridByUUID, deleteGridByUUID, ensureGridUUIDs,
 } from '../scripts/grid.js';
+import {
+  parseComponents, buildComponentBody, uuidOfComponent,
+  readGridCellComponents, writeGridCellBody, gridCellExists,
+} from '../scripts/components.js';
+import { migrateComponentIdentity } from '../scripts/github.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -205,6 +210,123 @@ test('ensureGridUUIDs: recurses into nested grids (grid inside a cell)', () => {
   // outer grid + outer cell + inner grid + inner cell = 4 identity spans
   assert.equal((out.match(/data-uuid=/g) || []).length, 4);
   assert.equal(ensureGridUUIDs(out), out);
+});
+
+// ── parseComponents / buildComponentBody integration ──────────────────────────
+
+const INTEGRATION_BODY = [
+  'Intro description.',
+  '',
+  '!!! note "A note"',
+  '',
+  span('ADM', '    '),
+  '    Note text.',
+  '',
+  span('GRID'),
+  '<div class="grid" markdown>',
+  '',
+  '<div class="card" markdown>',
+  '',
+  span('C1'),
+  'Cell text.',
+  '',
+  '!!! tip "Nested"',
+  '',
+  span('NEST', '    '),
+  '    Nested tip.',
+  '',
+  '</div>',
+  '',
+  '</div>',
+].join('\n');
+
+test('parseComponents: grids interleave with admonitions in document order', () => {
+  const { description, components } = parseComponents(INTEGRATION_BODY, /step|note|tip/);
+  assert.equal(description, 'Intro description.');
+  assert.deepEqual(components.map(c => c.kind), ['admonition', 'grid']);
+  assert.deepEqual(components.map(uuidOfComponent), ['ADM', 'GRID']);
+  assert.equal(components[1].grid.flavor, 'card');
+});
+
+test('parseComponents: an admonition inside a grid cell is NOT a sibling component', () => {
+  const { components } = parseComponents(INTEGRATION_BODY, /step|note|tip/);
+  assert.ok(!components.some(c => c.kind === 'admonition' && c.adm.uuid === 'NEST'));
+  const grid = components.find(c => c.kind === 'grid');
+  assert.match(grid.grid.cells[0].body, /Nested tip\./);
+});
+
+test('buildComponentBody: kind=grid round-trips through parseComponents', () => {
+  const { description, components } = parseComponents(INTEGRATION_BODY, /step|note|tip/);
+  const rebuilt = buildComponentBody(null, description, components);
+  const again = parseComponents(rebuilt, /step|note|tip/);
+  assert.equal(again.description, description);
+  assert.deepEqual(again.components.map(c => c.kind), ['admonition', 'grid']);
+  assert.deepEqual(again.components.map(uuidOfComponent), ['ADM', 'GRID']);
+  assert.deepEqual(again.components.find(c => c.kind === 'grid').grid.cells,
+                   components.find(c => c.kind === 'grid').grid.cells);
+});
+
+test('uuidOfComponent: grid branch returns the grid uuid', () => {
+  assert.equal(uuidOfComponent({ kind: 'grid', grid: { uuid: 'G9', flavor: 'card', cells: [] } }), 'G9');
+});
+
+// ── Grid-cell containers: readGridCellComponents / writeGridCellBody ──────────
+
+test('readGridCellComponents: a cell body parses as a container (description + components)', () => {
+  const { description, components } = readGridCellComponents(INTEGRATION_BODY, 'C1');
+  assert.equal(description, 'Cell text.');
+  assert.equal(components.length, 1);
+  assert.equal(components[0].kind, 'admonition');
+  assert.equal(components[0].adm.uuid, 'NEST');
+});
+
+test('writeGridCellBody: rewrites a cell description, preserving its components', () => {
+  const out = writeGridCellBody(INTEGRATION_BODY, 'C1', 'Edited cell text.', readGridCellComponents(INTEGRATION_BODY, 'C1').components);
+  const { description, components } = readGridCellComponents(out, 'C1');
+  assert.equal(description, 'Edited cell text.');
+  assert.equal(components[0].adm.uuid, 'NEST');
+  // Siblings outside the grid untouched.
+  const { components: top } = parseComponents(out, /step|note|tip/);
+  assert.deepEqual(top.map(uuidOfComponent), ['ADM', 'GRID']);
+});
+
+test('gridCellExists: true for a present cell, false otherwise', () => {
+  assert.equal(gridCellExists(INTEGRATION_BODY, 'C1'), true);
+  assert.equal(gridCellExists(INTEGRATION_BODY, 'NOPE'), false);
+});
+
+test('writeGridCellBody: unknown cell uuid is a no-op', () => {
+  assert.equal(writeGridCellBody(INTEGRATION_BODY, 'NOPE', 'x', []), INTEGRATION_BODY);
+});
+
+// ── Identity migration ────────────────────────────────────────────────────────
+
+test('migrateComponentIdentity: pre-existing grid blocks in guide markdown get uuids', () => {
+  const md = ['# Title', '', '<div class="grid" markdown>', '', '<div class="card" markdown>', '', 'Hello.', '', '</div>', '', '</div>'].join('\n');
+  const out = migrateComponentIdentity('docs/drafts/some-guide.md', md);
+  const [g] = locateGrids(out);
+  assert.ok(g.uuid, 'grid uuid backfilled');
+  assert.ok(g.cells[0].uuid, 'cell uuid backfilled');
+  assert.equal(migrateComponentIdentity('docs/drafts/some-guide.md', out), out);
+});
+
+test("migrateComponentIdentity: a capture as a cell's first content is not stolen as the cell uuid", () => {
+  const md = [
+    '# Title', '',
+    '<div class="grid" markdown>', '',
+    '<div class="card" markdown>', '',
+    '![](../assets/a-light-mode.png#only-light){ width="800" }',
+    '![](../assets/a-dark-mode.png#only-dark)', '',
+    '</div>', '',
+    '</div>',
+  ].join('\n');
+  const out = migrateComponentIdentity('docs/drafts/g.md', md);
+  const [g] = locateGrids(out);
+  const { components } = readGridCellComponents(out, g.cells[0].uuid);
+  assert.equal(components.length, 1);
+  assert.equal(components[0].kind, 'capture');
+  assert.notEqual(g.cells[0].uuid, components[0].cap.uuid);
+  assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out);
 });
 
 console.log(`\n${passed} passed`);
