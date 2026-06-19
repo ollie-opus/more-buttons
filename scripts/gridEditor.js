@@ -397,7 +397,7 @@ async function persistGridEdit(formEl, onProgress = () => {}) {
     return replaceGridByUUID(md, gridUuid, buildGrid(gridUuid, st.flavor, gridCells));
   });
   if (!found) {
-    alert('This grid was deleted in another session — your changes can't be saved.');
+    alert('This grid was deleted in another session — your changes can’t be saved.');
     return null;
   }
 
