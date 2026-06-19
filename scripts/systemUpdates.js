@@ -191,6 +191,8 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else if (c.kind === 'table') {
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
+      } else if (c.kind === 'grid') {
+        labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }

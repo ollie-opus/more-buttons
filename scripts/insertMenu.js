@@ -19,7 +19,7 @@ function closeMenu() {
 /**
  * @param {HTMLElement} triggerEl - the clicked "+ Insert Component" button.
  * @param {number} insertAtIndex - component index to insert at.
- * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, pasteMarkdown:Function}} handlers
+ * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, grid:Function, pasteMarkdown:Function}} handlers
  *   Each receives `insertAtIndex`.
  * @param {{capturesOnly?: boolean}} [opts] - capturesOnly renders just the two
  *   capture choices flat (no submenu / other kinds), for hosts where a cell can
@@ -45,6 +45,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
     </div>
     <button type="button" class="mb-popup-menu__item" data-pick="content-tabs" role="menuitem">Content tabs</button>
     <button type="button" class="mb-popup-menu__item" data-pick="data-table" role="menuitem">Data table</button>
+    <button type="button" class="mb-popup-menu__item" data-pick="grid" role="menuitem">Grid</button>
     <div class="mb-popup-menu__divider" role="separator"></div>
     <button type="button" class="mb-popup-menu__item" data-pick="paste-markdown" role="menuitem">Paste copied markdown</button>
   `;
@@ -71,6 +72,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
     else if (kind === 'capture-library') handlers.captureLibrary?.(insertAtIndex);
     else if (kind === 'content-tabs') handlers.contentTabs?.(insertAtIndex);
     else if (kind === 'data-table') handlers.dataTable?.(insertAtIndex);
+    else if (kind === 'grid') handlers.grid?.(insertAtIndex);
     else if (kind === 'paste-markdown') handlers.pasteMarkdown?.(insertAtIndex);
   };
 
