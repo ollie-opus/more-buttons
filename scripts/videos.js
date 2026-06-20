@@ -47,3 +47,65 @@ export function buildVideoLines(list = []) {
     return lines;
   });
 }
+
+// ── Components: video acquisition that commits immediately ─────────────────────
+//
+// Videos are library-only, so there is just ONE acquisition route: browse the
+// library, pick a video, set its options on the review form, commit. No bytes
+// are ever uploaded (the file already exists in the repo).
+
+async function commitVideosIntoContainer(container, insertAt, vidList) {
+  const handler = getComponentContainer(container.kind);
+  if (!handler) return [];
+  const inserted = vidList.map(v => ({
+    kind: 'video',
+    vid: {
+      uuid: generateUUID(),
+      lightFilename: v.lightFilename,
+      darkFilename: v.darkFilename ?? null,
+      single: !v.darkFilename,
+      dimMode: v.dimMode ?? 'width',
+      dimValue: v.dimMode === 'none' ? null : (v.dimValue ?? 1000),
+      inversed: !!v.inversed,
+      rounded: !!v.rounded,
+      playback: v.playback ?? 'animation',
+    },
+  }));
+  await handler.mutate(container, (components) => {
+    const idx = Math.max(0, Math.min(insertAt, components.length));
+    const next = components.slice();
+    next.splice(idx, 0, ...inserted);
+    return next;
+  });
+  return inserted;
+}
+
+// Single pending video-insert intent: where the chosen video commits. Set when
+// the library opens in video insert mode; consumed by completeComponentVideoInsert.
+let pendingVideoInsert = null; // { snapshot, container, insertAt } | null
+
+// Commit the chosen video into the origin container. Called by videoEntry's
+// Insert button. Mirrors captures' completeComponentInsert: replay the origin
+// form stack, then splice the video component into the container's markdown.
+registerFormAction('completeComponentVideoInsert', async ({ video } = {}) => {
+  const intent = pendingVideoInsert;
+  if (!intent || !video || !intent.snapshot?.length) return;
+  formLoading.show();
+  try {
+    const ok = await replayFormStack(intent.snapshot);
+    if (!ok) { alert('Failed to insert video: could not restore the originating form.'); return; }
+    formLoading.show();
+    await commitVideosIntoContainer(intent.container, intent.insertAt, [video]);
+    pendingVideoInsert = null;
+  } catch (e) {
+    alert('Failed to insert video: ' + e.message);
+  } finally {
+    formLoading.dismiss();
+  }
+});
+
+// "Video" insert → browse library (Videos tab) → review → commit at idx.
+export function runComponentVideoLibraryInsert({ container, insertAt }) {
+  pendingVideoInsert = { snapshot: snapshotFormStack(), container, insertAt };
+  return getFormAction('openCaptureLibrary')?.({ mode: 'insert', media: 'video' });
+}
