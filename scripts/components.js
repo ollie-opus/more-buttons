@@ -35,6 +35,16 @@ import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from '.
 const LIGHT_LINE_RE =
   /^(\s*)!\[\]\(\.\.\/assets\/([^)#]*-light-mode[^)#]*)#only-(light|dark)\)(?:\{\s*([^}]+?)\s*\})?\s*$/;
 const DARK_LINE_RE = /^\s*!\[\]\(\.\.\/assets\/[^)#]*-dark-mode[^)#]*#only-(?:light|dark)\)/;
+
+// Per-line video matchers. A <video> line carries its theme in the FILENAME
+// (-light-mode / -dark-mode) like captures; the #only-* fragment is read
+// separately to detect "inversed". Group 1 indent, group 2 filename (no hash),
+// group 4 the #only side (light|dark) or undefined, group 5 the remaining attrs
+// (used to read playback + style). A file with neither suffix is a single video.
+const VIDEO_LINE_RE =
+  /^(\s*)<video\s+src="\.\.\/assets\/([^"#]+?)(#only-(light|dark))?"\s*([^>]*?)\s*><\/video>\s*$/;
+const VIDEO_LIGHT_SUFFIX_RE = /-light-mode\.[a-z0-9]+$/i;
+const VIDEO_DARK_SUFFIX_RE = /-dark-mode\.[a-z0-9]+$/i;
 const UUID_SPAN_RE = /<span[^>]*data-uuid[^>]*><\/span>\n?/g;
 const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
 // Whole-line variant: removes an own-line uuid span INCLUDING its indent and
@@ -62,6 +72,93 @@ function parseDimAttrs(attrs) {
   if (widthMatch) return { dimMode: 'width', dimValue: parseInt(widthMatch[1], 10), rounded };
   if (heightMatch) return { dimMode: 'height', dimValue: parseInt(heightMatch[1], 10), rounded };
   return { dimMode: 'none', dimValue: null, rounded };
+}
+
+/** Parse a <video>'s trailing attribute string into dim + rounding + playback. */
+function parseVideoAttrs(attrs) {
+  const a = attrs ?? '';
+  const playback = /\bcontrols\b/.test(a) ? 'clip' : 'animation';
+  const rounded = /border-radius/.test(a);
+  const widthMatch = a.match(/width:\s*(\d+)px/);
+  const heightMatch = a.match(/height:\s*(\d+)px/);
+  let dimMode = 'none', dimValue = null;
+  if (widthMatch) { dimMode = 'width'; dimValue = parseInt(widthMatch[1], 10); }
+  else if (heightMatch) { dimMode = 'height'; dimValue = parseInt(heightMatch[1], 10); }
+  return { dimMode, dimValue, rounded, playback };
+}
+
+/**
+ * Locates every top-level video in `body`, returning line-addressable entries.
+ * A `-light-mode` line whose next non-blank line is its `-dark-mode` partner is
+ * a pair; a line with neither suffix is a single. `-dark-mode` lines are only
+ * consumed as partners (never anchors), mirroring captures' DARK_LINE_RE.
+ *
+ * @param {string} body
+ * @returns {Array<{lightFilename,darkFilename,single,dimMode,dimValue,rounded,inversed,playback,indent,uuid,startLine,endLine}>}
+ */
+export function locateVideoLines(body) {
+  const lines = (body ?? '').split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(VIDEO_LINE_RE);
+    if (!m) continue;
+    const indent = m[1];
+    const filename = m[2];
+    // A dark-mode line is only ever a partner; never anchor a component on it.
+    if (VIDEO_DARK_SUFFIX_RE.test(filename)) continue;
+
+    const isLight = VIDEO_LIGHT_SUFFIX_RE.test(filename);
+    const { dimMode, dimValue, rounded, playback } = parseVideoAttrs(m[5]);
+
+    let single = true;
+    let darkFilename = null;
+    let inversed = false;
+    let endLine = i + 1;
+
+    if (isLight) {
+      // The light file carrying #only-dark means the theme was inversed.
+      inversed = m[4] === 'dark';
+      const j = (() => { let k = i + 1; while (k < lines.length && lines[k] === '') k++; return k; })();
+      const dm = j < lines.length ? lines[j].match(VIDEO_LINE_RE) : null;
+      if (dm && VIDEO_DARK_SUFFIX_RE.test(dm[2])) {
+        single = false;
+        darkFilename = filename.replace('-light-mode', '-dark-mode');
+        endLine = j + 1;
+      }
+    }
+
+    // A hidden data-uuid span on the line immediately before this video is its
+    // identity; extend startLine to swallow it.
+    let startLine = i;
+    let uuid = null;
+    if (i > 0) {
+      const sm = lines[i - 1].match(UUID_SPAN_LINE_RE);
+      if (sm) { uuid = sm[1]; startLine = i - 1; }
+    }
+
+    out.push({ lightFilename: filename, darkFilename, single, dimMode, dimValue, rounded, inversed, playback, indent, uuid, startLine, endLine });
+    i = endLine - 1;
+  }
+  return out;
+}
+
+/**
+ * Backfills a hidden data-uuid span before every video that lacks one.
+ * Idempotent; matches videos at any indent. Mirrors ensureCaptureUUIDs.
+ */
+export function ensureVideoUUIDs(markdown) {
+  const vids = locateVideoLines(markdown);
+  if (vids.length === 0) return markdown;
+  const lines = (markdown ?? '').split('\n');
+  let modified = false;
+  for (let k = vids.length - 1; k >= 0; k--) {
+    const v = vids[k];
+    if (v.uuid) continue;
+    const span = `${v.indent}<span data-uuid="${generateUUID()}" style="display:none"></span>`;
+    lines.splice(v.startLine, 0, span);
+    modified = true;
+  }
+  return modified ? lines.join('\n') : markdown;
 }
 
 /**
