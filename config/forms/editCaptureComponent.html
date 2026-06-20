@@ -5,6 +5,22 @@
 
   <div data-capture-component-size></div>
 
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Theme</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="captureTheme" value="default" checked /> Default</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="captureTheme" value="inversed" /> Inversed</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Corner rounding</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="captureCorner" value="disabled" checked /> Disabled</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="captureCorner" value="enabled" /> Enabled</label>
+    </div>
+  </div>
+
   <div class="more-buttons-form-actions">
     <button type="button" class="more-buttons-button success" data-action="submitEditCaptureComponent" data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
     <button type="button" class="more-buttons-button danger" data-action="deleteCaptureComponent"><span class="more-buttons-icon">delete</span>Delete</button>

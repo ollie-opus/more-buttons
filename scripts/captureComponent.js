@@ -110,6 +110,8 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
       fieldSpecs: [
         { name: 'dimMode', type: 'scalar', label: 'Dimension mode' },
         { name: 'dimValue', type: 'scalar', label: 'Dimension value' },
+        { name: 'captureTheme', type: 'scalar', label: 'Theme' },
+        { name: 'captureCorner', type: 'scalar', label: 'Corner rounding' },
       ],
       readFresh: md => {
         const { components } = handler.readComponents(md, container.uuid);
@@ -121,9 +123,11 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
         const mode = resolved.dimMode ?? 'none';
         const raw = parseInt(resolved.dimValue, 10);
         const dimValue = mode === 'none' ? null : (Number.isFinite(raw) && raw > 0 ? raw : 50);
+        const inversed = resolved.captureTheme === 'inversed';
+        const rounded = resolved.captureCorner === 'enabled';
         const next = components.map(c =>
           (c.kind === 'capture' && c.cap.uuid === uuid)
-            ? { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue } }
+            ? { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue, inversed, rounded } }
             : c);
         return handler.writeBody(md, container.uuid, description, next);
       },

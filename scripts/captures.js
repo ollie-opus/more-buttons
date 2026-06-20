@@ -25,22 +25,43 @@ import { getComponentContainer } from './componentContainers.js';
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
 
+// Corner-rounding radius (px) applied to a capture's <img> when its Corner
+// rounding is "enabled". Single knob — tweak here to change every rounded
+// capture. The parser only detects `border-radius` presence, so this value can
+// change freely without breaking the round-trip of already-saved captures.
+export const CAPTURE_CORNER_RADIUS = 8;
+
 export function buildCaptureLines(list = []) {
   return list.flatMap(c => {
-    const light = `![](../assets/${c.lightFilename}#only-light)`;
-    const dark  = `![](../assets/${c.darkFilename}#only-dark)`;
+    // "Inversed" theme swaps which screenshot the KB theme shows per page mode:
+    // the light-mode file carries #only-dark and vice-versa, so in light mode
+    // the dark capture shows and in dark mode the light one does. This reuses
+    // the existing #only-light/#only-dark show-hide CSS — no theme changes.
+    const lightHash = c.inversed ? '#only-dark' : '#only-light';
+    const darkHash  = c.inversed ? '#only-light' : '#only-dark';
+    const light = `![](../assets/${c.lightFilename}${lightHash})`;
+    const dark  = `![](../assets/${c.darkFilename}${darkHash})`;
     const spanLines = c.uuid ? [`<span data-uuid="${c.uuid}" style="display:none"></span>`] : [];
-    if (c.dimMode === 'none') {
-      return ['', ...spanLines, light, dark];
+
+    // Size + rounding share the img's inline style="". Height mode is already a
+    // style; width mode is a width="" attr, so rounding there (and in auto mode,
+    // which otherwise emits no attr block) needs its own style segment.
+    const styleParts = [];
+    let widthAttr = '';
+    if (c.dimMode === 'width') {
+      widthAttr = `width="${c.dimValue ?? 50}"`;
+    } else if (c.dimMode !== 'none') {
+      styleParts.push(`height: ${c.dimValue ?? 50}px`);
     }
-    const v = c.dimValue ?? 50;
-    const dimAttr = c.dimMode === 'width' ? `width="${v}"` : `style="height: ${v}px"`;
-    return [
-      '',
-      ...spanLines,
-      `${light}{ ${dimAttr} loading=lazy }`,
-      `${dark}{ ${dimAttr} loading=lazy }`,
-    ];
+    if (c.rounded) styleParts.push(`border-radius: ${CAPTURE_CORNER_RADIUS}px`);
+
+    const segs = [];
+    if (styleParts.length) segs.push(`style="${styleParts.join('; ')}"`);
+    if (widthAttr) segs.push(widthAttr);
+    if (segs.length) segs.push('loading=lazy');
+    const attrBlock = segs.length ? `{ ${segs.join(' ')} }` : '';
+
+    return ['', ...spanLines, `${light}${attrBlock}`, `${dark}${attrBlock}`];
   });
 }
 
@@ -166,6 +187,8 @@ async function commitCapturesIntoContainer(container, insertAt, capList) {
     darkFilename: c.darkFilename,
     dimMode: c.dimMode ?? 'height',
     dimValue: c.dimMode === 'none' ? null : (c.dimValue ?? 50),
+    inversed: false,
+    rounded: false,
   }));
   const inserted = caps.map(cap => ({ kind: 'capture', cap }));
   await handler.mutate(container, (components) => {

@@ -55,19 +55,21 @@ registerComponentContainer('grid-cell', makeContainerHandler(readGridCellCompone
 
 // ── Editor state ──────────────────────────────────────────────────────────────
 //
-// formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order, spill, nComponents }] }
+// formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order, spill, valign, nComponents }] }
 //   - `active` is the SELECTED tile in the parent, and the EDITED cell in the child.
 //   - `spill` is the per-cell "allow spill" flag (→ class="spill" on the cell div).
+//   - `valign` is the per-cell vertical alignment ('default'|'top'|'middle'|'bottom';
+//     non-default → inline style="align-self: …" on the cell div).
 //   - `nComponents` is a render-only tile annotation; it is NOT persisted in gridState.
 
 function newCell() {
-  return { uuid: generateUUID(), description: '', order: null, spill: false, nComponents: 0 };
+  return { uuid: generateUUID(), description: '', order: null, spill: false, valign: 'default', nComponents: 0 };
 }
 
 function cellsFromGrid(grid) {
   return grid.cells.map(c => {
     const { description, components } = parseComponents(c.body, GUIDE_ADMONITION_TYPES_RE);
-    return { uuid: c.uuid ?? generateUUID(), description, order: null, spill: !!c.spill, nComponents: components.length };
+    return { uuid: c.uuid ?? generateUUID(), description, order: null, spill: !!c.spill, valign: c.valign ?? 'default', nComponents: components.length };
   });
 }
 
@@ -75,7 +77,7 @@ function cellsFromGrid(grid) {
 // is deliberately excluded so a tile's component count never affects the form's
 // dirty/persist state.
 function slimCells(cells) {
-  return cells.map(c => ({ uuid: c.uuid, description: c.description, order: c.order ?? null, spill: !!c.spill }));
+  return cells.map(c => ({ uuid: c.uuid, description: c.description, order: c.order ?? null, spill: !!c.spill, valign: c.valign ?? 'default' }));
 }
 
 // Mirror the state into the single named input that drives dirty tracking.
@@ -93,8 +95,6 @@ function stashActiveCell(formEl) {
   if (!c) return;
   const desc = formEl.querySelector('[data-grid-description]');
   if (desc) c.description = desc.value;
-  const spill = formEl.querySelector('[data-grid-allow-spill]');
-  if (spill) c.spill = spill.checked;
 }
 
 // Push the active cell's state into the visible field (child only).
@@ -107,8 +107,53 @@ function loadActiveCellFields(formEl) {
   formEl.dataset.editUuid = c.uuid;
   const desc = formEl.querySelector('[data-grid-description]');
   if (desc) { desc.value = c.description; syncSurfaceFromTextarea(desc); }
-  const spill = formEl.querySelector('[data-grid-allow-spill]');
-  if (spill) spill.checked = !!c.spill;
+  renderCellSpill(formEl);
+  renderCellValign(formEl);
+}
+
+// Reflect the active cell's `spill` flag into the nameless radio-btn group (False /
+// True). Mirrors renderCellValign: the radios share no `name` so they stay out of
+// the form's dirty tracking — selection is enforced by hand and persistence flows
+// through gridState.
+function renderCellSpill(formEl) {
+  const c = formEl._grid?.cells[formEl._grid.active];
+  const spill = !!c?.spill;
+  formEl.querySelectorAll('[data-grid-spill]').forEach(label => {
+    const input = label.querySelector('input');
+    if (input) input.checked = ((label.dataset.gridSpill === 'true') === spill);
+  });
+}
+
+// Apply an "allow spill" choice to the active cell + refresh dirty state.
+function setCellSpill(formEl, spill) {
+  const c = formEl._grid?.cells[formEl._grid.active];
+  if (!c || !!c.spill === spill) return;
+  c.spill = spill;
+  renderCellSpill(formEl);
+  syncGridState(formEl);
+  formEl._refreshSaveState?.();
+}
+
+// Reflect the active cell's `valign` into the nameless radio-btn group, enforcing
+// single-selection by hand (the radios share no `name`, mirroring the data-table
+// alignment control so the visible inputs stay out of the form's dirty tracking).
+function renderCellValign(formEl) {
+  const c = formEl._grid?.cells[formEl._grid.active];
+  const valign = c?.valign ?? 'default';
+  formEl.querySelectorAll('[data-grid-valign]').forEach(label => {
+    const input = label.querySelector('input');
+    if (input) input.checked = (label.dataset.gridValign === valign);
+  });
+}
+
+// Apply a vertical-alignment choice to the active cell + refresh dirty state.
+function setCellValign(formEl, valign) {
+  const c = formEl._grid?.cells[formEl._grid.active];
+  if (!c || c.valign === valign) return;
+  c.valign = valign;
+  renderCellValign(formEl);
+  syncGridState(formEl);
+  formEl._refreshSaveState?.();
 }
 
 // Refresh each cell's render-only component count from fresh markdown (parent
@@ -304,11 +349,17 @@ function wireGridEditor(formEl) {
 // buttons, "+ Insert Component").
 function wireGridCellEditor(formEl) {
   formEl.addEventListener('input', e => {
-    if (e.target.matches?.('[data-grid-description], [data-grid-allow-spill]')) {
+    if (e.target.matches?.('[data-grid-description]')) {
       stashActiveCell(formEl);
       syncGridState(formEl);
       formEl._refreshSaveState?.();
     }
+  });
+  formEl.addEventListener('click', e => {
+    const valignBtn = e.target.closest('[data-grid-valign]');
+    if (valignBtn) setCellValign(formEl, valignBtn.dataset.gridValign);
+    const spillBtn = e.target.closest('[data-grid-spill]');
+    if (spillBtn) setCellSpill(formEl, spillBtn.dataset.gridSpill === 'true');
   });
   formEl.addEventListener('click', onComponentEditorClick);
 }
@@ -339,7 +390,7 @@ function seedStorage(flavor, cells) {
 registerFormAction('openCreateGrid', async ({ container, insertAtIndex } = {}) => {
   if (!container?.file) return;
   const initialCells = [newCell(), newCell()];
-  const initialFlavor = 'card';
+  const initialFlavor = 'generic';
   if (!isFormReplay()) await seedStorage(initialFlavor, initialCells);
 
   const { formEl } = await createForm('editGrid');
@@ -473,6 +524,7 @@ async function persistNewGrid(formEl, onProgress = () => {}) {
     uuid: c.uuid,
     body: buildComponentBody(c.uuid, c.description, []),
     spill: c.spill,
+    valign: c.valign,
   }));
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
@@ -513,7 +565,7 @@ async function persistGridEdit(formEl, onProgress = () => {}) {
     const gridCells = st.cells.map(c => {
       const { components } = readGridCellComponents(md, c.uuid);
       const ordered = c.order ? reorderComponents(components, c.order) : components;
-      return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered), spill: c.spill };
+      return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered), spill: c.spill, valign: c.valign };
     });
     return replaceGridByUUID(md, gridUuid, buildGrid(gridUuid, st.flavor, gridCells));
   });

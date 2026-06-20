@@ -64,6 +64,16 @@ function animAffectsTransform(a) {
   try { return a.effect.getKeyframes().some(k => 'transform' in k); } catch { return false; }
 }
 
+// Like animAffectsTransform but for opacity. Forcing/resetting prefers-color-scheme
+// for the capture triggers the popover's close fade (opacity 1→0); the screenshot
+// grab catches it mid-fade, blending page-behind into the captured pixels (faint
+// "bleed-through"). We cancel opacity-driving animations + pin opacity:1 to hold
+// the popover visible through the shot.
+function animAffectsOpacity(a) {
+  if (a.transitionProperty != null) return a.transitionProperty === 'opacity' || a.transitionProperty === 'all';
+  try { return a.effect.getKeyframes().some(k => 'opacity' in k); } catch { return false; }
+}
+
 // Temporarily de-promote layer-forming ancestors (transform / will-change) so
 // they paint inline into the main surface at full device resolution for the
 // screenshot, instead of being captured as a low-res standalone GPU layer.
@@ -83,6 +93,19 @@ function neutralizeLayers(el) {
     const t = cs.transform;
     const hasTransform = t && t !== 'none';
     const promotes = hasTransform || (cs.willChange && cs.willChange !== 'auto');
+    // Freeze opacity open. The capture triggers a close fade (opacity 1→0) that the
+    // shot catches mid-fade → faint page-behind bleed. Pin opacity:1 on every
+    // currently-opaque ancestor (so we don't alter anything intentionally
+    // translucent), cancelling opacity-driving animations first. The inline
+    // !important is set BEFORE the close fires and persists through the shot.
+    const opaqueNow = !cs.opacity || Math.abs(parseFloat(cs.opacity) - 1) < 1e-3;
+    if (opaqueNow && !(promotes && transformIsNearIdentity(t))) {
+      const oa = node.getAnimations().filter(animAffectsOpacity);
+      for (const a of oa) { try { a.commitStyles(); } catch {} }
+      for (const a of oa) { try { a.cancel(); } catch {} }
+      touched.push({ node, css: node.getAttribute('style') });
+      node.style.setProperty('opacity', '1', 'important');
+    }
     if (promotes && transformIsNearIdentity(t)) {
       // A running/filling transform transition/animation outranks inline
       // !important, so transform:none would be ignored and the layer stays
@@ -94,7 +117,11 @@ function neutralizeLayers(el) {
       // transform so the transform:none pin below can de-promote, while the baked
       // opacity keeps the element visible. (No-op when no transform animation is
       // present, e.g. a statically-promoted popover.)
-      const affecting = node.getAnimations().filter(animAffectsTransform);
+      // Cancel transform- AND opacity-driving animations (commitStyles first to
+      // bake the settled frame so it survives the cancel — opacity:1, identity
+      // transform). Then pin transform:none (de-promote) + opacity:1 (hold open
+      // through the capture's close fade — see animAffectsOpacity).
+      const affecting = node.getAnimations().filter(a => animAffectsTransform(a) || animAffectsOpacity(a));
       for (const a of affecting) { try { a.commitStyles(); } catch {} }
       for (const a of affecting) { try { a.cancel(); } catch {} }
       // Snapshot the post-commit inline style; restore() reverts to exactly this,
@@ -104,6 +131,7 @@ function neutralizeLayers(el) {
       // transition fires, and the cssText snapshot above reverts what we set here.
       node.style.setProperty('transform', 'none', 'important');
       node.style.setProperty('will-change', 'auto', 'important');
+      node.style.setProperty('opacity', '1', 'important');
     }
     node = node.parentElement;
   }

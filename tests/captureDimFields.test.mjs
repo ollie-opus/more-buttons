@@ -12,16 +12,21 @@ const DIM_SPECS = [
 
 test('auto capture (library insert) normalizes dimValue to empty string', () => {
   const cap = { uuid: 'CAP-1', lightFilename: 'a-light-mode.png', darkFilename: 'a-dark-mode.png', dimMode: 'none', dimValue: null };
-  assert.deepEqual(captureDimFields(cap), { dimMode: 'none', dimValue: '' });
+  assert.deepEqual(captureDimFields(cap), { dimMode: 'none', dimValue: '', captureTheme: 'default', captureCorner: 'disabled' });
 });
 
 test('sized capture keeps its value as a string', () => {
   const cap = { dimMode: 'height', dimValue: 120 };
-  assert.deepEqual(captureDimFields(cap), { dimMode: 'height', dimValue: '120' });
+  assert.deepEqual(captureDimFields(cap), { dimMode: 'height', dimValue: '120', captureTheme: 'default', captureCorner: 'disabled' });
 });
 
 test('missing capture reads as auto with empty value', () => {
-  assert.deepEqual(captureDimFields(undefined), { dimMode: 'none', dimValue: '' });
+  assert.deepEqual(captureDimFields(undefined), { dimMode: 'none', dimValue: '', captureTheme: 'default', captureCorner: 'disabled' });
+});
+
+test('inversed + rounded cap maps to the form-facing radio values', () => {
+  const cap = { dimMode: 'height', dimValue: 80, inversed: true, rounded: true };
+  assert.deepEqual(captureDimFields(cap), { dimMode: 'height', dimValue: '80', captureTheme: 'inversed', captureCorner: 'enabled' });
 });
 
 // Regression: insert an auto capture from the library, open its editor (baseline

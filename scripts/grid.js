@@ -22,10 +22,28 @@
 import { generateUUID } from './admonitions.js';
 
 export const GRID_OPEN_RE = /^(\s*)<div class="grid" markdown>\s*$/;
-// A cell opener: `<div class="…" markdown>` or `<div markdown>`. group2 is the
-// full class string (e.g. "card", "spill", "card spill") or undefined; flavor and
-// the per-cell "spill" flag are derived from its space-separated tokens.
-const CELL_OPEN_RE = /^(\s*)<div(?: class="([^"]*)")? markdown>\s*$/;
+// A cell opener: `<div[ class="…"][ style="…"] markdown>`. group2 is the full
+// class string (e.g. "card", "spill", "card spill") or undefined — flavor and the
+// per-cell "spill" flag derive from its space-separated tokens; group3 is the
+// inline style string or undefined, from which the per-cell vertical alignment
+// ("valign") is read via its `align-self`. Class precedes style when both exist.
+const CELL_OPEN_RE = /^(\s*)<div(?: class="([^"]*)")?(?: style="([^"]*)")? markdown>\s*$/;
+
+// Per-cell vertical alignment ↔ the grid item's `align-self`. 'default' carries
+// no style at all (the cell inherits the grid's `align-items: stretch`), so it is
+// absent from both maps; 'top'/'bottom' use the grid-native start/end keywords.
+const ALIGN_SELF_BY_VALIGN = { top: 'start', middle: 'center', bottom: 'end' };
+const VALIGN_BY_ALIGN_SELF = {
+  start: 'top', 'flex-start': 'top',
+  center: 'middle',
+  end: 'bottom', 'flex-end': 'bottom',
+};
+
+/** The cell's vertical-alignment flag, read from its inline `align-self` (or 'default'). */
+function valignFromStyle(style) {
+  const m = style ? style.match(/align-self\s*:\s*([a-z-]+)/i) : null;
+  return (m && VALIGN_BY_ALIGN_SELF[m[1].toLowerCase()]) || 'default';
+}
 // Any div opener (depth counting inside cell bodies / nested grids).
 const DIV_OPEN_ANY_RE = /^\s*<div(?:\s|>)/;
 const DIV_CLOSE_RE = /^\s*<\/div>\s*$/;
@@ -77,7 +95,8 @@ function injectCellUUID(body, uuid) {
  * callers wanting immediate children filter on `indent === ''`.
  *
  * @returns {Array<{uuid: string|null, flavor: 'card'|'generic', indent: string,
- *   cells: Array<{uuid: string|null, body: string, spill: boolean}>, startLine: number, endLine: number}>}
+ *   cells: Array<{uuid: string|null, body: string, spill: boolean,
+ *   valign: 'default'|'top'|'middle'|'bottom'}>, startLine: number, endLine: number}>}
  *   `body` is dedented by the grid indent, blank-trimmed; `startLine` includes
  *   the grid span when present; `endLine` is exclusive.
  */
@@ -103,6 +122,7 @@ export function locateGrids(markdown) {
     let j = i + 1;
     let cellStart = -1;        // first line after a cell's open div, or -1
     let cellSpill = false;     // the open cell's "spill" class, applied on close
+    let cellValign = 'default';// the open cell's vertical alignment, applied on close
     while (j < lines.length && depth > 0) {
       const line = lines[j];
       const isClose = DIV_CLOSE_RE.test(line);
@@ -111,6 +131,7 @@ export function locateGrids(markdown) {
         const classes = cm[2] ? cm[2].split(/\s+/) : [];
         if (classes.includes('card')) flavor = 'card';
         cellSpill = classes.includes('spill');
+        cellValign = valignFromStyle(cm[3]);
         cellStart = j + 1;
         depth++;               // entered the cell div
         j++;
@@ -124,9 +145,10 @@ export function locateGrids(markdown) {
           while (raw.length && raw[0] === '') raw.shift();
           while (raw.length && raw[raw.length - 1] === '') raw.pop();
           const body = raw.join('\n');
-          cells.push({ uuid: getCellBodyUUID(body), body, spill: cellSpill });
+          cells.push({ uuid: getCellBodyUUID(body), body, spill: cellSpill, valign: cellValign });
           cellStart = -1;
           cellSpill = false;
+          cellValign = 'default';
         }
         j++;
         continue;
@@ -143,14 +165,19 @@ export function locateGrids(markdown) {
 
 /**
  * A cell's opening `<div … markdown>` tag. The class list carries `card` (from
- * the grid's flavor) and/or `spill` (the per-cell "allow spill" flag); a generic,
- * non-spill cell has no class attribute at all.
+ * the grid's flavor) and/or `spill` (the per-cell "allow spill" flag); the inline
+ * style carries `align-self` for a non-'default' vertical alignment. A generic,
+ * non-spill, default-aligned cell has neither attribute (`<div markdown>`).
  */
-function cellOpenTag(flavor, spill) {
+function cellOpenTag(flavor, spill, valign) {
   const classes = [];
   if (flavor === 'card') classes.push('card');
   if (spill) classes.push('spill');
-  return `<div${classes.length ? ` class="${classes.join(' ')}"` : ''} markdown>`;
+  const alignSelf = ALIGN_SELF_BY_VALIGN[valign];
+  const attrs =
+    (classes.length ? ` class="${classes.join(' ')}"` : '') +
+    (alignSelf ? ` style="align-self: ${alignSelf}"` : '');
+  return `<div${attrs} markdown>`;
 }
 
 /**
@@ -161,7 +188,7 @@ function cellOpenTag(flavor, spill) {
  *
  * @param {string} uuid - the grid's identity span value.
  * @param {'card'|'generic'} flavor
- * @param {Array<{body: string, spill?: boolean}>} cells
+ * @param {Array<{body: string, spill?: boolean, valign?: 'default'|'top'|'middle'|'bottom'}>} cells
  * @returns {string}
  */
 export function buildGrid(uuid, flavor, cells) {
@@ -171,7 +198,7 @@ export function buildGrid(uuid, flavor, cells) {
   ];
   for (const c of cells) {
     lines.push('');
-    lines.push(cellOpenTag(flavor, c.spill));
+    lines.push(cellOpenTag(flavor, c.spill, c.valign));
     lines.push('');
     const body = (c.body ?? '').replace(/^\n+/, '').replace(/\n+$/, '');
     if (body.length) lines.push(body);
@@ -303,7 +330,7 @@ export function ensureGridUUIDs(markdown) {
       let uuid = c.uuid;
       if (!uuid) { uuid = generateUUID(); body = injectCellUUID(body, uuid); }
       if (uuid !== c.uuid || body !== c.body) changed = true;
-      return { uuid, body, spill: c.spill };
+      return { uuid, body, spill: c.spill, valign: c.valign };
     });
     if (!changed) continue;
 

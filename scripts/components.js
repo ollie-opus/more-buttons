@@ -26,11 +26,15 @@ import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from 
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from './grid.js';
 
-// Per-line light-capture matcher (mirrors captures.js' parseExistingCaptures,
-// but line-addressable so we can interleave with admonitions by position).
+// Per-line capture matchers (mirror captures.js' parseExistingCaptures, but
+// line-addressable so we can interleave with admonitions by position). The pair
+// is anchored on the FILENAME convention (-light-mode / -dark-mode), which is
+// the source of truth for which file is which theme — the #only-light/#only-dark
+// hash is read separately to detect the "inversed" theme (which swaps the two
+// hashes onto the opposite files). Group 3 is that hash; group 4 the attr block.
 const LIGHT_LINE_RE =
-  /^(\s*)!\[\]\(\.\.\/assets\/([^)#]+)#only-light\)(?:\{\s*([^}]+?)\s*\})?\s*$/;
-const DARK_LINE_RE = /^\s*!\[\]\(\.\.\/assets\/[^)#]+#only-dark\)/;
+  /^(\s*)!\[\]\(\.\.\/assets\/([^)#]*-light-mode[^)#]*)#only-(light|dark)\)(?:\{\s*([^}]+?)\s*\})?\s*$/;
+const DARK_LINE_RE = /^\s*!\[\]\(\.\.\/assets\/[^)#]*-dark-mode[^)#]*#only-(?:light|dark)\)/;
 const UUID_SPAN_RE = /<span[^>]*data-uuid[^>]*><\/span>\n?/g;
 const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
 // Whole-line variant: removes an own-line uuid span INCLUDING its indent and
@@ -43,14 +47,21 @@ function inAnyRange(line, ranges) {
   return ranges.some(([start, end]) => line >= start && line < end);
 }
 
-/** Parses the dim mode/value out of a capture's `{ … }` attribute string. */
+/**
+ * Parses the dim mode/value + corner rounding out of a capture's `{ … }`
+ * attribute string. `rounded` is keyed on the mere presence of a `border-radius`
+ * segment (value-agnostic, so tweaking CAPTURE_CORNER_RADIUS never breaks the
+ * round-trip). Falls back to 'none' when neither a width nor a height is present
+ * — e.g. an auto-sized capture whose only attr is a `border-radius`.
+ */
 function parseDimAttrs(attrs) {
-  if (!attrs) return { dimMode: 'none', dimValue: null };
+  if (!attrs) return { dimMode: 'none', dimValue: null, rounded: false };
+  const rounded = /border-radius/.test(attrs);
   const widthMatch = attrs.match(/width="(\d+)"/);
   const heightMatch = attrs.match(/height:\s*(\d+)px/);
-  const dimMode = widthMatch ? 'width' : 'height';
-  const dimValue = widthMatch ? parseInt(widthMatch[1]) : (heightMatch ? parseInt(heightMatch[1]) : 50);
-  return { dimMode, dimValue };
+  if (widthMatch) return { dimMode: 'width', dimValue: parseInt(widthMatch[1], 10), rounded };
+  if (heightMatch) return { dimMode: 'height', dimValue: parseInt(heightMatch[1], 10), rounded };
+  return { dimMode: 'none', dimValue: null, rounded };
 }
 
 /**
@@ -59,7 +70,7 @@ function parseDimAttrs(attrs) {
  * by its `#only-dark` partner.
  *
  * @param {string} body
- * @returns {Array<{lightFilename,darkFilename,dimMode,dimValue,indent,startLine,endLine}>}
+ * @returns {Array<{lightFilename,darkFilename,dimMode,dimValue,rounded,inversed,indent,startLine,endLine}>}
  */
 export function locateCaptureLines(body) {
   const lines = (body ?? '').split('\n');
@@ -70,7 +81,9 @@ export function locateCaptureLines(body) {
     const indent = m[1];
     const lightFilename = m[2];
     const darkFilename = lightFilename.replace('-light-mode', '-dark-mode');
-    const { dimMode, dimValue } = parseDimAttrs(m[3]);
+    // The light-mode file carrying #only-dark means the theme was inversed.
+    const inversed = m[3] === 'dark';
+    const { dimMode, dimValue, rounded } = parseDimAttrs(m[4]);
 
     // The dark partner is the next non-blank line (if it is indeed a dark image).
     let j = i + 1;
@@ -86,7 +99,7 @@ export function locateCaptureLines(body) {
       if (sm) { uuid = sm[1]; startLine = i - 1; }
     }
 
-    out.push({ lightFilename, darkFilename, dimMode, dimValue, indent, uuid, startLine, endLine });
+    out.push({ lightFilename, darkFilename, dimMode, dimValue, rounded, inversed, indent, uuid, startLine, endLine });
     i = endLine - 1;
   }
   return out;
@@ -181,7 +194,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     })),
     ...topCaptures.map(c => ({
       kind: 'capture',
-      cap: { uuid: c.uuid ?? null, lightFilename: c.lightFilename, darkFilename: c.darkFilename, dimMode: c.dimMode, dimValue: c.dimValue },
+      cap: { uuid: c.uuid ?? null, lightFilename: c.lightFilename, darkFilename: c.darkFilename, dimMode: c.dimMode, dimValue: c.dimValue, inversed: c.inversed, rounded: c.rounded },
       startLine: c.startLine,
       endLine: c.endLine,
     })),
@@ -269,15 +282,22 @@ export function buildComponentBody(uuid, description, components) {
 }
 
 /**
- * Canonical form/merge representation of a capture's dimensions: `dimValue` is
- * '' whenever the mode is 'none' (auto). The edit-capture form seeds its
- * baseline from this AND parses fresh markdown through it, so an untouched
- * auto capture compares equal on both sides of a merge (no false conflict
- * from the number input's UI prefill).
+ * Canonical form/merge representation of a capture's editable fields: dimensions
+ * (`dimValue` is '' whenever the mode is 'none'/auto), plus the Theme and Corner
+ * rounding radio values. The edit-capture form seeds its baseline from this AND
+ * parses fresh markdown through it, so an untouched capture compares equal on
+ * both sides of a merge (no false conflict from the number input's UI prefill).
+ * The two radio fields use form-facing string values ('default'/'inversed',
+ * 'disabled'/'enabled') that the form's named radios hydrate from directly.
  */
 export function captureDimFields(cap) {
   const dimMode = cap?.dimMode ?? 'none';
-  return { dimMode, dimValue: dimMode === 'none' ? '' : String(cap?.dimValue ?? '') };
+  return {
+    dimMode,
+    dimValue: dimMode === 'none' ? '' : String(cap?.dimValue ?? ''),
+    captureTheme: cap?.inversed ? 'inversed' : 'default',
+    captureCorner: cap?.rounded ? 'enabled' : 'disabled',
+  };
 }
 
 /** Builds a fresh capture component from a (resolved) capture object. */
