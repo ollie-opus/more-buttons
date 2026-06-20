@@ -33,7 +33,8 @@ import {
   GUIDE_ADMONITION_TYPES_RE,
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
-import { escapeHtml, captureComponentCard } from './cardRenderer.js';
+import { runComponentVideoLibraryInsert } from './videos.js';
+import { escapeHtml, captureComponentCard, videoComponentCard } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
@@ -879,6 +880,14 @@ function captureComponentCardFor(cap) {
   });
 }
 
+function videoComponentCardFor(vid) {
+  return videoComponentCard({
+    thumbSrc: assetCdnUrl('docs/assets/' + vid.lightFilename),
+    btnAttr: `data-edit-video-component="${escapeHtml(vid.uuid ?? '')}"`,
+    copyAttr: vid.uuid ? `data-copy-component-md="${escapeHtml(vid.uuid)}"` : '',
+  });
+}
+
 // Renders an ordered component list (admonitions + captures) interleaved with
 // "+ Insert Component" triggers. Step admonitions are numbered in document order
 // when `numberSteps` is set (section level only — sub-admonition steps aren't
@@ -908,6 +917,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
       card = dataTableCard(c.tbl);
     } else if (c.kind === 'grid') {
       card = gridCard(c.grid);
+    } else if (c.kind === 'video') {
+      card = videoComponentCardFor(c.vid);
     } else {
       card = captureComponentCardFor(c.cap);
     }
@@ -997,6 +1008,7 @@ async function runChildAction(container, formEl, action) {
     if (action.kind === 'admonition') await getFormAction('openCreateGuideAdmonition')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
     else if (action.kind === 'capture-library') await runComponentLibraryInsert({ container, insertAt: action.insertAt });
+    else if (action.kind === 'video') await runComponentVideoLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'table') await getFormAction('openCreateDataTable')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'grid') await getFormAction('openCreateGrid')?.({ container, insertAtIndex: action.insertAt });
@@ -1005,6 +1017,8 @@ async function runChildAction(container, formEl, action) {
     await getFormAction('openEditGuideAdmonition')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-capture') {
     await openCaptureComponentEditor(container, action.uuid);
+  } else if (action.type === 'edit-video') {
+    await openVideoComponentEditor(container, action.uuid);
   } else if (action.type === 'edit-tabs') {
     await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-table') {
@@ -1055,6 +1069,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editVid = e.target.closest('[data-edit-video-component]');
+  if (editVid) {
+    beginChildNavigation(formEl, { type: 'edit-video', uuid: editVid.dataset.editVideoComponent });
+    return;
+  }
+
   const editTabs = e.target.closest('[data-edit-content-tabs]');
   if (editTabs) {
     beginChildNavigation(formEl, { type: 'edit-tabs', uuid: editTabs.dataset.editContentTabs });
@@ -1084,6 +1104,7 @@ export function onComponentEditorClick(e) {
       contentTabs: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'tabs', insertAt: i }),
       dataTable: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'table', insertAt: i }),
       grid: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'grid', insertAt: i }),
+      video: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'video', insertAt: i }),
       pasteMarkdown: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'paste-markdown', insertAt: i }),
     });
     return;
@@ -1107,6 +1128,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditDataTable')?.({ uuid: component.tbl.uuid, file: container.file });
   } else if (component.kind === 'grid') {
     await getFormAction('openEditGrid')?.({ uuid: component.grid.uuid, file: container.file });
+  } else if (component.kind === 'video') {
+    await getFormAction('openEditVideoComponent')?.({ container, uuid: component.vid.uuid, vid: component.vid });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -1116,6 +1139,14 @@ async function openCaptureComponentEditor(container, uuid) {
   const md = await readRepoText(container.file);
   const { components } = readContainerComponents(md, container);
   const c = components.find(x => x.kind === 'capture' && x.cap.uuid === uuid);
+  if (!c) return;
+  await openEditorForComponent(container, c);
+}
+
+async function openVideoComponentEditor(container, uuid) {
+  const md = await readRepoText(container.file);
+  const { components } = readContainerComponents(md, container);
+  const c = components.find(x => x.kind === 'video' && x.vid.uuid === uuid);
   if (!c) return;
   await openEditorForComponent(container, c);
 }
@@ -1330,6 +1361,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
       } else if (c.kind === 'grid') {
         labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
+      } else if (c.kind === 'video') {
+        labelMap[c.vid.uuid] = { kind: 'video', thumbSrc: assetCdnUrl('docs/assets/' + c.vid.lightFilename) };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
@@ -1825,6 +1858,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
       } else if (c.kind === 'grid') {
         labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
+      } else if (c.kind === 'video') {
+        labelMap[c.vid.uuid] = { kind: 'video', thumbSrc: assetCdnUrl('docs/assets/' + c.vid.lightFilename) };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }

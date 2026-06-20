@@ -99,7 +99,11 @@
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js",
         "scripts/frontmatter.js",
-        "scripts/iconPicker.js"
+        "scripts/iconPicker.js",
+        "scripts/videos.js",
+        "scripts/videoEntry.js",
+        "scripts/videoCards.js",
+        "scripts/mediaTree.js"
       ],
       "matches": ["https://cloud.opus-safety.co.uk/*"]
     },

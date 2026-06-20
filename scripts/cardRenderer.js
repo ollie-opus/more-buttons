@@ -26,6 +26,24 @@ export function renderCard({ colour, title, badge, description, meta, btnAttr, b
   </div>`;
 }
 
+// A "Video" component card: same chrome as captureComponentCard but a muted
+// inline <video> thumbnail (paused, first-frame poster) and a Video badge.
+// `thumbSrc` is the light/single video's CDN url.
+export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+  return `
+  <div class="mb-incident-card --grey mb-component-card--capture">
+    <div class="mb-incident-card__head">
+      <strong class="mb-incident-card__title">Video</strong>
+      <span class="mb-incident-card__badge">Video</span>
+    </div>
+    ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><video class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" muted playsinline preload="metadata"></video></div>` : ''}
+    <div class="mb-incident-card__foot --end">
+      ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+    </div>
+  </div>`;
+}
+
 // A capture rendered as a card matching the admonition cards: neutral/grey,
 // "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an
