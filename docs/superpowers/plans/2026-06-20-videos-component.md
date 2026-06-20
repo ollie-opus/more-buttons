@@ -8,6 +8,8 @@
 
 **Tech Stack:** Vanilla ES modules (browser extension, no build step). Tests are standalone `node tests/*.test.mjs` files using `node:assert/strict` against pure functions.
 
+**Execution approach (chosen):** Subagent-driven — a fresh subagent per task via `superpowers:subagent-driven-development`, with a two-stage review between tasks. Tasks run in order (1 → 11); each must end green (its own test passing + no regression in the existing `tests/*.test.mjs` suite) before the next starts.
+
 ## Global Constraints
 
 - **No CSS added.** The project's `docs/assets/stylesheets/videos.css` already handles the theme swap and `max-width: 100%`. The extension only emits HTML.
