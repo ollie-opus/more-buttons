@@ -8,19 +8,21 @@ import { MANIFEST_PATH, readCaptureMeta, captureMetaPills } from './captureMeta.
 import { formLoading } from './loading.js';
 
 const CAPTURE_ROOT = 'docs/assets/media/occ-captures';
+const VIDEO_ROOT = 'docs/assets/media/videos';
+const MEDIA = {
+  image: { root: CAPTURE_ROOT, exts: ['png'], empty: 'No captures found.', title: 'Capture Library' },
+  video: { root: VIDEO_ROOT, exts: ['mp4', 'webm', 'mov', 'm4v'], empty: 'No videos found.', title: 'Video Library' },
+};
 
-// Fetch the full repo tree in one call, then keep only entries under CAPTURE_ROOT.
-async function listCaptureTree() {
+async function listMediaTree(root) {
   const auth = await authHeader();
   const url = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/git/trees/${REPO.branch}?recursive=1`;
-  const res = await fetch(url, {
-    headers: { 'Authorization': auth },
-    cache: 'no-store',
-  });
+  const res = await fetch(url, { headers: { 'Authorization': auth }, cache: 'no-store' });
   if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
   const data = await res.json();
-  return (data.tree ?? []).filter(e =>
-    e.type === 'blob' && e.path.startsWith(CAPTURE_ROOT + '/') && e.path !== MANIFEST_PATH);
+  return (data.tree ?? [])
+    .filter(e => e.type === 'blob' && e.path.startsWith(root + '/') && e.path !== MANIFEST_PATH)
+    .map(e => e.path);
 }
 
 
@@ -35,40 +37,47 @@ function decorateCapturePills(panel, meta) {
   });
 }
 
-export async function openCaptureLibrary({ mode } = {}) {
+export async function openCaptureLibrary({ mode, media = 'image' } = {}) {
   const insertMode = mode === 'insert';
-  const opener = () => openCaptureLibrary({ mode });
+  const opener = () => openCaptureLibrary({ mode, media });
   const { formEl } = await createForm('captureLibrary', opener);
   if (!formEl) return;
 
-  // In insert mode the footer "Add a new capture" routes to the standalone
-  // save-to-library flow (which returns to the library, not to the form we
-  // came from), so hide it. form.js moves form-actions onto the parent wrapper.
-  if (insertMode) {
-    (formEl.parentElement ?? formEl)
-      .querySelector('[data-action="startLibraryCapture"]')
-      ?.style.setProperty('display', 'none');
-  }
-
+  const contentEl = formEl.parentElement ?? formEl;
+  // "Create new capture" is image-only and routes away from this form, so hide
+  // it in insert mode (and whenever the Videos tab is active — no create path).
+  const createBtn = contentEl.querySelector('[data-action="startLibraryCapture"]');
   const panel = formEl.querySelector('[data-capture-library-panel]');
+  const titleEl = formEl.querySelector('[data-media-library-title]');
   if (!panel) return;
 
-  formLoading.show();
-  let blobs;
-  try {
-    blobs = await listCaptureTree();
-  } catch (e) {
-    panel.innerHTML = `<p class="more-buttons-description">Failed to load captures: ${e.message}</p>`;
-    return;
-  } finally {
-    formLoading.dismiss();
+  let current = media;
+
+  function syncChrome() {
+    formEl.querySelectorAll('[data-media-tab]').forEach(b =>
+      b.classList.toggle('--active', b.dataset.mediaTab === current));
+    if (titleEl) titleEl.textContent = MEDIA[current].title;
+    // Hide the image-only "Create new capture" action in insert mode or on Videos.
+    createBtn?.style.setProperty('display', (insertMode || current === 'video') ? 'none' : '');
   }
 
-  const nodes = buildMediaNodes(blobs.map(b => b.path), { root: CAPTURE_ROOT, exts: ['png'] });
-  panel.innerHTML = renderTree(nodes, { emptyMessage: 'No captures found.' });
-
-  const captureMeta = await readCaptureMeta();
-  decorateCapturePills(panel, captureMeta);
+  async function renderMedia() {
+    const cfg = MEDIA[current];
+    syncChrome();
+    formLoading.show();
+    let paths;
+    try {
+      paths = await listMediaTree(cfg.root);
+    } catch (e) {
+      panel.innerHTML = `<p class="more-buttons-description">Failed to load ${current}s: ${e.message}</p>`;
+      return;
+    } finally {
+      formLoading.dismiss();
+    }
+    const nodes = buildMediaNodes(paths, { root: cfg.root, exts: cfg.exts });
+    panel.innerHTML = renderTree(nodes, { emptyMessage: cfg.empty });
+    if (current === 'image') decorateCapturePills(panel, await readCaptureMeta());
+  }
 
   formEl.addEventListener('input', e => {
     const searchEl = e.target.closest('.mb-kb-search');
@@ -78,6 +87,11 @@ export async function openCaptureLibrary({ mode } = {}) {
   });
 
   formEl.addEventListener('click', e => {
+    const tab = e.target.closest('[data-media-tab]');
+    if (tab) {
+      if (tab.dataset.mediaTab !== current) { current = tab.dataset.mediaTab; renderMedia(); }
+      return;
+    }
     const sectionRow = e.target.closest('[data-kb-section]');
     if (sectionRow) {
       sectionRow.closest('.mb-kb-node')?.classList.toggle('--collapsed');
@@ -85,12 +99,20 @@ export async function openCaptureLibrary({ mode } = {}) {
     }
     const fileEl = e.target.closest('[data-kb-leaf]');
     if (!fileEl) return;
-    const lightPath = fileEl.dataset.mediaLight;
-    const darkPath = fileEl.dataset.mediaDark;
-    const label = fileEl.dataset.mediaBase;
-    if (!lightPath) return; // image library: a leaf with no light file isn't selectable
-    getFormAction('openCaptureEntry')?.({ lightPath, darkPath, label, mode });
+    if (current === 'video') {
+      const lightPath = fileEl.dataset.mediaLight;
+      const darkPath = fileEl.dataset.mediaDark;
+      const singlePath = fileEl.dataset.mediaSingle;
+      const label = fileEl.dataset.mediaBase;
+      getFormAction('openVideoEntry')?.({ lightPath, darkPath, singlePath, label, mode });
+    } else {
+      const lightPath = fileEl.dataset.mediaLight;
+      if (!lightPath) return;
+      getFormAction('openCaptureEntry')?.({ lightPath, darkPath: fileEl.dataset.mediaDark, label: fileEl.dataset.mediaBase, mode });
+    }
   });
+
+  await renderMedia();
 }
 
 registerFormAction('openCaptureLibrary', openCaptureLibrary);
