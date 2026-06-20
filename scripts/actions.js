@@ -12,6 +12,7 @@ import './captureEntry.js';
 import './captureNew.js';
 import './captureInsertNew.js';
 import './captureComponent.js';
+import './videoEntry.js';
 import './contentTabsEditor.js';
 import './dataTablesEditor.js';
 import './gridEditor.js';
