@@ -22,6 +22,7 @@
 import { parseAdmonitions, buildAdmonition, generateUUID, GUIDE_ADMONITION_TYPES_RE, ensureAdmonitionUUIDs } from './admonitions.js';
 import { buildSectionUUIDSpan } from './sections.js';
 import { buildCaptureLines } from './captures.js';
+import { buildVideoLines } from './videos.js';
 import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from './grid.js';
@@ -263,6 +264,10 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   const topCaptures = locateCaptureLines(src)
     .filter(c => c.indent === '' && !inContainer(c.startLine));
 
+  // Top-level videos: indent 0 and not buried inside an admonition or grid.
+  const topVideos = locateVideoLines(src)
+    .filter(v => v.indent === '' && !inContainer(v.startLine));
+
   // Immediate-child data tables (indent 0; tables inside admonitions/grids excluded).
   const tbls = locateDataTables(src)
     .filter(t => t.indent === '' && !inContainer(t.startLine));
@@ -295,6 +300,12 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
       startLine: c.startLine,
       endLine: c.endLine,
     })),
+    ...topVideos.map(v => ({
+      kind: 'video',
+      vid: { uuid: v.uuid ?? null, lightFilename: v.lightFilename, darkFilename: v.darkFilename, single: v.single, dimMode: v.dimMode, dimValue: v.dimValue, inversed: v.inversed, rounded: v.rounded, playback: v.playback },
+      startLine: v.startLine,
+      endLine: v.endLine,
+    })),
   ].sort((a, b) => a.startLine - b.startLine);
 
   const description = extractDescription(src, items);
@@ -305,6 +316,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     if (it.kind === 'tabs') return { kind: 'tabs', grp: it.grp };
     if (it.kind === 'table') return { kind: 'table', tbl: it.tbl };
     if (it.kind === 'grid') return { kind: 'grid', grid: it.grid };
+    if (it.kind === 'video') return { kind: 'video', vid: it.vid };
     return { kind: 'capture', cap: it.cap };
   });
 
@@ -370,6 +382,9 @@ export function buildComponentBody(uuid, description, components) {
       lines.push(buildDataTable(c.tbl.uuid, c.tbl.align, c.tbl.header, c.tbl.rows));
     } else if (c.kind === 'grid') {
       lines.push(buildGrid(c.grid.uuid, c.grid.flavor, c.grid.cells));
+    } else if (c.kind === 'video') {
+      // buildVideoLines emits a leading '' we don't want (we add our own).
+      lines.push(...buildVideoLines([c.vid]).slice(1));
     } else {
       // buildCaptureLines emits a leading '' we don't want (we add our own).
       lines.push(...buildCaptureLines([c.cap]).slice(1));
@@ -402,17 +417,40 @@ export function captureComponent(cap) {
   return { kind: 'capture', cap };
 }
 
+/**
+ * Canonical form/merge representation of a video's editable fields. Reuses the
+ * capture radio field names (captureTheme/captureCorner) so the SHARED edit form
+ * hydrates both kinds from the same radios; adds videoPlayback for the
+ * animation/clip toggle (video-only).
+ */
+export function videoDimFields(vid) {
+  const dimMode = vid?.dimMode ?? 'none';
+  return {
+    dimMode,
+    dimValue: dimMode === 'none' ? '' : String(vid?.dimValue ?? ''),
+    captureTheme: vid?.inversed ? 'inversed' : 'default',
+    captureCorner: vid?.rounded ? 'enabled' : 'disabled',
+    videoPlayback: vid?.playback ?? 'animation',
+  };
+}
+
+/** Builds a fresh video component from a (resolved) video object. */
+export function videoComponent(vid) {
+  return { kind: 'video', vid };
+}
+
 /** Builds an admonition component from a parsed admonition entry. */
 export function admonitionComponent(adm) {
   return { kind: 'admonition', adm };
 }
 
-/** The stable UUID of a component (admonition, capture, tab group, or data table). */
+/** The stable UUID of a component (admonition, capture, video, tab group, or data table). */
 export function uuidOfComponent(c) {
   if (c.kind === 'admonition') return c.adm.uuid;
   if (c.kind === 'tabs') return c.grp.uuid;
   if (c.kind === 'table') return c.tbl.uuid;
   if (c.kind === 'grid') return c.grid.uuid;
+  if (c.kind === 'video') return c.vid.uuid;
   return c.cap.uuid;
 }
 
@@ -445,7 +483,7 @@ export function componentMarkdown(component) {
 export function parsePastedComponents(text) {
   const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  const withUuids = ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)))));
+  const withUuids = ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE))))));
   const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
   if (components.length === 0) {
     return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table or grid).' };
