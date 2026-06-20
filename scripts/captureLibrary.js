@@ -2,6 +2,7 @@ import { createForm, snapshotFormStack } from './form.js';
 import { enterCaptureMode } from './captureMode.js';
 import { REPO, authHeader } from './repoClient.js';
 import { renderTree, applySearch } from './kbTree.js';
+import { buildMediaNodes } from './mediaTree.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { MANIFEST_PATH, readCaptureMeta, captureMetaPills } from './captureMeta.js';
 import { formLoading } from './loading.js';
@@ -22,71 +23,12 @@ async function listCaptureTree() {
     e.type === 'blob' && e.path.startsWith(CAPTURE_ROOT + '/') && e.path !== MANIFEST_PATH);
 }
 
-// Build hierarchical nodes from a flat list of blob paths.
-// Light/dark PNG pairs are collapsed to one leaf per base name.
-function buildNodes(blobs) {
-  // root = { folders: Map<name, root>, files: Map<baseId, { light, dark }> }
-  const makeDir = () => ({ folders: new Map(), pairs: new Map() });
-  const root = makeDir();
-
-  for (const blob of blobs) {
-    const relative = blob.path.slice(CAPTURE_ROOT.length + 1); // strip "docs/assets/media/occ-captures/"
-    const parts = relative.split('/');
-    const fileName = parts.pop();
-    let cursor = root;
-    for (const part of parts) {
-      if (!cursor.folders.has(part)) cursor.folders.set(part, makeDir());
-      cursor = cursor.folders.get(part);
-    }
-
-    let baseId = null;
-    let variant = null;
-    if (fileName.endsWith('-light-mode.png')) {
-      baseId = fileName.replace(/-light-mode\.png$/, '');
-      variant = 'light';
-    } else if (fileName.endsWith('-dark-mode.png')) {
-      baseId = fileName.replace(/-dark-mode\.png$/, '');
-      variant = 'dark';
-    } else {
-      // Non-pair file — show as standalone leaf, no override target.
-      baseId = fileName;
-      variant = 'other';
-    }
-    if (!cursor.pairs.has(baseId)) cursor.pairs.set(baseId, { dirPath: parts.join('/'), baseId });
-    const pair = cursor.pairs.get(baseId);
-    if (variant === 'light') pair.light = blob.path;
-    else if (variant === 'dark') pair.dark = blob.path;
-    else pair.other = blob.path;
-  }
-
-  function dirToNodes(dir) {
-    const out = [];
-    // folders first, alphabetical
-    [...dir.folders.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([name, sub]) => {
-      out.push({ kind: 'folder', label: name, children: dirToNodes(sub) });
-    });
-    // then files
-    [...dir.pairs.values()].sort((a, b) => a.baseId.localeCompare(b.baseId)).forEach(pair => {
-      // Need at least a light file to enable override; entries with only dark
-      // are still listed but disabled (rare edge case).
-      const attrs = {
-        'data-capture-base': pair.baseId,
-        'data-capture-light': pair.light ?? '',
-        'data-capture-dark': pair.dark ?? '',
-      };
-      out.push({ kind: 'file', label: pair.baseId, attrs });
-    });
-    return out;
-  }
-
-  return dirToNodes(root);
-}
 
 // Append RESIZED / PADDED pills to each capture leaf from the manifest. Mirrors
 // decorateKbPills in knowledgeBaseManagement.js. Keyed by the leaf's light path.
 function decorateCapturePills(panel, meta) {
   panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
-    const lightPath = leaf.dataset.captureLight;
+    const lightPath = leaf.dataset.mediaLight;
     if (!lightPath) return;
     const html = captureMetaPills(meta[lightPath]);
     if (html) leaf.insertAdjacentHTML('beforeend', html);
@@ -122,7 +64,7 @@ export async function openCaptureLibrary({ mode } = {}) {
     formLoading.dismiss();
   }
 
-  const nodes = buildNodes(blobs);
+  const nodes = buildMediaNodes(blobs.map(b => b.path), { root: CAPTURE_ROOT, exts: ['png'] });
   panel.innerHTML = renderTree(nodes, { emptyMessage: 'No captures found.' });
 
   const captureMeta = await readCaptureMeta();
@@ -143,10 +85,10 @@ export async function openCaptureLibrary({ mode } = {}) {
     }
     const fileEl = e.target.closest('[data-kb-leaf]');
     if (!fileEl) return;
-    const lightPath = fileEl.dataset.captureLight;
-    const darkPath = fileEl.dataset.captureDark;
-    const label = fileEl.dataset.captureBase;
-    if (!lightPath) return; // no light file to preview/override
+    const lightPath = fileEl.dataset.mediaLight;
+    const darkPath = fileEl.dataset.mediaDark;
+    const label = fileEl.dataset.mediaBase;
+    if (!lightPath) return; // image library: a leaf with no light file isn't selectable
     getFormAction('openCaptureEntry')?.({ lightPath, darkPath, label, mode });
   });
 }
