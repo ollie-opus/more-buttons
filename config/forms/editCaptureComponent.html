@@ -1,9 +1,17 @@
 <form data-nav data-dirty-guard id="edit-capture-component-form" data-storage-key="moreButtonsEditCaptureComponent" data-width="90vw" data-height="90vh">
-  <h2>Edit capture</h2>
+  <h2 data-edit-media-title>Edit capture</h2>
 
   <div data-capture-component-preview></div>
 
   <div data-capture-component-size></div>
+
+  <div class="more-buttons-form-group" data-video-playback-group hidden>
+    <label class="more-buttons-label">Playback</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="videoPlayback" value="animation" checked /> Animation</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="videoPlayback" value="clip" /> Clip</label>
+    </div>
+  </div>
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Theme</label>

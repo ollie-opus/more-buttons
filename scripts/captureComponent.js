@@ -12,28 +12,30 @@
 import { createForm, navigateBack, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { captureCard, captureGrid, captureSizeField, wireCaptureSizeField } from './captureCards.js';
+import { videoCard } from './videoCards.js';
 import { registerFormAction } from './formActions.js';
 import { getComponentContainer } from './componentContainers.js';
-import { captureDimFields } from './components.js';
+import { captureDimFields, videoDimFields, uuidOfComponent } from './components.js';
 import { mergeSave } from './mergeSave.js';
 import { formLoading } from './loading.js';
 
-/**
- * @param {Object} opts
- * @param {{kind:string, uuid:string}} opts.container - the owning container.
- * @param {string} opts.uuid - the capture component's UUID.
- * @param {{lightFilename,darkFilename,dimMode,dimValue}} opts.cap
- */
 export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
-  if (!container || !cap) return;
-  const opener = () => openEditCaptureComponent({ container, uuid, cap });
+  return openEditMediaComponent({ kind: 'capture', container, uuid, media: cap });
+}
+registerFormAction('openEditCaptureComponent', openEditCaptureComponent);
 
-  // Seed the form with the same normalization readFresh applies to markdown
-  // (dimValue '' when auto) — the merge baseline snapshots these values, so an
-  // unedited auto capture must compare equal to its freshly-parsed self.
-  await chrome.storage.local.set({
-    moreButtonsEditCaptureComponent: captureDimFields(cap),
-  });
+export async function openEditVideoComponent({ container, uuid, vid } = {}) {
+  return openEditMediaComponent({ kind: 'video', container, uuid, media: vid });
+}
+registerFormAction('openEditVideoComponent', openEditVideoComponent);
+
+async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
+  if (!container || !media) return;
+  const isVideo = kind === 'video';
+  const fieldsFn = isVideo ? videoDimFields : captureDimFields;
+  const opener = () => openEditMediaComponent({ kind, container, uuid, media });
+
+  await chrome.storage.local.set({ moreButtonsEditCaptureComponent: fieldsFn(media) });
 
   const { formEl } = await createForm('editCaptureComponent', opener);
   if (!formEl) return;
@@ -41,40 +43,46 @@ export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
   formEl.dataset.containerUuid = container.uuid;
   formEl.dataset.containerFile = container.file;
   formEl.dataset.componentUuid = uuid;
+  formEl.dataset.mediaKind = kind;
+
+  const titleEl = formEl.querySelector('[data-edit-media-title]');
+  if (titleEl) titleEl.textContent = isVideo ? 'Edit video' : 'Edit capture';
+
+  // Playback radios are video-only; Theme is meaningless for a single video.
+  const playbackGroup = formEl.querySelector('[data-video-playback-group]');
+  if (playbackGroup) playbackGroup.hidden = !isVideo;
+  if (isVideo && !media.darkFilename) {
+    formEl.querySelector('[name="captureTheme"]')?.closest('.more-buttons-form-group')?.setAttribute('hidden', '');
+  }
 
   const previewEl = formEl.querySelector('[data-capture-component-preview]');
   if (previewEl) {
     formLoading.show();
     try {
       const [lightBlob, darkBlob] = await Promise.all([
-        readRepoBlob('docs/assets/' + cap.lightFilename).catch(() => null),
-        cap.darkFilename ? readRepoBlob('docs/assets/' + cap.darkFilename).catch(() => null) : Promise.resolve(null),
+        readRepoBlob('docs/assets/' + media.lightFilename).catch(() => null),
+        media.darkFilename ? readRepoBlob('docs/assets/' + media.darkFilename).catch(() => null) : Promise.resolve(null),
       ]);
       const lightUrl = lightBlob ? URL.createObjectURL(lightBlob) : '';
       const darkUrl = darkBlob ? URL.createObjectURL(darkBlob) : '';
+      const card = isVideo ? videoCard : captureCard;
       previewEl.innerHTML = captureGrid([
-        captureCard({ theme: 'light', title: 'Light mode', src: lightUrl, alt: 'light mode' }),
-        captureCard({ theme: 'dark', title: 'Dark mode', src: darkUrl, alt: 'dark mode' }),
+        card({ theme: 'light', title: media.darkFilename ? 'Light mode' : 'Preview', src: lightUrl, alt: 'light mode' }),
+        card({ theme: 'dark', title: 'Dark mode', src: darkUrl, alt: 'dark mode' }),
       ]);
     } finally {
       formLoading.dismiss();
     }
   }
 
-  // The Dimension control is injected (not static HTML) so its markup comes
-  // from the shared captureSizeField helper. Render from captureDimFields so
-  // an untouched form matches the storage seed exactly (dimValue '' on auto)
-  // — the merge baseline depends on that equality.
   const sizeHost = formEl.querySelector('[data-capture-component-size]');
   if (sizeHost) {
-    const dim = captureDimFields(cap);
+    const dim = fieldsFn(media);
     sizeHost.innerHTML = captureSizeField({ dimMode: dim.dimMode, dimValue: dim.dimValue });
     wireCaptureSizeField(formEl);
   }
   resetDirtyBaseline(formEl);
 }
-
-registerFormAction('openEditCaptureComponent', openEditCaptureComponent);
 
 function readContainerRef(formEl) {
   return {
@@ -91,30 +99,36 @@ function readContainerRef(formEl) {
 registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => {
   const { handler, container, uuid } = readContainerRef(formEl);
   if (!handler) return;
+  const isVideo = formEl.dataset.mediaKind === 'video';
   const btn = content?.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
 
-  // Normalize the form so dimValue is '' whenever the mode is 'none' — this
-  // keeps `cur` and `fresh` equal for an untouched auto capture (no false
-  // conflict). The number input is disabled in 'none' mode but still reports
-  // its stale .value to readFormValues, so blank it explicitly.
   const modeSel = formEl.querySelector('[name="dimMode"]');
   const valInput = formEl.querySelector('[name="dimValue"]');
   if (modeSel?.value === 'none' && valInput) valInput.value = '';
+
+  const baseSpecs = [
+    { name: 'dimMode', type: 'scalar', label: 'Dimension mode' },
+    { name: 'dimValue', type: 'scalar', label: 'Dimension value' },
+    { name: 'captureTheme', type: 'scalar', label: 'Theme' },
+    { name: 'captureCorner', type: 'scalar', label: 'Corner rounding' },
+  ];
+  const fieldSpecs = isVideo
+    ? [...baseSpecs, { name: 'videoPlayback', type: 'scalar', label: 'Playback' }]
+    : baseSpecs;
 
   try {
     await mergeSave({
       formEl,
       file: container.file,
       onProgress: s => setButtonBusy(btn, s),
-      fieldSpecs: [
-        { name: 'dimMode', type: 'scalar', label: 'Dimension mode' },
-        { name: 'dimValue', type: 'scalar', label: 'Dimension value' },
-        { name: 'captureTheme', type: 'scalar', label: 'Theme' },
-        { name: 'captureCorner', type: 'scalar', label: 'Corner rounding' },
-      ],
+      fieldSpecs,
       readFresh: md => {
         const { components } = handler.readComponents(md, container.uuid);
+        if (isVideo) {
+          const vid = components.find(c => c.kind === 'video' && c.vid.uuid === uuid)?.vid;
+          return videoDimFields(vid);
+        }
         const cap = components.find(c => c.kind === 'capture' && c.cap.uuid === uuid)?.cap;
         return captureDimFields(cap);
       },
@@ -125,36 +139,42 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
         const dimValue = mode === 'none' ? null : (Number.isFinite(raw) && raw > 0 ? raw : 50);
         const inversed = resolved.captureTheme === 'inversed';
         const rounded = resolved.captureCorner === 'enabled';
-        const next = components.map(c =>
-          (c.kind === 'capture' && c.cap.uuid === uuid)
-            ? { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue, inversed, rounded } }
-            : c);
+        const next = components.map(c => {
+          if (isVideo && c.kind === 'video' && c.vid.uuid === uuid) {
+            return { kind: 'video', vid: { ...c.vid, dimMode: mode, dimValue, inversed: c.vid.single ? false : inversed, rounded, playback: resolved.videoPlayback ?? 'animation' } };
+          }
+          if (!isVideo && c.kind === 'capture' && c.cap.uuid === uuid) {
+            return { kind: 'capture', cap: { ...c.cap, dimMode: mode, dimValue, inversed, rounded } };
+          }
+          return c;
+        });
         return handler.writeBody(md, container.uuid, description, next);
       },
     });
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
-    alert('Failed to save capture: ' + e.message);
+    alert('Failed to save: ' + e.message);
   }
 });
 
 registerFormAction('deleteCaptureComponent', async ({ formEl, content }) => {
-  if (!confirm('Delete this capture? This removes it from the page (the image stays in the library).')) return;
+  const isVideo = formEl.dataset.mediaKind === 'video';
+  const noun = isVideo ? 'video' : 'capture';
+  if (!confirm(`Delete this ${noun}? This removes it from the page (the file stays in the library).`)) return;
   const { handler, container, uuid } = readContainerRef(formEl);
   if (!handler) return;
   const btn = content?.querySelector('[data-action="deleteCaptureComponent"]');
   const snap = snapshotButton(btn);
-  setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
+  setButtonBusy(btn, 'Deleting…');
   try {
     await handler.mutate(container, (components) =>
-      components.filter(c => !(c.kind === 'capture' && c.cap.uuid === uuid)),
+      components.filter(c => uuidOfComponent(c) !== uuid),
       s => setButtonBusy(btn, s));
-
     await chrome.storage.local.remove('moreButtonsEditCaptureComponent');
     await navigateBack();
   } catch (e) {
     restoreButton(btn, snap);
-    alert('Failed to delete capture: ' + e.message);
+    alert(`Failed to delete ${noun}: ` + e.message);
   }
 });
