@@ -11,6 +11,13 @@ import {
 
 const parsePath = (s) => String(s).split('.').filter(x => x !== '').map(Number);
 
+// True if `node` is `ancestor` itself or anywhere in its subtree.
+function subtreeContains(ancestor, node) {
+  if (ancestor === node) return true;
+  if (!ancestor.children) return false;
+  return ancestor.children.some(c => subtreeContains(c, node));
+}
+
 export function createReorderState({ tree, navItems, draftItems }) {
   let dirty = false;
   const liveMap = valueMapByBase(navItems);
@@ -21,10 +28,24 @@ export function createReorderState({ tree, navItems, draftItems }) {
   };
 
   const moveToPath = (pathStr, targetIdxPathStr) => {
+    // Resolve the target section to a NODE REFERENCE before detaching: detach
+    // splices the source out, which shifts the index-path of any section that
+    // follows it at a shared level — re-walking the stale index path would then
+    // miss (dropping the node) or hit the wrong folder. A direct reference is
+    // stable across the splice.
+    const srcNode = nodeAtPath(tree, parsePath(pathStr));
+    if (!srcNode) return;
+    const targetIdx = targetIdxPathStr ? parsePath(targetIdxPathStr) : null;
+    const targetNode = targetIdx ? nodeAtPath(tree, targetIdx) : null;
+    if (targetIdx && (!targetNode || !targetNode.children)) return; // invalid target → no-op
+    // Reject moving a folder into itself or its own descendant (would orphan
+    // the subtree / create a cycle). The picker already excludes the exact
+    // source path, but not its descendants.
+    if (targetNode && subtreeContains(srcNode, targetNode)) return;
     const node = detachAtPath(tree, parsePath(pathStr));
     if (!node) return;
-    const target = targetIdxPathStr ? parsePath(targetIdxPathStr) : null;
-    attachUnderPath(tree, target, node);
+    if (targetNode) targetNode.children.push(node);
+    else attachUnderPath(tree, null, node); // top level
     dirty = true;
   };
 

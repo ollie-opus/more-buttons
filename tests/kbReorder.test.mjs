@@ -71,6 +71,42 @@ test('moveToSegments reparents a leaf into a new section', () => {
   assert.deepEqual(nav[1].children[0].children.map(n => n.value), ['pages/b.md']);
 });
 
+test('moveToPath into a following sibling section does not drop the node', () => {
+  // Regression: detach shifts the target's index path; resolving the target as a
+  // node reference (not a re-walked index path) keeps the move correct.
+  const t = [
+    { name: 'Guides', children: [ { name: 'A', value: 'pages/a.md' } ] },
+    { name: 'Reference', children: [ { name: 'D', value: 'pages/d.md' } ] },
+  ];
+  const s = createReorderState({ tree: t, navItems: JSON.parse(JSON.stringify(t)), draftItems: [] });
+  s.moveToPath('0', '1');  // move Guides(0) INTO Reference(1)
+  const ref = s.getTree().find(n => n.name === 'Reference');
+  assert.deepEqual(ref.children.map(n => n.name), ['D', 'Guides']);
+  assert.deepEqual(s.getTree().map(n => n.name), ['Reference']);
+});
+
+test('moveToPath of a sibling leaf into the following folder keeps the leaf', () => {
+  const t = [ { name: 'Guides', children: [
+    { name: 'X', value: 'pages/x.md' },
+    { name: 'Employees', children: [ { name: 'A', value: 'pages/a.md' } ] },
+  ] } ];
+  const s = createReorderState({ tree: t, navItems: JSON.parse(JSON.stringify(t)), draftItems: [] });
+  s.moveToPath('0.0', '0.1');  // X into Employees
+  const emp = s.getTree()[0].children.find(n => n.name === 'Employees');
+  assert.deepEqual(emp.children.map(n => n.name), ['A', 'X']);
+  assert.deepEqual(s.getTree()[0].children.map(n => n.name), ['Employees']);
+});
+
+test('moveToPath into own descendant is a rejected no-op', () => {
+  const t = [ { name: 'Guides', children: [
+    { name: 'Sub', children: [ { name: 'A', value: 'pages/a.md' } ] },
+  ] } ];
+  const s = createReorderState({ tree: t, navItems: JSON.parse(JSON.stringify(t)), draftItems: [] });
+  s.moveToPath('0', '0.0');  // Guides into its own child Sub
+  assert.equal(s.isDirty(), false);
+  assert.equal(s.getTree()[0].name, 'Guides');
+});
+
 test('sectionTargets lists folders with full-path labels', () => {
   const s = createReorderState({ tree: tree(), navItems: navItems(), draftItems: draftItems() });
   const labels = s.sectionTargets().map(t => t.label);
