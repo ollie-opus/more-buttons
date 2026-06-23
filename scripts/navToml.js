@@ -223,3 +223,76 @@ export function renameByValueSlug(nodes, slug, newName) {
   recurse(nodes);
   return changed;
 }
+
+// Filename of a value: 'pages/a.md' and 'drafts/a.md' → 'a.md'. The identity
+// key uniting a live leaf with its draft counterpart (filenames are globally
+// unique). Shared by the reorder projection.
+export function baseOf(value) {
+  return String(value).split('/').pop();
+}
+
+// Map every leaf's filename → its EXACT value string. Used so the reorder save
+// reuses the value already in the toml rather than reconstructing a prefix.
+export function valueMapByBase(nodes) {
+  const map = new Map();
+  const walk = (level) => {
+    for (const n of level) {
+      if (n.children) walk(n.children);
+      else map.set(baseOf(n.value), n.value);
+    }
+  };
+  walk(nodes);
+  return map;
+}
+
+// Set of every leaf filename in the tree.
+export function leafBases(nodes) {
+  const set = new Set();
+  const walk = (level) => {
+    for (const n of level) {
+      if (n.children) walk(n.children);
+      else set.add(baseOf(n.value));
+    }
+  };
+  walk(nodes);
+  return set;
+}
+
+// Clone `edited`, keeping only leaves whose filename is a key in `valueMap`
+// (value replaced by the exact mapped string), and pruning folders left empty.
+// This is how the edited display tree is projected onto one array's membership.
+export function projectTree(edited, valueMap) {
+  const out = [];
+  for (const n of edited) {
+    if (n.children) {
+      const kids = projectTree(n.children, valueMap);
+      if (kids.length) out.push({ name: n.name, children: kids });
+    } else {
+      const base = baseOf(n.value);
+      if (valueMap.has(base)) out.push({ name: n.name, value: valueMap.get(base) });
+    }
+  }
+  return out;
+}
+
+// Replace the run of "managed" top-level sections in `original` with `projected`,
+// preserving every other entry (Home/System and anything not part of the edited
+// guide tree) verbatim and in place. A node is managed iff it is a section whose
+// slug is in `editedTopSlugs`. The projected block lands at the first managed
+// index; if nothing is managed it is appended.
+export function spliceGuideBlock(original, projected, editedTopSlugs) {
+  const isManaged = (node) =>
+    Array.isArray(node.children) && editedTopSlugs.has(slugify(node.name));
+  const out = [];
+  let inserted = false;
+  for (const node of original) {
+    if (isManaged(node)) {
+      if (!inserted) { out.push(...projected); inserted = true; }
+      // otherwise drop — replaced by the projected block
+    } else {
+      out.push(node);
+    }
+  }
+  if (!inserted) out.push(...projected);
+  return out;
+}
