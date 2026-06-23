@@ -23,6 +23,7 @@
   --mb-acc-success:  #15803d;  /* green — save / saved confirmation    */
   --mb-acc-danger:   #dc2626;  /* red — destructive                    */
   --mb-acc-busy:     #b45309;  /* amber — commit in flight             */
+  --mb-acc-magenta:  #be185d;  /* pink/rose — reorder mode toggle       */
   --mb-acc-on:       #ffffff;  /* label colour when a button fills      */
   --mb-info-bg:          #e2f3ff;
   --mb-info-border:      #bfdbfe;
@@ -59,6 +60,7 @@
     --mb-acc-success:  #4ade80;
     --mb-acc-danger:   #f87171;
     --mb-acc-busy:     #fbbf24;
+    --mb-acc-magenta:  #f472b6;
     --mb-acc-on:       #0f172a;
     --mb-info-bg:          rgba(30, 58, 138, 0.25);
     --mb-info-border:      #1d4ed8;
@@ -678,11 +680,15 @@ button.more-buttons-crumb:hover {
 .more-buttons-button.success  { --mb-acc: var(--mb-acc-success); }
 .more-buttons-button.publish  { --mb-acc: var(--mb-acc-info); }
 .more-buttons-button.danger   { --mb-acc: var(--mb-acc-danger); }
+/* Outlined magenta — same calm faint-fill treatment as the variants above, for an
+   active action like "Switch to reorder mode". */
+.more-buttons-button.magenta  { --mb-acc: var(--mb-acc-magenta); }
 
 .more-buttons-button.info,
 .more-buttons-button.success,
 .more-buttons-button.publish,
-.more-buttons-button.danger {
+.more-buttons-button.danger,
+.more-buttons-button.magenta {
   background: color-mix(in srgb, var(--mb-acc) 11%, transparent);
   border-color: color-mix(in srgb, var(--mb-acc) 48%, transparent);
   color: var(--mb-acc);
@@ -691,7 +697,8 @@ button.more-buttons-crumb:hover {
 .more-buttons-button.info:hover,
 .more-buttons-button.success:hover,
 .more-buttons-button.publish:hover,
-.more-buttons-button.danger:hover {
+.more-buttons-button.danger:hover,
+.more-buttons-button.magenta:hover {
   background: var(--mb-acc);
   border-color: var(--mb-acc);
   color: var(--mb-acc-fill-fg);
@@ -2397,7 +2404,8 @@ details[open] .more-buttons-advanced-toggle::before {
   transform: rotate(90deg); /* points down = expanded */
 }
 
-.mb-kb-node.--collapsed > .mb-kb-node-row .mb-kb-arrow {
+.mb-kb-node.--collapsed > .mb-kb-node-row .mb-kb-arrow,
+.mb-kb-node.--collapsed > .mb-kb-row-line > .mb-kb-node-row .mb-kb-arrow {
   transform: rotate(0deg); /* points right = collapsed */
 }
 
@@ -2943,3 +2951,59 @@ details[open] .more-buttons-advanced-toggle::before {
   height: 18px;
   stroke: currentColor;
 }
+
+/* KB tree reorder controls */
+.mb-kb-node { position: relative; }
+
+/* The row button and its controls share one horizontal line. The row's visual
+   container (fill, border, hover) moves from the button onto the line so the
+   controls read as sitting INSIDE the row, to the right of the status pills.
+   The button flexes to fill the line, pushing the controls hard right. */
+.mb-kb-row-line {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding-right: 4px;
+  background: var(--mb-bg-subtle);
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  transition: background 0.12s ease;
+}
+.mb-kb-row-line:hover { background: var(--mb-border-subtle); }
+.mb-kb-row-line > .mb-kb-node-row {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: none;
+}
+.mb-kb-row-line > .mb-kb-node-row:hover { background: none; }
+
+/* In reorder mode the move controls stay hidden until the row is selected; only
+   the selected row reveals them and takes the pink reorder tint. */
+.mb-kb-row-controls { display: none; gap: 2px; flex-shrink: 0; }
+.mb-kb-node.--selected > .mb-kb-row-line > .mb-kb-row-controls { display: inline-flex; }
+.mb-kb-node.--selected > .mb-kb-row-line,
+.mb-kb-node.--selected > .mb-kb-row-line:hover {
+  background: color-mix(in srgb, var(--mb-acc-magenta) 16%, transparent);
+  border-color: color-mix(in srgb, var(--mb-acc-magenta) 55%, transparent);
+}
+.mb-kb-ctl { display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: none; background: transparent; border-radius: 6px;
+  cursor: pointer; color: var(--mb-text-muted); }
+.mb-kb-ctl:hover { background: rgba(0,0,0,0.06); }
+.mb-kb-ctl:disabled { opacity: 0.3; cursor: default; }
+.mb-kb-ctl .material-symbols-outlined { font-size: 18px; }
+
+.mb-kb-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+.mb-kb-move-pop { position: absolute; right: 0; z-index: 20; min-width: 240px;
+  background: var(--mb-bg); border: 1px solid var(--mb-border);
+  border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.18); padding: 6px; }
+.mb-kb-move-title { font-size: 0.8em; color: var(--mb-text-muted); padding: 4px 8px; }
+.mb-kb-move-opt { display: block; width: 100%; text-align: left; border: none;
+  background: transparent; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.mb-kb-move-opt:hover { background: rgba(0,0,0,0.06); }
+.mb-kb-move-new { padding: 6px; }
+.mb-kb-move-input { width: 100%; box-sizing: border-box; }

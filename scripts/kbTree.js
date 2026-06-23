@@ -14,36 +14,67 @@ const escapeAttr = (s) =>
 const escapeHtml = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-function renderNode(node) {
+function controlsHtml(idxPath, isFirst, isLast) {
+  const path = idxPath.join('.');
+  return `<span class="mb-kb-row-controls">
+      <button class="mb-kb-ctl" type="button" data-kb-move-up data-kb-path="${path}" title="Move up"${isFirst ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_up</span></button>
+      <button class="mb-kb-ctl" type="button" data-kb-move-down data-kb-path="${path}" title="Move down"${isLast ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_down</span></button>
+      <button class="mb-kb-ctl" type="button" data-kb-move-to data-kb-path="${path}" title="Move to…"><span class="material-symbols-outlined">drive_file_move</span></button>
+    </span>`;
+}
+
+// Reorderable rows wrap the row button and its controls in one horizontal
+// `.mb-kb-row-line` so the controls sit inside the row, right of the pills.
+// Keeping the controls a SIBLING of the row button (never nested inside it)
+// preserves the click-isolation the reorder feature depends on. When
+// `reorderable` is off the wrapper is omitted, so the output is byte-identical
+// to the pre-reorder render (the capture-library caller is unaffected).
+function rowLine(button, ro, idxPath, opts) {
+  return ro
+    ? `<div class="mb-kb-row-line">${button}${controlsHtml(idxPath, opts.isFirst, opts.isLast)}</div>`
+    : button;
+}
+
+function renderNode(node, idxPath, opts) {
+  const ro = opts.reorderable;
+  const pathAttr = ro ? ` data-kb-path="${idxPath.join('.')}"` : '';
   if (node.kind === 'file') {
     const attrPairs = Object.entries(node.attrs ?? {})
-      .map(([k, v]) => `${k}="${escapeAttr(v)}"`)
-      .join(' ');
-    return `<div class="mb-kb-node">
-      <button class="mb-kb-node-row" type="button" data-kb-leaf ${attrPairs}>
+      .map(([k, v]) => `${k}="${escapeAttr(v)}"`).join(' ');
+    const button = `<button class="mb-kb-node-row" type="button" data-kb-leaf ${attrPairs}${pathAttr}>
         <span class="mb-kb-node-icon material-symbols-outlined">description</span>
         <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
-      </button>
+      </button>`;
+    return `<div class="mb-kb-node">
+      ${rowLine(button, ro, idxPath, opts)}
     </div>`;
   }
-
-  const childrenHtml = (node.children ?? []).map(renderNode).join('');
-  return `<div class="mb-kb-node">
-    <button class="mb-kb-node-row" type="button" data-kb-section>
+  const kids = node.children ?? [];
+  const childrenHtml = kids
+    .map((c, i) => renderNode(c, [...idxPath, i], { ...opts, isFirst: i === 0, isLast: i === kids.length - 1 }))
+    .join('');
+  const attrPairs = Object.entries(node.attrs ?? {})
+    .map(([k, v]) => `${k}="${escapeAttr(v)}"`).join(' ');
+  const button = `<button class="mb-kb-node-row" type="button" data-kb-section ${attrPairs}${pathAttr}>
       <span class="mb-kb-node-icon mb-kb-arrow material-symbols-outlined">chevron_right</span>
       <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
-    </button>
+    </button>`;
+  return `<div class="mb-kb-node">
+    ${rowLine(button, ro, idxPath, opts)}
     <div class="mb-kb-node-children">${childrenHtml}</div>
   </div>`;
 }
 
-export function renderTree(nodes, { emptyMessage = 'Nothing found.' } = {}) {
+export function renderTree(nodes, { emptyMessage = 'Nothing found.', reorderable = false } = {}) {
   if (!nodes || nodes.length === 0) {
     return `<p class="more-buttons-description">${escapeHtml(emptyMessage)}</p>`;
   }
+  const inner = nodes
+    .map((n, i) => renderNode(n, [i], { reorderable, isFirst: i === 0, isLast: i === nodes.length - 1 }))
+    .join('');
   return `
     <input type="search" class="mb-kb-search" placeholder="Search…" aria-label="Search">
-    <div class="mb-kb-tree">${nodes.map(renderNode).join('')}</div>
+    <div class="mb-kb-tree">${inner}</div>
   `;
 }
 

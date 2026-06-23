@@ -79,6 +79,8 @@
         "scripts/toggleMoreButtonsActive.js",
         "scripts/knowledgeBaseManagement.js",
         "scripts/kbTree.js",
+        "scripts/kbReorder.js",
+        "scripts/navTree.js",
         "scripts/captureLibrary.js",
         "scripts/captureEntry.js",
         "scripts/captureNew.js",
