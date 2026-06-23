@@ -2382,7 +2382,8 @@ details[open] .more-buttons-advanced-toggle::before {
   transform: rotate(90deg); /* points down = expanded */
 }
 
-.mb-kb-node.--collapsed > .mb-kb-node-row .mb-kb-arrow {
+.mb-kb-node.--collapsed > .mb-kb-node-row .mb-kb-arrow,
+.mb-kb-node.--collapsed > .mb-kb-row-line > .mb-kb-node-row .mb-kb-arrow {
   transform: rotate(0deg); /* points right = collapsed */
 }
 
@@ -2931,7 +2932,33 @@ details[open] .more-buttons-advanced-toggle::before {
 
 /* KB tree reorder controls */
 .mb-kb-node { position: relative; }
-.mb-kb-row-controls { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; }
+
+/* The row button and its controls share one horizontal line. The row's visual
+   container (fill, border, hover) moves from the button onto the line so the
+   controls read as sitting INSIDE the row, to the right of the status pills.
+   The button flexes to fill the line, pushing the controls hard right. */
+.mb-kb-row-line {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding-right: 4px;
+  background: var(--mb-bg-subtle);
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  transition: background 0.12s ease;
+}
+.mb-kb-row-line:hover { background: var(--mb-border-subtle); }
+.mb-kb-row-line > .mb-kb-node-row {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: none;
+}
+.mb-kb-row-line > .mb-kb-node-row:hover { background: none; }
+
+.mb-kb-row-controls { display: inline-flex; gap: 2px; flex-shrink: 0; }
 .mb-kb-ctl { display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border: none; background: transparent; border-radius: 6px;
   cursor: pointer; color: var(--mb-text-muted); }

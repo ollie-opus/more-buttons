@@ -23,28 +23,42 @@ function controlsHtml(idxPath, isFirst, isLast) {
     </span>`;
 }
 
+// Reorderable rows wrap the row button and its controls in one horizontal
+// `.mb-kb-row-line` so the controls sit inside the row, right of the pills.
+// Keeping the controls a SIBLING of the row button (never nested inside it)
+// preserves the click-isolation the reorder feature depends on. When
+// `reorderable` is off the wrapper is omitted, so the output is byte-identical
+// to the pre-reorder render (the capture-library caller is unaffected).
+function rowLine(button, ro, idxPath, opts) {
+  return ro
+    ? `<div class="mb-kb-row-line">${button}${controlsHtml(idxPath, opts.isFirst, opts.isLast)}</div>`
+    : button;
+}
+
 function renderNode(node, idxPath, opts) {
   const ro = opts.reorderable;
   const pathAttr = ro ? ` data-kb-path="${idxPath.join('.')}"` : '';
   if (node.kind === 'file') {
     const attrPairs = Object.entries(node.attrs ?? {})
       .map(([k, v]) => `${k}="${escapeAttr(v)}"`).join(' ');
-    return `<div class="mb-kb-node">
-      <button class="mb-kb-node-row" type="button" data-kb-leaf ${attrPairs}${pathAttr}>
+    const button = `<button class="mb-kb-node-row" type="button" data-kb-leaf ${attrPairs}${pathAttr}>
         <span class="mb-kb-node-icon material-symbols-outlined">description</span>
         <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
-      </button>${ro ? controlsHtml(idxPath, opts.isFirst, opts.isLast) : ''}
+      </button>`;
+    return `<div class="mb-kb-node">
+      ${rowLine(button, ro, idxPath, opts)}
     </div>`;
   }
   const kids = node.children ?? [];
   const childrenHtml = kids
     .map((c, i) => renderNode(c, [...idxPath, i], { ...opts, isFirst: i === 0, isLast: i === kids.length - 1 }))
     .join('');
-  return `<div class="mb-kb-node">
-    <button class="mb-kb-node-row" type="button" data-kb-section${pathAttr}>
+  const button = `<button class="mb-kb-node-row" type="button" data-kb-section${pathAttr}>
       <span class="mb-kb-node-icon mb-kb-arrow material-symbols-outlined">chevron_right</span>
       <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
-    </button>${ro ? controlsHtml(idxPath, opts.isFirst, opts.isLast) : ''}
+    </button>`;
+  return `<div class="mb-kb-node">
+    ${rowLine(button, ro, idxPath, opts)}
     <div class="mb-kb-node-children">${childrenHtml}</div>
   </div>`;
 }

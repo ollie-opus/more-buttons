@@ -15,6 +15,16 @@ test('default render has no reorder controls (unchanged)', () => {
   const html = renderTree(nodes);
   assert.ok(!html.includes('data-kb-move-up'));
   assert.ok(!html.includes('data-kb-path'));
+  assert.ok(!html.includes('mb-kb-row-line'));  // no wrapper when not reorderable
+});
+
+test('reorderable wraps row + controls in one line, controls after the row button', () => {
+  const html = renderTree(nodes, { reorderable: true });
+  assert.ok(html.includes('mb-kb-row-line'));
+  // Inside a row line: the row button comes first, then the controls — so the
+  // controls render on the same line, to the right of the row (and its pills).
+  const order = /<div class="mb-kb-row-line"><button class="mb-kb-node-row"[\s\S]*?<\/button><span class="mb-kb-row-controls">/;
+  assert.ok(order.test(html), 'controls are a sibling immediately after the row button, inside the line');
 });
 
 test('reorderable render adds controls and index paths', () => {
