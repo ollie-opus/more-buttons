@@ -1,15 +1,18 @@
 /**
- * videoEntry.js — the insert-review form for a library video. Unlike captures
- * there is no create/recapture path: videos are uploaded manually, so this form
- * only previews the chosen video(s) and lets the user set Size / Animation-Clip
- * / Theme / Corner before inserting. On insert it hands a resolved video spec to
- * videos.js (completeComponentVideoInsert), which commits it into the container.
+ * videoEntry.js — the review form for a library video, in two flavours that
+ * mirror captureEntry: the INSERT flavour (mode === 'insert', reached from the
+ * guide insert flow) previews the video(s) and lets the user set Size /
+ * Animation-Clip / Theme / Corner, then hands a resolved spec to videos.js
+ * (completeComponentVideoInsert) to commit into the container; the LIBRARY-BROWSE
+ * flavour (clicked straight from the media library) is preview-only. Unlike
+ * captures there is no create/recapture path — videos are uploaded manually —
+ * so the browse flavour simply shows the preview(s) with no options.
  */
 
 import { createForm, navigateBack } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { registerFormAction, getFormAction } from './formActions.js';
-import { captureGrid, captureSizeField, wireCaptureSizeField, readCaptureSizeField } from './captureCards.js';
+import { captureGrid, captureSizeField, wireCaptureSizeField, readCaptureSizeField, captureRadioField, captureThemeField, captureCornerField } from './captureCards.js';
 import { videoCard, videoBasePath } from './videoCards.js';
 import { formLoading } from './loading.js';
 
@@ -24,6 +27,12 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
   const primaryPath = singlePath || lightPath;
   if (!primaryPath) return;
   const isSingle = !!singlePath && !lightPath;
+  // Two flavours, mirroring captureEntry: the insert flavour (reached from the
+  // guide insert flow) shows the sizing + Playback / Theme / Corner options and
+  // an "Insert this video" button; the library-browse flavour (clicked straight
+  // from the media library) is preview-only — no options, no insert. Videos have
+  // no recapture path, so that flavour simply shows the preview(s).
+  const insertMode = mode === 'insert';
 
   const opener = () => openVideoEntry({ lightPath, darkPath, singlePath, label, mode });
   const { formEl } = await createForm('videoEntry', opener);
@@ -33,16 +42,11 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
   const titleEl = formEl.querySelector('[data-video-entry-title]');
   const bodyEl = formEl.querySelector('[data-video-entry-body]');
   const actionsEl = contentEl.querySelector('[data-video-entry-actions]');
-  if (titleEl) titleEl.textContent = `Insert video — ${videoBasePath(primaryPath)}`;
+  const base = videoBasePath(primaryPath);
+  if (titleEl) titleEl.textContent = insertMode ? `Insert video — ${base}` : base;
 
   let lightUrl = '', darkUrl = '';
   const revoke = (u) => { if (u?.startsWith('blob:')) URL.revokeObjectURL(u); };
-
-  function radioGroup(name, legend, options) {
-    const items = options.map(([v, lbl, checked]) =>
-      `<label class="more-buttons-radio-btn"><input type="radio" name="${name}" value="${v}"${checked ? ' checked' : ''} /> ${lbl}</label>`).join('');
-    return `<div class="more-buttons-form-group"><label class="more-buttons-label">${legend}</label><div class="more-buttons-radio-btn-group-row">${items}</div></div>`;
-  }
 
   function render() {
     const cards = isSingle
@@ -53,14 +57,17 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
         ];
     bodyEl.innerHTML =
       captureGrid(cards) +
-      captureSizeField({ dimMode: 'width', dimValue: 1000 }) +
-      radioGroup('videoPlayback', 'Playback', [['animation', 'Animation', true], ['clip', 'Clip', false]]) +
-      (isSingle ? '' : radioGroup('captureTheme', 'Theme', [['default', 'Default', true], ['inversed', 'Inversed', false]])) +
-      radioGroup('captureCorner', 'Corner rounding', [['disabled', 'Disabled', true], ['enabled', 'Enabled', false]]);
-    wireCaptureSizeField(bodyEl);
-    actionsEl.innerHTML =
-      `<button type="button" class="more-buttons-button secondary" data-video-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
-       <button type="button" class="more-buttons-button" data-video-entry-insert><span class="more-buttons-icon">add</span>Insert this video</button>`;
+      (insertMode
+        ? captureSizeField({ dimMode: 'width', dimValue: 1000 })
+          + captureRadioField('videoPlayback', 'Playback', [['animation', 'Animation', true], ['clip', 'Clip', false]])
+          + (isSingle ? '' : captureThemeField())
+          + captureCornerField()
+        : '');
+    if (insertMode) wireCaptureSizeField(bodyEl);
+    actionsEl.innerHTML = insertMode
+      ? `<button type="button" class="more-buttons-button secondary" data-video-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+         <button type="button" class="more-buttons-button" data-video-entry-insert><span class="more-buttons-icon">add</span>Insert this video</button>`
+      : '';
   }
 
   function readRadio(name, fallback) {

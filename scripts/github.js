@@ -1,10 +1,14 @@
 import { ensureAdmonitionUUIDs, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
-import { ensureSectionUUIDs } from './sections.js';
+import {
+  ensureSectionUUIDs, parseSections, readSectionDescription,
+  writeHideSectionTitle, buildSection, replaceSectionByUUID,
+} from './sections.js';
+import { readHideTitle, writeHideTitle } from './frontmatter.js';
 import { ensureCaptureUUIDs } from './components.js';
 import { ensureTabUUIDs } from './contentTabs.js';
 import { ensureDataTableUUIDs } from './dataTables.js';
 import { ensureGridUUIDs } from './grid.js';
-import { contentsApiUrl, authHeader } from './repoClient.js';
+import { contentsApiUrl, authHeader, rememberWrite, forgetWrite, reconcileRead } from './repoClient.js';
 
 let _opQueue = Promise.resolve();
 
@@ -70,11 +74,31 @@ export function migrateComponentIdentity(filePath, markdown) {
   }
   if (isGuideMarkdown(filePath)) {
     // Mirror createGuideDraft: sections + component admonitions + tabs + tables + captures.
-    return ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
+    const withIds = ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
       ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
     ))));
+    // Hide-page-title moved from a page-level setting to a per-section toggle:
+    // fold any legacy preamble marker into the H1 section's own hide flag. Runs
+    // last (after ensureSectionUUIDs has given the H1 a UUID span). Idempotent —
+    // a no-op once the legacy marker is gone.
+    return migrateHideTitleToSection(withIds);
   }
   return markdown;
+}
+
+// Convert a legacy page-level hide-title marker (a preamble <style>, see
+// frontmatter.js) into the per-section hide flag on the H1 section. Drops the old
+// marker and re-hides the H1 via the section mechanism so the page renders the
+// same. No-op when there is no legacy marker (idempotent), or when there is no
+// H1 to attach to (the old marker is simply dropped).
+function migrateHideTitleToSection(markdown) {
+  if (!readHideTitle(markdown)) return markdown;
+  const stripped = writeHideTitle(markdown, false);
+  const h1 = parseSections(stripped).find(s => s.level === 1);
+  if (!h1?.uuid) return stripped;
+  const { descriptionMarkdown } = readSectionDescription(stripped, h1.uuid);
+  const newBody = writeHideSectionTitle(descriptionMarkdown, true);
+  return replaceSectionByUUID(stripped, h1.uuid, buildSection(1, h1.title, h1.uuid, newBody));
 }
 
 export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown) {
@@ -110,6 +134,11 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
     throw new Error(`GitHub API error: ${fileRes.status}`);
   }
 
+  // Read-your-writes: if GitHub's replica hasn't caught up to our last push for
+  // this file, build on (and PUT against) what we actually wrote, not the stale
+  // body it just served.
+  ({ content: currentMarkdown, sha: currentSha } = reconcileRead(filePath, currentMarkdown, currentSha));
+
   const migratedMarkdown = migrateComponentIdentity(filePath, currentMarkdown);
 
   const updatedMarkdown = buildUpdatedMarkdown(migratedMarkdown);
@@ -135,12 +164,20 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
     body: JSON.stringify(putBody)
   });
   if (putRes.status === 409 && retries > 0) {
+    // The remote diverged from the base we PUT against — our memo is no longer a
+    // safe basis. Drop it so the retry re-reads and rebuilds on GitHub's truth.
+    forgetWrite(filePath);
     return _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, 0);
   }
   if (!putRes.ok) {
     const err = await putRes.json();
     throw new Error(err.message || `GitHub API error: ${putRes.status}`);
   }
+  // Remember what we pushed (+ its new sha) so an immediate re-read survives the
+  // contents API's read-after-write lag (see reconcileRead in repoClient.js).
+  let newSha;
+  try { newSha = (await putRes.json())?.content?.sha; } catch { /* sha is best-effort */ }
+  rememberWrite(filePath, updatedMarkdown, newSha);
   return updatedMarkdown;
 }
 
@@ -188,6 +225,9 @@ async function _githubDeleteFile(filePath, onProgress) {
     const err = await delRes.json();
     throw new Error(err.message || `GitHub API error: ${delRes.status}`);
   }
+  // Read-your-deletes: a read before the replica catches up would resurrect the
+  // file; remember it as empty so readers see it gone immediately.
+  rememberWrite(filePath, '');
 }
 
 // Replaces an existing binary file in place. base64Data — raw Base64 string

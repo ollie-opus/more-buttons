@@ -266,6 +266,21 @@ button.more-buttons-crumb:hover {
   margin-bottom: 22px;
 }
 
+/* Title input + an inline "Hide title" toggle pill sharing one row: the input
+   takes the remaining width, the pill keeps its natural size on the right. */
+.mb-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mb-title-row > input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mb-title-row > .more-buttons-radio-btn {
+  flex: 0 0 auto;
+}
+
 /* Section divider inside a form (e.g. between the grid Style group and its
    structure controls). */
 .more-buttons-hr {

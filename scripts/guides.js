@@ -24,6 +24,7 @@ import {
   insertSectionUnderParent, moveSectionToParent, deleteSectionByUUID,
   replaceSectionByUUID, buildSection, readSectionDescription,
   locateSectionByUUID, hasH3Children, buildSectionUUIDSpan,
+  writeHideSectionTitle,
 } from './sections.js';
 import {
   ensureAdmonitionUUIDs, parseAdmonitions, buildAdmonition,
@@ -38,7 +39,7 @@ import { escapeHtml, captureComponentCard, videoComponentCard } from './cardRend
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
-import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readHideTitle, writeHideTitle } from './frontmatter.js';
+import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide } from './frontmatter.js';
 import { attachIconPicker } from './iconPicker.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -622,7 +623,7 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   const section = locateSectionByUUID(draftMarkdown, uuid);
   if (!section) { alert('Section not found.'); return; }
 
-  const { descriptionMarkdown } = readSectionDescription(draftMarkdown, uuid);
+  const { descriptionMarkdown, hideTitle } = readSectionDescription(draftMarkdown, uuid);
   const { description, components } = parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE);
 
   const { title } = buildSectionTree(draftMarkdown);
@@ -636,6 +637,7 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
         sectionTitle: section.title,
         sectionDescription: description,
         sectionParent: parentDefault,
+        hideSectionTitle: !!hideTitle,
       },
     });
   }
@@ -1287,7 +1289,7 @@ function gridCard(grid) {
 // its history slot at the saved section, reveal Delete + Components, render the
 // (empty) component list, refresh heading/crumb/parent dropdown, and re-baseline
 // the dirty guard. Shared by the Save button and the component save-gate.
-async function transitionSectionCreateToEdit(formEl, newUuid, level, title, description, parentUuid) {
+async function transitionSectionCreateToEdit(formEl, newUuid, level, title, description, parentUuid, hideSectionTitle = false) {
   formEl.dataset.mode = 'edit';
   formEl.dataset.editUuid = newUuid;
   formEl.dataset.editLevel = String(level);
@@ -1305,7 +1307,7 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   if (newTreeMatch?.visualLabel) setCrumbLabel(newTreeMatch.visualLabel);
   populateParentDropdown(formEl, refreshed, newUuid, level);
   await chrome.storage.local.set({
-    moreButtonsEditGuideSection: { sectionTitle: title, sectionDescription: description, sectionParent: parentUuid },
+    moreButtonsEditGuideSection: { sectionTitle: title, sectionDescription: description, sectionParent: parentUuid, hideSectionTitle: !!hideSectionTitle },
   });
   resetDirtyBaseline(formEl);
 }
@@ -1317,6 +1319,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
   const title = formEl.querySelector('[name="sectionTitle"]')?.value.trim() ?? '';
   const description = formEl.querySelector('[name="sectionDescription"]')?.value ?? '';
   const parentUuid = formEl.querySelector('[name="sectionParent"]')?.value ?? '';
+  const hideSectionTitle = formEl.querySelector('[name="hideSectionTitle"]')?.checked ?? false;
   if (!title) { alert('Title is required.'); return null; }
 
   if (formEl.dataset.mode === 'create') {
@@ -1327,12 +1330,13 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       if (par) level = Math.min(3, par.level + 1);
     }
     let newUuid;
+    const newBody = writeHideSectionTitle(description.trim(), hideSectionTitle);
     await githubFetchAndPushFile(currentGuide.draftPath, onProgress, md => {
-      const result = insertSectionUnderParent(md, parentUuid || null, level, title, description.trim());
+      const result = insertSectionUnderParent(md, parentUuid || null, level, title, newBody);
       newUuid = result.uuid;
       return result.markdown;
     });
-    await transitionSectionCreateToEdit(formEl, newUuid, level, title, description, parentUuid);
+    await transitionSectionCreateToEdit(formEl, newUuid, level, title, description, parentUuid, hideSectionTitle);
     return { container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath }, formEl };
   }
 
@@ -1378,15 +1382,18 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     fieldSpecs: [
       { name: 'sectionTitle', type: 'scalar', label: 'Title' },
       { name: 'sectionDescription', type: 'scalar', label: 'Description' },
+      { name: 'hideSectionTitle', type: 'scalar', label: 'Hide title' },
       { name: 'componentOrder', type: 'orderedUuidList', label: 'Component order' },
     ],
     readFresh: md => {
       const sec = locateSectionByUUID(md, editUuid);
       const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
       noteLabels(components);
+      const { descriptionMarkdown, hideTitle } = readSectionDescription(md, editUuid);
       return {
         sectionTitle: sec?.title ?? '',
-        sectionDescription: parseComponents(readSectionDescription(md, editUuid).descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE).description ?? '',
+        sectionDescription: parseComponents(descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE).description ?? '',
+        hideSectionTitle: !!hideTitle,
         componentOrder: components.map(uuidOfComponent).join(','),
       };
     },
@@ -1395,7 +1402,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       if (!sec) throw new Error('Section no longer exists.');
       const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
       const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
-      const newBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), ordered);
+      const baseBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), ordered);
+      const newBody = writeHideSectionTitle(baseBody, !!resolved.hideSectionTitle);
       let updated = replaceSectionByUUID(md, editUuid, buildSection(sec.level, (resolved.sectionTitle ?? '').trim(), editUuid, newBody));
       if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
       return updated;
@@ -1476,8 +1484,8 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
       const loc = findPathByValueSlug(draftItems, slug);
       pathValue = (loc?.segments ?? []).join('/');
     } catch { /* best-effort prefill; empty path = root */ }
-    // Reflect the current `hide:` frontmatter list onto the three checkboxes;
-    // the Page Title checkbox reflects the body-level hide-title marker.
+    // Reflect the current `hide:` frontmatter list onto the three checkboxes.
+    // (Hiding a title is now a per-section toggle, not a page setting.)
     const hide = readFrontmatterHide(draftMarkdown);
     await chrome.storage.local.set({
       moreButtonsEditPageSettings: {
@@ -1486,7 +1494,6 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
         hideNavigation: hide.includes('navigation'),
         hideToc: hide.includes('toc'),
         hidePath: hide.includes('path'),
-        hideTitle: readHideTitle(draftMarkdown),
       },
     });
   }
@@ -1518,7 +1525,6 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
         { name: 'hideNavigation', type: 'scalar', label: 'Hide navigation' },
         { name: 'hideToc', type: 'scalar', label: 'Hide table of contents' },
         { name: 'hidePath', type: 'scalar', label: 'Hide path' },
-        { name: 'hideTitle', type: 'scalar', label: 'Hide page title' },
       ],
       readFresh: md => {
         const hide = readFrontmatterHide(md);
@@ -1527,7 +1533,6 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
           hideNavigation: hide.includes('navigation'),
           hideToc: hide.includes('toc'),
           hidePath: hide.includes('path'),
-          hideTitle: readHideTitle(md),
         };
       },
       build: (md, resolved) => {
@@ -1547,9 +1552,7 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
           else if (want[v] && !next.includes(v)) next.push(v); // still wanted → keep position
         }
         for (const k of managed) if (want[k] && !next.includes(k)) next.push(k);
-        out = writeFrontmatterHide(out, next);
-        // Page Title lives in the body (a scoped <style> marker), not frontmatter.
-        return writeHideTitle(out, !!resolved.hideTitle);
+        return writeFrontmatterHide(out, next);
       },
     });
     if (!resolved) { formEl._refreshSaveState?.(); return; }

@@ -6,6 +6,7 @@ import { writeCaptureMeta } from './captureMeta.js';
 import {
   captureCard, captureGrid, capturePathField, captureBasePath,
   captureSizeField, wireCaptureSizeField, readCaptureSizeField,
+  captureThemeField, captureCornerField,
 } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 import { formLoading } from './loading.js';
@@ -85,7 +86,11 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         captureCard({ theme: 'light', title: 'Light mode', src: lightObjectUrl, alt: label ?? 'light mode' }),
         captureCard({ theme: 'dark', title: 'Dark mode', src: darkObjectUrl, alt: `${label ?? 'capture'} (dark)` }),
       ]) +
-      (insertMode ? captureSizeField({ dimMode: 'height', dimValue: 50 }) : '');
+      (insertMode
+        ? captureSizeField({ dimMode: 'height', dimValue: 50 })
+          + (darkPath ? captureThemeField() : '')
+          + captureCornerField()
+        : '');
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
       ? `<button type="button" class="more-buttons-button secondary" data-capture-entry-insert-cancel><span class="more-buttons-icon">close</span>Cancel</button>
@@ -105,8 +110,12 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
       ? stripPrefix(darkPath)
       : lightFilename.replace('-light-mode', '-dark-mode');
     const { dimMode, dimValue } = readCaptureSizeField(bodyEl);
+    const readRadio = (name, fallback) =>
+      formEl.querySelector(`[name="${name}"]:checked`)?.value ?? fallback;
+    const inversed = !!darkPath && readRadio('captureTheme', 'default') === 'inversed';
+    const rounded = readRadio('captureCorner', 'disabled') === 'enabled';
     getFormAction('completeComponentInsert')?.({
-      capture: { lightFilename, darkFilename, dimMode, dimValue },
+      capture: { lightFilename, darkFilename, dimMode, dimValue, inversed, rounded },
     });
   }
 

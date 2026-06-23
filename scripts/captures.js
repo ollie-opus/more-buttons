@@ -187,8 +187,8 @@ async function commitCapturesIntoContainer(container, insertAt, capList) {
     darkFilename: c.darkFilename,
     dimMode: c.dimMode ?? 'height',
     dimValue: c.dimMode === 'none' ? null : (c.dimValue ?? 50),
-    inversed: false,
-    rounded: false,
+    inversed: !!c.inversed,
+    rounded: !!c.rounded,
   }));
   const inserted = caps.map(cap => ({ kind: 'capture', cap }));
   await handler.mutate(container, (components) => {

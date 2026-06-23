@@ -147,3 +147,29 @@ export function readCaptureSizeField(rootEl) {
   const val = rootEl.querySelector('[data-capture-size] [name="dimValue"]');
   return normalizeDimChoice(sel?.value ?? 'none', val?.value ?? '');
 }
+
+/**
+ * A labelled pill-style radio group: one <input type="radio"> per
+ * [value, label, checked] tuple. Shared by the capture/video review forms so
+ * their Theme / Corner / Playback options render identically. The field NAMEs
+ * (captureTheme / captureCorner) match the edit form, so the same
+ * `[name="…"]:checked` read works everywhere.
+ */
+export function captureRadioField(name, legend, options) {
+  const items = options.map(([value, text, checked]) =>
+    `<label class="more-buttons-radio-btn"><input type="radio" name="${escapeAttr(name)}" value="${escapeAttr(value)}"${checked ? ' checked' : ''} /> ${text}</label>`
+  ).join('');
+  return `<div class="more-buttons-form-group"><label class="more-buttons-label">${legend}</label><div class="more-buttons-radio-btn-group-row">${items}</div></div>`;
+}
+
+/** Theme-inversing radio group (only meaningful for a light/dark pair). */
+export function captureThemeField({ inversed = false } = {}) {
+  return captureRadioField('captureTheme', 'Theme',
+    [['default', 'Default', !inversed], ['inversed', 'Inversed', inversed]]);
+}
+
+/** Corner-rounding radio group. */
+export function captureCornerField({ rounded = false } = {}) {
+  return captureRadioField('captureCorner', 'Corner rounding',
+    [['disabled', 'Disabled', !rounded], ['enabled', 'Enabled', rounded]]);
+}

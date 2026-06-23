@@ -1,10 +1,12 @@
 <form data-nav id="capture-library-form" data-storage-key="moreButtonsCaptureLibrary" data-width="90vw" data-height="90vh">
   <h2 data-media-library-title>Media Library</h2>
-  <div class="more-buttons-radio-btn-group-row" data-media-library-tabs>
-    <button type="button" class="more-buttons-radio-btn --active" data-media-tab="image">Images</button>
-    <button type="button" class="more-buttons-radio-btn" data-media-tab="video">Videos</button>
+  <div class="more-buttons-tabs">
+    <div class="more-buttons-tab-list" data-media-library-tabs>
+      <button type="button" class="more-buttons-tab --active" data-media-tab="image">Images</button>
+      <button type="button" class="more-buttons-tab" data-media-tab="video">Videos</button>
+    </div>
+    <div class="more-buttons-tab-panel" data-capture-library-panel></div>
   </div>
-  <div data-capture-library-panel></div>
 
   <div class="more-buttons-form-actions">
     <button type="button" class="more-buttons-button" data-action="startLibraryCapture"><span class="more-buttons-icon">add</span>Create new capture</button>

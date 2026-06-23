@@ -25,6 +25,76 @@ const HEADING_RE = /^(#{1,3})\s+(.+?)\s*$/;
  */
 const HR_RE = /^\s*---\s*$/;
 
+// ── Hide section title ──────────────────────────────────────────────────────────
+// "Hide title" is a per-section flag (every heading — h1 page title, h2, h3 — can
+// be hidden independently). Unlike the page-level hide (a preamble <style> that
+// uses `marker + h1`), a section marker must live INSIDE the section's owned
+// content so it survives section moves and rename. The UUID span is required to
+// stay the first non-empty line under the heading (getSectionUUID only inspects
+// that line), so the marker is injected just after it.
+//
+// The renderer wraps the inline UUID span in its own <p> and keeps a <style>
+// block as an unwrapped sibling, giving a deterministic shape:
+//   <h2>…</h2>  <p><span data-uuid></span></p>  <style data-mb-hide-section-title>
+// so the rule hides the heading via the previous-sibling `:has(+ p + style…)`
+// combinator, self-scoped to its own marker (each hidden section carries an
+// identical, harmless copy).
+const HIDE_SECTION_TITLE_BLOCK =
+  '<style data-mb-hide-section-title>:is(h1,h2,h3):has(+ p + style[data-mb-hide-section-title]){display:none}</style>';
+const HIDE_SECTION_TITLE_RE = /^[ \t]*<style data-mb-hide-section-title>.*?<\/style>[ \t]*\n?\n?/m;
+
+export { HIDE_SECTION_TITLE_BLOCK };
+
+/** @returns {boolean} whether a section body carries the hide-title marker. */
+export function readHideSectionTitle(body) {
+  return /<style data-mb-hide-section-title>/.test(body);
+}
+
+/**
+ * Add or remove the hide-title marker at the top of a section body. Idempotent:
+ * any existing marker is stripped first, so a re-write never duplicates it and a
+ * stale marker (older CSS rule) is re-normalized.
+ * @param {string} body - the section's owned content (description + components),
+ *                        i.e. everything after the heading + UUID span.
+ * @param {boolean} hidden
+ * @returns {string}
+ */
+export function writeHideSectionTitle(body, hidden) {
+  const stripped = body.replace(HIDE_SECTION_TITLE_RE, '');
+  if (!hidden) return stripped;
+  const rest = stripped.replace(/^\n+/, '');
+  return rest ? `${HIDE_SECTION_TITLE_BLOCK}\n\n${rest}` : HIDE_SECTION_TITLE_BLOCK;
+}
+
+// A `<div …>` opener / closer on its own line. Grid components and their cells
+// are `<div class="grid" markdown>` / `<div … markdown>` blocks; md_in_html keeps
+// their content at column 0, so a markdown heading typed inside a grid cell looks
+// (to a naive `^#` scan) like a top-level section heading. These let us track
+// `<div>` DEPTH and ignore any heading that lives inside such a container.
+const DIV_OPEN_RE = /^\s*<div(?:\s|>)/;
+const DIV_CLOSE_RE = /^\s*<\/div>\s*$/;
+
+/**
+ * Flags every line that sits INSIDE a `<div … markdown>` container block (a grid
+ * or one of its cells), by `<div>`-depth. The open/close lines themselves are the
+ * container boundary, not body, so they are NOT flagged. Callers use this to skip
+ * headings that belong to grid-cell content rather than to the section tree.
+ *
+ * (Tab/admonition bodies need no such handling — their content is indented 4
+ * spaces, so the column-anchored HEADING_RE never matches a heading inside them.)
+ */
+function markContainerLines(lines) {
+  const inside = new Array(lines.length).fill(false);
+  let depth = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (DIV_CLOSE_RE.test(line)) { depth = Math.max(0, depth - 1); continue; }
+    if (depth > 0) inside[i] = true;
+    if (DIV_OPEN_RE.test(line)) depth++;
+  }
+  return inside;
+}
+
 // ── UUID helpers ──────────────────────────────────────────────────────────────
 
 /**
@@ -59,6 +129,7 @@ export function buildSectionUUIDSpan(uuid) {
  */
 export function ensureSectionUUIDs(markdown) {
   const lines = markdown.split('\n');
+  const inside = markContainerLines(lines);
   const result = [];
   let i = 0;
   let modified = false;
@@ -66,7 +137,7 @@ export function ensureSectionUUIDs(markdown) {
   while (i < lines.length) {
     const line = lines[i];
     const headingMatch = line.match(HEADING_RE);
-    if (!headingMatch) {
+    if (!headingMatch || inside[i]) { // never treat a grid-cell heading as a section
       result.push(line);
       i++;
       continue;
@@ -115,10 +186,12 @@ export function ensureSectionUUIDs(markdown) {
  */
 export function parseSections(markdown) {
   const lines = markdown.split('\n');
+  const inside = markContainerLines(lines);
   const sections = [];
 
   // Collect heading positions first.
   for (let i = 0; i < lines.length; i++) {
+    if (inside[i]) continue; // a heading inside a grid cell is content, not a section
     const m = lines[i].match(HEADING_RE);
     if (!m) continue;
     const level = m[1].length;
@@ -216,7 +289,12 @@ export function readSectionDescription(markdown, uuid) {
     body.pop();
   }
 
-  return { section, descriptionMarkdown: body.join('\n') };
+  // The hide-title marker (if any) sits at the top of the owned body, right after
+  // the span. It is managed by the hide-title flag, never edited as description,
+  // so report it separately and keep it out of descriptionMarkdown.
+  const ownedBody = body.join('\n');
+  const hideTitle = readHideSectionTitle(ownedBody);
+  return { section, descriptionMarkdown: writeHideSectionTitle(ownedBody, false), hideTitle };
 }
 
 /**
@@ -403,6 +481,7 @@ export function moveSectionToParent(markdown, sectionUuid, newParentUuid) {
 
   // Collect the subtree we're moving (header .. fullEndLine).
   const lines = markdown.split('\n');
+  const inside = markContainerLines(lines);
   const subtreeLines = lines.slice(section.headerLine, section.fullEndLine);
 
   // Compute level shift for each heading in the subtree.
@@ -417,7 +496,8 @@ export function moveSectionToParent(markdown, sectionUuid, newParentUuid) {
   }
 
   // Apply the level shift in-place.
-  const shifted = subtreeLines.map(line => {
+  const shifted = subtreeLines.map((line, idx) => {
+    if (inside[section.headerLine + idx]) return line; // leave grid-cell headings alone
     const m = line.match(HEADING_RE);
     if (!m) return line;
     const oldLevel = m[1].length;
