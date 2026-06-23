@@ -53,7 +53,9 @@ function renderNode(node, idxPath, opts) {
   const childrenHtml = kids
     .map((c, i) => renderNode(c, [...idxPath, i], { ...opts, isFirst: i === 0, isLast: i === kids.length - 1 }))
     .join('');
-  const button = `<button class="mb-kb-node-row" type="button" data-kb-section${pathAttr}>
+  const attrPairs = Object.entries(node.attrs ?? {})
+    .map(([k, v]) => `${k}="${escapeAttr(v)}"`).join(' ');
+  const button = `<button class="mb-kb-node-row" type="button" data-kb-section ${attrPairs}${pathAttr}>
       <span class="mb-kb-node-icon mb-kb-arrow material-symbols-outlined">chevron_right</span>
       <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
     </button>`;

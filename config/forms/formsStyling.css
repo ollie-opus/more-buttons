@@ -23,6 +23,7 @@
   --mb-acc-success:  #15803d;  /* green — save / saved confirmation    */
   --mb-acc-danger:   #dc2626;  /* red — destructive                    */
   --mb-acc-busy:     #b45309;  /* amber — commit in flight             */
+  --mb-acc-magenta:  #be185d;  /* pink/rose — reorder mode toggle       */
   --mb-acc-on:       #ffffff;  /* label colour when a button fills      */
   --mb-info-bg:          #e2f3ff;
   --mb-info-border:      #bfdbfe;
@@ -59,6 +60,7 @@
     --mb-acc-success:  #4ade80;
     --mb-acc-danger:   #f87171;
     --mb-acc-busy:     #fbbf24;
+    --mb-acc-magenta:  #f472b6;
     --mb-acc-on:       #0f172a;
     --mb-info-bg:          rgba(30, 58, 138, 0.25);
     --mb-info-border:      #1d4ed8;
@@ -663,11 +665,15 @@ button.more-buttons-crumb:hover {
 .more-buttons-button.success  { --mb-acc: var(--mb-acc-success); }
 .more-buttons-button.publish  { --mb-acc: var(--mb-acc-info); }
 .more-buttons-button.danger   { --mb-acc: var(--mb-acc-danger); }
+/* Outlined magenta — same calm faint-fill treatment as the variants above, for an
+   active action like "Switch to reorder mode". */
+.more-buttons-button.magenta  { --mb-acc: var(--mb-acc-magenta); }
 
 .more-buttons-button.info,
 .more-buttons-button.success,
 .more-buttons-button.publish,
-.more-buttons-button.danger {
+.more-buttons-button.danger,
+.more-buttons-button.magenta {
   background: color-mix(in srgb, var(--mb-acc) 11%, transparent);
   border-color: color-mix(in srgb, var(--mb-acc) 48%, transparent);
   color: var(--mb-acc);
@@ -676,7 +682,8 @@ button.more-buttons-crumb:hover {
 .more-buttons-button.info:hover,
 .more-buttons-button.success:hover,
 .more-buttons-button.publish:hover,
-.more-buttons-button.danger:hover {
+.more-buttons-button.danger:hover,
+.more-buttons-button.magenta:hover {
   background: var(--mb-acc);
   border-color: var(--mb-acc);
   color: var(--mb-acc-fill-fg);
@@ -2958,7 +2965,15 @@ details[open] .more-buttons-advanced-toggle::before {
 }
 .mb-kb-row-line > .mb-kb-node-row:hover { background: none; }
 
-.mb-kb-row-controls { display: inline-flex; gap: 2px; flex-shrink: 0; }
+/* In reorder mode the move controls stay hidden until the row is selected; only
+   the selected row reveals them and takes the pink reorder tint. */
+.mb-kb-row-controls { display: none; gap: 2px; flex-shrink: 0; }
+.mb-kb-node.--selected > .mb-kb-row-line > .mb-kb-row-controls { display: inline-flex; }
+.mb-kb-node.--selected > .mb-kb-row-line,
+.mb-kb-node.--selected > .mb-kb-row-line:hover {
+  background: color-mix(in srgb, var(--mb-acc-magenta) 16%, transparent);
+  border-color: color-mix(in srgb, var(--mb-acc-magenta) 55%, transparent);
+}
 .mb-kb-ctl { display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border: none; background: transparent; border-radius: 6px;
   cursor: pointer; color: var(--mb-text-muted); }
@@ -2966,12 +2981,7 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-kb-ctl:disabled { opacity: 0.3; cursor: default; }
 .mb-kb-ctl .material-symbols-outlined { font-size: 18px; }
 
-.mb-kb-reorder-bar { display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-top: 12px; padding: 10px 14px; border-radius: 10px;
-  background: rgba(0,0,0,0.04); }
-.mb-kb-reorder-status { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9em; }
-.mb-kb-reorder-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mb-acc-busy); }
-.mb-kb-reorder-actions { display: inline-flex; gap: 8px; }
+.mb-kb-actions { display: inline-flex; align-items: center; gap: 8px; }
 
 .mb-kb-move-pop { position: absolute; right: 0; z-index: 20; min-width: 240px;
   background: var(--mb-bg); border: 1px solid var(--mb-border);

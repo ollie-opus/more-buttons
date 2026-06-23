@@ -84,31 +84,40 @@ function decorateKbPills(panel, draftFiles, navFiles) {
   });
 }
 
+// A stable per-node selection id. Keyed on node OBJECT identity, which the
+// reorder controller preserves across moves (it reorders / detaches / reattaches
+// the same node objects), so a selected row keeps its id — and thus its
+// selection — even as its index-path changes. A WeakMap (not a stamped property)
+// keeps the node clean so buildPayload's TOML projection is untouched.
+const nodeUids = new WeakMap();
+let uidSeq = 0;
+function uidFor(node) {
+  let id = nodeUids.get(node);
+  if (id === undefined) { id = 'u' + (uidSeq++); nodeUids.set(node, id); }
+  return id;
+}
+
 // Convert a normalized navToml node ({name,value} | {name,children}) to a
-// generic kbTree node.
+// generic kbTree node. Carries data-kb-uid so reorder-mode selection can track
+// the row across re-renders.
 function navNodeToKbNode(node) {
   if (node.children) {
-    return { kind: 'folder', label: node.name, children: node.children.map(navNodeToKbNode) };
+    return {
+      kind: 'folder',
+      label: node.name,
+      attrs: { 'data-kb-uid': uidFor(node) },
+      children: node.children.map(navNodeToKbNode),
+    };
   }
   return {
     kind: 'file',
     label: node.name,
-    attrs: { 'data-kb-file': node.value, 'data-kb-label': node.name },
+    attrs: { 'data-kb-file': node.value, 'data-kb-label': node.name, 'data-kb-uid': uidFor(node) },
   };
 }
 
 function renderKbHierarchy(nodes) {
   return renderTree(nodes.map(navNodeToKbNode), { emptyMessage: 'No articles found.' });
-}
-
-function footerBarHtml() {
-  return `<div class="mb-kb-reorder-bar" hidden>
-    <span class="mb-kb-reorder-status"><span class="mb-kb-reorder-dot"></span>Unsaved changes</span>
-    <span class="mb-kb-reorder-actions">
-      <button type="button" class="more-buttons-button secondary" data-kb-reorder-discard>Discard</button>
-      <button type="button" class="more-buttons-button" data-kb-reorder-save>Save order</button>
-    </span>
-  </div>`;
 }
 
 // Build a small popover anchored to the Move… button: existing sections + a
@@ -178,7 +187,45 @@ async function renderKnowledgeBaseManagement() {
     const systemPanel = formEl.querySelector('[data-kb-panel="system"]');
 
     let reorder = null;
+    let reorderMode = false;
     let rerenderGuides = () => {};
+    let resetReorder = () => {};
+    let selectedUid = null;   // reorder-mode: the currently selected row's stable id
+
+    // Reflect `selectedUid` onto the DOM: tint the selected row and reveal its
+    // move controls (all controls are hidden by default in reorder mode). Pure
+    // class toggling — no tree rebuild — so collapse/scroll/search state survive.
+    const applySelection = () => {
+      livePanel.querySelectorAll('.mb-kb-node.--selected').forEach(n => n.classList.remove('--selected'));
+      if (selectedUid == null) return;
+      const row = livePanel.querySelector(`.mb-kb-node-row[data-kb-uid="${selectedUid}"]`);
+      row?.closest('.mb-kb-node')?.classList.add('--selected');
+    };
+
+    // Swap the normal / reorder action groups (relocated out of <form> by
+    // form.js) and gate the resolve buttons on whether the working copy is dirty.
+    const updateReorderUi = () => {
+      const actions = formEl.parentElement;
+      if (!actions) return;
+      const normal = actions.querySelector('[data-kb-actions="normal"]');
+      const reo = actions.querySelector('[data-kb-actions="reorder"]');
+      if (normal) normal.hidden = reorderMode;
+      if (reo) reo.hidden = !reorderMode;
+      // The persistent toggle mirrors the popup's master switch: state shown by
+      // colour (magenta on / neutral off), icon, and label — kept as a form button.
+      const toggle = actions.querySelector('[data-kb-reorder-toggle]');
+      if (toggle) {
+        toggle.classList.toggle('magenta', reorderMode);
+        toggle.classList.toggle('secondary', !reorderMode);
+        toggle.innerHTML =
+          `<span class="more-buttons-icon">${reorderMode ? 'toggle_on' : 'toggle_off'}</span>Reorder mode ${reorderMode ? 'enabled' : 'disabled'}`;
+      }
+      const dirty = !!reorder?.isDirty();
+      const save = actions.querySelector('[data-kb-reorder-save]');
+      const discard = actions.querySelector('[data-kb-reorder-discard]');
+      if (save) save.disabled = !dirty;
+      if (discard) discard.disabled = !dirty;
+    };
 
     formLoading.show();
     try {
@@ -197,18 +244,21 @@ async function renderKnowledgeBaseManagement() {
         // would otherwise render the page twice (once live, once drafting).
         const guideNav = pruneLeavesByBase(nav.filter(n => !EXCLUDED_SECTIONS.has(n.name)), draftFiles);
         const merged = mergeNavNodes(guideNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
-        reorder = createReorderState({ tree: merged, navItems: nav, draftItems: draftNav });
+        // `merged` is the pristine saved order; seed each reorder controller from a
+        // fresh clone so Discard can revert in place by re-seeding (move ops mutate
+        // the tree they're given, never `merged`).
+        const seedReorder = () => createReorderState({ tree: structuredClone(merged), navItems: nav, draftItems: draftNav });
+        reorder = seedReorder();
+        resetReorder = () => { reorder = seedReorder(); };
         livePanel.innerHTML =
-          renderTree(merged.map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: true })
-          + footerBarHtml();
+          renderTree(merged.map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
         decorateKbPills(livePanel, draftFiles, navFiles);
         rerenderGuides = () => {
           livePanel.innerHTML =
-            renderTree(reorder.getTree().map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: true })
-            + footerBarHtml();
+            renderTree(reorder.getTree().map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
           decorateKbPills(livePanel, draftFiles, navFiles);
-          const bar = livePanel.querySelector('.mb-kb-reorder-bar');
-          if (bar) bar.hidden = !reorder.isDirty();
+          updateReorderUi();
+          applySelection();   // re-pin selection by stable id after the rebuild
         };
       }
 
@@ -236,8 +286,8 @@ async function renderKnowledgeBaseManagement() {
     });
 
     // .more-buttons-form-actions gets moved out of <form> by form.js, so
-    // listen on the parent overlay-content to catch both form-internal and
-    // moved-out footer clicks.
+    // listen on the parent overlay-content to catch both form-internal clicks
+    // and the moved-out mode-toggle / reorder action-group clicks.
     formEl.parentElement?.addEventListener('click', async e => {
       if (e.target.closest('[data-kb-open-capture-library]')) {
         await getFormAction('openCaptureLibrary')?.();
@@ -248,6 +298,15 @@ async function renderKnowledgeBaseManagement() {
         return;
       }
       if (reorder) {
+        // Single toggle: flip reorder mode. Leaving discards the working copy
+        // (same as Discard changes); entering starts with nothing selected.
+        if (e.target.closest('[data-kb-reorder-toggle]')) {
+          reorderMode = !reorderMode;
+          selectedUid = null;
+          if (!reorderMode) resetReorder();
+          rerenderGuides();
+          return;
+        }
         const up = e.target.closest('[data-kb-move-up]');
         const down = e.target.closest('[data-kb-move-down]');
         const moveTo = e.target.closest('[data-kb-move-to]');
@@ -262,13 +321,32 @@ async function renderKnowledgeBaseManagement() {
           return;
         }
         if (e.target.closest('[data-kb-reorder-discard]')) {
-          await getFormAction('openKnowledgeBaseManagement')();   // reload from toml
+          selectedUid = null;    // re-seed makes fresh node objects; old id is gone
+          resetReorder();        // revert working copy in place, stay in reorder mode
+          rerenderGuides();
           return;
         }
         if (e.target.closest('[data-kb-reorder-save]')) {
           await saveReorder(reorder, formEl);
           return;
         }
+      }
+
+      // Reorder mode: a row click selects it (revealing that row's move controls
+      // + tint); only the chevron still toggles collapse. Rows never open the
+      // guide or fall through to normal-mode handling while reordering.
+      if (reorderMode) {
+        const sectionRow = e.target.closest('[data-kb-section]');
+        if (sectionRow && e.target.closest('.mb-kb-arrow')) {
+          sectionRow.closest('.mb-kb-node')?.classList.toggle('--collapsed');
+          return;
+        }
+        const row = e.target.closest('.mb-kb-node-row');
+        if (row) {
+          selectedUid = row.dataset.kbUid ?? null;
+          applySelection();
+        }
+        return;
       }
 
       const sectionRow = e.target.closest('[data-kb-section]');
