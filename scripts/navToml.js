@@ -296,3 +296,55 @@ export function spliceGuideBlock(original, projected, editedTopSlugs) {
   if (!inserted) out.push(...projected);
   return out;
 }
+
+// Walk an index-path (array of child indices) to a node, or null if out of range.
+export function nodeAtPath(tree, idxPath) {
+  let level = tree, node = null;
+  for (const i of idxPath) {
+    node = level?.[i];
+    if (!node) return null;
+    level = node.children;
+  }
+  return node;
+}
+
+// Swap the node at idxPath with its dir (-1/+1) sibling. Returns false at an end.
+export function moveSibling(tree, idxPath, dir) {
+  const parentPath = idxPath.slice(0, -1);
+  const i = idxPath[idxPath.length - 1];
+  const siblings = parentPath.length ? nodeAtPath(tree, parentPath)?.children : tree;
+  if (!siblings) return false;
+  const j = i + dir;
+  if (j < 0 || j >= siblings.length) return false;
+  [siblings[i], siblings[j]] = [siblings[j], siblings[i]];
+  return true;
+}
+
+// Splice out and return the node at idxPath (null if not found).
+export function detachAtPath(tree, idxPath) {
+  const parentPath = idxPath.slice(0, -1);
+  const i = idxPath[idxPath.length - 1];
+  const siblings = parentPath.length ? nodeAtPath(tree, parentPath)?.children : tree;
+  if (!siblings || i < 0 || i >= siblings.length) return null;
+  return siblings.splice(i, 1)[0];
+}
+
+// Push node into the children of the section at idxPath (top level if null).
+export function attachUnderPath(tree, idxPath, node) {
+  if (!idxPath || idxPath.length === 0) { tree.push(node); return; }
+  const target = nodeAtPath(tree, idxPath);
+  if (target && target.children) target.children.push(node);
+}
+
+// Walk/create sections by slug (title-cased display name for new ones), then
+// push node at the deepest level. Mirrors insertPath's section-walk.
+export function attachUnderSegments(tree, segments, node) {
+  let level = tree;
+  for (const seg of segments) {
+    const segSlug = slugify(seg);
+    let section = level.find(n => n.children && slugify(n.name) === segSlug);
+    if (!section) { section = { name: titleCaseSegment(segSlug), children: [] }; level.push(section); }
+    level = section.children;
+  }
+  level.push(node);
+}
