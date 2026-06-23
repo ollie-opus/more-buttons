@@ -2,8 +2,10 @@ import { createForm } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
-import { parseNavBlock, slugify } from './navToml.js';
+import { parseNavBlock, slugify, replaceNavBlock } from './navToml.js';
 import { formLoading } from './loading.js';
+import { createReorderState } from './kbReorder.js';
+import { githubFetchAndPushFile } from './github.js';
 
 const EXCLUDED_SECTIONS = new Set(['Home', 'System']);
 
@@ -99,6 +101,73 @@ function renderKbHierarchy(nodes) {
   return renderTree(nodes.map(navNodeToKbNode), { emptyMessage: 'No articles found.' });
 }
 
+function footerBarHtml() {
+  return `<div class="mb-kb-reorder-bar" hidden>
+    <span class="mb-kb-reorder-status"><span class="mb-kb-reorder-dot"></span>Unsaved changes</span>
+    <span class="mb-kb-reorder-actions">
+      <button type="button" class="more-buttons-button secondary" data-kb-reorder-discard>Discard</button>
+      <button type="button" class="more-buttons-button" data-kb-reorder-save>Save order</button>
+    </span>
+  </div>`;
+}
+
+// Build a small popover anchored to the Move… button: existing sections + a
+// "new path" input. Calls reorder.moveToPath / moveToSegments then re-renders.
+function openMoveToPicker(anchorBtn, reorder, rerender) {
+  document.querySelector('.mb-kb-move-pop')?.remove();
+  const srcPath = anchorBtn.dataset.kbPath;
+  const targets = reorder.sectionTargets()
+    .filter(t => t.pathStr !== srcPath);   // can't move into itself
+  const pop = document.createElement('div');
+  pop.className = 'mb-kb-move-pop';
+  pop.innerHTML = `
+    <div class="mb-kb-move-title">Move to…</div>
+    <button type="button" class="mb-kb-move-opt" data-target="">— Top level —</button>
+    ${targets.map(t => `<button type="button" class="mb-kb-move-opt" data-target="${t.pathStr}">${t.label}</button>`).join('')}
+    <div class="mb-kb-move-new">
+      <input type="text" class="mb-kb-move-input" placeholder="Type a new path… e.g. guides/contractors" />
+    </div>`;
+  anchorBtn.closest('.mb-kb-node').appendChild(pop);
+
+  pop.addEventListener('click', e => {
+    const opt = e.target.closest('.mb-kb-move-opt');
+    if (!opt) return;
+    reorder.moveToPath(srcPath, opt.dataset.target || null);
+    pop.remove();
+    rerender();
+  });
+  pop.querySelector('.mb-kb-move-input').addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const segments = e.target.value.split('/').map(s => s.trim()).filter(Boolean);
+    if (segments.length) reorder.moveToSegments(srcPath, segments);
+    pop.remove();
+    rerender();
+  });
+  // Dismiss on outside click.
+  setTimeout(() => document.addEventListener('click', function dismiss(ev) {
+    if (!pop.contains(ev.target) && ev.target !== anchorBtn) {
+      pop.remove(); document.removeEventListener('click', dismiss);
+    }
+  }), 0);
+}
+
+// Commit both nav and draft_nav in a single zensical.toml push, behind the veil.
+async function saveReorder(reorder, formEl) {
+  const { nav, draftNav } = reorder.buildPayload();
+  formLoading.show();
+  try {
+    await githubFetchAndPushFile('zensical.toml', () => {}, md => {
+      const out1 = replaceNavBlock(md, 'nav', nav);
+      return replaceNavBlock(out1, 'draft_nav', draftNav);
+    });
+    await getFormAction('openKnowledgeBaseManagement')();  // reload fresh tree
+  } catch (e) {
+    alert('Failed to save order: ' + e.message);
+  } finally {
+    formLoading.dismiss();
+  }
+}
+
 async function renderKnowledgeBaseManagement() {
   const { moreButtonsIntegrations } = await chrome.storage.local.get('moreButtonsIntegrations');
   if (moreButtonsIntegrations?.githubPAT) {
@@ -107,6 +176,9 @@ async function renderKnowledgeBaseManagement() {
 
     const livePanel = formEl.querySelector('[data-kb-panel="guides"]');
     const systemPanel = formEl.querySelector('[data-kb-panel="system"]');
+
+    let reorder = null;
+    let rerenderGuides = () => {};
 
     formLoading.show();
     try {
@@ -125,8 +197,19 @@ async function renderKnowledgeBaseManagement() {
         // would otherwise render the page twice (once live, once drafting).
         const guideNav = pruneLeavesByBase(nav.filter(n => !EXCLUDED_SECTIONS.has(n.name)), draftFiles);
         const merged = mergeNavNodes(guideNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
-        livePanel.innerHTML = renderKbHierarchy(merged);
+        reorder = createReorderState({ tree: merged, navItems: nav, draftItems: draftNav });
+        livePanel.innerHTML =
+          renderTree(merged.map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: true })
+          + footerBarHtml();
         decorateKbPills(livePanel, draftFiles, navFiles);
+        rerenderGuides = () => {
+          livePanel.innerHTML =
+            renderTree(reorder.getTree().map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: true })
+            + footerBarHtml();
+          decorateKbPills(livePanel, draftFiles, navFiles);
+          const bar = livePanel.querySelector('.mb-kb-reorder-bar');
+          if (bar) bar.hidden = !reorder.isDirty();
+        };
       }
 
       if (systemPanel) {
@@ -164,6 +247,30 @@ async function renderKnowledgeBaseManagement() {
         await getFormAction('openCreateGuide')?.();
         return;
       }
+      if (reorder) {
+        const up = e.target.closest('[data-kb-move-up]');
+        const down = e.target.closest('[data-kb-move-down]');
+        const moveTo = e.target.closest('[data-kb-move-to]');
+        if (up || down) {
+          const el = up || down;
+          reorder.move(el.dataset.kbPath, up ? 'up' : 'down');
+          rerenderGuides();
+          return;
+        }
+        if (moveTo) {
+          openMoveToPicker(moveTo, reorder, rerenderGuides);
+          return;
+        }
+        if (e.target.closest('[data-kb-reorder-discard]')) {
+          await getFormAction('openKnowledgeBaseManagement')();   // reload from toml
+          return;
+        }
+        if (e.target.closest('[data-kb-reorder-save]')) {
+          await saveReorder(reorder, formEl);
+          return;
+        }
+      }
+
       const sectionRow = e.target.closest('[data-kb-section]');
       if (sectionRow) {
         sectionRow.closest('.mb-kb-node')?.classList.toggle('--collapsed');
