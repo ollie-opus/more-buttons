@@ -1465,24 +1465,14 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
   adoptGuideFromDraftPath(file);
   if (!currentGuide) return;
   const draftMarkdown = await readRepoText(currentGuide.draftPath);
-  const slug = guideBaseName(currentGuide.livePath);
 
   if (!isFormReplay()) {
-    // Current draft_nav folder path → prefill the Path field (slugs joined by '/').
-    let pathValue = '';
-    try {
-      const tomlText = await readRepoText('zensical.toml');
-      const draftItems = parseNavBlock(tomlText, 'draft_nav').items;
-      const loc = findPathByValueSlug(draftItems, slug);
-      pathValue = (loc?.segments ?? []).join('/');
-    } catch { /* best-effort prefill; empty path = root */ }
     // Reflect the current `hide:` frontmatter list onto the three checkboxes;
     // the Page Title checkbox reflects the body-level hide-title marker.
     const hide = readFrontmatterHide(draftMarkdown);
     await chrome.storage.local.set({
       moreButtonsEditPageSettings: {
         icon: readFrontmatterIcon(draftMarkdown),
-        path: pathValue,
         hideNavigation: hide.includes('navigation'),
         hideToc: hide.includes('toc'),
         hidePath: hide.includes('path'),
@@ -1495,9 +1485,6 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
   if (!formEl) return;
   formEl.dataset.containerFile = currentGuide.draftPath;
   setCrumbLabel('Page settings');
-  // Filename is fixed; only the folder moves. Show the real <slug>.md as the suffix.
-  const suffix = formEl.querySelector('[data-path-suffix]');
-  if (suffix) suffix.textContent = `/${slug}.md`;
   attachIconPicker(formEl.querySelector('[name="icon"]')); // fire-and-forget; degrades to plain input
 });
 
@@ -1553,26 +1540,6 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
       },
     });
     if (!resolved) { formEl._refreshSaveState?.(); return; }
-
-    // Path lives in zensical.toml (draft_nav), not the markdown frontmatter, so it
-    // is a separate best-effort push — mirrors the H1-title rename. A failure here
-    // must not roll back the icon save.
-    try {
-      const pathRaw = formEl.querySelector('[name="path"]')?.value ?? '';
-      const newSegments = pathRaw.split('/').map(s => s.trim()).filter(Boolean);
-      const slug = guideBaseName(currentGuide.livePath);
-      setButtonBusy(btn, 'Updating path…');
-      await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
-        const { items } = parseNavBlock(md, 'draft_nav');
-        const { changed } = setPathByValueSlug(items, slug, newSegments, {
-          value: draftNavValueOf(currentGuide.livePath),
-          fallbackName: slug,
-        });
-        return changed ? replaceNavBlock(md, 'draft_nav', items) : md;
-      });
-    } catch (e) {
-      alert(`Icon saved, but updating the path failed: ${e.message}. Re-saving retries it.`);
-    }
 
     formEl._refreshSaveState?.();
   } catch (e) {
