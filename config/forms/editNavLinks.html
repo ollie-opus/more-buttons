@@ -1,0 +1,19 @@
+<form data-nav data-dirty-guard id="edit-nav-links-form" data-storage-key="moreButtonsEditNavLinks" data-width="90vw" data-height="90vh">
+  <h2 data-nav-links-heading>Edit nav links</h2>
+
+  <div class="more-buttons-form-group">
+    <div>
+      <label class="more-buttons-label">Path</label>
+      <div class="more-buttons-label-hint">e.g. guides, or guides/employees</div>
+    </div>
+    <div class="more-buttons-field-stack">
+      <input type="text" name="navPath" placeholder="Part of the nav tree to list, e.g. guides/employees" autocomplete="off" />
+      <div class="more-buttons-label-hint" data-navpath-status aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditNavLinks" data-validate data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteNavLinks" data-delete-nav-links-btn><span class="more-buttons-icon">delete</span>Delete</button>
+  </div>
+</form>

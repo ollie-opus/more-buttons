@@ -99,6 +99,8 @@
         "scripts/gridEditor.js",
         "scripts/mdButtons.js",
         "scripts/buttonEditor.js",
+        "scripts/navLinks.js",
+        "scripts/navLinksEditor.js",
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js",

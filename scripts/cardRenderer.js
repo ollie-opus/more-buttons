@@ -66,6 +66,24 @@ export function buttonComponentCard({ label, destination, primary, btnAttr, btnL
   </div>`;
 }
 
+// A "Nav links" component card: grey chrome, a "Nav links" badge, the nav path it
+// lists, and an Edit button. The list itself is rendered live on the published
+// site, so the card just previews the path.
+export function navLinksComponentCard({ path, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+  const text = (path ?? '').trim() || '(no path)';
+  return `
+  <div class="mb-incident-card --grey mb-component-card--capture">
+    <div class="mb-incident-card__head">
+      <strong class="mb-incident-card__title">${escapeHtml(text)}</strong>
+      <span class="mb-incident-card__badge">Nav links</span>
+    </div>
+    <div class="mb-incident-card__foot --end">
+      ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+    </div>
+  </div>`;
+}
+
 // A capture rendered as a card matching the admonition cards: neutral/grey,
 // "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an
