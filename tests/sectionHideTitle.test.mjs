@@ -83,4 +83,22 @@ test('round-trip: marker survives buildSection and the span stays first non-empt
   assert.ok(md.indexOf('data-mb-hide-section-title') < md.indexOf('Desc.'));
 });
 
+// ── trailing `---` separator is real body content, not stripped ──────────────
+test('readSectionDescription: a trailing --- separator is preserved', () => {
+  const md = buildSection(2, 'My Section', 'sec-1', 'Intro.\n\n---') +
+    '\n\n## Next\n<span data-uuid="sec-2" style="display:none"></span>\n\nmore';
+  const { descriptionMarkdown } = readSectionDescription(md, 'sec-1');
+  assert.equal(descriptionMarkdown, 'Intro.\n\n---');
+});
+
+test('readSectionDescription: a separator-only body round-trips (regression: was stripped to "")', () => {
+  // Mirrors the reported bug: a hidden-title section whose only content is `---`.
+  const body = writeHideSectionTitle('---', true);
+  const md = buildSection(2, '-', 'sec-1', body) +
+    '\n\n## Next\n<span data-uuid="sec-2" style="display:none"></span>\n\nmore';
+  const { descriptionMarkdown, hideTitle } = readSectionDescription(md, 'sec-1');
+  assert.equal(hideTitle, true);
+  assert.equal(descriptionMarkdown, '---');
+});
+
 console.log(`\n${passed} passed`);

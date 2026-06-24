@@ -1,5 +1,5 @@
 import { markSpans, renderDocHtml } from './markdownInline.js';
-import { applyMarker, applyLink, stripFormatting, toggleList, indentSelection, isListLineAt } from './markdownToolbarActions.js';
+import { applyMarker, applyLink, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
@@ -348,6 +348,12 @@ function buildButtons(rte) {
       rte.btnGroup.appendChild(btn);
       rte.buttons.push(btn);
     });
+
+    // Horizontal rule (thematic break). A one-shot block insert with no active
+    // state — multiline only, since a single-line cell can't hold a block.
+    const hrBtn = makeBtn('horizontal_rule', 'Horizontal rule', () => runTransform(rte, insertHorizontalRule));
+    rte.btnGroup.appendChild(hrBtn);
+    rte.buttons.push(hrBtn);
   }
 
   const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());

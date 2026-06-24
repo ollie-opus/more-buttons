@@ -298,6 +298,13 @@ button.more-buttons-crumb:hover {
   font-size: 0.875rem;
 }
 
+/* Muted hint shown under a form-group label (e.g. "(optional)"). */
+.more-buttons-label-hint {
+  margin-top: 2px;
+  color: var(--mb-text-muted);
+  font-size: 0.75rem;
+}
+
 .more-buttons-sub-label {
   display: inline-flex;
   align-items: center;
@@ -910,6 +917,11 @@ button.more-buttons-crumb:hover {
 }
 .mb-incident-card__foot.--end {
   justify-content: flex-end;
+}
+.mb-incident-card__foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .mb-incident-card__meta {
   font-size: 0.75rem;
@@ -2970,6 +2982,11 @@ details[open] .more-buttons-advanced-toggle::before {
   transition: background 0.12s ease;
 }
 .mb-kb-row-line:hover { background: var(--mb-border-subtle); }
+/* The guide Title row is fixed in reorder mode: shown but not selectable/movable,
+   so it carries no controls and gets no hover/pointer affordance. */
+.mb-kb-row-line.--fixed,
+.mb-kb-row-line.--fixed:hover { background: var(--mb-bg-subtle); cursor: default; }
+.mb-kb-row-line.--fixed > .mb-kb-node-row { cursor: default; }
 .mb-kb-row-line > .mb-kb-node-row {
   flex: 1 1 auto;
   width: auto;
@@ -2997,6 +3014,10 @@ details[open] .more-buttons-advanced-toggle::before {
 .mb-kb-ctl .material-symbols-outlined { font-size: 18px; }
 
 .mb-kb-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Reorder-mode toggle sits apart on the left; the auto right-margin shoves the
+   remaining action buttons to the right edge in both normal and reorder modes. */
+.mb-reorder-toggle { margin-right: auto; }
 
 .mb-kb-move-pop { position: absolute; right: 0; z-index: 20; min-width: 240px;
   background: var(--mb-bg); border: 1px solid var(--mb-border);

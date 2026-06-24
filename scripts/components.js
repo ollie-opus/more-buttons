@@ -26,6 +26,7 @@ import { buildVideoLines } from './videos.js';
 import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from './grid.js';
+import { locateButtonLines, buildButtonLines, ensureButtonUUIDs } from './mdButtons.js';
 
 // Per-line capture matchers (mirror captures.js' parseExistingCaptures, but
 // line-addressable so we can interleave with admonitions by position). The pair
@@ -272,6 +273,10 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   const tbls = locateDataTables(src)
     .filter(t => t.indent === '' && !inContainer(t.startLine));
 
+  // Top-level buttons: indent 0 and not buried inside an admonition or grid.
+  const topButtons = locateButtonLines(src)
+    .filter(b => b.indent === '' && !inContainer(b.startLine));
+
   const items = [
     ...adms
       .filter(a => !inAnyRange(a.headerLine, gridRanges))
@@ -306,6 +311,12 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
       startLine: v.startLine,
       endLine: v.endLine,
     })),
+    ...topButtons.map(b => ({
+      kind: 'button',
+      btn: { uuid: b.uuid ?? null, label: b.label, destination: b.destination, icon: b.icon, primary: b.primary, newTab: b.newTab },
+      startLine: b.startLine,
+      endLine: b.endLine,
+    })),
   ].sort((a, b) => a.startLine - b.startLine);
 
   const description = extractDescription(src, items);
@@ -317,6 +328,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     if (it.kind === 'table') return { kind: 'table', tbl: it.tbl };
     if (it.kind === 'grid') return { kind: 'grid', grid: it.grid };
     if (it.kind === 'video') return { kind: 'video', vid: it.vid };
+    if (it.kind === 'button') return { kind: 'button', btn: it.btn };
     return { kind: 'capture', cap: it.cap };
   });
 
@@ -385,6 +397,9 @@ export function buildComponentBody(uuid, description, components) {
     } else if (c.kind === 'video') {
       // buildVideoLines emits a leading '' we don't want (we add our own).
       lines.push(...buildVideoLines([c.vid]).slice(1));
+    } else if (c.kind === 'button') {
+      // buildButtonLines emits a leading '' we don't want (we add our own).
+      lines.push(...buildButtonLines([c.btn]).slice(1));
     } else {
       // buildCaptureLines emits a leading '' we don't want (we add our own).
       lines.push(...buildCaptureLines([c.cap]).slice(1));
@@ -451,6 +466,7 @@ export function uuidOfComponent(c) {
   if (c.kind === 'table') return c.tbl.uuid;
   if (c.kind === 'grid') return c.grid.uuid;
   if (c.kind === 'video') return c.vid.uuid;
+  if (c.kind === 'button') return c.btn.uuid;
   return c.cap.uuid;
 }
 
@@ -483,10 +499,10 @@ export function componentMarkdown(component) {
 export function parsePastedComponents(text) {
   const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  const withUuids = ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE))))));
+  const withUuids = ensureButtonUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)))))));
   const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
   if (components.length === 0) {
-    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table or grid).' };
+    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video or button).' };
   }
   if (description.trim() !== '') {
     return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };

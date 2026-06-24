@@ -614,6 +614,23 @@ export function isListLineAt(value, pos) {
   return false;
 }
 
+// Insert a thematic break (`---`) as its own block at the caret, replacing any
+// selection. The rule is forced onto its own line with a blank line on each side
+// so it reads as a thematic break — never a setext-heading underline (`text\n---`
+// renders as an H2) — and the existing newlines around the caret are reused rather
+// than doubled. The caret lands on the empty line after the rule, ready to type.
+// Pure: (value, selStart, selEnd) -> { value, selStart, selEnd }.
+export function insertHorizontalRule(value, selStart, selEnd) {
+  const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
+  const before = value.slice(0, lo).replace(/[ \t]+$/, ''); // no trailing space on the paragraph above
+  const after = value.slice(hi);
+  const lead = before === '' ? '' : before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+  const trail = after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+  const insert = lead + '---' + trail;
+  const caret = before.length + insert.length;
+  return { value: before + insert + after, selStart: caret, selEnd: caret };
+}
+
 // Splice a `[text](url)` markdown link at the selection, replacing it.
 // Caret is placed after the inserted snippet.
 export function applyLink(value, selStart, selEnd, text, url) {

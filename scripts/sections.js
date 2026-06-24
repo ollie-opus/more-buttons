@@ -19,12 +19,6 @@ import { generateUUID } from './admonitions.js';
 
 const HEADING_RE = /^(#{1,3})\s+(.+?)\s*$/;
 
-/**
- * Matches a thematic-break line: `---` (with optional surrounding whitespace).
- * Used when stripping auto-managed separators between h2 sections.
- */
-const HR_RE = /^\s*---\s*$/;
-
 // ── Hide section title ──────────────────────────────────────────────────────────
 // "Hide title" is a per-section flag (every heading — h1 page title, h2, h3 — can
 // be hidden independently). Unlike the page-level hide (a preamble <style> that
@@ -252,8 +246,9 @@ export function locateSectionByUUID(markdown, uuid) {
 
 /**
  * Reads a section's body lines (the lines between header+UUID-span and the
- * end of owned content, excluding any auto-managed `---` separators that
- * appear immediately before the boundary).
+ * end of owned content). A trailing `---` is kept — it is a user-inserted
+ * separator (horizontal rule), real body content, not an auto-managed divider
+ * (nothing auto-adds separators between sections).
  *
  * @param {string} markdown
  * @param {string} uuid
@@ -284,8 +279,10 @@ export function readSectionDescription(markdown, uuid) {
     while (body.length > 0 && body[0] === '') body.shift();
   }
 
-  // Strip trailing thematic-break separators (auto-managed between h2 sections).
-  while (body.length > 0 && (body[body.length - 1] === '' || HR_RE.test(body[body.length - 1]))) {
+  // Trim trailing blank lines (canonical form). A trailing `---` is real body
+  // content — a user-inserted separator (horizontal rule) — and is kept: nothing
+  // auto-adds separators between sections, so there is none to strip.
+  while (body.length > 0 && body[body.length - 1] === '') {
     body.pop();
   }
 
@@ -368,26 +365,11 @@ export function deleteSectionByUUID(markdown, uuid, { cascade = true } = {}) {
 
   const removeEnd = cascade ? section.fullEndLine : section.ownedEndLine;
 
-  // Eat one trailing blank line if present, then any number of `---` separators
-  // (auto-managed between h2s) and the blank line after them.
-  let trailingEnd = removeEnd;
-  while (trailingEnd < lines.length && lines[trailingEnd] === '') trailingEnd++;
-  while (trailingEnd < lines.length && HR_RE.test(lines[trailingEnd])) {
-    trailingEnd++;
-    while (trailingEnd < lines.length && lines[trailingEnd] === '') trailingEnd++;
-  }
-  // Then peel one blank back to restore a single newline gap.
-  if (trailingEnd > removeEnd && trailingEnd <= lines.length) {
-    // Keep a single blank line of separation between the surrounding regions
-    // by inserting one '' line below.
-  }
-
+  // Drop the removed range, then squash trailing blanks in `before` and leading
+  // blanks in `after` and rejoin with a single blank-line gap. Whatever sits at
+  // `removeEnd` (e.g. a following section's `---` separator) is left untouched.
   const before = lines.slice(0, section.headerLine);
-  const after = lines.slice(trailingEnd);
-
-  // Squash any trailing blank lines in `before` and any leading blank lines in
-  // `after`, then rejoin with a single blank line separator (unless one side
-  // is empty).
+  const after = lines.slice(removeEnd);
   while (before.length > 0 && before[before.length - 1] === '') before.pop();
   while (after.length > 0 && after[0] === '') after.shift();
 
@@ -535,6 +517,73 @@ export function moveSectionToParent(markdown, sectionUuid, newParentUuid) {
   ];
 
   return result.join('\n');
+}
+
+/**
+ * Reorders a section among its same-level siblings by swapping its whole subtree
+ * (heading + UUID span + body + any child sections) with the adjacent sibling's
+ * subtree. "Siblings" share both `level` and `parentUuid` (per buildSectionTree),
+ * so an h2 only swaps with another h2, an h3 only with an h3 under the same h2.
+ *
+ * No-op (returns markdown unchanged) when: the uuid is unknown, the section is the
+ * Title (h1, fixed), or it is already first/last among its siblings.
+ *
+ * Adjacent siblings' subtrees are contiguous in the file (`lower.fullEndLine ===
+ * upper.headerLine`, since fullEndLine runs to the next heading at level ≤ self),
+ * so the move is a block swap. Each block's trailing blank lines are dropped and
+ * the two blocks rejoined with a single blank line — mirroring the seam handling
+ * in moveSectionToParent / insertSectionUnderParent (guides separate sections with
+ * blank lines). A trailing `---` is real body content and travels with its block.
+ *
+ * @param {string} markdown
+ * @param {string} uuid
+ * @param {'up'|'down'} dir
+ * @returns {string}
+ */
+export function moveSectionAmongSiblings(markdown, uuid, dir) {
+  const { sections } = buildSectionTree(markdown);
+  const target = sections.find(s => s.uuid === uuid);
+  if (!target || target.level === 1) return markdown; // unknown or fixed Title
+
+  const siblings = sections.filter(
+    s => s.level === target.level && s.parentUuid === target.parentUuid,
+  );
+  const idx = siblings.findIndex(s => s.uuid === uuid);
+  const neighborIdx = idx + (dir === 'up' ? -1 : 1);
+  if (neighborIdx < 0 || neighborIdx >= siblings.length) return markdown; // at an end
+
+  const a = target;
+  const b = siblings[neighborIdx];
+  const lower = a.headerLine < b.headerLine ? a : b;
+  const upper = a.headerLine < b.headerLine ? b : a;
+
+  const lines = markdown.split('\n');
+  const before = lines.slice(0, lower.headerLine);
+  const lowerBlock = lines.slice(lower.headerLine, lower.fullEndLine);
+  const upperBlock = lines.slice(upper.headerLine, upper.fullEndLine);
+  const after = lines.slice(upper.fullEndLine);
+
+  // Drop trailing blank lines from each block; we re-add a single blank-line seam
+  // below so swapping never duplicates or orphans them. A trailing `---` is real
+  // body content (a user-inserted separator) and stays with its block.
+  const trimTail = (block) => {
+    const c = block.slice();
+    while (c.length && c[c.length - 1] === '') c.pop();
+    return c;
+  };
+  const upperT = trimTail(upperBlock);
+  const lowerT = trimTail(lowerBlock);
+
+  while (before.length && before[before.length - 1] === '') before.pop();
+  while (after.length && after[0] === '') after.shift();
+
+  const parts = [];
+  if (before.length) parts.push(...before, '');
+  parts.push(...upperT, '', ...lowerT);
+  if (after.length) parts.push('', ...after);
+  let out = parts.join('\n');
+  if (markdown.endsWith('\n') && !out.endsWith('\n')) out += '\n';
+  return out;
 }
 
 // ── Tree with visual labels ───────────────────────────────────────────────────

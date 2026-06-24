@@ -1,0 +1,42 @@
+<form data-nav data-dirty-guard id="edit-button-form" data-storage-key="moreButtonsEditButton" data-width="90vw" data-height="90vh">
+  <h2 data-button-heading>Edit button</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Label</label>
+    <input type="text" name="buttonLabel" placeholder="Visible button text, e.g. Subscribe" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Type</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --blue"><input type="radio" name="buttonType" value="primary" required /> Primary</label>
+      <label class="more-buttons-radio-btn --grey"><input type="radio" name="buttonType" value="secondary" /> Secondary</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Destination</label>
+    <input type="text" name="buttonDestination" placeholder="Where the button links to, e.g. /signup or https://…" required />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Open in new tab?</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --blue"><input type="radio" name="buttonNewTab" value="yes" /> Yes</label>
+      <label class="more-buttons-radio-btn --grey"><input type="radio" name="buttonNewTab" value="no" /> No</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <div>
+      <label class="more-buttons-label">Icon</label>
+      <div class="more-buttons-label-hint">(optional)</div>
+    </div>
+    <input type="text" name="icon" placeholder="Search lucide icons…" autocomplete="off" />
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditButton" data-validate data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">outbound</span>Save to draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteButton" data-delete-button-btn><span class="more-buttons-icon">delete</span>Delete</button>
+  </div>
+</form>

@@ -54,6 +54,41 @@ function pruneLeavesByBase(nodes, bases) {
   return out;
 }
 
+// Map each leaf's filename → the slug-path of its parent sections
+// (e.g. "guides/contractors"). Used to tell whether a draft sits in the same
+// section as its live counterpart.
+function leafSectionPaths(nodes, prefix = [], out = new Map()) {
+  for (const n of nodes) {
+    if (n.children) leafSectionPaths(n.children, [...prefix, slugify(n.name)], out);
+    else out.set(baseOf(n.value), prefix.join('/'));
+  }
+  return out;
+}
+
+// Bases that draft_nav places in a DIFFERENT section than live nav. Only these
+// need pruning from the live tree: their draft sits elsewhere, so keeping the
+// live leaf too would render the page twice. A draft at the SAME location is left
+// alone — pruning it would drop the live leaf to the END of its merged folder
+// (mergeNavNodes appends draft-only leaves), silently reordering the tree.
+function movedDraftBases(nav, draftNav) {
+  const livePaths = leafSectionPaths(nav);
+  const draftPaths = leafSectionPaths(draftNav);
+  const moved = new Set();
+  for (const [base, dpath] of draftPaths) {
+    if (livePaths.has(base) && livePaths.get(base) !== dpath) moved.add(base);
+  }
+  return moved;
+}
+
+// Build the merged Guides tree shown in the KB form: live nav unioned with
+// draft_nav. A page drafted in place keeps its live position; a page moved in the
+// draft is pruned from its (stale) live spot so draft_nav owns its placement.
+export function buildGuideTree(nav, draftNav) {
+  const guides = nav.filter(n => !EXCLUDED_SECTIONS.has(n.name));
+  const guideNav = pruneLeavesByBase(guides, movedDraftBases(nav, draftNav));
+  return mergeNavNodes(guideNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
+}
+
 // Collect every leaf's filename (baseOf its value) into `set`.
 function collectValues(nodes, set) {
   for (const n of nodes) {
@@ -239,11 +274,10 @@ async function renderKnowledgeBaseManagement() {
       const draftFiles = collectValues(draftNav, new Set());
 
       if (livePanel) {
-        // Strip live leaves that have a draft so draft_nav owns their placement;
-        // the live nav entry may sit in a stale folder after a Path edit, which
-        // would otherwise render the page twice (once live, once drafting).
-        const guideNav = pruneLeavesByBase(nav.filter(n => !EXCLUDED_SECTIONS.has(n.name)), draftFiles);
-        const merged = mergeNavNodes(guideNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
+        // Strip only live leaves whose draft MOVED them to another section, so
+        // draft_nav owns the placement of a moved page without double-rendering;
+        // a page drafted in place keeps its live position (see buildGuideTree).
+        const merged = buildGuideTree(nav, draftNav);
         // `merged` is the pristine saved order; seed each reorder controller from a
         // fresh clone so Discard can revert in place by re-seeding (move ops mutate
         // the tree they're given, never `merged`).

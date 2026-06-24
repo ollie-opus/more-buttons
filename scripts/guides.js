@@ -24,7 +24,7 @@ import {
   insertSectionUnderParent, moveSectionToParent, deleteSectionByUUID,
   replaceSectionByUUID, buildSection, readSectionDescription,
   locateSectionByUUID, hasH3Children, buildSectionUUIDSpan,
-  writeHideSectionTitle,
+  writeHideSectionTitle, moveSectionAmongSiblings,
 } from './sections.js';
 import {
   ensureAdmonitionUUIDs, parseAdmonitions, buildAdmonition,
@@ -35,7 +35,7 @@ import {
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
-import { escapeHtml, captureComponentCard, videoComponentCard } from './cardRenderer.js';
+import { escapeHtml, captureComponentCard, videoComponentCard, buttonComponentCard } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
@@ -77,6 +77,17 @@ const ADMONITION_TYPE_COLOURS = {
 
 /** @type {{livePath:string, draftPath:string}|null} */
 let currentGuide = null;
+
+// ── Section reorder mode (guide entry tree) ───────────────────────────────────
+// Mirrors the KB reorder feature, but keyed on section UUIDs and driven by pure
+// markdown transforms. Deferred working-copy model: moves mutate an in-memory
+// copy of the draft markdown; Save pushes it once, Discard reverts to base. The
+// working copy is the source the tree re-renders from while reorder mode is on.
+let guideReorderMode = false;
+let reorderWorkingMd = null;   // editable in-memory draft markdown
+let reorderBaseMd = null;      // pristine draft markdown (for Discard)
+let reorderDirty = false;
+let selectedSectionUuid = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -136,6 +147,7 @@ registerFormAction('openGuideEntry', async ({ filePath, label }) => {
   const livePath = livePathFromNav(filePath);
   const draftPath = draftPathOf(livePath);
   currentGuide = { livePath, draftPath };
+  resetReorderState();
 
   const { formEl } = await createForm('guideEntry');
   if (!formEl) return;
@@ -151,6 +163,18 @@ registerFormAction('openGuideEntry', async ({ filePath, label }) => {
 });
 
 function onGuideEntryClick(e, formEl) {
+  // The reorder-mode toggle is present in both modes (whenever a draft exists).
+  if (e.target.closest('[data-guide-reorder-toggle]')) {
+    toggleReorderMode(formEl);
+    return;
+  }
+  // In reorder mode the tree is a working copy: rows select, controls move, and
+  // nothing falls through to open the editor or hit the normal action group.
+  if (guideReorderMode) {
+    handleReorderClick(e, formEl);
+    return;
+  }
+
   const guideAction = e.target.closest('[data-guide-action]');
   if (guideAction) {
     const action = guideAction.dataset.guideAction;
@@ -222,16 +246,52 @@ async function renderGuideEntryContent(formEl) {
     return;
   }
 
-  // Draft exists — render the section tree.
+  // Draft exists. Stash the loaded markdown so entering reorder mode can seed its
+  // working copy without a re-fetch, then render the tree + actions.
+  formEl._draftMd = draftMarkdown;
+  renderGuideDraftView(formEl, draftMarkdown);
+}
+
+// Renders the "draft exists" view (section tree + action group) from a given
+// markdown string. Used for the fresh load and for every reorder re-render — the
+// latter passes the in-memory working copy so no GitHub round-trip is needed.
+// Honors guideReorderMode: reorder hides the Page settings node and swaps the
+// action group for Discard/Save order.
+function renderGuideDraftView(formEl, draftMarkdown) {
+  const contentEl = formEl.querySelector('[data-guide-content]');
+  const actionsEl = formEl.parentElement?.querySelector('[data-guide-actions]');
+  if (!contentEl || !actionsEl) return;
+
   const { title } = buildSectionTree(draftMarkdown);
-  const treeHtml = renderGuideSectionTree(draftMarkdown);
+  const treeHtml = renderGuideSectionTree(draftMarkdown, { reorderable: guideReorderMode });
   // Page settings sits in its own block above the section tree (page-level
-  // frontmatter, e.g. the icon — distinct from any one section).
-  contentEl.innerHTML = renderPageSettingsNode() + treeHtml;
-  actionsEl.innerHTML = `
+  // frontmatter, e.g. the icon — distinct from any one section); hidden while
+  // reordering since sections, not page settings, are the focus.
+  contentEl.innerHTML = (guideReorderMode ? '' : renderPageSettingsNode()) + treeHtml;
+  actionsEl.innerHTML = guideReorderMode ? reorderActionsHtml() : normalActionsHtml(title);
+}
+
+// The reorder-mode toggle button — present whenever a draft exists, in both
+// modes. Mirrors the KB toggle: magenta/on vs neutral/off, with matching icon.
+function reorderToggleHtml() {
+  const on = guideReorderMode;
+  return `<button type="button" class="more-buttons-button mb-reorder-toggle ${on ? 'magenta' : 'secondary'}" data-guide-reorder-toggle><span class="more-buttons-icon">${on ? 'toggle_on' : 'toggle_off'}</span>Reorder mode ${on ? 'enabled' : 'disabled'}</button>`;
+}
+
+function normalActionsHtml(title) {
+  return `
+    ${reorderToggleHtml()}
     <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
     <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
     <button type="button" class="more-buttons-button danger" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
+}
+
+function reorderActionsHtml() {
+  const dis = reorderDirty ? '' : ' disabled';
+  return `
+    ${reorderToggleHtml()}
+    <button type="button" class="more-buttons-button secondary" data-guide-reorder-discard${dis}><span class="more-buttons-icon">close</span>Discard changes</button>
+    <button type="button" class="more-buttons-button success" data-guide-reorder-save${dis}><span class="more-buttons-icon">outbound</span>Save changes</button>`;
 }
 
 // A standalone tree block (separate from the section tree) for page-level
@@ -248,44 +308,210 @@ function renderPageSettingsNode() {
     </div>`;
 }
 
-function renderGuideSectionTree(markdown) {
+// Move controls (up / down / Move…) that sit inside a row, right of the label —
+// mirrors kbTree's controlsHtml but keyed on section UUIDs. Up/down disable at
+// the sibling-group boundaries; Move… opens the reparent picker.
+function sectionControlsHtml(uuid, level, isFirst, isLast) {
+  const u = escapeHtml(uuid ?? '');
+  return `<span class="mb-kb-row-controls">
+      <button class="mb-kb-ctl" type="button" data-section-move-up data-uuid="${u}" title="Move up"${isFirst ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_up</span></button>
+      <button class="mb-kb-ctl" type="button" data-section-move-down data-uuid="${u}" title="Move down"${isLast ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_down</span></button>
+      <button class="mb-kb-ctl" type="button" data-section-move-to data-uuid="${u}" data-level="${level}" title="Move to…"><span class="material-symbols-outlined">drive_file_move</span></button>
+    </span>`;
+}
+
+function renderGuideSectionTree(markdown, { reorderable = false } = {}) {
   const { title } = buildSectionTree(markdown);
   if (!title) {
     return `<p class="more-buttons-description">Empty file — no sections found.</p>`;
   }
   const nodeLabel = (node) =>
     `<strong>${escapeHtml(node.label)}:</strong> ${escapeHtml(node.title)}`;
-  const h3Html = (h3) => `
+  // In reorder mode the row button + its controls share one horizontal line (so
+  // the controls read as sitting inside the row); the controls are a SIBLING of
+  // the button, never nested, preserving click-isolation. Off-reorder the output
+  // is byte-identical to the original render.
+  const rowLine = (button, controls, fixed = false) => reorderable
+    ? `<div class="mb-kb-row-line${fixed ? ' --fixed' : ''}">${button}${controls}</div>`
+    : button;
+  const sectionButton = (node) => `
+        <button class="mb-kb-node-row" type="button" data-edit-guide-section="${escapeHtml(node.uuid ?? '')}">
+          <span class="mb-kb-node-icon material-symbols-outlined">subject</span>
+          ${nodeLabel(node)}
+        </button>`;
+  const h3Html = (h3, isFirst, isLast) => `
     <div class="mb-kb-node">
-      <button class="mb-kb-node-row" type="button" data-edit-guide-section="${escapeHtml(h3.uuid ?? '')}">
-        <span class="mb-kb-node-icon material-symbols-outlined">subject</span>
-        ${nodeLabel(h3)}
-      </button>
+      ${rowLine(sectionButton(h3), sectionControlsHtml(h3.uuid, 3, isFirst, isLast))}
     </div>`;
-  const h2Html = (h2) => {
+  const h2Html = (h2, isFirst, isLast) => {
     const children = h2.children ?? [];
     const childHtml = children.length
-      ? `<div class="mb-kb-node-children">${children.map(h3Html).join('')}</div>`
+      ? `<div class="mb-kb-node-children">${children.map((h3, i) => h3Html(h3, i === 0, i === children.length - 1)).join('')}</div>`
       : '';
     return `
       <div class="mb-kb-node">
-        <button class="mb-kb-node-row" type="button" data-edit-guide-section="${escapeHtml(h2.uuid ?? '')}">
-          <span class="mb-kb-node-icon material-symbols-outlined">subject</span>
-          ${nodeLabel(h2)}
-        </button>
+        ${rowLine(sectionButton(h2), sectionControlsHtml(h2.uuid, 2, isFirst, isLast))}
         ${childHtml}
       </div>`;
   };
+  const h2s = title.children ?? [];
+  // The Title (h1) is fixed: rendered in the tree but never selectable/movable,
+  // so it gets no controls (and a `--fixed` row line, which kills hover afford).
+  const titleButton = sectionButton(title);
   return `
     <div class="mb-kb-tree">
       <div class="mb-kb-node">
-        <button class="mb-kb-node-row" type="button" data-edit-guide-section="${escapeHtml(title.uuid ?? '')}">
-          <span class="mb-kb-node-icon material-symbols-outlined">subject</span>
-          ${nodeLabel(title)}
-        </button>
-        <div class="mb-kb-node-children">${(title.children ?? []).map(h2Html).join('')}</div>
+        ${rowLine(titleButton, '', true)}
+        <div class="mb-kb-node-children">${h2s.map((h2, i) => h2Html(h2, i === 0, i === h2s.length - 1)).join('')}</div>
       </div>
     </div>`;
+}
+
+// ── Section reorder: state, handlers, persistence ─────────────────────────────
+
+function resetReorderState() {
+  guideReorderMode = false;
+  reorderWorkingMd = null;
+  reorderBaseMd = null;
+  reorderDirty = false;
+  selectedSectionUuid = null;
+}
+
+// Enter/leave reorder mode. Entering seeds the working copy from the loaded draft
+// (no re-fetch); leaving discards it (revert), like the KB toggle. Both re-render.
+function toggleReorderMode(formEl) {
+  guideReorderMode = !guideReorderMode;
+  selectedSectionUuid = null;
+  if (guideReorderMode) {
+    reorderBaseMd = reorderWorkingMd = formEl._draftMd ?? '';
+    reorderDirty = false;
+    renderGuideDraftView(formEl, reorderWorkingMd);
+  } else {
+    const md = reorderBaseMd ?? formEl._draftMd ?? '';
+    reorderWorkingMd = null;
+    reorderBaseMd = null;
+    reorderDirty = false;
+    renderGuideDraftView(formEl, md);
+  }
+}
+
+// Reflect selectedSectionUuid onto the DOM: tint the selected row + reveal its
+// controls (hidden by default). Pure class toggling — survives re-render because
+// it's re-applied after each rebuild, keyed on the stable section UUID.
+function applySectionSelection(formEl) {
+  const content = formEl.querySelector('[data-guide-content]');
+  if (!content) return;
+  content.querySelectorAll('.mb-kb-node.--selected').forEach(n => n.classList.remove('--selected'));
+  if (!selectedSectionUuid) return;
+  const row = content.querySelector(`.mb-kb-node-row[data-edit-guide-section="${selectedSectionUuid}"]`);
+  // Don't select the fixed Title row (it has no controls and a --fixed line).
+  if (row && !row.closest('.mb-kb-row-line')?.classList.contains('--fixed')) {
+    row.closest('.mb-kb-node')?.classList.add('--selected');
+  }
+}
+
+function rerenderReorder(formEl) {
+  renderGuideDraftView(formEl, reorderWorkingMd);
+  applySectionSelection(formEl);
+}
+
+function handleReorderClick(e, formEl) {
+  const up = e.target.closest('[data-section-move-up]');
+  const down = e.target.closest('[data-section-move-down]');
+  const moveTo = e.target.closest('[data-section-move-to]');
+  if (up || down) {
+    const el = up || down;
+    if (el.disabled) return;
+    const next = moveSectionAmongSiblings(reorderWorkingMd, el.dataset.uuid, up ? 'up' : 'down');
+    if (next !== reorderWorkingMd) { reorderWorkingMd = next; reorderDirty = true; }
+    selectedSectionUuid = el.dataset.uuid;
+    rerenderReorder(formEl);
+    return;
+  }
+  if (moveTo) {
+    openSectionMovePicker(moveTo, formEl);
+    return;
+  }
+  if (e.target.closest('[data-guide-reorder-discard]')) {
+    reorderWorkingMd = reorderBaseMd;
+    reorderDirty = false;
+    selectedSectionUuid = null;
+    rerenderReorder(formEl);
+    return;
+  }
+  if (e.target.closest('[data-guide-reorder-save]')) {
+    saveSectionOrder(formEl);
+    return;
+  }
+  // A row click selects it (the fixed Title row is excluded by applySectionSelection
+  // and its lack of a selectable line). Controls are siblings of the button, so a
+  // control click never reaches here (handled above).
+  const row = e.target.closest('.mb-kb-node-row[data-edit-guide-section]');
+  if (row && !row.closest('.mb-kb-row-line')?.classList.contains('--fixed')) {
+    selectedSectionUuid = row.dataset.editGuideSection || null;
+    applySectionSelection(formEl);
+  }
+}
+
+// Reparent picker (Move…): reuses the KB .mb-kb-move-pop styling. Targets come
+// from parentOptionsForSection (legal parents only, h3-depth-aware, self excluded);
+// the section's current parent is filtered out so every option is a real move.
+function openSectionMovePicker(anchorBtn, formEl) {
+  document.querySelector('.mb-kb-move-pop')?.remove();
+  const uuid = anchorBtn.dataset.uuid;
+  const level = Number(anchorBtn.dataset.level);
+  const { sections } = buildSectionTree(reorderWorkingMd);
+  const currentParent = sections.find(s => s.uuid === uuid)?.parentUuid ?? null;
+  const options = parentOptionsForSection(reorderWorkingMd, uuid, level)
+    .filter(o => (o.value || null) !== currentParent);
+
+  const pop = document.createElement('div');
+  pop.className = 'mb-kb-move-pop';
+  pop.innerHTML = `
+    <div class="mb-kb-move-title">Move to…</div>
+    ${options.length
+      ? options.map(o => `<button type="button" class="mb-kb-move-opt" data-target="${escapeHtml(o.value)}">${escapeHtml(o.label)}</button>`).join('')
+      : '<div class="mb-kb-move-title">No available targets.</div>'}`;
+  anchorBtn.closest('.mb-kb-node').appendChild(pop);
+
+  pop.addEventListener('click', ev => {
+    const opt = ev.target.closest('.mb-kb-move-opt');
+    if (!opt) return;
+    try {
+      const next = moveSectionToParent(reorderWorkingMd, uuid, opt.dataset.target || null);
+      if (next !== reorderWorkingMd) { reorderWorkingMd = next; reorderDirty = true; }
+    } catch (err) {
+      alert(err.message);
+    }
+    pop.remove();
+    selectedSectionUuid = uuid;
+    rerenderReorder(formEl);
+  });
+  setTimeout(() => document.addEventListener('click', function dismiss(ev) {
+    if (!pop.contains(ev.target) && !anchorBtn.contains(ev.target) && ev.target !== anchorBtn) {
+      pop.remove();
+      document.removeEventListener('click', dismiss);
+    }
+  }), 0);
+}
+
+// Commit the reordered draft in a single push (whole-file replace, like Publish).
+// The fetch's migrateComponentIdentity runs on the old content and is discarded —
+// the working copy already carries every UUID.
+async function saveSectionOrder(formEl) {
+  if (!currentGuide || reorderWorkingMd == null) return;
+  formLoading.show();
+  try {
+    await githubFetchAndPushFile(currentGuide.draftPath, () => {}, () => reorderWorkingMd);
+    reorderBaseMd = reorderWorkingMd;
+    formEl._draftMd = reorderWorkingMd;
+    reorderDirty = false;
+    rerenderReorder(formEl);
+  } catch (e) {
+    alert('Failed to save order: ' + e.message);
+  } finally {
+    formLoading.dismiss();
+  }
 }
 
 // ── Draft create / publish / discard ──────────────────────────────────────────
@@ -890,6 +1116,16 @@ function videoComponentCardFor(vid) {
   });
 }
 
+function buttonComponentCardFor(btn) {
+  return buttonComponentCard({
+    label: btn.label,
+    destination: btn.destination,
+    primary: btn.primary,
+    btnAttr: `data-edit-button-component="${escapeHtml(btn.uuid ?? '')}"`,
+    copyAttr: btn.uuid ? `data-copy-component-md="${escapeHtml(btn.uuid)}"` : '',
+  });
+}
+
 // Renders an ordered component list (admonitions + captures) interleaved with
 // "+ Insert Component" triggers. Step admonitions are numbered in document order
 // when `numberSteps` is set (section level only — sub-admonition steps aren't
@@ -921,6 +1157,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
       card = gridCard(c.grid);
     } else if (c.kind === 'video') {
       card = videoComponentCardFor(c.vid);
+    } else if (c.kind === 'button') {
+      card = buttonComponentCardFor(c.btn);
     } else {
       card = captureComponentCardFor(c.cap);
     }
@@ -1011,6 +1249,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
     else if (action.kind === 'capture-library') await runComponentLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'video') await runComponentVideoLibraryInsert({ container, insertAt: action.insertAt });
+    else if (action.kind === 'button') await getFormAction('openCreateButton')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'table') await getFormAction('openCreateDataTable')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'grid') await getFormAction('openCreateGrid')?.({ container, insertAtIndex: action.insertAt });
@@ -1021,6 +1260,8 @@ async function runChildAction(container, formEl, action) {
     await openCaptureComponentEditor(container, action.uuid);
   } else if (action.type === 'edit-video') {
     await openVideoComponentEditor(container, action.uuid);
+  } else if (action.type === 'edit-button') {
+    await getFormAction('openEditButton')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-tabs') {
     await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-table') {
@@ -1077,6 +1318,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editBtn = e.target.closest('[data-edit-button-component]');
+  if (editBtn) {
+    beginChildNavigation(formEl, { type: 'edit-button', uuid: editBtn.dataset.editButtonComponent });
+    return;
+  }
+
   const editTabs = e.target.closest('[data-edit-content-tabs]');
   if (editTabs) {
     beginChildNavigation(formEl, { type: 'edit-tabs', uuid: editTabs.dataset.editContentTabs });
@@ -1107,6 +1354,7 @@ export function onComponentEditorClick(e) {
       dataTable: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'table', insertAt: i }),
       grid: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'grid', insertAt: i }),
       video: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'video', insertAt: i }),
+      button: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'button', insertAt: i }),
       pasteMarkdown: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'paste-markdown', insertAt: i }),
     });
     return;
@@ -1132,6 +1380,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditGrid')?.({ uuid: component.grid.uuid, file: container.file });
   } else if (component.kind === 'video') {
     await getFormAction('openEditVideoComponent')?.({ container, uuid: component.vid.uuid, vid: component.vid });
+  } else if (component.kind === 'button') {
+    await getFormAction('openEditButton')?.({ uuid: component.btn.uuid, file: container.file });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -1367,6 +1617,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
       } else if (c.kind === 'video') {
         labelMap[c.vid.uuid] = { kind: 'video', thumbSrc: assetCdnUrl('docs/assets/' + c.vid.lightFilename) };
+      } else if (c.kind === 'button') {
+        labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
@@ -1830,6 +2082,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
       } else if (c.kind === 'video') {
         labelMap[c.vid.uuid] = { kind: 'video', thumbSrc: assetCdnUrl('docs/assets/' + c.vid.lightFilename) };
+      } else if (c.kind === 'button') {
+        labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }

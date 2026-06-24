@@ -16,6 +16,7 @@ import './videoEntry.js';
 import './contentTabsEditor.js';
 import './dataTablesEditor.js';
 import './gridEditor.js';
+import './buttonEditor.js';
 import './integrations.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';

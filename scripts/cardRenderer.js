@@ -44,6 +44,28 @@ export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyA
   </div>`;
 }
 
+// A "Button" component card: grey chrome, a "Button" badge, the button's label
+// (or its destination when label-less) plus a Primary/Secondary tag, and an Edit
+// button. `primary` toggles the tag text.
+export function buttonComponentCard({ label, destination, primary, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+  const text = (label ?? '').trim() || (destination ?? '').trim() || '(no label)';
+  const tag = primary ? 'Primary' : 'Secondary';
+  return `
+  <div class="mb-incident-card --grey mb-component-card--capture">
+    <div class="mb-incident-card__head">
+      <strong class="mb-incident-card__title">${escapeHtml(text)}</strong>
+      <span class="mb-incident-card__badge">Button</span>
+    </div>
+    <div class="mb-incident-card__foot">
+      <span class="mb-incident-card__meta">${tag}</span>
+      <span class="mb-incident-card__foot-actions">
+        ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+      </span>
+    </div>
+  </div>`;
+}
+
 // A capture rendered as a card matching the admonition cards: neutral/grey,
 // "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an
