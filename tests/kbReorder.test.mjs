@@ -107,6 +107,50 @@ test('moveToPath into own descendant is a rejected no-op', () => {
   assert.equal(s.getTree()[0].name, 'Guides');
 });
 
+test('moving a top-level leaf draft does not leave a duplicate behind', () => {
+  // Regression: a just-created draft guide (no path) sits as a TOP-LEVEL LEAF in
+  // draft_nav. spliceGuideBlock only treated top-level FOLDERS as managed, so the
+  // original leaf survived verbatim — the move "didn't take" (duplicate, page
+  // reappears at its old spot on reload). Both moveToSegments and moveToPath must
+  // remove the original leaf.
+  const nav = [
+    { name: 'Home', value: 'pages/index.md' },
+    { name: 'Guides', children: [ { name: 'Existing', value: 'pages/existing.md' } ] },
+  ];
+  const draft = [ { name: 'New Draft', value: 'drafts/new-draft.md' } ];
+
+  // new path
+  const s1 = createReorderState({
+    tree: [
+      { name: 'Guides', children: [ { name: 'Existing', value: 'pages/existing.md' } ] },
+      { name: 'New Draft', value: 'drafts/new-draft.md' },
+    ],
+    navItems: JSON.parse(JSON.stringify(nav)),
+    draftItems: JSON.parse(JSON.stringify(draft)),
+  });
+  s1.moveToSegments('1', ['Contractors']);   // type a new path
+  const out1 = s1.buildPayload().draftNav;
+  const bases1 = [];
+  (function walk(ns){ for (const n of ns) n.children ? walk(n.children) : bases1.push(n.value); })(out1);
+  assert.deepEqual(bases1, ['drafts/new-draft.md']);   // exactly one — no duplicate
+  assert.equal(out1[0].name, 'Contractors');           // and it lives in the new section
+
+  // suggested existing path
+  const s2 = createReorderState({
+    tree: [
+      { name: 'Guides', children: [ { name: 'Existing', value: 'pages/existing.md' } ] },
+      { name: 'New Draft', value: 'drafts/new-draft.md' },
+    ],
+    navItems: JSON.parse(JSON.stringify(nav)),
+    draftItems: JSON.parse(JSON.stringify(draft)),
+  });
+  s2.moveToPath('1', '0');                    // into existing Guides
+  const out2 = s2.buildPayload().draftNav;
+  const bases2 = [];
+  (function walk(ns){ for (const n of ns) n.children ? walk(n.children) : bases2.push(n.value); })(out2);
+  assert.deepEqual(bases2, ['drafts/new-draft.md']);
+});
+
 test('sectionTargets lists folders with full-path labels', () => {
   const s = createReorderState({ tree: tree(), navItems: navItems(), draftItems: draftItems() });
   const labels = s.sectionTargets().map(t => t.label);

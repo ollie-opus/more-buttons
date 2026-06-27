@@ -5,7 +5,7 @@
 // array's membership (exact values reused; Home/System and non-guide entries
 // preserved). Pure — no DOM, no network.
 import {
-  slugify, valueMapByBase, projectTree, spliceGuideBlock,
+  slugify, valueMapByBase, leafBases, projectTree, spliceGuideBlock,
   nodeAtPath, moveSibling, detachAtPath, attachUnderPath, attachUnderSegments,
 } from './navToml.js';
 
@@ -75,8 +75,12 @@ export function createReorderState({ tree, navItems, draftItems }) {
     const editedTopSlugs = new Set(
       tree.filter(n => n.children).map(n => slugify(n.name))
     );
-    const nav = spliceGuideBlock(navItems, projectTree(tree, liveMap), editedTopSlugs);
-    const draftNav = spliceGuideBlock(draftItems, projectTree(tree, draftMap), editedTopSlugs);
+    // Every guide filename in the edited tree, so spliceGuideBlock can recognise a
+    // root-level leaf guide (a draft created with no path) as managed and not leave
+    // a duplicate behind when it's reparented.
+    const editedBases = leafBases(tree);
+    const nav = spliceGuideBlock(navItems, projectTree(tree, liveMap), editedTopSlugs, editedBases);
+    const draftNav = spliceGuideBlock(draftItems, projectTree(tree, draftMap), editedTopSlugs, editedBases);
     return { nav, draftNav };
   };
 

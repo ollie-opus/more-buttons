@@ -275,14 +275,18 @@ export function projectTree(edited, valueMap) {
   return out;
 }
 
-// Replace the run of "managed" top-level sections in `original` with `projected`,
+// Replace the run of "managed" top-level entries in `original` with `projected`,
 // preserving every other entry (Home/System and anything not part of the edited
-// guide tree) verbatim and in place. A node is managed iff it is a section whose
-// slug is in `editedTopSlugs`. The projected block lands at the first managed
-// index; if nothing is managed it is appended.
-export function spliceGuideBlock(original, projected, editedTopSlugs) {
+// guide tree) verbatim and in place. A node is managed iff it is a top-level
+// section whose slug is in `editedTopSlugs`, OR a top-level LEAF whose filename is
+// in `editedBases` (a guide placed directly at the root — e.g. a just-created
+// draft with no path; without this it would survive verbatim and the projected
+// move would duplicate it). The projected block lands at the first managed index;
+// if nothing is managed it is appended.
+export function spliceGuideBlock(original, projected, editedTopSlugs, editedBases = new Set()) {
   const isManaged = (node) =>
-    Array.isArray(node.children) && editedTopSlugs.has(slugify(node.name));
+    (Array.isArray(node.children) && editedTopSlugs.has(slugify(node.name))) ||
+    (node.value !== undefined && editedBases.has(baseOf(node.value)));
   const out = [];
   let inserted = false;
   for (const node of original) {
