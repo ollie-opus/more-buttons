@@ -13,10 +13,10 @@
  */
 
 import { registerFormAction, getFormAction } from './formActions.js';
-import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton } from './form.js';
+import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton, reorderButtonGating } from './form.js';
 import { formLoading } from './loading.js';
 import { mergeSave } from './mergeSave.js';
-import { readRepoText, assetCdnUrl } from './repoClient.js';
+import { readRepoText, assetCdnUrl, publishedUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, removeByValueSlug, findPathOfValue, findPathByValueSlug, valueSlug, renameByValue, renameByValueSlug, slugify, setPathByValueSlug } from './navToml.js';
 import {
@@ -241,6 +241,8 @@ async function renderGuideEntryContent(formEl) {
         left untouched until you publish.
       </p>`;
     actionsEl.innerHTML = `
+      ${viewLinksHtml({ draft: false })}
+      ${dockSep}
       <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">add</span>Create draft</button>
       <button type="button" class="more-buttons-button danger" data-guide-action="delete"><span class="more-buttons-icon">delete</span>Delete guide</button>`;
     return;
@@ -268,30 +270,58 @@ function renderGuideDraftView(formEl, draftMarkdown) {
   // frontmatter, e.g. the icon — distinct from any one section); hidden while
   // reordering since sections, not page settings, are the focus.
   contentEl.innerHTML = (guideReorderMode ? '' : renderPageSettingsNode()) + treeHtml;
-  actionsEl.innerHTML = guideReorderMode ? reorderActionsHtml() : normalActionsHtml(title);
+  actionsEl.innerHTML = guideReorderMode ? reorderActionsHtml(reorderDirty) : normalActionsHtml(title);
 }
 
 // The reorder-mode toggle button — present whenever a draft exists, in both
-// modes. Mirrors the KB toggle: magenta/on vs neutral/off, with matching icon.
+// modes. Mirrors the KB toggle: magenta/on vs neutral/off, static swap_vert icon.
 function reorderToggleHtml() {
   const on = guideReorderMode;
-  return `<button type="button" class="more-buttons-button mb-reorder-toggle ${on ? 'magenta' : 'secondary'}" data-guide-reorder-toggle><span class="more-buttons-icon">${on ? 'toggle_on' : 'toggle_off'}</span>Reorder mode ${on ? 'enabled' : 'disabled'}</button>`;
+  return `<button type="button" class="more-buttons-button mb-reorder-toggle ${on ? 'magenta' : 'secondary'}" data-guide-reorder-toggle><span class="more-buttons-icon">swap_vert</span>Reorder mode ${on ? 'enabled' : 'disabled'}</button>`;
 }
 
+// "View live" / "View draft" links to the published pages on the Zensical site.
+// The route is read from the nav value (navValueOf / draftNavValueOf), never
+// reconstructed, so a rename/move in zensical.toml follows automatically. The
+// draft page only exists once a draft has been created.
+function viewLinksHtml({ draft } = {}) {
+  const live = publishedUrl(navValueOf(currentGuide.livePath));
+  let html = `<a class="more-buttons-button" href="${live}" target="_blank" rel="noopener" title="View live page"><span class="more-buttons-icon">public</span>View live</a>`;
+  if (draft) {
+    const d = publishedUrl(draftNavValueOf(currentGuide.livePath));
+    html += `<a class="more-buttons-button" href="${d}" target="_blank" rel="noopener" title="View draft page"><span class="more-buttons-icon">draft</span>View draft</a>`;
+  }
+  return html;
+}
+
+// A macOS-dock-style vertical divider between logical button groups in the bar.
+const dockSep = '<span class="mb-dock-sep" aria-hidden="true"></span>';
+
+// Dock groups, left→right: [reorder toggle] | [view live, view draft] |
+// [add section] | [publish, discard]. Dividers mark the group boundaries.
 function normalActionsHtml(title) {
   return `
     ${reorderToggleHtml()}
+    ${dockSep}
+    ${viewLinksHtml({ draft: true })}
+    ${dockSep}
     <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
+    ${dockSep}
     <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
     <button type="button" class="more-buttons-button danger" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
 }
 
-function reorderActionsHtml() {
-  const dis = reorderDirty ? '' : ' disabled';
+// Reorder-mode groups mirror the normal bar: [reorder toggle] |
+// [view live, view draft] | [discard, save].
+export function reorderActionsHtml(dirty = reorderDirty) {
+  const { dis, saveClass } = reorderButtonGating(dirty);
   return `
     ${reorderToggleHtml()}
-    <button type="button" class="more-buttons-button secondary" data-guide-reorder-discard${dis}><span class="more-buttons-icon">close</span>Discard changes</button>
-    <button type="button" class="more-buttons-button success" data-guide-reorder-save${dis}><span class="more-buttons-icon">outbound</span>Save changes</button>`;
+    ${dockSep}
+    ${viewLinksHtml({ draft: true })}
+    ${dockSep}
+    <button type="button" class="more-buttons-button${saveClass}" data-guide-reorder-save${dis}><span class="more-buttons-icon">save</span>Save changes</button>
+    <button type="button" class="more-buttons-button secondary" data-guide-reorder-discard${dis}><span class="more-buttons-icon">close</span>Discard changes</button>`;
 }
 
 // A standalone tree block (separate from the section tree) for page-level
@@ -432,6 +462,9 @@ function handleReorderClick(e, formEl) {
     openSectionMovePicker(moveTo, formEl);
     return;
   }
+  // The Discard/Save buttons are aria-disabled (not click-disabled) until dirty,
+  // so they stay hover-expandable; ignore clicks while in that state.
+  if (e.target.closest('[aria-disabled="true"]')) return;
   if (e.target.closest('[data-guide-reorder-discard]')) {
     reorderWorkingMd = reorderBaseMd;
     reorderDirty = false;

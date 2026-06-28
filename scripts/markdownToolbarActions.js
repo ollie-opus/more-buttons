@@ -631,6 +631,22 @@ export function insertHorizontalRule(value, selStart, selEnd) {
   return { value: before + insert + after, selStart: caret, selEnd: caret };
 }
 
+// Find the link whose rendered text the selection sits within, so the toolbar
+// can EDIT an existing link instead of nesting a new one inside it. Matches a
+// collapsed caret anywhere in the link text, or a selection fully contained in
+// it. Returns `{ start, end, text, href }` where [start, end) is the link's full
+// `[text](url)` source range (so applyLink over it replaces the whole link), or
+// null when the selection isn't inside a single link.
+export function linkAt(value, selStart, selEnd) {
+  const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
+  for (const lk of scanLinks(value)) {
+    if (lo >= lk.textStart && hi <= lk.textEnd) {
+      return { start: lk.textStart - 1, end: lk.end, text: value.slice(lk.textStart, lk.textEnd), href: lk.href };
+    }
+  }
+  return null;
+}
+
 // Splice a `[text](url)` markdown link at the selection, replacing it.
 // Caret is placed after the inserted snippet.
 export function applyLink(value, selStart, selEnd, text, url) {

@@ -4,6 +4,17 @@
 
 export const REPO = { owner: 'ollie-opus', name: 'opus-knowledge-base', branch: 'main' };
 
+// The published Zensical site the repo builds to.
+export const SITE = { baseUrl: 'https://support.opus-safety.co.uk' };
+
+// Map a nav/draft_nav value ('pages/foo.md' | 'drafts/foo.md') to its published
+// directory URL. Reads the route straight from the value — never rebuilds
+// pages/<slug> — so a rename/move in zensical.toml is followed automatically.
+export function publishedUrl(navValue) {
+  const route = navValue.replace(/\.md$/, '').replace(/^\/+/, '');
+  return `${SITE.baseUrl}/${route}/`;
+}
+
 export function contentsApiUrl(path) {
   return `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${path}?ref=${REPO.branch}`;
 }

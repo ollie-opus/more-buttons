@@ -1,4 +1,4 @@
-import { createForm } from './form.js';
+import { createForm, syncDockTag } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
@@ -253,13 +253,27 @@ async function renderKnowledgeBaseManagement() {
         toggle.classList.toggle('magenta', reorderMode);
         toggle.classList.toggle('secondary', !reorderMode);
         toggle.innerHTML =
-          `<span class="more-buttons-icon">${reorderMode ? 'toggle_on' : 'toggle_off'}</span>Reorder mode ${reorderMode ? 'enabled' : 'disabled'}`;
+          `<span class="more-buttons-icon">swap_vert</span>Reorder mode ${reorderMode ? 'enabled' : 'disabled'}`;
+        // Lift the new label into the dock tag (and strip the inline text).
+        syncDockTag(toggle);
       }
       const dirty = !!reorder?.isDirty();
+      // aria-disabled (not the native attr) so the dimmed buttons still
+      // hover-expand to reveal their label in the dock; clicks are gated below.
       const save = actions.querySelector('[data-kb-reorder-save]');
       const discard = actions.querySelector('[data-kb-reorder-discard]');
-      if (save) save.disabled = !dirty;
-      if (discard) discard.disabled = !dirty;
+      // This bar edits LIVE data, so the commit is a blue "Publish changes to
+      // live" (`.publish`), not a green draft save. The accent class rides ONLY
+      // while dirty: the disabled-dimming rule overrides a button's border + text
+      // but NOT an accent's faint background fill, so a static `.publish` would
+      // stay blue when disabled. Stripping the class when clean lets it fall back
+      // to the plain neutral dimmed button — same trick as the guide bar's
+      // `.success` Save.
+      if (save) {
+        save.setAttribute('aria-disabled', String(!dirty));
+        save.classList.toggle('publish', dirty);
+      }
+      if (discard) discard.setAttribute('aria-disabled', String(!dirty));
     };
 
     formLoading.show();
@@ -332,6 +346,9 @@ async function renderKnowledgeBaseManagement() {
         return;
       }
       if (reorder) {
+        // Save/Discard are aria-disabled (not click-disabled) until dirty, so
+        // they stay hover-expandable; ignore clicks while in that state.
+        if (e.target.closest('[aria-disabled="true"]')) return;
         // Single toggle: flip reorder mode. Leaving discards the working copy
         // (same as Discard changes); entering starts with nothing selected.
         if (e.target.closest('[data-kb-reorder-toggle]')) {

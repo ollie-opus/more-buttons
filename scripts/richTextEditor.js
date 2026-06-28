@@ -1,5 +1,5 @@
 import { markSpans, renderDocHtml } from './markdownInline.js';
-import { applyMarker, applyLink, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
@@ -501,8 +501,19 @@ function attachLinkPopover(rte) {
 
   rte.openLinkPopover = () => {
     saved = currentSelection(rte); // capture before focus moves to the popover inputs
-    textInput.value = saved.value.slice(saved.selStart, saved.selEnd);
-    urlInput.value = '';
+    // If the selection sits inside an existing link, edit it: prefill both
+    // fields from that link and widen the saved range to its whole `[text](url)`
+    // syntax so Insert REPLACES the link rather than nesting a new one in it.
+    const existing = linkAt(saved.value, saved.selStart, saved.selEnd);
+    if (existing) {
+      saved.selStart = existing.start;
+      saved.selEnd = existing.end;
+      textInput.value = existing.text;
+      urlInput.value = existing.href;
+    } else {
+      textInput.value = saved.value.slice(saved.selStart, saved.selEnd);
+      urlInput.value = '';
+    }
     popover.hidden = false;
     document.addEventListener('mousedown', onDocMouseDown);
     urlInput.focus();

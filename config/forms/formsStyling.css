@@ -487,9 +487,135 @@ button.more-buttons-crumb:hover {
   padding-top: 14px;
   flex-shrink: 0;
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: center;
   gap: 8px;
+}
+
+/* ── macOS-dock action bar ─────────────────────────────────────────────────────
+   Direct-child action buttons are fixed square icon-only tiles. Their label
+   shows in a small popup tag above the tile on hover/focus (macOS-dock style) —
+   the button never changes size, so neighbours never shift. The tag is a pseudo-
+   element reading `data-mb-tag` (the JS lifts each button's label there and sets
+   `aria-label`, removing the inline text). It inherits the button's `--mb-acc`,
+   so it always matches that button's colour (green save, red delete, amber busy…).
+   Scoped to direct children so inline / RTE / capture-bar / content-tabs buttons
+   are untouched. */
+/* Direct children, plus buttons nested one level in a `.mb-kb-actions` group
+   (the KB management bar wraps its buttons that way). */
+.more-buttons-form-actions > .more-buttons-button,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button {
+  position: relative;          /* anchor for the floating tag */
+  max-width: 2.15rem;          /* a fixed square icon-only tile */
+  padding: 7px;                /* equal padding all round (was 7px 14px) */
+  overflow: visible;           /* let the tag escape the tile */
+  white-space: nowrap;
+  text-decoration: none;        /* the View links are <a> styled as buttons */
+}
+/* Drop the base rule's -2px tuck so the glyph centres in the square tile. */
+.more-buttons-form-actions > .more-buttons-button .more-buttons-icon,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button .more-buttons-icon {
+  margin-left: 0;
+}
+
+/* The popup tag (body) + its downward caret. Hidden until hover/focus/busy. */
+.more-buttons-form-actions > .more-buttons-button::after,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button::after {
+  content: attr(data-mb-tag);
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  z-index: 5;
+  padding: 5px 9px;
+  border: 1px solid var(--mb-acc);
+  border-radius: 7px;
+  background: var(--mb-acc);
+  color: var(--mb-acc-fill-fg);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--mb-acc) 35%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.more-buttons-form-actions > .more-buttons-button::before,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button::before {
+  content: "";
+  position: absolute;
+  /* A solid downward triangle whose top edge tucks 1px under the tag body, so it
+     reads as the tag's point rather than a free-floating diamond. */
+  bottom: calc(100% + 4px);
+  left: 50%;
+  /* Above the body (z 5) so the body's box-shadow doesn't fall on — and darken —
+     the triangle. Same colour as the body, so the 1px overlap stays invisible. */
+  z-index: 6;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid var(--mb-acc);
+}
+/* Resting (hidden) state + transition. The caret and body share it. */
+.more-buttons-form-actions > .more-buttons-button::after,
+.more-buttons-form-actions > .more-buttons-button::before,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button::after,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button::before {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
+  transform-origin: bottom center;
+  transition: opacity 0.14s ease-out,
+    transform 0.14s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Reveal on hover / keyboard focus, and always while a commit is in flight. */
+.more-buttons-form-actions > .more-buttons-button:hover::after,
+.more-buttons-form-actions > .more-buttons-button:hover::before,
+.more-buttons-form-actions > .more-buttons-button:focus-visible::after,
+.more-buttons-form-actions > .more-buttons-button:focus-visible::before,
+.more-buttons-form-actions > .more-buttons-button.busy::after,
+.more-buttons-form-actions > .more-buttons-button.busy::before,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:hover::after,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:hover::before,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:focus-visible::after,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:focus-visible::before,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button.busy::after,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button.busy::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Click-disabled but still hover-tagged: pointer-events stay auto so the dimmed
+   button still reveals its (often informative) tag. Clicks are gated in JS.
+   Applies to every disabled dock button (including the settled-green `.success`
+   "saved" state, which stays full-opacity via its own rule below). */
+.more-buttons-form-actions > .more-buttons-button[aria-disabled="true"],
+.more-buttons-form-actions > .more-buttons-button:disabled:not(.busy),
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button[aria-disabled="true"],
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:disabled:not(.busy) {
+  cursor: default;
+  pointer-events: auto;        /* keep it hoverable so the tag still appears */
+  /* Defeat the base :disabled opacity. We never dim the whole element, because
+     element opacity would bleed onto the floating tag (a pseudo-element) and make
+     it translucent — the tag must stay fully opaque. */
+  opacity: 1;
+}
+/* Dim the button's FACE — icon + border — not the whole element, so the tag stays
+   opaque. Excludes `.success` (the settled "saved" confirmation is intentionally
+   full-strength). The tag itself is left at full colour. */
+.more-buttons-form-actions > .more-buttons-button[aria-disabled="true"]:not(.success),
+.more-buttons-form-actions > .more-buttons-button:disabled:not(.busy):not(.success),
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button[aria-disabled="true"]:not(.success),
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:disabled:not(.busy):not(.success) {
+  border-color: color-mix(in srgb, var(--mb-border) 65%, transparent);
+  color: var(--mb-text-disabled);
+}
+.more-buttons-form-actions > .more-buttons-button[aria-disabled="true"]:not(.success) .more-buttons-icon,
+.more-buttons-form-actions > .more-buttons-button:disabled:not(.busy):not(.success) .more-buttons-icon,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button[aria-disabled="true"]:not(.success) .more-buttons-icon,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:disabled:not(.busy):not(.success) .more-buttons-icon {
+  opacity: 0.5;                /* fade the glyph so the button reads as inactive */
 }
 
 /* ── Integrations: rate-limit panel ───────────────────────────────────────── */
@@ -714,7 +840,8 @@ button.more-buttons-crumb:hover {
 /* The saved/clean state: disabled but settled into a calm filled-green
    confirmation rather than a dimmed action. Higher specificity than the
    generic disabled rule below, so it wins regardless of source order. */
-.more-buttons-button.success:disabled {
+.more-buttons-button.success:disabled,
+.more-buttons-button.success[aria-disabled="true"] {
   opacity: 1;
   cursor: default;
   background: color-mix(in srgb, var(--mb-acc-success) 16%, transparent);
@@ -2063,7 +2190,6 @@ details[open] .more-buttons-advanced-toggle::before {
     white-space: normal;
   }
   .more-buttons-form-actions {
-    justify-content: flex-start;
     flex-wrap: wrap;
   }
 }
@@ -3015,9 +3141,28 @@ details[open] .more-buttons-advanced-toggle::before {
 
 .mb-kb-actions { display: inline-flex; align-items: center; gap: 8px; }
 
-/* Reorder-mode toggle sits apart on the left; the auto right-margin shoves the
-   remaining action buttons to the right edge in both normal and reorder modes. */
-.mb-reorder-toggle { margin-right: auto; }
+/* ── Dock group divider ────────────────────────────────────────────────────────
+   A macOS-dock-style separator between logical button groups in the action bar.
+   It rides the flex layout as a plain item (in `.more-buttons-form-actions` for
+   the guide bar, or inside a `.mb-kb-actions` group for the KB bar). Deliberately
+   restrained: a short, centred hairline — taller than a divider line but well
+   shorter than the ~2.15rem tiles — so it reads as a quiet grouping cue rather
+   than a hard rule cutting the bar in two. Inherits the theme border colour, so
+   it follows light/dark automatically. */
+.mb-dock-sep {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 1px;
+  height: 1.35rem;
+  margin: 0 3px;            /* a touch of air beyond the bar's 8px gap */
+  border-radius: 1px;
+  background: var(--mb-border);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* The reorder toggle is just another button in the centred dock — no auto margin
+   (which previously split the bar into left/right groups). */
 
 .mb-kb-move-pop { position: absolute; right: 0; z-index: 20; min-width: 240px;
   background: var(--mb-bg); border: 1px solid var(--mb-border);

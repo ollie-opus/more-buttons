@@ -3,7 +3,7 @@ import { readRepoText } from './repoClient.js';
 import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 import { upgradeTextarea } from './richTextEditor.js';
-import { formLoading } from './loading.js';
+import { formLoading, syncDockTag } from './loading.js';
 
 // Render-function contract for renderFns:
 // - Signature: (initialMarkdown, panel). `initialMarkdown` is the freshly-read
@@ -262,10 +262,16 @@ export function bindSaveStateButton(formEl) {
     // disabled style rather than a green "confirm" pill.
     btn.classList.remove('busy', 'info');
     btn.classList.toggle('success', unsaved);
-    btn.disabled = !unsaved;
-    const icon = unsaved ? 'outbound' : 'check_circle';
+    // aria-disabled (not the native attr) so the dimmed "saved" button still
+    // hover-expands to reveal its label in the dock; the click handler gates it.
+    // Clear any native disabled left by a prior setButtonBusy cycle.
+    btn.disabled = false;
+    btn.setAttribute('aria-disabled', String(!unsaved));
+    const icon = unsaved ? 'save' : 'check_circle';
     const label = unsaved ? unsavedLabel : savedLabel;
     btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>${label}`;
+    // Lift the freshly-written label into the dock tag (strips the inline text).
+    syncDockTag(btn);
   };
 
   // While a commit is in flight the button is `.busy` (amber, disabled). Ignore
@@ -282,9 +288,20 @@ export function bindSaveStateButton(formEl) {
   render();
 }
 
+// Disabled/colour gating for a reorder Save/Discard dock pair, by dirty state.
+// The reorder bars (KB + guide sections) render their own buttons rather than
+// going through bindSaveStateButton, but must match its look: aria-disable both
+// buttons while clean, and let `.success` (settled-green) ride the Save button
+// ONLY while dirty — the disabled-dimming CSS deliberately excludes `.success`,
+// so a clean `.success` Save would never dim. Returns the `aria-disabled`
+// fragment to splice into a template and the Save button's accent class.
+export function reorderButtonGating(dirty) {
+  return { dis: dirty ? '' : ' aria-disabled="true"', saveClass: dirty ? ' success' : '' };
+}
+
 // Busy-button helpers live in loading.js now; re-exported here because most
 // form modules already import them from form.js.
-export { setButtonBusy, snapshotButton, restoreButton } from './loading.js';
+export { setButtonBusy, snapshotButton, restoreButton, syncDockTag } from './loading.js';
 
 function activeGuardedForm() {
   // The currently-mounted overlay form, if it opted into the dirty guard.
@@ -442,7 +459,25 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
   // Move form-actions outside the form so it sits below the scroll area,
   // preventing the scrollbar from rendering over the buttons.
   const formActionsEl = content.querySelector('.more-buttons-form-actions');
-  if (formActionsEl) content.appendChild(formActionsEl);
+  if (formActionsEl) {
+    content.appendChild(formActionsEl);
+    // Dock buttons show their label in a floating tag above a square tile, not
+    // inline — each button's label must be lifted into `data-mb-tag` (and its
+    // inline text stripped, else it spills now that the tile is overflow:visible).
+    // Sync the initial static buttons, then keep syncing: several entry pages
+    // (guides, captureEntry, videoEntry…) rebuild this bar's innerHTML after
+    // mount, so a MutationObserver is the robust net — no page has to remember to
+    // call syncDockTag. syncDockTag is idempotent and only sets attributes /
+    // removes a text node, so the childList mutations it causes settle in one
+    // extra no-op pass (no loop). Covers direct children and the nested
+    // `.mb-kb-actions` group.
+    const syncDockTags = () =>
+      formActionsEl.querySelectorAll('.more-buttons-button').forEach(syncDockTag);
+    syncDockTags();
+    new MutationObserver(syncDockTags).observe(formActionsEl, {
+      childList: true, subtree: true,
+    });
+  }
 
   content.addEventListener('click', e => {
   const tab = e.target.closest('[data-tab]');
@@ -742,6 +777,9 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
   content.addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn || !content.contains(btn)) return;
+    // Dock buttons that are click-disabled use aria-disabled (so they can still
+    // hover-expand); a click on one is a no-op.
+    if (btn.getAttribute('aria-disabled') === 'true') return;
     if (btn.hasAttribute('data-validate') && !validateForm()) return;
 
     const steps = btn.getAttribute('data-action').split(',').map(s => s.trim());

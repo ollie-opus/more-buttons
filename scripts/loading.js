@@ -72,12 +72,37 @@ export function createFormLoading({
 // dereference `document` inside show(), which tests never reach (they inject).
 export const formLoading = createFormLoading();
 
+// ── Dock tags ───────────────────────────────────────────────────────────────
+
+// Dock action buttons (the macOS-dock bar) are square icon-only tiles; their
+// label lives in a floating tag above the tile, rendered as a CSS pseudo-element
+// that reads `data-mb-tag`. This mirrors a button's inline label into that
+// attribute (and `aria-label`, since the visible text node is then removed so the
+// square shows only its icon). Idempotent: a second call on an already-synced
+// button (icon only) finds no label and leaves the existing tag untouched.
+export function syncDockTag(btn) {
+  if (!btn || btn.nodeType !== 1) return;
+  let label = '';
+  for (const node of [...btn.childNodes]) {
+    // Keep the icon glyph; everything else is label text we lift into the tag.
+    if (node.nodeType === 1 && node.classList?.contains('more-buttons-icon')) continue;
+    label += node.textContent || '';
+    node.remove();
+  }
+  label = label.trim();
+  if (!label) return;
+  btn.dataset.mbTag = label;
+  btn.setAttribute('aria-label', label);
+}
+
 // ── Busy buttons (moved verbatim from form.js, plus the dismiss handoff) ────
 
 // Put a save/publish button into the amber "working" state while a GitHub
-// commit runs: disabled, amber, spinning change_circle icon, and a progress message.
-// The icon is built once (so the spin doesn't restart on each message tick) and
-// only the message span updates on subsequent calls.
+// commit runs: disabled, amber, spinning change_circle icon, and a progress
+// message. The progress message rides in the dock tag (`data-mb-tag`), which the
+// `.busy` rule keeps visible without a hover — so the square stays icon-only and
+// the message never doubles up inline. The icon is built once (so the spin
+// doesn't restart on each message tick); only the tag text updates after that.
 export function setButtonBusy(btn, message) {
   // A busy button is the action's own loading UX — drop any pending/visible
   // navigation veil so the two never compete.
@@ -87,18 +112,19 @@ export function setButtonBusy(btn, message) {
   if (!btn.classList.contains('busy')) {
     btn.classList.remove('info', 'success', 'publish', 'danger', 'secondary');
     btn.classList.add('busy');
-    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">change_circle</span><span data-busy-msg></span>';
+    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">change_circle</span>';
   }
-  const msgEl = btn.querySelector('[data-busy-msg]');
-  if (msgEl) msgEl.textContent = message;
-  else btn.textContent = message;
+  btn.dataset.mbTag = message;
+  btn.setAttribute('aria-label', message);
 }
 
 // Capture/restore a button's look so a non-dynamic (publish) button can be put
 // back after a busy state on error. Dynamic save buttons use _refreshSaveState
 // instead.
 export function snapshotButton(btn) {
-  return btn ? { html: btn.innerHTML, className: btn.className } : null;
+  return btn
+    ? { html: btn.innerHTML, className: btn.className, tag: btn.dataset.mbTag }
+    : null;
 }
 
 export function restoreButton(btn, snap) {
@@ -106,4 +132,8 @@ export function restoreButton(btn, snap) {
   btn.className = snap.className;
   btn.innerHTML = snap.html;
   btn.disabled = false;
+  // The busy cycle overwrote the dock tag with its progress message; put the
+  // button's own label back (snapshot taken after it was synced to icon-only).
+  if (snap.tag != null) { btn.dataset.mbTag = snap.tag; btn.setAttribute('aria-label', snap.tag); }
+  else delete btn.dataset.mbTag;
 }

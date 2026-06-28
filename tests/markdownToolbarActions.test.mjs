@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyMarker, applyLink, stripFormatting } from '../scripts/markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, stripFormatting } from '../scripts/markdownToolbarActions.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -232,6 +232,30 @@ test('applyLink splices markdown link at caret', () => {
 test('applyLink replaces a selection', () => {
   assert.deepEqual(applyLink('see here', 4, 8, 'here', 'https://x'),
     { value: 'see [here](https://x)', selStart: 21, selEnd: 21 });
+});
+
+// linkAt — detect the link enclosing the selection so the toolbar can edit it.
+test('linkAt finds the link a collapsed caret sits in', () => {
+  // 'go [docs](https://x) now', caret at source 6 (inside "docs").
+  assert.deepEqual(linkAt('go [docs](https://x) now', 6, 6),
+    { start: 3, end: 20, text: 'docs', href: 'https://x' });
+});
+test('linkAt matches a selection of the whole link text', () => {
+  assert.deepEqual(linkAt('go [docs](https://x) now', 4, 8),
+    { start: 3, end: 20, text: 'docs', href: 'https://x' });
+});
+test('linkAt returns null outside any link', () => {
+  assert.equal(linkAt('go [docs](https://x) now', 1, 1), null);
+});
+test('linkAt returns null when the selection spills past the link text', () => {
+  // Selection starts in "docs" but runs past the link into " now".
+  assert.equal(linkAt('go [docs](https://x) now', 6, 22), null);
+});
+test('editing a link replaces the whole snippet via linkAt + applyLink', () => {
+  const v = 'go [docs](https://x) now';
+  const lk = linkAt(v, 6, 6);
+  assert.deepEqual(applyLink(v, lk.start, lk.end, 'guide', 'https://y'),
+    { value: 'go [guide](https://y) now', selStart: 21, selEnd: 21 });
 });
 
 // stripFormatting — clear all inline formatting from the selection to bare text.
