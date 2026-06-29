@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyMarker, applyLink, linkAt, stripFormatting } from '../scripts/markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, stripFormatting } from '../scripts/markdownToolbarActions.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -258,6 +258,34 @@ test('editing a link replaces the whole snippet via linkAt + applyLink', () => {
     { value: 'go [guide](https://y) now', selStart: 21, selEnd: 21 });
 });
 
+// grooveAt / applyGroove — detect + insert the Groove-support anchor.
+const G = t => `<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">${t}</a>`;
+const grooveTextStart = pre => pre + G('').indexOf('</a>'); // inner text start given a prefix length
+
+test('grooveAt finds the anchor a caret sits in', () => {
+  const v = 'go ' + G('chat') + ' now';
+  const at = grooveTextStart(3) + 1;
+  assert.deepEqual(grooveAt(v, at, at), { start: 3, end: 3 + G('chat').length, text: 'chat' });
+});
+test('grooveAt returns null outside any groove anchor', () => {
+  assert.equal(grooveAt('go ' + G('chat') + ' now', 0, 0), null);
+});
+test('grooveAt returns null when the selection spills past the anchor text', () => {
+  const v = 'go ' + G('chat') + ' now';
+  assert.equal(grooveAt(v, grooveTextStart(3), v.length), null);
+});
+test('applyGroove splices the canonical anchor at a caret', () => {
+  const end = 4 + G('support').length;
+  assert.deepEqual(applyGroove('see ', 4, 4, 'support'),
+    { value: 'see ' + G('support'), selStart: end, selEnd: end });
+});
+test('editing a groove link replaces the whole anchor via grooveAt + applyGroove', () => {
+  const v = 'go ' + G('chat') + ' now';
+  const at = grooveTextStart(3) + 1;
+  const g = grooveAt(v, at, at);
+  assert.equal(applyGroove(v, g.start, g.end, 'help').value, 'go ' + G('help') + ' now');
+});
+
 // stripFormatting — clear all inline formatting from the selection to bare text.
 test('strip: two adjacent marks reduce to plain text', () => {
   // **Test** ^^ing^^ select all rendered text (source 2..14) -> Test ing.
@@ -295,6 +323,59 @@ test('strip: touching part of a link unwraps the whole link', () => {
 test('strip: collapsed selection is a no-op', () => {
   assert.deepEqual(stripFormatting('**Test**', 3, 3),
     { value: '**Test**', selStart: 3, selEnd: 3 });
+});
+
+// ── Label pills ──────────────────────────────────────────────────────────────
+const LBL = (slug, t) => `<span class="mb-label mb-label-${slug}">${t}</span>`;
+
+test('applyLabel: wraps the selection in a label span, caret after', () => {
+  // "hi there", select "there" (3..8)
+  const res = applyLabel('hi there', 3, 8, 'there', 'green');
+  assert.equal(res.value, 'hi ' + LBL('green', 'there'));
+  assert.equal(res.selStart, res.value.length);
+  assert.equal(res.selEnd, res.value.length);
+});
+test('applyLabel: insert at a collapsed caret', () => {
+  const res = applyLabel('ab', 1, 1, 'X', 'red');
+  assert.equal(res.value, 'a' + LBL('red', 'X') + 'b');
+});
+test('labelAt: caret inside a pill returns its full span range + slug', () => {
+  const value = 'go ' + LBL('amber', 'WIP') + ' now';
+  const open = 'go <span class="mb-label mb-label-amber">';
+  const caret = open.length + 1; // inside "WIP"
+  const hit = labelAt(value, caret, caret);
+  assert.equal(hit.slug, 'amber');
+  assert.equal(hit.text, 'WIP');
+  assert.equal(value.slice(hit.start, hit.end), LBL('amber', 'WIP'));
+});
+test('labelAt: caret outside any pill returns null', () => {
+  assert.equal(labelAt('plain text', 2, 2), null);
+});
+test('applyLabel over a labelAt range recolours the pill (no nesting)', () => {
+  const value = LBL('red', 'Beta');
+  const caret = '<span class="mb-label mb-label-red">'.length + 1; // inside "Beta"
+  const hit = labelAt(value, caret, caret);
+  const res = applyLabel(value, hit.start, hit.end, hit.text, 'blue');
+  assert.equal(res.value, LBL('blue', 'Beta'));
+});
+test('strip: a label pill is unwrapped to its text (colour discarded)', () => {
+  const value = 'a ' + LBL('green', 'Beta') + ' b';
+  // select the whole thing
+  assert.deepEqual(stripFormatting(value, 0, value.length),
+    { value: 'a Beta b', selStart: 0, selEnd: 'a Beta b'.length });
+});
+test('strip: touching part of a label unwraps the whole pill', () => {
+  const value = LBL('red', 'Beta');
+  const inner = '<span class="mb-label mb-label-red">'.length;
+  // select just "et" inside "Beta"
+  assert.equal(stripFormatting(value, inner + 1, inner + 3).value, 'Beta');
+});
+test('strip: an unselected label pill is preserved verbatim', () => {
+  const value = 'keep ' + LBL('slate', 'X') + ' **bold**';
+  // select only the bold word at the end
+  const at = value.indexOf('**bold**');
+  const res = stripFormatting(value, at, at + '**bold**'.length);
+  assert.equal(res.value, 'keep ' + LBL('slate', 'X') + ' bold');
 });
 
 console.log(`\n${passed} passed`);

@@ -84,6 +84,23 @@ export function navLinksComponentCard({ path, btnAttr, btnLabel = 'Edit', copyAt
   </div>`;
 }
 
+// A "Diagram" component card: grey chrome, a "Diagram" badge, a static "Diagram"
+// title, and an Edit button. The Mermaid diagram itself renders live on the
+// published site, so the card is just a labelled placeholder.
+export function diagramComponentCard({ btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+  return `
+  <div class="mb-incident-card --grey mb-component-card--capture">
+    <div class="mb-incident-card__head">
+      <strong class="mb-incident-card__title">Diagram</strong>
+      <span class="mb-incident-card__badge">Diagram</span>
+    </div>
+    <div class="mb-incident-card__foot --end">
+      ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+    </div>
+  </div>`;
+}
+
 // A capture rendered as a card matching the admonition cards: neutral/grey,
 // "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an

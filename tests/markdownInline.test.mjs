@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseInline, renderMarkdown, renderHtml, markSpans } from '../scripts/markdownInline.js';
+import { parseInline, renderMarkdown, renderHtml, markSpans, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset } from '../scripts/markdownInline.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -164,6 +164,73 @@ test('renderHtml maps newlines to <br>', () => {
 });
 test('renderHtml preserves literal markdown-looking HTML as escaped text', () => {
   assert.equal(renderHtml([{ type: 'text', value: '<div>raw</div>' }]), '&lt;div&gt;raw&lt;/div&gt;');
+});
+
+// ── Groove-support links ──────────────────────────────────────────────────────
+// Canonical anchor (raw HTML in the source so Zensical renders a working widget).
+const G = t => `<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">${t}</a>`;
+
+test('matchGroove recognizes the canonical anchor', () => {
+  const v = 'hi ' + G('sample text') + ' bye';
+  assert.deepEqual(matchGroove(v, 3), { text: 'sample text', end: 3 + G('sample text').length });
+});
+test('matchGroove returns null off a non-groove anchor', () => {
+  assert.equal(matchGroove('hello', 0), null);
+  assert.equal(matchGroove('<a href="#">x</a>', 0), null);
+});
+test('parseInline produces a groove node', () => {
+  assert.deepEqual(parseInline(G('hello')), [{ type: 'groove', text: 'hello' }]);
+});
+test('groove round-trips through renderMarkdown', () => {
+  const v = 'see ' + G('support') + ' now';
+  assert.equal(renderMarkdown(parseInline(v)), v);
+});
+test('renderHtml renders a groove badge without onclick', () => {
+  assert.equal(renderHtml([{ type: 'groove', text: 'help' }]),
+    '<a href="#" class="mb-groove-link" data-groove="1">help</a>');
+});
+test('grooveMarkup / grooveTextOffset are consistent', () => {
+  assert.equal(grooveMarkup('x'), G('x'));
+  assert.equal(grooveTextOffset, G('').indexOf('</a>')); // offset to inner text == open length
+});
+test('markSpans skips a groove anchor (no phantom spans from inner * or ==)', () => {
+  assert.deepEqual(markSpans(G('a *b* ==c==')), []);
+});
+test('markSpans still finds marks outside a groove anchor', () => {
+  assert.deepEqual(markSpans('**x** ' + G('y')).map(s => s.marker), ['**']);
+});
+
+// ── Label pills (atomic raw-HTML span, like Groove) ──────────────────────────
+const L = (slug, t) => `<span class="mb-label mb-label-${slug}">${t}</span>`;
+
+test('parseInline: a label span → atomic label node', () => {
+  assert.deepEqual(parseInline(L('red', 'Beta')), [{ type: 'label', slug: 'red', text: 'Beta' }]);
+});
+test('parseInline: label among text keeps neighbours', () => {
+  assert.deepEqual(parseInline('a ' + L('teal', 'New') + ' b'), [
+    { type: 'text', value: 'a ' },
+    { type: 'label', slug: 'teal', text: 'New' },
+    { type: 'text', value: ' b' },
+  ]);
+});
+test('renderHtml: label → class-only span (colour painted later)', () => {
+  assert.equal(renderHtml(parseInline(L('slate', 'x'))), L('slate', 'x'));
+});
+test('renderHtml: label text is escaped', () => {
+  assert.equal(renderHtml([{ type: 'label', slug: 'red', text: 'a & b' }]), L('red', 'a &amp; b'));
+});
+test('round-trip: renderMarkdown(parseInline(md)) === md', () => {
+  const md = 'see ' + L('amber', 'WIP') + ' here';
+  assert.equal(renderMarkdown(parseInline(md)), md);
+});
+test('matchLabel reads slug + text; labelMarkup/labelTextOffset are consistent', () => {
+  assert.deepEqual(matchLabel(L('rose', 'hi'), 0), { slug: 'rose', text: 'hi', end: L('rose', 'hi').length });
+  assert.equal(matchLabel('nope', 0), null);
+  assert.equal(labelMarkup('rose', 'hi'), L('rose', 'hi'));
+  assert.equal(labelTextOffset('rose'), L('rose', '').indexOf('</span>')); // offset to inner text == open length
+});
+test('markSpans skips a label span (no phantom marks from inner * or ==)', () => {
+  assert.deepEqual(markSpans(L('blue', 'a *b* ==c==')), []);
 });
 
 console.log(`\n${passed} passed`);

@@ -141,4 +141,46 @@ test('serialize drops nested empty marks', () => {
   assert.equal(serialize(el('root', el('strong', el('em')))), '');
 });
 
+// ── Groove links serialize atomically to the canonical anchor ─────────────────
+const GROOVE = t => `<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">${t}</a>`;
+function groove(...children) { const a = el('a', ...children); a.setAttribute('data-groove', '1'); return a; }
+
+test('serialize a groove link emits the canonical anchor (not [text](#))', () => {
+  assert.equal(serialize(el('root', txt('go '), groove(txt('chat')))), 'go ' + GROOVE('chat'));
+});
+test('serialize a groove link is atomic — inner marks the browser added are ignored', () => {
+  assert.equal(serialize(el('root', groove(el('strong', txt('chat'))))), GROOVE('chat'));
+});
+test('serializeWithSelection maps a caret inside a groove link to source', () => {
+  const t = txt('chat');
+  const root = el('root', txt('go '), groove(t));
+  const sel = { anchorNode: t, anchorOffset: 2, focusNode: t, focusOffset: 2 };
+  const open = '<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">';
+  assert.equal(serializeWithSelection(root, sel).selStart, ('go ' + open).length + 2);
+});
+
+// ── Label pills ──────────────────────────────────────────────────────────────
+const LABEL = (slug, t) => `<span class="mb-label mb-label-${slug}">${t}</span>`;
+function labelEl(slug, ...children) {
+  const s = el('span', ...children);
+  s.setAttribute('class', `mb-label mb-label-${slug}`);
+  return s;
+}
+
+test('serialize a label pill → canonical class-only span', () => {
+  assert.equal(serialize(el('root', labelEl('red', txt('Beta')))), LABEL('red', 'Beta'));
+});
+test('serialize a label pill is atomic — inline style / inner marks are dropped', () => {
+  const pill = labelEl('teal', el('strong', txt('New')));
+  pill.setAttribute('style', '--bg: rgb(1,2,3)'); // the painter's cosmetic style
+  assert.equal(serialize(el('root', pill)), LABEL('teal', 'New'));
+});
+test('serializeWithSelection maps a caret inside a label pill to source', () => {
+  const t = txt('New');
+  const root = el('root', txt('go '), labelEl('amber', t));
+  const sel = { anchorNode: t, anchorOffset: 1, focusNode: t, focusOffset: 1 };
+  const open = '<span class="mb-label mb-label-amber">';
+  assert.equal(serializeWithSelection(root, sel).selStart, ('go ' + open).length + 1);
+});
+
 console.log(`\n${passed} passed`);

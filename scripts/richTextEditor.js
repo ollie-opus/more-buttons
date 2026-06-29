@@ -1,5 +1,5 @@
 import { markSpans, renderDocHtml } from './markdownInline.js';
-import { applyMarker, applyLink, linkAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
@@ -94,6 +94,7 @@ export function upgradeTextarea(textarea, opts = {}) {
 
   buildButtons(rte);
   attachLinkPopover(rte);
+  attachLabelPopover(rte);
   buildTabs(rte);
   attachSurfaceEvents(rte);
   attachSelectionTracking(rte);
@@ -135,8 +136,63 @@ function makeBtn(icon, label, onClick) {
   return btn;
 }
 
+// ── Label colour palette (shared) ────────────────────────────────────────────
+// Loaded once from config/labelColours.json (the extension's existing source)
+// and cached for the session. Drives the Label popover swatches AND paints
+// `.mb-label` pills wherever they're previewed — the rich surface here, plus the
+// datatable whole-table grid (dataTablesEditor renders cells outside any surface
+// and imports paintLabels from this module). Kept out of the pure markdownInline
+// module because it needs fetch/chrome; the load is lazy so importing this module
+// stays test-safe (no fetch at import time).
+let _palettePromise = null;
+function loadLabelPalette() {
+  if (_palettePromise) return _palettePromise;
+  _palettePromise = fetch(chrome.runtime.getURL('config/labelColours.json'))
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(groups => {
+      const flat = {};
+      for (const presets of Object.values(groups)) {
+        for (const [name, preset] of Object.entries(presets)) flat[name.toLowerCase()] = preset;
+      }
+      return { groups, flat };
+    })
+    .catch(err => { console.error('MB Error: Failed to load labelColours.json:', err); return { groups: {}, flat: {} }; });
+  return _palettePromise;
+}
+
+// Paint every `.mb-label` pill under `root` from the palette by setting the CSS
+// custom props the formsStyling `.mb-label` rule consumes (light + dark, so the
+// preview tracks prefers-color-scheme). Async-safe: paints once the palette is
+// available, so a render that happened before the fetch resolved still gets
+// coloured. Re-render → call again. Purely cosmetic — serialize ignores the
+// inline style and re-emits the class-only span.
+export function paintLabels(root) {
+  if (!root) return;
+  loadLabelPalette().then(({ flat }) => {
+    root.querySelectorAll('.mb-label').forEach(span => {
+      const slug = (span.className.match(/mb-label-([a-z0-9-]+)/) || [])[1];
+      const p = slug && flat[slug];
+      if (!p) return;
+      span.style.setProperty('--bg', p.light.bg);
+      span.style.setProperty('--text', p.light.text);
+      span.style.setProperty('--border', p.light.border);
+      span.style.setProperty('--bg-dark', p.dark.bg);
+      span.style.setProperty('--text-dark', p.dark.text);
+      span.style.setProperty('--border-dark', p.dark.border);
+    });
+  });
+}
+
+// Single funnel for writing rendered markdown into the surface. Every site that
+// replaces surface.innerHTML goes through here so label pills get repainted from
+// the colour palette after each render (renderDocHtml emits class-only spans).
+function setSurfaceHtml(rte, value) {
+  rte.surface.innerHTML = renderDocHtml(value);
+  paintLabels(rte.surface);
+}
+
 function renderSurface(rte) {
-  rte.surface.innerHTML = renderDocHtml(rte.textarea.value || '');
+  setSurfaceHtml(rte, rte.textarea.value || '');
 }
 
 // Re-render the visible rich surface from the textarea's current value. Call
@@ -166,7 +222,7 @@ function syncFromSurface(rte) {
     const { selStart } = serializeWithSelection(rte.surface, window.getSelection());
     value = collapseNewlines(value);
     rte.textarea.value = value;
-    rte.surface.innerHTML = renderDocHtml(value);
+    setSurfaceHtml(rte, value);
     const caret = Math.min(selStart, value.length);
     placeCaret(rte.surface, caret, caret);
     rte.textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -179,7 +235,7 @@ function syncFromSurface(rte) {
   // from the clean source and restore the caret so typing continues unformatted.
   if (hasEmptyMark(rte.surface)) {
     const { selStart } = serializeWithSelection(rte.surface, window.getSelection());
-    rte.surface.innerHTML = renderDocHtml(value);
+    setSurfaceHtml(rte, value);
     placeCaret(rte.surface, selStart, selStart);
   }
   rte.textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -201,7 +257,7 @@ function applyResult(rte, res) {
     rte.textarea.focus();
     rte.textarea.setSelectionRange(res.selStart, res.selEnd);
   } else {
-    rte.surface.innerHTML = renderDocHtml(res.value);
+    setSurfaceHtml(rte, res.value);
     rte.surface.focus();
     placeCaret(rte.surface, res.selStart, res.selEnd);
   }
@@ -280,11 +336,25 @@ function armedInsertion(rte, value, caret, data) {
   return computeArmedInsertion(value, caret, data, pendingMarkers(rte), rte.pendingOff);
 }
 
+// Inline code and labels are EXCLUSIVE containers: their text can carry no other
+// inline formatting (bold/italic/underline/strike/highlight/link), they can't
+// nest in each other, and no inline mark may wrap them. Positional/block formats
+// (lists, indent) are unaffected. We enforce this in Rich mode by disabling the
+// conflicting toolbar buttons for the caret's context, so a format can never be
+// stacked onto — or wrapped around — a code span or label pill.
+const NON_CODE_MARK_TAGS = ['strong', 'b', 'em', 'i', 'u', 's', 'strike', 'del', 'mark'];
+
 // Light each format button to reflect what the next typed text would be: lit when
 // the caret sits inside that mark (Rich mode) or it's armed on, UNLESS it's armed
-// off (the user just clicked to exit it).
+// off (the user just clicked to exit it). Also disables buttons that would break
+// the code/label exclusivity rule above.
 function refreshActiveStates(rte) {
-  const activeTags = rte.mode === 'rich' ? selectionMarkTags(rte) : new Set();
+  const rich = rte.mode === 'rich';
+  const activeTags = rich ? selectionMarkTags(rte) : new Set();
+  const inLabel = rich && selectionInLabel(rte);
+  const inCode = activeTags.has('code');
+  const inOtherMark = NON_CODE_MARK_TAGS.some(t => activeTags.has(t));
+  const inLink = activeTags.has('a'); // normal link or groove anchor
   rte.buttons.forEach(btn => {
     const mark = btn._mark;
     if (mark) {
@@ -292,6 +362,14 @@ function refreshActiveStates(rte) {
       const active = (inside || rte.pending.has(mark.marker)) && !rte.pendingOff.has(mark.marker);
       btn.classList.toggle('--active', active);
       btn.setAttribute('aria-pressed', String(active));
+      if (mark.marker === '`') {
+        // Code: addable only from a clean context, but always toggle-OFF-able
+        // when the caret is already inside code.
+        btn.disabled = rich && !inCode && (inLabel || inOtherMark || inLink);
+      } else {
+        // Other marks can't go inside a code span or a label pill.
+        btn.disabled = rich && (inCode || inLabel);
+      }
       return;
     }
     if (btn._list) {
@@ -307,10 +385,29 @@ function refreshActiveStates(rte) {
       // unless the caret sits within an <li> (live-updated on selectionchange). In
       // Markdown mode leave them enabled — selectionchange skips that mode, so a
       // disabled flag would go stale; the transform is a harmless no-op off-list.
-      btn.disabled = rte.mode === 'rich' && !activeTags.has('li');
+      btn.disabled = rich && !activeTags.has('li');
       return;
     }
-    // The link / clear buttons carry no state.
+    if (btn._hr) {
+      // A horizontal rule can't be inserted inside a code span or label pill —
+      // it would split the exclusive container's content.
+      btn.disabled = rich && (inCode || inLabel);
+      return;
+    }
+    if (btn._link) {
+      // Links can't go inside a code span or label pill.
+      btn.disabled = rich && (inCode || inLabel);
+      return;
+    }
+    if (btn._label) {
+      // Labels are addable only from a clean context, but always editable/removable
+      // when the caret is already inside one.
+      const active = inLabel;
+      btn.classList.toggle('--active', active);
+      btn.disabled = rich && !inLabel && (inCode || inOtherMark || inLink);
+      return;
+    }
+    // The clear button carries no state.
   });
 }
 
@@ -326,6 +423,21 @@ function selectionMarkTags(rte) {
     node = node.parentNode;
   }
   return tags;
+}
+
+// Whether the caret/anchor sits inside a label pill (a `.mb-label` span). Labels
+// are spans, so they can't be told apart by tag name in selectionMarkTags — this
+// walks the ancestor chain checking the class.
+function selectionInLabel(rte) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  let node = sel.anchorNode;
+  if (!node || !rte.surface.contains(node)) return false;
+  while (node && node !== rte.surface) {
+    if (node.nodeType === 1 && node.classList && node.classList.contains('mb-label')) return true;
+    node = node.parentNode;
+  }
+  return false;
 }
 
 function buildButtons(rte) {
@@ -352,13 +464,21 @@ function buildButtons(rte) {
     // Horizontal rule (thematic break). A one-shot block insert with no active
     // state — multiline only, since a single-line cell can't hold a block.
     const hrBtn = makeBtn('horizontal_rule', 'Horizontal rule', () => runTransform(rte, insertHorizontalRule));
+    hrBtn._hr = true;
     rte.btnGroup.appendChild(hrBtn);
     rte.buttons.push(hrBtn);
   }
 
   const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());
+  linkBtn._link = true;
   rte.btnGroup.appendChild(linkBtn);
   rte.buttons.push(linkBtn);
+
+  // Label pill — always added (like Link), so it works in inline cell editors too.
+  const labelBtn = makeBtn('label', 'Label', () => rte.openLabelPopover?.());
+  labelBtn._label = true;
+  rte.btnGroup.appendChild(labelBtn);
+  rte.buttons.push(labelBtn);
 
   const clearBtn = makeBtn('format_clear', 'Clear formatting', () => runStrip(rte));
   rte.btnGroup.appendChild(clearBtn);
@@ -484,8 +604,18 @@ function attachLinkPopover(rte) {
   popover.className = 'mb-rte__popover';
   popover.hidden = true;
   popover.innerHTML = `
-    <label class="mb-rte__field"><span>Text</span><input type="text" data-link-text></label>
-    <label class="mb-rte__field"><span>URL</span><input type="text" data-link-url placeholder="https://"></label>
+    <div class="mb-rte__tabs" role="tablist">
+      <button type="button" class="mb-rte__tab" data-tab="url">URL</button>
+      <button type="button" class="mb-rte__tab" data-tab="groove">Groove Support</button>
+    </div>
+    <div class="mb-rte__panel" data-panel="url">
+      <label class="mb-rte__field"><span>Text</span><input type="text" data-link-text></label>
+      <label class="mb-rte__field"><span>URL</span><input type="text" data-link-url placeholder="https://"></label>
+    </div>
+    <div class="mb-rte__panel" data-panel="groove" hidden>
+      <p class="mb-rte__hint">Creates an embedded link that opens the Groove support popup widget.</p>
+      <label class="mb-rte__field"><span>Text</span><input type="text" data-groove-text></label>
+    </div>
     <div class="mb-rte__popover-actions">
       <button type="button" class="mb-rte__popover-btn" data-link-cancel>Cancel</button>
       <button type="button" class="mb-rte__popover-btn --primary" data-link-insert>Insert</button>
@@ -494,6 +624,31 @@ function attachLinkPopover(rte) {
 
   const textInput = popover.querySelector('[data-link-text]');
   const urlInput = popover.querySelector('[data-link-url]');
+  const grooveInput = popover.querySelector('[data-groove-text]');
+  const tabs = [...popover.querySelectorAll('[data-tab]')];
+  const panels = [...popover.querySelectorAll('[data-panel]')];
+  let activeTab = 'url';
+
+  // Show one tab's panel and focus its first input. Used by the tab buttons and
+  // by openLinkPopover when detection picks a tab from the caret context.
+  const setTab = (name, focus = true) => {
+    activeTab = name;
+    for (const t of tabs) t.classList.toggle('--active', t.dataset.tab === name);
+    for (const p of panels) p.hidden = p.dataset.panel !== name;
+    if (focus) (name === 'groove' ? grooveInput : urlInput).focus();
+  };
+  // Carry the Text across when the user switches tabs so it's preserved (the two
+  // tabs each have their own Text input; the URL/Groove specifics don't carry).
+  for (const t of tabs) t.addEventListener('click', () => {
+    const to = t.dataset.tab;
+    if (to !== activeTab) {
+      const fromInput = activeTab === 'groove' ? grooveInput : textInput;
+      const toInput = to === 'groove' ? grooveInput : textInput;
+      toInput.value = fromInput.value;
+    }
+    setTab(to);
+  });
+
   const onDocMouseDown = e => {
     if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
   };
@@ -501,27 +656,51 @@ function attachLinkPopover(rte) {
 
   rte.openLinkPopover = () => {
     saved = currentSelection(rte); // capture before focus moves to the popover inputs
-    // If the selection sits inside an existing link, edit it: prefill both
-    // fields from that link and widen the saved range to its whole `[text](url)`
-    // syntax so Insert REPLACES the link rather than nesting a new one in it.
-    const existing = linkAt(saved.value, saved.selStart, saved.selEnd);
-    if (existing) {
-      saved.selStart = existing.start;
-      saved.selEnd = existing.end;
-      textInput.value = existing.text;
-      urlInput.value = existing.href;
-    } else {
-      textInput.value = saved.value.slice(saved.selStart, saved.selEnd);
-      urlInput.value = '';
-    }
+    const selText = saved.value.slice(saved.selStart, saved.selEnd);
+    // Close any sibling popover (e.g. the label one) so only this is visible.
+    for (const p of toolbar.parentNode.querySelectorAll('.mb-rte__popover')) if (p !== popover) p.hidden = true;
+    // Show first: setTab focuses an input, which is a no-op while still hidden.
     popover.hidden = false;
     document.addEventListener('mousedown', onDocMouseDown);
-    urlInput.focus();
+    // Detection picks the tab and prefills. When the caret sits inside an existing
+    // link/anchor we widen the saved range to its whole syntax so Insert REPLACES
+    // it rather than nesting a new one inside it.
+    const groove = grooveAt(saved.value, saved.selStart, saved.selEnd);
+    const link = groove ? null : linkAt(saved.value, saved.selStart, saved.selEnd);
+    if (groove) {
+      saved.selStart = groove.start;
+      saved.selEnd = groove.end;
+      grooveInput.value = groove.text;
+      textInput.value = ''; urlInput.value = '';
+      setTab('groove');
+    } else if (link) {
+      saved.selStart = link.start;
+      saved.selEnd = link.end;
+      textInput.value = link.text;
+      urlInput.value = link.href;
+      grooveInput.value = '';
+      setTab('url');
+    } else {
+      // Plain text / selection: seed both tabs' Text from the selection so either
+      // kind wraps it; default to the URL tab.
+      textInput.value = selText;
+      urlInput.value = '';
+      grooveInput.value = selText;
+      setTab('url');
+    }
   };
 
   popover.querySelector('[data-link-cancel]').addEventListener('click', close);
 
   popover.querySelector('[data-link-insert]').addEventListener('click', () => {
+    if (activeTab === 'groove') {
+      const text = grooveInput.value.trim();
+      if (!text) { close(); return; } // empty text → no-op
+      close();
+      clearArmed(rte);
+      applyResult(rte, applyGroove(saved.value, saved.selStart, saved.selEnd, text));
+      return;
+    }
     const url = urlInput.value.trim();
     const text = textInput.value.trim() || url;
     if (!url) { close(); return; } // empty URL → no-op
@@ -531,5 +710,133 @@ function attachLinkPopover(rte) {
   });
 
   // Esc dismiss (click-outside is wired in openLinkPopover/close).
+  popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+}
+
+// Coloured "label" pill popover. Mirrors attachLinkPopover: a Text field plus a
+// grid of colour swatches (loaded from config/labelColours.json — the same source
+// the rest of the extension uses). Inserts a class-only `<span class="mb-label
+// mb-label-<slug>">` via applyLabel; recolours/removes an existing pill when the
+// caret sits inside one (detected with labelAt). Available in inline cells too.
+function attachLabelPopover(rte) {
+  const { toolbar } = rte;
+  let saved = null;        // { value, selStart, selEnd } captured when the popover opens
+  let selectedSlug = null; // the swatch the user picked (or the edited pill's colour)
+  let firstSlug = null;    // default selection for a fresh insert
+
+  const popover = document.createElement('div');
+  popover.className = 'mb-rte__popover mb-rte__popover--label';
+  popover.hidden = true;
+  popover.innerHTML = `
+    <div class="mb-rte__panel" data-panel="label">
+      <label class="mb-rte__field"><span>Text</span><input type="text" data-label-text></label>
+      <div class="mb-rte__swatch-grid" data-label-swatches></div>
+    </div>
+    <div class="mb-rte__popover-actions">
+      <button type="button" class="mb-rte__popover-btn" data-label-remove hidden>Remove</button>
+      <button type="button" class="mb-rte__popover-btn" data-label-cancel>Cancel</button>
+      <button type="button" class="mb-rte__popover-btn --primary" data-label-insert>Insert</button>
+    </div>`;
+  toolbar.parentNode.insertBefore(popover, toolbar.nextSibling);
+
+  const textInput = popover.querySelector('[data-label-text]');
+  const swatches = popover.querySelector('[data-label-swatches]');
+  const removeBtn = popover.querySelector('[data-label-remove]');
+  const swatchBtns = [];
+
+  const selectSwatch = slug => {
+    selectedSlug = slug;
+    swatchBtns.forEach(b => b.classList.toggle('--selected', b.dataset.slug === slug));
+  };
+
+  // Build the grouped swatch grid from the loaded palette. Each swatch carries
+  // its colours as the same CSS custom props the .mb-label rule consumes, so it
+  // renders as a live pill of that colour.
+  const buildSwatches = groups => {
+    swatches.replaceChildren();
+    swatchBtns.length = 0;
+    for (const [groupName, presets] of Object.entries(groups)) {
+      const title = document.createElement('span');
+      title.className = 'mb-rte__swatch-title';
+      title.textContent = groupName;
+      swatches.appendChild(title);
+      const row = document.createElement('div');
+      row.className = 'mb-rte__swatch-row';
+      for (const [name, preset] of Object.entries(presets)) {
+        const slug = name.toLowerCase();
+        if (firstSlug === null) firstSlug = slug;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mb-label mb-rte__swatch mb-label-' + slug;
+        btn.dataset.slug = slug;
+        btn.textContent = name;
+        btn.style.setProperty('--bg', preset.light.bg);
+        btn.style.setProperty('--text', preset.light.text);
+        btn.style.setProperty('--border', preset.light.border);
+        btn.style.setProperty('--bg-dark', preset.dark.bg);
+        btn.style.setProperty('--text-dark', preset.dark.text);
+        btn.style.setProperty('--border-dark', preset.dark.border);
+        btn.addEventListener('mousedown', e => e.preventDefault()); // keep selection
+        btn.addEventListener('click', () => selectSwatch(slug));
+        swatchBtns.push(btn);
+        row.appendChild(btn);
+      }
+      swatches.appendChild(row);
+    }
+  };
+
+  // Build the swatch grid once the shared palette is loaded. The surface itself
+  // is painted via setSurfaceHtml → paintLabels (which awaits the same cache).
+  loadLabelPalette().then(({ groups }) => buildSwatches(groups));
+
+  const onDocMouseDown = e => {
+    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
+  };
+  const close = () => { popover.hidden = true; document.removeEventListener('mousedown', onDocMouseDown); };
+
+  rte.openLabelPopover = () => {
+    saved = currentSelection(rte);
+    const selText = saved.value.slice(saved.selStart, saved.selEnd);
+    // Close any sibling popover (e.g. the link one) so only this is visible.
+    for (const p of toolbar.parentNode.querySelectorAll('.mb-rte__popover')) if (p !== popover) p.hidden = true;
+    popover.hidden = false;
+    document.addEventListener('mousedown', onDocMouseDown);
+    const existing = labelAt(saved.value, saved.selStart, saved.selEnd);
+    if (existing) {
+      // Caret inside a pill: widen to its whole span so Insert REPLACES it, prefill
+      // its text + colour, and offer Remove.
+      saved.selStart = existing.start;
+      saved.selEnd = existing.end;
+      textInput.value = existing.text;
+      selectSwatch(existing.slug);
+      removeBtn.hidden = false;
+    } else {
+      textInput.value = selText;
+      selectSwatch(selectedSlug || firstSlug);
+      removeBtn.hidden = true;
+    }
+    textInput.focus();
+  };
+
+  popover.querySelector('[data-label-cancel]').addEventListener('click', close);
+
+  popover.querySelector('[data-label-insert]').addEventListener('click', () => {
+    const text = textInput.value.trim();
+    const slug = selectedSlug || firstSlug;
+    if (!text || !slug) { close(); return; } // nothing to insert → no-op
+    close();
+    clearArmed(rte);
+    applyResult(rte, applyLabel(saved.value, saved.selStart, saved.selEnd, text, slug));
+  });
+
+  removeBtn.addEventListener('click', () => {
+    // Unwrap the pill back to its plain text.
+    const text = textInput.value;
+    const caret = saved.selStart + text.length;
+    close();
+    clearArmed(rte);
+    applyResult(rte, { value: saved.value.slice(0, saved.selStart) + text + saved.value.slice(saved.selEnd), selStart: caret, selEnd: caret });
+  });
+
   popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 }

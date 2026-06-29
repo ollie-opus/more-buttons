@@ -27,6 +27,7 @@ import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from 
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from './grid.js';
 import { locateButtonLines, buildButtonLines, ensureButtonUUIDs } from './mdButtons.js';
+import { locateDiagramLines, buildDiagramLines, ensureDiagramUUIDs } from './mdDiagrams.js';
 import { locateNavLinksLines, buildNavLinksLines, ensureNavLinksUUIDs } from './navLinks.js';
 
 // Per-line capture matchers (mirror captures.js' parseExistingCaptures, but
@@ -282,6 +283,10 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   const topNavLinks = locateNavLinksLines(src)
     .filter(n => n.indent === '' && !inContainer(n.startLine));
 
+  // Top-level diagrams: indent 0 and not buried inside an admonition or grid.
+  const topDiagrams = locateDiagramLines(src)
+    .filter(d => d.indent === '' && !inContainer(d.startLine));
+
   const items = [
     ...adms
       .filter(a => !inAnyRange(a.headerLine, gridRanges))
@@ -328,6 +333,12 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
       startLine: n.startLine,
       endLine: n.endLine,
     })),
+    ...topDiagrams.map(d => ({
+      kind: 'diagram',
+      dia: { uuid: d.uuid ?? null, code: d.code },
+      startLine: d.startLine,
+      endLine: d.endLine,
+    })),
   ].sort((a, b) => a.startLine - b.startLine);
 
   const description = extractDescription(src, items);
@@ -341,6 +352,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     if (it.kind === 'video') return { kind: 'video', vid: it.vid };
     if (it.kind === 'button') return { kind: 'button', btn: it.btn };
     if (it.kind === 'navlinks') return { kind: 'navlinks', nav: it.nav };
+    if (it.kind === 'diagram') return { kind: 'diagram', dia: it.dia };
     return { kind: 'capture', cap: it.cap };
   });
 
@@ -415,6 +427,9 @@ export function buildComponentBody(uuid, description, components) {
     } else if (c.kind === 'navlinks') {
       // buildNavLinksLines emits a leading '' we don't want (we add our own).
       lines.push(...buildNavLinksLines([c.nav]).slice(1));
+    } else if (c.kind === 'diagram') {
+      // buildDiagramLines emits a leading '' we don't want (we add our own).
+      lines.push(...buildDiagramLines([c.dia]).slice(1));
     } else {
       // buildCaptureLines emits a leading '' we don't want (we add our own).
       lines.push(...buildCaptureLines([c.cap]).slice(1));
@@ -483,6 +498,7 @@ export function uuidOfComponent(c) {
   if (c.kind === 'video') return c.vid.uuid;
   if (c.kind === 'button') return c.btn.uuid;
   if (c.kind === 'navlinks') return c.nav.uuid;
+  if (c.kind === 'diagram') return c.dia.uuid;
   return c.cap.uuid;
 }
 
@@ -515,10 +531,10 @@ export function componentMarkdown(component) {
 export function parsePastedComponents(text) {
   const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  const withUuids = ensureNavLinksUUIDs(ensureButtonUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE))))))));
+  const withUuids = ensureDiagramUUIDs(ensureNavLinksUUIDs(ensureButtonUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)))))))));
   const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
   if (components.length === 0) {
-    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video, button or nav links).' };
+    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video, button, nav links or diagram).' };
   }
   if (description.trim() !== '') {
     return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };

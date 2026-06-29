@@ -18,6 +18,7 @@ import './dataTablesEditor.js';
 import './gridEditor.js';
 import './buttonEditor.js';
 import './navLinksEditor.js';
+import './diagramEditor.js';
 import './integrations.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';

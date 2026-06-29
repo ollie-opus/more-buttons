@@ -38,6 +38,60 @@ function findClosing(text, start, marker) {
   return -1;
 }
 
+// Groove-support links. The published page needs a raw HTML anchor that opens
+// the Groove widget on click — markdown link syntax can't carry the onclick — so
+// the anchor is stored verbatim in the source and treated as one atomic node.
+// Only the inner text varies; everything else is fixed boilerplate.
+const GROOVE_OPEN = '<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">';
+const GROOVE_CLOSE = '</a>';
+// Recognise the canonical anchor (tolerant of minor whitespace). Inner text is
+// plain — no '<', so the lazy `[^<]*` can't swallow a following tag.
+const GROOVE_RE = /^<a\s+href="#"\s+onclick="event\.preventDefault\(\);\s*window\.groove\.widget\.open\(\);\s*">([^<]*)<\/a>/;
+
+// Build the canonical Groove anchor around `text`.
+export function grooveMarkup(text) {
+  return GROOVE_OPEN + text + GROOVE_CLOSE;
+}
+
+// Source-offset distance from a Groove anchor's start to its inner text, so the
+// DOM->source mapping can place a caret that sits inside the rendered badge.
+export const grooveTextOffset = GROOVE_OPEN.length;
+
+// Match a Groove anchor at `i`. Returns { text, end } (end = past '</a>') or null.
+export function matchGroove(text, i) {
+  if (text[i] !== '<') return null;
+  const m = GROOVE_RE.exec(text.slice(i));
+  return m ? { text: m[1], end: i + m[0].length } : null;
+}
+
+// Coloured "label" pills. Like the Groove anchor these are stored as a raw HTML
+// span in the source (md_in_html renders it on the published Zensical site) and
+// treated as one atomic node — plain text only, no nested formatting. The colour
+// lives entirely in the class: `mb-label` (shape) + `mb-label-<slug>` (palette
+// colour). The in-editor preview reads the slug from the class and paints the
+// pill from labelColours.json; serialize re-emits this canonical, class-only form.
+// Inner text is plain — no '<', so the lazy `[^<]*` can't swallow a following tag.
+const LABEL_RE = /^<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/span>/;
+
+// Build the canonical label span around `text` for the given colour `slug`.
+export function labelMarkup(slug, text) {
+  return `<span class="mb-label mb-label-${slug}">${text}</span>`;
+}
+
+// Source-offset distance from a label span's start to its inner text, so the
+// DOM->source mapping can place a caret inside the rendered pill. Varies with the
+// slug length, so it's a function (unlike the fixed grooveTextOffset).
+export function labelTextOffset(slug) {
+  return `<span class="mb-label mb-label-${slug}">`.length;
+}
+
+// Match a label span at `i`. Returns { slug, text, end } (end = past '</span>') or null.
+export function matchLabel(text, i) {
+  if (text[i] !== '<') return null;
+  const m = LABEL_RE.exec(text.slice(i));
+  return m ? { slug: m[1], text: m[2], end: i + m[0].length } : null;
+}
+
 // [text](url) — no nested brackets in v1; link text is plain.
 export function matchLink(text, i) {
   if (text[i] !== '[') return null;
@@ -58,6 +112,23 @@ export function parseInline(text) {
 
   let i = 0;
   while (i < text.length) {
+    if (text[i] === '<') {
+      const groove = matchGroove(text, i);
+      if (groove) {
+        flush();
+        nodes.push({ type: 'groove', text: groove.text });
+        i = groove.end;
+        continue;
+      }
+      const label = matchLabel(text, i);
+      if (label) {
+        flush();
+        nodes.push({ type: 'label', slug: label.slug, text: label.text });
+        i = label.end;
+        continue;
+      }
+    }
+
     if (text[i] === '[') {
       const link = matchLink(text, i);
       if (link) {
@@ -105,6 +176,12 @@ export function markSpans(value) {
   const walk = (text, base) => {
     let i = 0;
     while (i < text.length) {
+      if (text[i] === '<') {
+        const groove = matchGroove(text, i);
+        if (groove) { i = groove.end; continue; } // skip groove anchors; their raw HTML holds no marks
+        const label = matchLabel(text, i);
+        if (label) { i = label.end; continue; } // skip label pills; atomic raw HTML, no marks inside
+      }
       if (text[i] === '[') {
         const link = matchLink(text, i);
         if (link) { i = link.end; continue; } // skip links; markers in URLs aren't marks
@@ -144,6 +221,8 @@ const MARK_DELIM = {
 export function renderMarkdown(nodes) {
   return nodes.map(n => {
     if (n.type === 'text') return n.value;
+    if (n.type === 'groove') return grooveMarkup(n.text);
+    if (n.type === 'label') return labelMarkup(n.slug, n.text);
     if (n.type === 'link') return `[${renderMarkdown(n.children)}](${n.href})`;
     const d = MARK_DELIM[n.type];
     return d + renderMarkdown(n.children) + d;
@@ -170,6 +249,13 @@ function escapeAttr(s) {
 export function renderHtml(nodes) {
   return nodes.map(n => {
     if (n.type === 'text') return escapeHtml(n.value).replace(/\n/g, '<br>');
+    // Editor preview only: render WITHOUT the onclick so the widget can't fire
+    // while authoring; `data-groove` is the round-trip marker for domToNodes /
+    // buildSource. The real onclick anchor is re-emitted by renderMarkdown.
+    if (n.type === 'groove') return `<a href="#" class="mb-groove-link" data-groove="1">${escapeHtml(n.text)}</a>`;
+    // Editor preview: same class-only span the source carries (the round-trip
+    // marker is the `mb-label` class itself); richTextEditor paints the colour.
+    if (n.type === 'label') return `<span class="mb-label mb-label-${n.slug}">${escapeHtml(n.text)}</span>`;
     if (n.type === 'link') return `<a href="${escapeAttr(n.href)}">${renderHtml(n.children)}</a>`;
     return `<${TAG[n.type]}>${renderHtml(n.children)}</${TAG[n.type]}>`;
   }).join('');
@@ -295,8 +381,18 @@ export function domToNodes(root) {
     if (markType) { out.push({ type: markType, children: domToNodes(child) }); return; }
 
     if (tag === 'a') {
+      if (child.getAttribute('data-groove') != null) { out.push({ type: 'groove', text: child.textContent }); return; }
       out.push({ type: 'link', href: child.getAttribute('href') || '', children: [{ type: 'text', value: child.textContent }] });
       return;
+    }
+
+    if (tag === 'span') {
+      const cls = (child.getAttribute && child.getAttribute('class')) || '';
+      if (/(?:^|\s)mb-label(?:\s|$)/.test(cls)) {
+        const slug = (cls.match(/mb-label-([a-z0-9-]+)/) || [])[1] || '';
+        out.push({ type: 'label', slug, text: child.textContent });
+        return;
+      }
     }
 
     if (tag === 'div' || tag === 'p') {

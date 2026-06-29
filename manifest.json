@@ -101,6 +101,8 @@
         "scripts/buttonEditor.js",
         "scripts/navLinks.js",
         "scripts/navLinksEditor.js",
+        "scripts/mdDiagrams.js",
+        "scripts/diagramEditor.js",
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js",

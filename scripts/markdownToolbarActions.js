@@ -3,7 +3,7 @@
 // value and the selection range to restore. No DOM, no side effects — unit
 // tested in tests/markdownToolbarActions.test.mjs.
 
-import { markSpans, matchLink, LIST_ITEM_RE } from './markdownInline.js';
+import { markSpans, matchLink, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset, LIST_ITEM_RE } from './markdownInline.js';
 
 // Every delimiter the toolbar can insert. Order matters: longer delimiters that
 // share a leading character ('**' before '*') must come first so the layer
@@ -351,12 +351,15 @@ function scanLinks(value) {
 // unselected part stays formatted (e.g. **Testing** with "ing" selected ->
 // **Test**ing). Links are atomic: touching any of a link's text unwraps the
 // whole link to its plain text (the URL is discarded), so we never emit half a
-// link. Pure: (value, selStart, selEnd) -> { value, selStart, selEnd }.
+// link. Label pills are atomic the same way: touching any of a label's text
+// unwraps the whole pill to its plain text (the colour is discarded).
+// Pure: (value, selStart, selEnd) -> { value, selStart, selEnd }.
 export function stripFormatting(value, selStart, selEnd) {
   if (selStart >= selEnd) return { value, selStart, selEnd }; // nothing selected
 
   const spans = markSpans(value); // marks, outer-first
   const links = scanLinks(value);
+  const labels = scanLabels(value); // atomic, like links
 
   // Identity tokens carrying their open/close delimiter text. Mark delimiters
   // are symmetric (open === close); a link opens with '[' and closes with its
@@ -364,6 +367,9 @@ export function stripFormatting(value, selStart, selEnd) {
   // (===) and never merge two distinct adjacent marks into one.
   const markToken = new Map(spans.map(sp => [sp, { open: sp.marker, close: sp.marker }]));
   const linkToken = new Map(links.map(lk => [lk, { open: '[', close: '](' + lk.href + ')' }]));
+  // A label opens with its `<span class="mb-label mb-label-slug">` tag (read
+  // straight from the source) and closes with `</span>`.
+  const labelToken = new Map(labels.map(l => [l, { open: value.slice(l.start, l.textStart), close: '</span>' }]));
 
   // Which source indices are structural (delimiters / link syntax) and so never
   // emitted as content. Everything else is a rendered character.
@@ -379,10 +385,17 @@ export function stripFormatting(value, selStart, selEnd) {
       if (value[p] === ')') break;
     }
   }
+  for (const l of labels) {
+    for (let p = l.start; p < l.textStart; p++) structural[p] = true; // '<span ...>'
+    for (let p = l.textEnd; p < l.end; p++) structural[p] = true;     // '</span>'
+  }
 
-  // A link is selected wholesale if any of its text falls in the selection.
+  // A link / label is selected wholesale if any of its text falls in the selection.
   const linkSelected = new Map(
     links.map(lk => [lk, selStart < lk.textEnd && selEnd > lk.textStart]),
+  );
+  const labelSelected = new Map(
+    labels.map(l => [l, selStart < l.textEnd && selEnd > l.textStart]),
   );
 
   // Build the rendered units: each content char with its format stack
@@ -397,7 +410,11 @@ export function stripFormatting(value, selStart, selEnd) {
     }
     const link = links.find(lk => lk.textStart <= pos && pos < lk.textEnd);
     if (link) stack.push(linkToken.get(link));
-    const selected = (pos >= selStart && pos < selEnd) || (link && linkSelected.get(link));
+    const label = labels.find(l => l.textStart <= pos && pos < l.textEnd);
+    if (label) stack.push(labelToken.get(label));
+    const selected = (pos >= selStart && pos < selEnd)
+      || (link && linkSelected.get(link))
+      || (label && labelSelected.get(label));
     units.push({ ch: value[pos], stack: selected ? [] : stack, selected });
   }
 
@@ -651,6 +668,93 @@ export function linkAt(value, selStart, selEnd) {
 // Caret is placed after the inserted snippet.
 export function applyLink(value, selStart, selEnd, text, url) {
   const snippet = `[${text}](${url})`;
+  const caret = selStart + snippet.length;
+  return {
+    value: value.slice(0, selStart) + snippet + value.slice(selEnd),
+    selStart: caret,
+    selEnd: caret,
+  };
+}
+
+// Every Groove anchor in `value`, left-to-right, with source ranges. `text` is
+// the rendered range between '>' and '</a>'; [start, end) is the whole anchor.
+function scanGroove(value) {
+  const out = [];
+  let i = 0;
+  while (i < value.length) {
+    if (value[i] === '<') {
+      const g = matchGroove(value, i);
+      if (g) {
+        const textStart = i + grooveTextOffset;
+        out.push({ start: i, end: g.end, textStart, textEnd: textStart + g.text.length, text: g.text });
+        i = g.end;
+        continue;
+      }
+    }
+    i++;
+  }
+  return out;
+}
+
+// Find the Groove anchor whose rendered text the selection sits within, so the
+// toolbar can EDIT it instead of nesting a new one. Mirror of linkAt. Returns
+// `{ start, end, text }` (the whole `[start, end)` anchor range), or null.
+export function grooveAt(value, selStart, selEnd) {
+  const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
+  for (const g of scanGroove(value)) {
+    if (lo >= g.textStart && hi <= g.textEnd) return { start: g.start, end: g.end, text: g.text };
+  }
+  return null;
+}
+
+// Splice the canonical Groove anchor at the selection, replacing it. Caret after
+// the inserted snippet. Mirror of applyLink.
+export function applyGroove(value, selStart, selEnd, text) {
+  const snippet = grooveMarkup(text);
+  const caret = selStart + snippet.length;
+  return {
+    value: value.slice(0, selStart) + snippet + value.slice(selEnd),
+    selStart: caret,
+    selEnd: caret,
+  };
+}
+
+// Every label pill in `value`, left-to-right, with source ranges. `text` is the
+// rendered range between '>' and '</span>'; [start, end) is the whole span.
+// Mirror of scanGroove.
+function scanLabels(value) {
+  const out = [];
+  let i = 0;
+  while (i < value.length) {
+    if (value[i] === '<') {
+      const l = matchLabel(value, i);
+      if (l) {
+        const textStart = i + labelTextOffset(l.slug);
+        out.push({ start: i, end: l.end, slug: l.slug, textStart, textEnd: textStart + l.text.length, text: l.text });
+        i = l.end;
+        continue;
+      }
+    }
+    i++;
+  }
+  return out;
+}
+
+// Find the label pill whose rendered text the selection sits within, so the
+// toolbar can EDIT/recolour it instead of nesting a new one. Mirror of grooveAt.
+// Returns `{ start, end, text, slug }` (the whole `[start, end)` span range), or null.
+export function labelAt(value, selStart, selEnd) {
+  const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
+  for (const l of scanLabels(value)) {
+    if (lo >= l.textStart && hi <= l.textEnd) return { start: l.start, end: l.end, text: l.text, slug: l.slug };
+  }
+  return null;
+}
+
+// Splice the canonical label span at the selection, replacing it. Caret after
+// the inserted snippet. Mirror of applyGroove.
+export function applyLabel(value, selStart, selEnd, text, slug) {
+  const snippet = labelMarkup(slug, text);
   const caret = selStart + snippet.length;
   return {
     value: value.slice(0, selStart) + snippet + value.slice(selEnd),

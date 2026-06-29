@@ -1,0 +1,13 @@
+<form data-nav data-dirty-guard id="edit-diagram-form" data-storage-key="moreButtonsEditDiagram" data-width="90vw" data-height="90vh">
+  <h2 data-diagram-heading>Edit diagram</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Mermaid code</label>
+    <textarea name="diagramCode" class="--code" rows="16" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="graph TD&#10;  A[Start] --> B[End]" required></textarea>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditDiagram" data-validate data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">save</span>Save to draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteDiagram" data-delete-diagram-btn><span class="more-buttons-icon">delete</span>Delete</button>
+  </div>
+</form>

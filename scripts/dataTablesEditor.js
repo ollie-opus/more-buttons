@@ -38,7 +38,7 @@ import {
 } from './dataTables.js';
 import { spliceIntoContainer, beginChildNavigation } from './guides.js';
 import { openInsertMenu } from './insertMenu.js';
-import { syncSurfaceFromTextarea } from './richTextEditor.js';
+import { syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
 import { renderDocHtml } from './markdownInline.js';
 import { escapeHtml, captureComponentCard } from './cardRenderer.js';
 import { assetCdnUrl } from './repoClient.js';
@@ -119,6 +119,7 @@ function renderGrid(formEl) {
   grid.innerHTML =
     `<thead><tr>${st.header.map((h, c) => cell(-1, c, h)).join('')}${editCell(-1)}</tr></thead>` +
     `<tbody>${st.rows.map((r, ri) => `<tr>${r.map((v, c) => cell(ri, c, v)).join('')}${editCell(ri)}</tr>`).join('')}</tbody>`;
+  paintLabels(grid); // colour any label pills in the rendered cell previews
   refreshControls(formEl);
 }
 

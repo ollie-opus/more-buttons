@@ -35,7 +35,7 @@ import {
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
-import { escapeHtml, captureComponentCard, videoComponentCard, buttonComponentCard, navLinksComponentCard } from './cardRenderer.js';
+import { escapeHtml, captureComponentCard, videoComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
@@ -1167,6 +1167,13 @@ function navLinksComponentCardFor(nav) {
   });
 }
 
+function diagramComponentCardFor(dia) {
+  return diagramComponentCard({
+    btnAttr: `data-edit-diagram-component="${escapeHtml(dia.uuid ?? '')}"`,
+    copyAttr: dia.uuid ? `data-copy-component-md="${escapeHtml(dia.uuid)}"` : '',
+  });
+}
+
 // Renders an ordered component list (admonitions + captures) interleaved with
 // "+ Insert Component" triggers. Step admonitions are numbered in document order
 // when `numberSteps` is set (section level only — sub-admonition steps aren't
@@ -1202,6 +1209,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
       card = buttonComponentCardFor(c.btn);
     } else if (c.kind === 'navlinks') {
       card = navLinksComponentCardFor(c.nav);
+    } else if (c.kind === 'diagram') {
+      card = diagramComponentCardFor(c.dia);
     } else {
       card = captureComponentCardFor(c.cap);
     }
@@ -1294,6 +1303,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'video') await runComponentVideoLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'button') await getFormAction('openCreateButton')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'navlinks') await getFormAction('openCreateNavLinks')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'diagram') await getFormAction('openCreateDiagram')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'table') await getFormAction('openCreateDataTable')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'grid') await getFormAction('openCreateGrid')?.({ container, insertAtIndex: action.insertAt });
@@ -1308,6 +1318,8 @@ async function runChildAction(container, formEl, action) {
     await getFormAction('openEditButton')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-navlinks') {
     await getFormAction('openEditNavLinks')?.({ uuid: action.uuid, file: container.file });
+  } else if (action.type === 'edit-diagram') {
+    await getFormAction('openEditDiagram')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-tabs') {
     await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-table') {
@@ -1376,6 +1388,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editDiagram = e.target.closest('[data-edit-diagram-component]');
+  if (editDiagram) {
+    beginChildNavigation(formEl, { type: 'edit-diagram', uuid: editDiagram.dataset.editDiagramComponent });
+    return;
+  }
+
   const editTabs = e.target.closest('[data-edit-content-tabs]');
   if (editTabs) {
     beginChildNavigation(formEl, { type: 'edit-tabs', uuid: editTabs.dataset.editContentTabs });
@@ -1408,6 +1426,7 @@ export function onComponentEditorClick(e) {
       video: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'video', insertAt: i }),
       button: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'button', insertAt: i }),
       navLinks: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'navlinks', insertAt: i }),
+      diagram: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'diagram', insertAt: i }),
       pasteMarkdown: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'paste-markdown', insertAt: i }),
     });
     return;
@@ -1437,6 +1456,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditButton')?.({ uuid: component.btn.uuid, file: container.file });
   } else if (component.kind === 'navlinks') {
     await getFormAction('openEditNavLinks')?.({ uuid: component.nav.uuid, file: container.file });
+  } else if (component.kind === 'diagram') {
+    await getFormAction('openEditDiagram')?.({ uuid: component.dia.uuid, file: container.file });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -1676,6 +1697,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {
         labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || 'Nav links' };
+      } else if (c.kind === 'diagram') {
+        labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
@@ -2143,6 +2166,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {
         labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || 'Nav links' };
+      } else if (c.kind === 'diagram') {
+        labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
