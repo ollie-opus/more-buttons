@@ -70,7 +70,13 @@ export function locateDiagramLines(body) {
     }
     if (close === -1) continue; // unterminated fence — not a complete diagram
 
-    const code = lines.slice(i + 1, close).join('\n');
+    // Dedent the code to the fence indent so `code` is the author's canonical
+    // source (what the textarea shows / the merge baseline compares), never the
+    // ancestor's indent. replaceDiagramByUUID re-adds loc.indent exactly once,
+    // so this also keeps a nested diagram from gaining 4 spaces on every save.
+    const code = lines.slice(i + 1, close)
+      .map(l => (indent && l.startsWith(indent)) ? l.slice(indent.length) : l)
+      .join('\n');
 
     let startLine = i;
     let uuid = null;

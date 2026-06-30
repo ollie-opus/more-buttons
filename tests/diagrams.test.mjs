@@ -49,6 +49,21 @@ test('locate: diagram with preceding uuid span', () => {
   assert.equal(found[0].endLine, 5);
 });
 
+test('locate: dedents the code to its fence indent (nested diagram → canonical source)', () => {
+  const md = [
+    '    <span data-uuid="u1" style="display:none"></span>',
+    '    ```mermaid',
+    '    graph TD',
+    '      A --> B',
+    '    ```',
+  ].join('\n');
+  const found = locateDiagramLines(md);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].indent, '    ');
+  // The form/textarea must see the author's source, not the ancestor's indent.
+  assert.equal(found[0].code, 'graph TD\n  A --> B');
+});
+
 test('locate: ignores a non-mermaid fence', () => {
   assert.equal(locateDiagramLines('```js\nconst x = 1;\n```').length, 0);
 });
@@ -135,6 +150,19 @@ test('replace: re-indents the code lines to match an indented (nested) diagram',
     '      X --> Y',
     '    ```',
   ]);
+});
+
+test('locate→replace: save-unchanged of a nested diagram is idempotent (no indent creep)', () => {
+  const md = [
+    '    <span data-uuid="u1" style="display:none"></span>',
+    '    ```mermaid',
+    '    graph TD',
+    '      A --> B',
+    '    ```',
+  ].join('\n');
+  // The form seeds from the located code; saving it back must reproduce md.
+  const seeded = locateDiagramByUUID(md, 'u1').code;
+  assert.equal(replaceDiagramByUUID(md, 'u1', seeded), md);
 });
 
 test('delete: removes the addressed diagram (span + block + trailing blank), keeps siblings', () => {
