@@ -527,10 +527,14 @@ button.more-buttons-crumb:hover {
     0 2px 6px -3px color-mix(in srgb, var(--mb-text) 30%, transparent);
 }
 
-/* Give the scroll area room so its final fields settle above the floating dock
-   instead of hiding behind it. Scoped via :has to forms that actually have the
-   relocated dock as a following sibling — forms without one keep their padding. */
-.more-buttons-overlay-content > form:has(~ .more-buttons-form-actions) {
+/* Give the scroll area room so its final content settles above the floating dock
+   instead of hiding behind it. Scoped via :has to bodies that actually have the
+   relocated dock as a following sibling — bodies without one keep their padding.
+   Tag-agnostic: matches the <form> body of editor forms AND the <div> body of the
+   short error/warning forms (errorNoQRSettings, githubNotConnected, …), which
+   would otherwise let the absolute dock overlay their text. The prepended
+   .more-buttons-navbar is excluded so it isn't pushed down by the clearance. */
+.more-buttons-overlay-content > :not(.more-buttons-navbar):has(~ .more-buttons-form-actions) {
   padding-bottom: 70px;
 }
 

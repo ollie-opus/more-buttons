@@ -426,40 +426,14 @@ async function renderKnowledgeBaseManagement() {
     return;
   }
 
-  // Not connected — inject CSS if needed and show a simple overlay
-  if (!document.getElementById('more-buttons-overlay-stylesheet')) {
-    const link = document.createElement('link');
-    link.id = 'more-buttons-overlay-stylesheet';
-    link.rel = 'stylesheet';
-    link.href = chrome.runtime.getURL('config/forms/formsStyling.css');
-    (document.head || document.documentElement).appendChild(link);
-  }
-
-  const overlay = document.createElement('div');
-  overlay.className = 'more-buttons-overlay';
-  const content = document.createElement('div');
-  content.className = 'more-buttons-overlay-content';
-  content.setAttribute('role', 'dialog');
-  content.setAttribute('aria-modal', 'true');
-  content.innerHTML = `
-    <h2>GitHub not connected</h2>
-    <p class="more-buttons-description">Please add a GitHub PAT in Integrations to use this feature.</p>
-    <div class="more-buttons-form-actions">
-      <button type="button" class="more-buttons-button" id="mb-open-integrations"><span class="more-buttons-icon">extension</span>Open integrations</button>
-      <button type="button" class="more-buttons-button secondary" id="mb-close-not-connected"><span class="more-buttons-icon">close</span>Close</button>
-    </div>`;
-  overlay.appendChild(content);
-  document.body.appendChild(overlay);
-
-  const cleanup = () => { overlay.remove(); document.removeEventListener('keydown', handleKey); };
-  const handleKey = e => { if (e.key === 'Escape') cleanup(); };
-  document.addEventListener('keydown', handleKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) cleanup(); });
-  content.querySelector('#mb-close-not-connected').addEventListener('click', cleanup);
-  content.querySelector('#mb-open-integrations').addEventListener('click', () => {
-    cleanup();
-    getFormAction('openIntegrations')?.();
-  });
+  // Not connected — route through createForm so the action dock renders with
+  // the standard machinery (square tiles + floating tag via syncDockTag, scroll
+  // lock, Escape / click-outside, stylesheet injection). The old hand-built
+  // overlay bypassed createForm, so syncDockTag never ran and the dock buttons
+  // kept their inline labels inside the now overflow:visible tiles — spilling
+  // "all over the place". `close,openIntegrations` mirrors the prior behaviour:
+  // dismiss this dead-end warning, then open Integrations as a fresh root form.
+  await createForm('githubNotConnected');
 }
 
 registerFormAction('openKnowledgeBaseManagement', renderKnowledgeBaseManagement);
