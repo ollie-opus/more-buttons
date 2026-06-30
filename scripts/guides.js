@@ -533,17 +533,24 @@ function openSectionMovePicker(anchorBtn, formEl) {
 // the working copy already carries every UUID.
 async function saveSectionOrder(formEl) {
   if (!currentGuide || reorderWorkingMd == null) return;
-  formLoading.show();
+  // Progress rides the amber dock tag, matching every other GitHub-commit button.
+  // Disable the sibling Discard during the commit; on success rerenderReorder
+  // rebuilds the action bar in its clean (non-dirty) state, clearing the busy tile.
+  const saveBtn = formEl.parentElement?.querySelector('[data-guide-reorder-save]');
+  const discardBtn = formEl.parentElement?.querySelector('[data-guide-reorder-discard]');
+  const snap = snapshotButton(saveBtn);
+  setButtonBusy(saveBtn, 'Saving order…');
+  if (discardBtn) discardBtn.disabled = true;
   try {
-    await githubFetchAndPushFile(currentGuide.draftPath, () => {}, () => reorderWorkingMd);
+    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(saveBtn, s), () => reorderWorkingMd);
     reorderBaseMd = reorderWorkingMd;
     formEl._draftMd = reorderWorkingMd;
     reorderDirty = false;
     rerenderReorder(formEl);
   } catch (e) {
+    restoreButton(saveBtn, snap);
+    if (discardBtn) discardBtn.disabled = false;
     alert('Failed to save order: ' + e.message);
-  } finally {
-    formLoading.dismiss();
   }
 }
 
@@ -552,15 +559,14 @@ async function saveSectionOrder(formEl) {
 async function createGuideDraft(formEl) {
   if (!currentGuide) return;
   const btn = formEl.parentElement?.querySelector('[data-guide-action="create"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Fetching live page…');
 
   try {
-    if (btn) btn.textContent = 'Fetching live page…';
     const liveMarkdown = await readRepoText(currentGuide.livePath);
     if (!liveMarkdown) {
+      restoreButton(btn, snap);
       alert('Live page not found at ' + currentGuide.livePath);
-      if (btn) { btn.disabled = false; btn.textContent = originalText; }
       return;
     }
 
@@ -571,11 +577,11 @@ async function createGuideDraft(formEl) {
       ),
     );
 
-    await githubFetchAndPushFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; }, () => migrated);
+    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s), () => migrated);
     // Mirror the page's nav location into draft_nav so it shows a Drafting pill.
-    if (btn) btn.textContent = 'Updating navigation…';
+    setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
-    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
       const navItems = parseNavBlock(md, 'nav').items;
       const draftItems = parseNavBlock(md, 'draft_nav').items;
       // Clear any stale draft entry by slug, then mirror the live nav location with
@@ -588,7 +594,7 @@ async function createGuideDraft(formEl) {
     });
     await renderGuideEntryContent(formEl);
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to create draft: ' + e.message);
   }
 }
@@ -661,21 +667,21 @@ async function discardGuideDraft(formEl) {
   if (!currentGuide) return;
   if (!confirm('Discard this draft? All in-progress edits will be lost.')) return;
   const btn = formEl.parentElement?.querySelector('[data-guide-action="discard"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting draft…');
 
   try {
-    await githubDeleteFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; });
-    if (btn) btn.textContent = 'Updating navigation…';
+    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
+    setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
-    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
       const draftItems = parseNavBlock(md, 'draft_nav').items;
       removeByValueSlug(draftItems, valueSlug(value));
       return replaceNavBlock(md, 'draft_nav', draftItems);
     });
     await renderGuideEntryContent(formEl);
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to discard draft: ' + e.message);
   }
 }
@@ -689,16 +695,15 @@ async function deleteGuide(formEl) {
   const label = formEl.dataset.guideLabel || guideBaseName(formEl.dataset.livePath);
   if (!confirm(`Delete the guide "${label}"?\n\nThis permanently removes the live page from GitHub and from the navigation. This cannot be undone.`)) return;
   const btn = formEl.parentElement?.querySelector('[data-guide-action="delete"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting page…');
 
   try {
-    if (btn) btn.textContent = 'Deleting page…';
-    await githubDeleteFile(currentGuide.livePath, s => { if (btn) btn.textContent = s; });
-    await githubDeleteFile(currentGuide.draftPath, s => { if (btn) btn.textContent = s; });
-    if (btn) btn.textContent = 'Updating navigation…';
+    await githubDeleteFile(currentGuide.livePath, s => setButtonBusy(btn, s));
+    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
+    setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
-    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
       const navItems = parseNavBlock(md, 'nav').items;
       const draftItems = parseNavBlock(md, 'draft_nav').items;
       removeByValue(navItems, value);
@@ -710,7 +715,7 @@ async function deleteGuide(formEl) {
     currentGuide = null;
     await navigateBack();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to delete guide: ' + e.message);
   }
 }
@@ -740,7 +745,6 @@ registerFormAction('openCreateGuide', async () => {
 
 registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-action="submitCreateGuide"]');
-  const originalText = btn?.textContent;
   const title = formEl.querySelector('[name="guideTitle"]')?.value.trim() ?? '';
   const pathRaw = formEl.querySelector('[name="guidePath"]')?.value ?? '';
   const slug = slugify(title);
@@ -752,7 +756,8 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
   const draftPath = `docs/drafts/${slug}.md`;
 
   let draftWritten = false;
-  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Checking…');
   try {
     // Conflict check: a flat-by-slug file may already be live (in nav) or a draft.
     const tomlText = await readRepoText('zensical.toml');
@@ -762,26 +767,26 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
       for (const n of nodes) { if (n.children) collect(n.children); else liveValues.add(n.value); }
     })(nav);
     if (liveValues.has(value)) {
+      restoreButton(btn, snap);
       alert(`A live page with the name "${slug}.md" already exists.`);
-      if (btn) { btn.disabled = false; btn.textContent = originalText; }
       return;
     }
     const existingDraft = await readRepoText(draftPath);
     if (existingDraft) {
+      restoreButton(btn, snap);
       alert(`A draft named "${slug}.md" already exists. Choose a different title.`);
-      if (btn) { btn.disabled = false; btn.textContent = originalText; }
       return;
     }
 
     // Write the draft file (H1 = title, UUID span injected so the tree renders).
-    if (btn) btn.textContent = 'Creating draft…';
-    await githubFetchAndPushFile(draftPath, s => { if (btn) btn.textContent = s; },
+    setButtonBusy(btn, 'Creating draft…');
+    await githubFetchAndPushFile(draftPath, s => setButtonBusy(btn, s),
       () => ensureSectionUUIDs(`# ${title}\n`));
     draftWritten = true;
 
     // Add to draft_nav.
-    if (btn) btn.textContent = 'Updating navigation…';
-    await githubFetchAndPushFile('zensical.toml', s => { if (btn) btn.textContent = s; }, md => {
+    setButtonBusy(btn, 'Updating navigation…');
+    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
       const items = parseNavBlock(md, 'draft_nav').items;
       insertPath(items, segments, title, draftValue);
       return replaceNavBlock(md, 'draft_nav', items);
@@ -796,7 +801,7 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
       // retrying (a draft file with no draft_nav entry is invisible + unrecoverable).
       try { await githubDeleteFile(draftPath, () => {}); } catch { /* best-effort */ }
     }
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to create guide: ' + e.message);
   }
 });
@@ -2280,14 +2285,14 @@ registerFormAction('deleteGuideAdmonition', async ({ formEl, content, cleanup })
   if (!file) return;
   if (!confirm('Delete this admonition? This also removes any sub-admonitions inside it.')) return;
   const btn = content.querySelector('[data-action="deleteGuideAdmonition"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…');
   try {
-    await githubFetchAndPushFile(file, s => { if (btn) btn.textContent = s; }, md => deleteAdmonitionByUUID(md, editUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteAdmonitionByUUID(md, editUuid));
     await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
     await navigateBack();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    restoreButton(btn, snap);
     alert('Failed to delete admonition: ' + e.message);
   }
 });

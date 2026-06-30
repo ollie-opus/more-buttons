@@ -34,6 +34,7 @@
 
 import { installSelector, screenshotElement, enterResizeMode } from './captureElement.js';
 import { getFormAction } from './formActions.js';
+import { captureSizeField, wireCaptureSizeField, readCaptureSizeField } from './captureCards.js';
 
 const STORAGE_KEY = 'moreButtonsCaptureSettings';
 const SESSION_KEY = 'moreButtonsCaptureSession';
@@ -83,10 +84,12 @@ async function loadSettings() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const s = stored[STORAGE_KEY] ?? {};
   return {
-    resizeMode:      !!s.resizeMode,
-    capturePadding:  0,
-    themeDelay:      s.themeDelay ?? 500,
-    scale:           6, // HIGH SCALE VALUES CAN CAUSE BROWSER CRASHES
+    resizeMode:       false, // ephemeral — never restored from storage
+    capturePadding:   0,
+    forceResizeMode:  'none', // ephemeral; bar "Force Resize" advanced setting
+    forceResizeValue: null,
+    themeDelay:       s.themeDelay ?? 500,
+    scale:            6, // HIGH SCALE VALUES CAN CAUSE BROWSER CRASHES
   };
 }
 
@@ -96,7 +99,6 @@ function persistSettings(settings) {
   saveTimer = setTimeout(() => {
     chrome.storage.local.set({
       [STORAGE_KEY]: {
-        resizeMode:     settings.resizeMode,
         themeDelay:     settings.themeDelay,
       },
     });
@@ -137,12 +139,11 @@ function buildBar({ settings }) {
 
     <div class="mb-capture-bar__spacer"></div>
 
-    <div class="mb-capture-bar__group mb-capture-bar__counter" data-bar-counter hidden>
-      <span class="mb-capture-bar__counter-chip" data-bar-counter-chip>0</span>
-      <span class="mb-capture-bar__counter-label">captured</span>
-    </div>
-
-    <button type="button" class="mb-capture-bar__done" data-bar-done>Done</button>
+    <button type="button" class="mb-capture-bar__cog" data-bar-settings
+      title="Advanced settings" aria-label="Advanced settings"
+      aria-haspopup="true" aria-expanded="false">
+      <span class="more-buttons-icon" aria-hidden="true">settings</span>
+    </button>
 
     <button type="button" class="mb-capture-bar__close" data-bar-close aria-label="Exit capture mode">
       <span class="more-buttons-icon" aria-hidden="true">close</span>
@@ -262,6 +263,9 @@ export async function enterCaptureMode(opts = {}) {
     tab.classList.remove('--in-bar');
   }
   function scheduleHide() {
+    // Keep the bar pinned while the advanced-settings popover is open — it
+    // hangs below the bar, so dismissing the bar mid-interaction is jarring.
+    if (popover && !popover.hidden) return;
     clearTimeout(hideTimer);
     hideTimer = setTimeout(hideBar, 10);
   }
@@ -311,9 +315,11 @@ export async function enterCaptureMode(opts = {}) {
     return {
       active: true,
       settings: {
-        resizeMode:     settings.resizeMode,
-        capturePadding: settings.capturePadding,
-        themeDelay:     settings.themeDelay,
+        resizeMode:       settings.resizeMode,
+        capturePadding:   settings.capturePadding,
+        forceResizeMode:  settings.forceResizeMode,
+        forceResizeValue: settings.forceResizeValue,
+        themeDelay:       settings.themeDelay,
       },
       wasFormMode: ctx.wasFormMode,
       formStackSnapshot: ctx.formStackSnapshot,
@@ -327,14 +333,6 @@ export async function enterCaptureMode(opts = {}) {
   // ── Bar control bindings ──────────────────────────────────────────────────
 
   const $ = sel => bar.querySelector(sel);
-  const counterEl = $('[data-bar-counter]');
-  const counterChip = $('[data-bar-counter-chip]');
-
-  function refreshCounter() {
-    counterEl.hidden = false;
-    counterChip.textContent = String(sessionBuffer.length);
-  }
-  refreshCounter();
 
   function setHint(text) {
     const h = $('[data-bar-hint]');
@@ -362,10 +360,62 @@ export async function enterCaptureMode(opts = {}) {
   $('[data-bar-padding-inc]').addEventListener('click', () => setPadding(settings.capturePadding + 5));
   $('[data-bar-padding]').addEventListener('input', e => setPadding(e.target.value));
 
-  // Done = commit (onComplete); ✕ close = cancel (onCancel, if the caller
-  // provided one — otherwise it falls back to onComplete for back-compat).
-  $('[data-bar-done]').addEventListener('click', () => exitCaptureMode(false));
+  // ✕ close = cancel (onCancel, if the caller provided one — otherwise it
+  // falls back to onComplete for back-compat). There is no Done button: every
+  // caller captures a single element, so the session auto-commits on the one
+  // pick (see handleCapture's maxCaptures auto-exit).
   $('[data-bar-close]').addEventListener('click', () => exitCaptureMode(true));
+
+  // ── Advanced settings popover (cog button) ────────────────────────────────
+  const cogBtn = $('[data-bar-settings]');
+  const popover = document.createElement('div');
+  // Carries .more-buttons-overlay-content so the form palette (--mb-* vars) and
+  // the scoped .more-buttons-capture-dim segmented-control rules apply — the
+  // popover is a body sibling, outside any live overlay. .mb-capture-bar__popover
+  // (later in the stylesheet) overrides that class's card layout.
+  popover.className = 'more-buttons-overlay-content mb-capture-bar__popover';
+  popover.hidden = true;
+  popover.innerHTML = `
+    <div class="mb-capture-bar__popover-title">Advanced settings</div>
+    ${captureSizeField({
+      dimMode: settings.forceResizeMode,
+      dimValue: settings.forceResizeValue ?? 50,
+      label: 'Force Resize',
+    })}
+  `;
+  document.documentElement.appendChild(popover);
+  wireCaptureSizeField(popover);
+
+  function readForceResize() {
+    const { dimMode, dimValue } = readCaptureSizeField(popover);
+    settings.forceResizeMode = dimMode;
+    settings.forceResizeValue = dimValue;
+    persistSession(snapshotForSession());
+  }
+  popover.addEventListener('change', readForceResize);
+  popover.addEventListener('input', readForceResize);
+
+  function onPopoverOutside(e) {
+    if (popover.contains(e.target) || cogBtn.contains(e.target)) return;
+    closePopover();
+  }
+  function openPopover() {
+    const r = cogBtn.getBoundingClientRect();
+    popover.style.top = `${Math.round(r.bottom + 8)}px`;
+    popover.style.right = `${Math.round(window.innerWidth - r.right)}px`;
+    popover.hidden = false;
+    cogBtn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', onPopoverOutside, true);
+  }
+  function closePopover() {
+    if (popover.hidden) return;
+    popover.hidden = true;
+    cogBtn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', onPopoverOutside, true);
+  }
+  cogBtn.addEventListener('click', () => {
+    if (popover.hidden) openPopover(); else closePopover();
+  });
 
   // ── Esc handler (controller-level) ────────────────────────────────────────
   // Resize mode owns Esc while its overlay is mounted — let that handler
@@ -373,6 +423,12 @@ export async function enterCaptureMode(opts = {}) {
   function onKey(e) {
     if (e.key !== 'Escape') return;
     if (document.querySelector('.mb-capture-resize')) return;
+    // Esc dismisses an open advanced-settings popover before it exits mode.
+    if (!popover.hidden) {
+      e.stopPropagation();
+      closePopover();
+      return;
+    }
     e.stopPropagation();
     exitCaptureMode(true); // Esc = cancel, same as the ✕ close button.
   }
@@ -453,8 +509,6 @@ export async function enterCaptureMode(opts = {}) {
       dimValue: 50,
       addToLibrary: true,
     });
-    refreshCounter();
-    pulseCounter();
     persistSession(snapshotForSession());
     if (ctx.maxCaptures && sessionBuffer.length >= ctx.maxCaptures) {
       sweepBottomBorder();
@@ -464,12 +518,6 @@ export async function enterCaptureMode(opts = {}) {
     sweepBottomBorder();
   }
 
-  function pulseCounter() {
-    counterChip.classList.remove('--pulse');
-    // force reflow so the class re-add re-triggers the animation
-    void counterChip.offsetWidth;
-    counterChip.classList.add('--pulse');
-  }
   function sweepBottomBorder() {
     bar.classList.remove('--sweep');
     void bar.offsetWidth;
@@ -496,9 +544,11 @@ export async function enterCaptureMode(opts = {}) {
 
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('mousemove', onMouseMove, true);
+    document.removeEventListener('mousedown', onPopoverOutside, true);
     clearTimeout(hideTimer);
     selectorCleanup?.();
     selectorCleanup = null;
+    popover.remove();
 
     bar.classList.remove('--enter');
     bar.classList.add('--exit');

@@ -4,6 +4,11 @@ import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js'
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 import { upgradeTextarea } from './richTextEditor.js';
 import { formLoading, syncDockTag } from './loading.js';
+import {
+  markRequiredFields,
+  validateFields,
+  wireErrorClearing,
+} from './formValidation.js';
 
 // Render-function contract for renderFns:
 // - Signature: (initialMarkdown, panel). `initialMarkdown` is the freshly-read
@@ -701,48 +706,28 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     close: () => { resetHistory(); cleanup(); return Promise.resolve(); },
   };
 
-  // Validation: checks required fields and data-maxlength limits
-  // Only fields in visible form groups are validated (respects data-show-when)
+  // Required fields get a visible `*` on their label; errors clear as the user
+  // edits the offending field. (Decision logic + DOM wiring live in
+  // formValidation.js so the rules are unit-testable.)
+  markRequiredFields(formEl);
+  wireErrorClearing(formEl);
+
+  // Validation: checks required fields and data-maxlength limits, paints the
+  // `--invalid` state + inline reasons, and — crucially — scrolls/focuses the
+  // first failure so a guarded commit is never a silent no-op. Only visible,
+  // enabled fields are checked (respects data-show-when + preset-locked).
+  // Returns a boolean for the existing call sites (click guard + ctx).
   function validateForm() {
-    let valid = true;
-
-    // Clear previous error states
-    formEl.querySelectorAll('.--invalid').forEach(el => el.classList.remove('--invalid'));
-
-    const inputs = formEl.querySelectorAll('input, select, textarea');
-    inputs.forEach(input => {
-      // Skip disabled inputs (locked by preset)
-      if (input.disabled) return;
-
-      // Skip inputs inside hidden groups (data-show-when)
-      const group = input.closest('[data-show-when]');
-      if (group && group.style.display === 'none') return;
-
-      // Required check
-      if (input.hasAttribute('required')) {
-        let empty = false;
-        if (input.type === 'radio') {
-          const radios = formEl.querySelectorAll(`input[name="${input.name}"]`);
-          empty = !Array.from(radios).some(r => r.checked);
-          if (empty) {
-            const radioGroup = input.closest('.more-buttons-radio-group-row, .more-buttons-radio-group-column, .more-buttons-radio-btn-group-row, .more-buttons-radio-btn-group-column');
-            radioGroup?.classList.add('--invalid');
-          }
-        } else {
-          empty = !input.value.trim();
-          if (empty) input.classList.add('--invalid');
-        }
-        if (empty) valid = false;
+    const { valid, firstInvalid } = validateFields(formEl);
+    if (!valid && firstInvalid) {
+      firstInvalid.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // Radio-group containers aren't natively focusable; make the container
+      // land focus (and announce its inline error) without becoming a tab stop.
+      if (!firstInvalid.matches('input, select, textarea')) {
+        firstInvalid.setAttribute('tabindex', '-1');
       }
-
-      // Maxlength check
-      const maxLen = input.getAttribute('data-maxlength');
-      if (maxLen && input.value.length > parseInt(maxLen, 10)) {
-        input.classList.add('--invalid');
-        valid = false;
-      }
-    });
-
+      try { firstInvalid.focus({ preventScroll: true }); } catch { /* jsdom-free */ }
+    }
     return valid;
   }
 

@@ -597,20 +597,20 @@ registerFormAction('submitEditSystemUpdate', async ({ formEl, content }) => {
 registerFormAction('deleteSystemUpdate', async ({ formEl, content, cleanup }) => {
   if (!confirm('Delete this system update? This cannot be undone.')) return;
   const btn = content.querySelector('[data-action="deleteSystemUpdate"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…');
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No update identity found');
 
-    await githubFetchAndPushFile(UPDATES_FILE, s => { if (btn) btn.textContent = s; }, md => {
+    await githubFetchAndPushFile(UPDATES_FILE, s => setButtonBusy(btn, s), md => {
       return deleteUpdateFromMarkdown(md, _uuid);
     });
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
-    if (btn) { btn.textContent = originalText; btn.disabled = false; }
+    restoreButton(btn, snap);
     alert('Failed to delete update: ' + e.message);
   }
 });
@@ -725,19 +725,19 @@ registerFormAction('publishDraftSystemUpdate', async ({ formEl, content }) => {
 registerFormAction('deleteDraftSystemUpdate', async ({ formEl, content, cleanup }) => {
   if (!confirm('Delete this draft? This cannot be undone.')) return;
   const btn = content.querySelector('[data-action="deleteDraftSystemUpdate"]');
-  const originalText = btn?.textContent;
-  if (btn) btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…');
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No draft identity found');
 
-    await deleteDraft(_uuid, s => { if (btn) btn.textContent = s; });
+    await deleteDraft(_uuid, s => setButtonBusy(btn, s));
     suppress(DRAFT_ENTITY, _uuid);
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
     await navigateBack();
   } catch (e) {
     await chrome.storage.local.remove('moreButtonsEditDraftSystemUpdate');
-    if (btn) { btn.textContent = originalText; btn.disabled = false; }
+    restoreButton(btn, snap);
     alert('Failed to delete draft: ' + e.message);
   }
 });

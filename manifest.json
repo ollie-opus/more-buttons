@@ -12,7 +12,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "host_permissions": ["https://cloud.opus-safety.co.uk/*", "<all_urls>"],
+  "host_permissions": ["https://cloud.opus-safety.co.uk/*"],
   "web_accessible_resources": [
     {
       "resources": [
@@ -27,6 +27,7 @@
         "scripts/captures.js",
         "scripts/captureMeta.js",
         "scripts/form.js",
+        "scripts/formValidation.js",
         "scripts/loading.js",
         "scripts/formActions.js",
         "scripts/github.js",

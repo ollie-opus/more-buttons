@@ -89,15 +89,15 @@ export function capturePathField({ label, value, editable = false, hint = '' }) 
  * to read the choice back. The CSS for .more-buttons-capture-dim (and its
  * .--auto state) already exists in config/forms/formsStyling.css.
  * dimValue may be a number or string; '' renders an empty input.
- * @param {{dimMode?:'height'|'width'|'none', dimValue?:number|string}} opts
+ * @param {{dimMode?:'height'|'width'|'none', dimValue?:number|string, label?:string}} opts
  */
-export function captureSizeField({ dimMode = 'height', dimValue = 50 } = {}) {
+export function captureSizeField({ dimMode = 'height', dimValue = 50, label = 'Dimension' } = {}) {
   const isAuto = dimMode === 'none';
   const value = isAuto ? '' : String(dimValue ?? 50);
   const opt = (v, text) => `<option value="${v}"${dimMode === v ? ' selected' : ''}>${text}</option>`;
   return `
     <div class="more-buttons-form-group">
-      <label class="more-buttons-label">Dimension</label>
+      <label class="more-buttons-label">${label}</label>
       <div class="more-buttons-capture-dim${isAuto ? ' --auto' : ''}" data-capture-size>
         <select class="more-buttons-capture-dim-mode" name="dimMode">
           ${opt('height', 'Height')}

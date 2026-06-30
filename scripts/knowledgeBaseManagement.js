@@ -1,4 +1,4 @@
-import { createForm, syncDockTag } from './form.js';
+import { createForm, syncDockTag, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { readRepoText } from './repoClient.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
@@ -198,17 +198,25 @@ function openMoveToPicker(anchorBtn, reorder, rerender) {
 // Commit both nav and draft_nav in a single zensical.toml push, behind the veil.
 async function saveReorder(reorder, formEl) {
   const { nav, draftNav } = reorder.buildPayload();
-  formLoading.show();
+  // Progress rides the amber dock tag, matching every other GitHub-commit button.
+  // The push queue serialises writes, so leaving the rest of the form live during
+  // the commit is safe; we just disable the sibling Discard so it can't fire mid-
+  // save. On success openKnowledgeBaseManagement rebuilds the whole dock.
+  const saveBtn = formEl.parentElement?.querySelector('[data-kb-reorder-save]');
+  const discardBtn = formEl.parentElement?.querySelector('[data-kb-reorder-discard]');
+  const snap = snapshotButton(saveBtn);
+  setButtonBusy(saveBtn, 'Saving order…');
+  if (discardBtn) discardBtn.disabled = true;
   try {
-    await githubFetchAndPushFile('zensical.toml', () => {}, md => {
+    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(saveBtn, s), md => {
       const out1 = replaceNavBlock(md, 'nav', nav);
       return replaceNavBlock(out1, 'draft_nav', draftNav);
     });
     await getFormAction('openKnowledgeBaseManagement')();  // reload fresh tree
   } catch (e) {
+    restoreButton(saveBtn, snap);
+    if (discardBtn) discardBtn.disabled = false;
     alert('Failed to save order: ' + e.message);
-  } finally {
-    formLoading.dismiss();
   }
 }
 

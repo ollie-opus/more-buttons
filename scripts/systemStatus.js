@@ -1,7 +1,7 @@
 import { registerFormAction } from './formActions.js';
 import { githubFetchAndPush } from './github.js';
 import { readRepoText } from './repoClient.js';
-import { createForm, navigateBack } from './form.js';
+import { createForm, navigateBack, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { renderCard, escapeHtml } from './cardRenderer.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID } from './admonitions.js';
 
@@ -391,14 +391,15 @@ registerFormAction('openReportIncident', async () => {
 
 registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) => {
   const btn = content.querySelector('[data-action="submitReportIncident"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+  // Validate before going busy so a missing field doesn't flash the amber state.
+  const checkedServices = [...formEl.querySelectorAll('[name="services"]:checked')].map(cb => cb.value);
+  const title = checkedServices.join(', ');
+  if (!title) { alert('Please select at least one service.'); return; }
+  const impact = formEl.querySelector('[name="impact"]:checked')?.value;
+  if (!impact) { alert('Please select a service impact.'); return; }
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Publishing…');
   try {
-    const checkedServices = [...formEl.querySelectorAll('[name="services"]:checked')].map(cb => cb.value);
-    const title = checkedServices.join(', ');
-    if (!title) { alert('Please select at least one service.'); btn.disabled = false; return; }
-    const impact = formEl.querySelector('[name="impact"]:checked')?.value;
-    if (!impact) { alert('Please select a service impact.'); btn.disabled = false; return; }
     const currentStatus = formEl.querySelector('[name="currentStatus"]:checked')?.value ?? 'ongoing';
     const resolvedRaw = formEl.querySelector('[name="resolved"]')?.value ?? '';
     const resolvedValue = currentStatus === 'resolved' && !resolvedRaw
@@ -417,11 +418,10 @@ registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) 
       resolved:      resolvedValue.replace('T', ' '),
       causation:     formEl.querySelector('[name="causation"]')?.value.trim() ?? '',
     };
-    await publishNewIncident(incident, status => { btn.textContent = status; });
+    await publishNewIncident(incident, status => setButtonBusy(btn, status));
     await navigateBack();
   } catch (e) {
-    btn.textContent = originalText;
-    btn.disabled = false;
+    restoreButton(btn, snap);
     alert('Failed to report incident: ' + e.message);
   }
 });
@@ -471,8 +471,8 @@ registerFormAction('openEditPastIncident', async ({ uuid }) => {
 
 registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) => {
   const btn = content.querySelector('[data-action="submitUpdateIncident"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Saving…');
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No incident UUID found');
@@ -494,7 +494,7 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
     };
     // UUID-based: try open incidents first, then past incidents
     await githubFetchAndPush(
-      status => { btn.textContent = status; },
+      status => setButtonBusy(btn, status),
       currentMarkdown => {
         // Try open incidents
         const openMatch = currentMarkdown.match(/^## Open Incidents\s*\n([\s\S]*?)(?=\n---|\n##)/m);
@@ -511,8 +511,7 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
     await navigateBack();
   } catch (e) {
-    btn.textContent = originalText;
-    btn.disabled = false;
+    restoreButton(btn, snap);
     alert('Failed to update incident: ' + e.message);
   }
 });
@@ -520,17 +519,16 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
 registerFormAction('deleteIncident', async ({ formEl, content, cleanup }) => {
   if (!confirm('Delete this incident? This cannot be undone.')) return;
   const btn = content.querySelector('[data-action="deleteIncident"]');
-  const originalText = btn.textContent;
-  btn.disabled = true;
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…');
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No incident UUID found');
-    await publishDeleteIncident(_uuid, status => { btn.textContent = status; });
+    await publishDeleteIncident(_uuid, status => setButtonBusy(btn, status));
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
     await navigateBack();
   } catch (e) {
-    btn.textContent = originalText;
-    btn.disabled = false;
+    restoreButton(btn, snap);
     alert('Failed to delete incident: ' + e.message);
   }
 });

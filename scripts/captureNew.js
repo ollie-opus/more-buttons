@@ -1,4 +1,4 @@
-import { createForm, navigateBack } from './form.js';
+import { createForm, navigateBack, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { pushCaptures, resolveCaptureConflict, overwriteCapturePair } from './captures.js';
 import { githubPathExists } from './github.js';
 import { captureCard, captureGrid, capturePathField, captureBasePath } from './captureCards.js';
@@ -19,7 +19,6 @@ export async function openCaptureNew({ capture } = {}) {
   // action controls on the parent overlay-content wrapper.
   const contentEl = formEl.parentElement ?? formEl;
   const bodyEl = formEl.querySelector('[data-capture-new-body]');
-  const statusEl = contentEl.querySelector('[data-capture-new-status]');
   const saveBtn = contentEl.querySelector('[data-capture-new-save]');
   const cancelBtn = contentEl.querySelector('[data-capture-new-cancel]');
 
@@ -47,19 +46,17 @@ export async function openCaptureNew({ capture } = {}) {
     return raw || originalBase;
   }
 
-  const setStatus = (msg) => {
-    if (!statusEl) return;
-    statusEl.hidden = false;
-    statusEl.textContent = msg;
-  };
-
   let busy = false;
 
   async function save() {
     if (busy) return;
     busy = true;
-    if (saveBtn) saveBtn.disabled = true;
+    // Progress rides the amber dock tag above the Save tile (the GitHub-commit
+    // language shared by every push button), not an inline status line.
+    const snap = snapshotButton(saveBtn);
+    setButtonBusy(saveBtn, 'Saving…');
     if (cancelBtn) cancelBtn.disabled = true;
+    let done = false; // true once we navigate away — leave the tile busy then
     try {
       const base = currentBase();
       const light = `media/occ-captures/${base}-light-mode.png`;
@@ -77,7 +74,7 @@ export async function openCaptureNew({ capture } = {}) {
           githubPathExists(darkPath),
         ]);
       } catch (e) {
-        setStatus(`Could not check for an existing capture: ${e.message}`);
+        alert(`Could not check for an existing capture: ${e.message}`);
         return;
       }
 
@@ -88,22 +85,23 @@ export async function openCaptureNew({ capture } = {}) {
         const keepMine = await resolveCaptureConflict({
           formEl, base, lightPath, lightExists, mineLightDataUrl: capture.lightDataUrl,
         });
-        if (!keepMine) {
-          setStatus('Kept the existing capture — rename the path to save yours separately.');
-          return;
-        }
-        await overwriteCapturePair({ lightPath, darkPath, lightExists, darkExists, capture, onProgress: setStatus });
+        // User chose to keep the existing capture — the conflict panel already
+        // explained it; just settle the button so they can rename and retry.
+        if (!keepMine) return;
+        await overwriteCapturePair({ lightPath, darkPath, lightExists, darkExists, capture, onProgress: s => setButtonBusy(saveBtn, s) });
       } else {
-        await pushCaptures([capture], setStatus);
+        await pushCaptures([capture], s => setButtonBusy(saveBtn, s));
       }
-      setStatus('Saved to library.');
+      done = true;
       navigateBack(); // replays openCaptureLibrary → re-fetches the tree
     } catch (e) {
-      setStatus(`Failed: ${e.message}`);
+      alert(`Failed to save capture: ${e.message}`);
     } finally {
-      busy = false;
-      if (saveBtn) saveBtn.disabled = false;
-      if (cancelBtn) cancelBtn.disabled = false;
+      if (!done) {
+        restoreButton(saveBtn, snap);
+        if (cancelBtn) cancelBtn.disabled = false;
+        busy = false;
+      }
     }
   }
 

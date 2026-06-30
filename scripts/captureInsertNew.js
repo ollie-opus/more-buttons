@@ -15,12 +15,13 @@
  *     element can be picked (reenterComponentCapture in captures.js).
  */
 
-import { createForm } from './form.js';
+import { createForm, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { pushCaptures, resolveCaptureConflict, overwriteCapturePair } from './captures.js';
 import { githubPathExists } from './github.js';
 import {
   captureCard, captureGrid, capturePathField, captureBasePath,
   captureSizeField, wireCaptureSizeField, readCaptureSizeField,
+  captureThemeField, captureCornerField,
 } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 
@@ -35,7 +36,6 @@ export async function openCaptureInsertNew({ capture } = {}) {
   // action controls on the parent overlay-content wrapper.
   const contentEl = formEl.parentElement ?? formEl;
   const bodyEl = formEl.querySelector('[data-capture-insert-new-body]');
-  const statusEl = contentEl.querySelector('[data-capture-insert-new-status]');
   const insertBtn = contentEl.querySelector('[data-capture-insert-new-insert]');
   const cancelBtn = contentEl.querySelector('[data-capture-insert-new-cancel]');
 
@@ -55,7 +55,9 @@ export async function openCaptureInsertNew({ capture } = {}) {
       captureCard({ theme: 'light', title: 'Light mode', src: capture.lightDataUrl, alt: 'light mode' }),
       captureCard({ theme: 'dark', title: 'Dark mode', src: capture.darkDataUrl, alt: 'dark mode' }),
     ]) +
-    captureSizeField({ dimMode: capture.dimMode ?? 'height', dimValue: capture.dimValue ?? 50 });
+    captureSizeField({ dimMode: capture.dimMode ?? 'height', dimValue: capture.dimValue ?? 50 })
+    + (capture.darkDataUrl ? captureThemeField({ inversed: !!capture.inversed }) : '')
+    + captureCornerField({ rounded: !!capture.rounded });
   wireCaptureSizeField(bodyEl);
 
   const pathInput = bodyEl.querySelector('[data-capture-path-input]');
@@ -65,19 +67,17 @@ export async function openCaptureInsertNew({ capture } = {}) {
     return raw || originalBase;
   }
 
-  const setStatus = (msg) => {
-    if (!statusEl) return;
-    statusEl.hidden = false;
-    statusEl.textContent = msg;
-  };
-
   let busy = false;
 
   async function insert() {
     if (busy) return;
     busy = true;
-    if (insertBtn) insertBtn.disabled = true;
+    // Progress rides the amber dock tag above the Insert tile (the shared
+    // GitHub-commit language), not an inline status line.
+    const snap = snapshotButton(insertBtn);
+    setButtonBusy(insertBtn, 'Inserting…');
     if (cancelBtn) cancelBtn.disabled = true;
+    let done = false; // true once the commit action takes over — leave it busy
     try {
       const base = currentBase();
       const light = `media/occ-captures/${base}-light-mode.png`;
@@ -95,7 +95,7 @@ export async function openCaptureInsertNew({ capture } = {}) {
           githubPathExists(darkPath),
         ]);
       } catch (e) {
-        setStatus(`Could not check for an existing capture: ${e.message}`);
+        alert(`Could not check for an existing capture: ${e.message}`);
         return;
       }
 
@@ -103,27 +103,34 @@ export async function openCaptureInsertNew({ capture } = {}) {
         const keepMine = await resolveCaptureConflict({
           formEl, base, lightPath, lightExists, mineLightDataUrl: capture.lightDataUrl,
         });
-        if (!keepMine) {
-          setStatus('Kept the existing capture — rename the path to insert yours separately, or cancel.');
-          return;
-        }
-        await overwriteCapturePair({ lightPath, darkPath, lightExists, darkExists, capture, onProgress: setStatus });
+        // User kept the existing capture — settle the button so they can rename
+        // and retry, or cancel.
+        if (!keepMine) return;
+        await overwriteCapturePair({ lightPath, darkPath, lightExists, darkExists, capture, onProgress: s => setButtonBusy(insertBtn, s) });
       } else {
-        await pushCaptures([{ ...capture, lightFilename: light, darkFilename: dark }], setStatus);
+        await pushCaptures([{ ...capture, lightFilename: light, darkFilename: dark }], s => setButtonBusy(insertBtn, s));
       }
 
       // Files are up; hand a dataURL-less capture to the commit action so the
       // markdown splice references them without a second upload.
       const { dimMode, dimValue } = readCaptureSizeField(bodyEl);
+      const readRadio = (name, fallback) =>
+        bodyEl.querySelector(`[name="${name}"]:checked`)?.value ?? fallback;
+      const inversed = !!capture.darkDataUrl && readRadio('captureTheme', 'default') === 'inversed';
+      const rounded = readRadio('captureCorner', 'disabled') === 'enabled';
+      done = true;
       await getFormAction('completeComponentInsert')?.({
-        capture: { lightFilename: light, darkFilename: dark, dimMode, dimValue },
+        capture: { lightFilename: light, darkFilename: dark, dimMode, dimValue, inversed, rounded },
       });
     } catch (e) {
-      setStatus(`Failed: ${e.message}`);
+      done = false;
+      alert(`Failed to insert capture: ${e.message}`);
     } finally {
-      busy = false;
-      if (insertBtn) insertBtn.disabled = false;
-      if (cancelBtn) cancelBtn.disabled = false;
+      if (!done) {
+        restoreButton(insertBtn, snap);
+        if (cancelBtn) cancelBtn.disabled = false;
+        busy = false;
+      }
     }
   }
 

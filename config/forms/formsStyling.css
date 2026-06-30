@@ -492,12 +492,46 @@ button.more-buttons-crumb:hover {
 }
 
 .more-buttons-form-actions {
-  padding-top: 14px;
   flex-shrink: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 8px;
+}
+
+/* ── Floating action dock ──────────────────────────────────────────────────────
+   form.js lifts the action bar out of <form> to be a direct child of the overlay
+   (so the scrollbar never paints over the buttons). Rather than parking it in a
+   dead band below the scroll area — the old "chin" — it floats as a self-contained
+   frosted island over the bottom of the form, with content scrolling underneath.
+   The form gets matching bottom padding (rule below) so its last fields clear the
+   island. Scoped to the direct child, so any in-flow side-nav dock is untouched.
+   z-index sits above the form but below the buttons' own popup tags (z 5/6), which
+   keep escaping upward over the island. */
+.more-buttons-overlay-content > .more-buttons-form-actions {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 4;
+  max-width: calc(100% - 40px);
+  flex-wrap: wrap;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--mb-border) 70%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    0 8px 24px -10px color-mix(in srgb, var(--mb-text) 45%, transparent),
+    0 2px 6px -3px color-mix(in srgb, var(--mb-text) 30%, transparent);
+}
+
+/* Give the scroll area room so its final fields settle above the floating dock
+   instead of hiding behind it. Scoped via :has to forms that actually have the
+   relocated dock as a following sibling — forms without one keep their padding. */
+.more-buttons-overlay-content > form:has(~ .more-buttons-form-actions) {
+  padding-bottom: 70px;
 }
 
 /* ── macOS-dock action bar ─────────────────────────────────────────────────────
@@ -1492,8 +1526,30 @@ button.more-buttons-crumb:hover {
 .more-buttons-input-text.--invalid,
 .more-buttons-overlay-content input.--invalid,
 .more-buttons-overlay-content textarea.--invalid {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.4);
+  border-color: var(--mb-acc-danger);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mb-acc-danger) 40%, transparent);
+}
+
+/* Required-field marker appended to the label (decorative; the `required`
+   attribute carries the semantics to assistive tech). */
+.more-buttons-required-mark {
+  margin-left: 2px;
+  color: var(--mb-acc-danger);
+  font-weight: 600;
+}
+
+/* Inline reason shown under a field on a failed commit. Sits in the control
+   column of the form-group grid (full-width groups span both columns). */
+.more-buttons-field-error {
+  grid-column: 2;
+  margin-top: 5px;
+  color: var(--mb-acc-danger);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.more-buttons-form-group--full .more-buttons-field-error {
+  grid-column: 1 / -1;
 }
 
 .more-buttons-radio-group-row.--invalid,
@@ -1833,53 +1889,56 @@ details[open] .more-buttons-advanced-toggle::before {
   color: var(--cb-text-label);
 }
 
-/* Counter */
-.mb-capture-bar__counter { gap: 6px; }
-.mb-capture-bar__counter-chip {
+/* Cog — icon button opening the advanced-settings popover */
+.mb-capture-bar__cog {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--cb-primary-bg);
-  color: var(--cb-primary-fg);
-  font-weight: 600;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  transform-origin: center;
-}
-.mb-capture-bar__counter-chip.--pulse {
-  animation: mb-capture-bar-counter-pulse 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-@keyframes mb-capture-bar-counter-pulse {
-  0%   { transform: scale(1); }
-  40%  { transform: scale(1.18); }
-  100% { transform: scale(1); }
-}
-.mb-capture-bar__counter-label {
-  font-size: 0.8125rem;
-  color: var(--cb-text-muted);
-}
-
-/* Done button — primary, matches .more-buttons-button */
-.mb-capture-bar__done {
+  width: 28px;
   height: 28px;
-  padding: 0 14px;
-  background: var(--cb-primary-bg);
-  color: var(--cb-primary-fg);
+  padding: 0;
   border: none;
   border-radius: 6px;
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
+  background: transparent;
+  color: var(--cb-text-muted);
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
-  transition: background 120ms ease-out, transform 0.05s ease;
+  transition: background 120ms ease-out, color 120ms ease-out;
 }
-.mb-capture-bar__done:hover { background: var(--cb-primary-hov); }
-.mb-capture-bar__done:active { transform: translateY(1px); }
+.mb-capture-bar__cog .more-buttons-icon { font-size: 1.125rem; }
+.mb-capture-bar__cog:hover,
+.mb-capture-bar__cog[aria-expanded="true"] {
+  background: var(--cb-chip-hover);
+  color: var(--cb-text);
+}
+
+/* Advanced-settings popover — fixed card anchored under the cog. Also carries
+ * .more-buttons-overlay-content (for --mb-* vars + the scoped capture-dim
+ * rules); these declarations override that class's full-card layout. */
+.mb-capture-bar__popover {
+  position: fixed;
+  z-index: 2147483647;
+  width: auto;
+  min-width: 260px;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  padding: 14px;
+  border: 1px solid var(--mb-border, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+}
+.mb-capture-bar__popover[hidden] { display: none; }
+.mb-capture-bar__popover-title {
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--mb-text, #0f172a);
+}
+.mb-capture-bar__popover .more-buttons-form-group {
+  margin: 0;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
 
 /* Close — icon button, matches form nav-close */
 .mb-capture-bar__close {
@@ -2056,8 +2115,7 @@ details[open] .more-buttons-advanced-toggle::before {
 @media (prefers-reduced-motion: reduce) {
   .mb-capture-bar,
   .mb-capture-tab,
-  .mb-capture-bar__dot,
-  .mb-capture-bar__counter-chip {
+  .mb-capture-bar__dot {
     transition-duration: 0ms;
     animation: none !important;
   }

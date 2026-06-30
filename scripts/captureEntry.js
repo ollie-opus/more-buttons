@@ -1,4 +1,4 @@
-import { createForm, navigateBack, snapshotFormStack, replayFormStack } from './form.js';
+import { createForm, navigateBack, snapshotFormStack, replayFormStack, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
@@ -145,7 +145,6 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         captureCard({ theme: 'dark', title: 'Dark mode (New)', src: pendingCapture.darkDataUrl, alt: 'new dark mode' }),
       ]);
     actionsEl.innerHTML = `
-      <span class="more-buttons-description" data-capture-entry-status hidden></span>
       <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
       <button type="button" class="more-buttons-button success" data-capture-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
     `;
@@ -199,34 +198,31 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
 
   async function saveChanges() {
     if (!pendingCapture) return;
-    const statusEl = actionsEl.querySelector('[data-capture-entry-status]');
     const saveBtn = actionsEl.querySelector('[data-capture-entry-save]');
     const cancelBtn = actionsEl.querySelector('[data-capture-entry-cancel]');
-    const setStatus = (msg) => {
-      if (!statusEl) return;
-      statusEl.hidden = false;
-      statusEl.textContent = msg;
-    };
-    if (saveBtn) saveBtn.disabled = true;
+    // Progress rides the amber dock tag above the Save tile (the shared
+    // GitHub-commit language), not an inline status line.
+    const snap = snapshotButton(saveBtn);
+    setButtonBusy(saveBtn, 'Saving…');
     if (cancelBtn) cancelBtn.disabled = true;
 
     try {
-      await githubReplaceImage(lightPath, pendingCapture.lightDataUrl.split(',')[1], setStatus);
+      await githubReplaceImage(lightPath, pendingCapture.lightDataUrl.split(',')[1], s => setButtonBusy(saveBtn, s));
       if (darkPath && pendingCapture.darkDataUrl) {
-        await githubReplaceImage(darkPath, pendingCapture.darkDataUrl.split(',')[1], setStatus);
+        await githubReplaceImage(darkPath, pendingCapture.darkDataUrl.split(',')[1], s => setButtonBusy(saveBtn, s));
       }
       await writeCaptureMeta(
         [{ lightPath, resized: !!pendingCapture.resized, padding: pendingCapture.padding || 0 }],
-        setStatus,
+        s => setButtonBusy(saveBtn, s),
       );
-      setStatus('Saved. Refreshing preview…');
+      setButtonBusy(saveBtn, 'Refreshing…');
       pendingCapture = null;
       await loadRepoImages();
-      renderPreview();
+      renderPreview(); // rebuilds the dock, clearing the busy tile
     } catch (e) {
-      setStatus(`Failed: ${e.message}`);
-      if (saveBtn) saveBtn.disabled = false;
+      restoreButton(saveBtn, snap);
       if (cancelBtn) cancelBtn.disabled = false;
+      alert(`Failed to save capture: ${e.message}`);
     }
   }
 

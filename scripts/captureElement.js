@@ -420,6 +420,37 @@ function expandWithBackground(src, bgColor, padCssPx, originalCssWidth) {
   });
 }
 
+// Downscale (or upscale) a finished capture so its output PNG hits a target
+// pixel height or width, aspect ratio preserved. Drives the bar's "Force
+// Resize" advanced setting — distinct from the per-capture display Dimension
+// (which only sets the rendered <img> size); this changes the saved bitmap.
+function scaleToTarget(src, mode, value) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const target = Math.max(1, Math.round(value));
+      let w, h;
+      if (mode === 'height') {
+        h = target;
+        w = Math.max(1, Math.round(img.width * (target / img.height)));
+      } else { // 'width'
+        w = target;
+        h = Math.max(1, Math.round(img.height * (target / img.width)));
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 // ── Single-frame screenshot ───────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -527,7 +558,7 @@ export async function screenshotElement(el, { theme, customRect = null, settings
   // the inset edge glow, bar, tab, and selector box don't bleed into the PNG
   // for elements near the viewport edge.
   const hiddenOverlays = document.querySelectorAll(
-    '.mb-capture-glow, .mb-capture-bar, .mb-capture-tab, .mb-capture-selector, .mb-capture-padding-ring, .mb-capture-resize'
+    '.mb-capture-glow, .mb-capture-bar, .mb-capture-bar__popover, .mb-capture-tab, .mb-capture-selector, .mb-capture-padding-ring, .mb-capture-resize'
   );
   const prevOverlayDisplay = [];
   hiddenOverlays.forEach((o, i) => {
@@ -569,7 +600,16 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     ? await expandWithBackground(maskedDataUrl, sampledBgColor, appliedPadding, originalWidth)
     : maskedDataUrl;
 
-  return { dataUrl: finalDataUrl, filename: deriveFilename(el, theme), appliedPadding };
+  // Force Resize (bar advanced setting): rescale the finished bitmap to a
+  // target pixel height/width. Runs after mask/crop/padding so the whole
+  // output — including any padding — hits the requested dimension.
+  const frMode = settings.forceResizeMode;
+  const frValue = settings.forceResizeValue;
+  const scaledDataUrl = (frMode === 'height' || frMode === 'width') && frValue > 0
+    ? await scaleToTarget(finalDataUrl, frMode, frValue)
+    : finalDataUrl;
+
+  return { dataUrl: scaledDataUrl, filename: deriveFilename(el, theme), appliedPadding };
 }
 
 /**
