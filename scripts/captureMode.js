@@ -85,6 +85,7 @@ async function loadSettings() {
   const s = stored[STORAGE_KEY] ?? {};
   return {
     resizeMode:       false, // ephemeral — never restored from storage
+    pickMode:         'capture', // 'capture' | 'annotate' | 'zap'; ephemeral — never restored
     capturePadding:   0,
     forceResizeMode:  'none', // ephemeral; bar "Force Resize" advanced setting
     forceResizeValue: null,
@@ -114,7 +115,20 @@ function buildBar({ settings }) {
   bar.setAttribute('aria-label', 'Capture Mode');
 
   bar.innerHTML = `
-    <span class="mb-capture-bar__hint" data-bar-hint>Shift + click to capture</span>
+    <div class="mb-capture-bar__mode" role="group" aria-label="Mode" data-bar-mode>
+      <button type="button" class="mb-capture-bar__mode-btn --on" data-mode-capture
+        title="Shift + click captures the element" aria-pressed="true">
+        <span class="more-buttons-icon" aria-hidden="true">photo_camera</span>Capture
+      </button>
+      <button type="button" class="mb-capture-bar__mode-btn" data-mode-annotate
+        title="Shift + click marks the element with a green ring" aria-pressed="false">
+        <span class="more-buttons-icon" aria-hidden="true">border_color</span>Annotate
+      </button>
+      <button type="button" class="mb-capture-bar__mode-btn" data-mode-zap
+        title="Shift + click deletes the element from the page" aria-pressed="false">
+        <span class="more-buttons-icon" aria-hidden="true">bolt</span>Zapper
+      </button>
+    </div>
 
     <div class="mb-capture-bar__divider" aria-hidden="true"></div>
 
@@ -126,6 +140,18 @@ function buildBar({ settings }) {
         aria-pressed="${settings.resizeMode ? 'true' : 'false'}">
         <span class="more-buttons-icon" aria-hidden="true">crop_free</span>
         <span class="mb-capture-bar__toggle-label">Resize</span>
+      </button>
+
+      <button type="button" class="mb-capture-bar__toggle" data-bar-clear-annotations hidden
+        title="Remove all annotation rings">
+        <span class="more-buttons-icon" aria-hidden="true">ink_eraser</span>
+        <span class="mb-capture-bar__toggle-label" data-bar-clear-count>Clear</span>
+      </button>
+
+      <button type="button" class="mb-capture-bar__toggle" data-bar-restore-zapped hidden
+        title="Bring back all zapped elements">
+        <span class="more-buttons-icon" aria-hidden="true">undo</span>
+        <span class="mb-capture-bar__toggle-label" data-bar-restore-count>Restore</span>
       </button>
 
       <div class="mb-capture-bar__stepper" data-bar-padding-wrap>
@@ -315,6 +341,8 @@ export async function enterCaptureMode(opts = {}) {
     return {
       active: true,
       settings: {
+        // pickMode deliberately excluded — annotations and zaps are DOM state
+        // and die on hard nav, so a restored session always re-enters capture.
         resizeMode:       settings.resizeMode,
         capturePadding:   settings.capturePadding,
         forceResizeMode:  settings.forceResizeMode,
@@ -334,10 +362,142 @@ export async function enterCaptureMode(opts = {}) {
 
   const $ = sel => bar.querySelector(sel);
 
-  function setHint(text) {
-    const h = $('[data-bar-hint]');
-    if (h) h.textContent = text;
+  // ── Annotate mode ─────────────────────────────────────────────────────────
+  // Picks apply a persistent green ring to the element instead of capturing
+  // it; toggling back to capture mode, the rings are live DOM styling so they
+  // appear in the shots. Inline `outline` (not border) so nothing shifts
+  // layout. The bar's padding value P offsets the ring: its OUTER edge lands
+  // exactly P px outside the element bounds (offset = P - width), so P=0 hugs
+  // the element from the inside and survives the tight capture clip. Applied
+  // at pick time, like capture padding. Prior inline values saved for clean
+  // removal. Resize-mode picks confirm a draggable box instead and drop an
+  // absolutely-positioned box annotation (see addBoxAnnotation).
+  const ANNOTATION_COLOR = '#22c55e'; // matches --cb-hue green in formsStyling.css
+  const ANNOTATION_WIDTH = 3; // px
+  const annotations = new Map(); // Element -> { outline, outlineOffset } (prior inline values)
+
+  const boxAnnotations = new Set(); // free-drawn <div> rings from resize-mode picks
+
+  function refreshClearButton() {
+    const btn = $('[data-bar-clear-annotations]');
+    if (!btn) return;
+    const count = annotations.size + boxAnnotations.size;
+    btn.hidden = count === 0;
+    const label = $('[data-bar-clear-count]');
+    if (label) label.textContent = `Clear (${count})`;
   }
+
+  function toggleAnnotation(el) {
+    if (annotations.has(el)) {
+      removeAnnotation(el);
+      return;
+    }
+    annotations.set(el, {
+      outline: el.style.getPropertyValue('outline'),
+      outlineOffset: el.style.getPropertyValue('outline-offset'),
+    });
+    el.style.setProperty('outline', `${ANNOTATION_WIDTH}px solid ${ANNOTATION_COLOR}`, 'important');
+    el.style.setProperty('outline-offset', `${settings.capturePadding - ANNOTATION_WIDTH}px`, 'important');
+    refreshClearButton();
+  }
+
+  // Resize-mode annotation: a page-level ring at the user-adjusted box (doc
+  // coords from enterResizeMode). Same padding semantics as element rings —
+  // the border's outer edge lands P px outside the confirmed box. Plain
+  // absolutely-positioned div (NOT .mb-capture-*) so the screenshot pipeline
+  // doesn't hide it; scrolls with the page; dies with the session (or a hard
+  // nav, like every annotation).
+  function addBoxAnnotation(rect) {
+    const P = settings.capturePadding;
+    const box = document.createElement('div');
+    box.className = 'mb-annotation-box';
+    Object.assign(box.style, {
+      position: 'absolute',
+      top: `${rect.top - P}px`,
+      left: `${rect.left - P}px`,
+      width: `${rect.width + P * 2}px`,
+      height: `${rect.height + P * 2}px`,
+      border: `${ANNOTATION_WIDTH}px solid ${ANNOTATION_COLOR}`,
+      boxSizing: 'border-box',
+      pointerEvents: 'none',
+      zIndex: '2147483640', // above page content, below the capture-mode UI
+    });
+    document.body.appendChild(box);
+    boxAnnotations.add(box);
+    refreshClearButton();
+  }
+
+  function removeAnnotation(el) {
+    const saved = annotations.get(el);
+    if (!saved) return;
+    if (saved.outline) el.style.setProperty('outline', saved.outline);
+    else el.style.removeProperty('outline');
+    if (saved.outlineOffset) el.style.setProperty('outline-offset', saved.outlineOffset);
+    else el.style.removeProperty('outline-offset');
+    annotations.delete(el);
+    refreshClearButton();
+  }
+
+  function clearAllAnnotations() {
+    // Harmless on nodes a Turbo body swap has since detached.
+    for (const el of [...annotations.keys()]) removeAnnotation(el);
+    for (const box of boxAnnotations) box.remove();
+    boxAnnotations.clear();
+    refreshClearButton();
+  }
+
+  // ── Zapper mode ───────────────────────────────────────────────────────────
+  // Picks remove the element from the page. Hidden via display:none (not
+  // Node.remove()) so Restore can bring everything back in place without
+  // re-inserting; prior inline display values saved per element. Like
+  // annotations, zaps are undone on exit — the page leaves the mode intact.
+  const zapped = new Map(); // Element -> prior inline display value
+
+  function refreshRestoreButton() {
+    const btn = $('[data-bar-restore-zapped]');
+    if (!btn) return;
+    btn.hidden = zapped.size === 0;
+    const label = $('[data-bar-restore-count]');
+    if (label) label.textContent = `Restore (${zapped.size})`;
+  }
+
+  function zapElement(el) {
+    if (zapped.has(el)) return;
+    zapped.set(el, el.style.getPropertyValue('display'));
+    el.style.setProperty('display', 'none', 'important');
+    refreshRestoreButton();
+  }
+
+  function restoreAllZapped() {
+    for (const [el, display] of zapped) {
+      if (display) el.style.setProperty('display', display);
+      else el.style.removeProperty('display');
+    }
+    zapped.clear();
+    refreshRestoreButton();
+  }
+
+  const MODE_TAB_LABEL = { capture: 'Capture mode', annotate: 'Annotate mode', zap: 'Zapper mode' };
+
+  function setPickMode(mode) {
+    settings.pickMode = mode;
+    document.documentElement.classList.toggle('mb-annotate-mode', mode === 'annotate');
+    document.documentElement.classList.toggle('mb-zap-mode', mode === 'zap');
+    for (const name of ['capture', 'annotate', 'zap']) {
+      const btn = $(`[data-mode-${name}]`);
+      btn.classList.toggle('--on', mode === name);
+      btn.setAttribute('aria-pressed', mode === name ? 'true' : 'false');
+    }
+    const tabLabel = tab.querySelector('.mb-capture-tab__label');
+    if (tabLabel) tabLabel.textContent = MODE_TAB_LABEL[mode];
+    // Ephemeral, like resizeMode — not persisted to storage or the session.
+  }
+
+  $('[data-mode-capture]').addEventListener('click', () => setPickMode('capture'));
+  $('[data-mode-annotate]').addEventListener('click', () => setPickMode('annotate'));
+  $('[data-mode-zap]').addEventListener('click', () => setPickMode('zap'));
+  $('[data-bar-clear-annotations]').addEventListener('click', clearAllAnnotations);
+  $('[data-bar-restore-zapped]').addEventListener('click', restoreAllZapped);
 
   $('[data-bar-resize]').addEventListener('click', () => {
     settings.resizeMode = !settings.resizeMode;
@@ -435,7 +595,54 @@ export async function enterCaptureMode(opts = {}) {
   document.addEventListener('keydown', onKey, true);
 
   // ── Selector + capture pipeline ───────────────────────────────────────────
+  function installPickSelector() {
+    return installSelector({
+      onPick,
+      // Zapper has no padding concept (the stepper is hidden); 0 kills the ring.
+      getPadding: () => (settings.pickMode === 'zap' ? 0 : settings.capturePadding),
+      onArmedChange: isArmed => {
+        bar.classList.toggle('--armed', isArmed);
+        tab.classList.toggle('--armed', isArmed);
+      },
+    });
+  }
+
   async function onPick(target) {
+    // Annotate/zap picks stay armed — no screenshot, and they never count
+    // against maxCaptures.
+    if (settings.pickMode === 'annotate') {
+      if (!settings.resizeMode) {
+        toggleAnnotation(target);
+        return;
+      }
+      // Resize-mode annotate: confirm a draggable box, then ring it. The
+      // selector is torn down while the box is up (same reason as capture:
+      // a second Shift+pick would stack overlays) and re-armed after.
+      if (capturing) return;
+      capturing = true;
+      selectorCleanup?.();
+      selectorCleanup = null;
+      try {
+        await new Promise(resolve => {
+          enterResizeMode(target, settings, (rect, resized, untouched) => {
+            // Plain Enter with the box untouched = ring the element itself
+            // (outline follows its border-radius); an adjusted box gets a
+            // free-drawn rectangular ring.
+            if (untouched) toggleAnnotation(target);
+            else addBoxAnnotation(rect);
+            resolve();
+          }, () => resolve());
+        });
+      } finally {
+        capturing = false;
+        if (active === ctx) selectorCleanup = installPickSelector();
+      }
+      return;
+    }
+    if (settings.pickMode === 'zap') {
+      zapElement(target);
+      return;
+    }
     if (capturing) return;
     // Hard cap: refuse new picks once the configured limit has been reached.
     if (ctx.maxCaptures && sessionBuffer.length >= ctx.maxCaptures) return;
@@ -483,17 +690,7 @@ export async function enterCaptureMode(opts = {}) {
       capturing = false;
       bar.classList.remove('--capturing');
       // Re-arm the selector if still in mode.
-      if (active === ctx) {
-        selectorCleanup = installSelector({
-          onPick,
-          getPadding: () => settings.capturePadding,
-          onArmedChange: armed => {
-            bar.classList.toggle('--armed', armed);
-            tab.classList.toggle('--armed', armed);
-            setHint(armed ? 'Click to capture' : 'Shift + click to capture');
-          },
-        });
-      }
+      if (active === ctx) selectorCleanup = installPickSelector();
     }
   }
 
@@ -525,15 +722,7 @@ export async function enterCaptureMode(opts = {}) {
   }
 
   // ── Initial selector install ──────────────────────────────────────────────
-  selectorCleanup = installSelector({
-    onPick,
-    getPadding: () => settings.capturePadding,
-    onArmedChange: armed => {
-      bar.classList.toggle('--armed', armed);
-      tab.classList.toggle('--armed', armed);
-      setHint(armed ? 'Click to capture' : 'Shift + click to capture');
-    },
-  });
+  selectorCleanup = installPickSelector();
 
   // ── Exit ──────────────────────────────────────────────────────────────────
   // `cancelled` is true when the user dismissed via ✕ / Esc (discard intent)
@@ -548,6 +737,11 @@ export async function enterCaptureMode(opts = {}) {
     clearTimeout(hideTimer);
     selectorCleanup?.();
     selectorCleanup = null;
+    // Annotations and zaps never outlive the mode — every exit path (✕, Esc,
+    // Done / limit-reached, cold) lands here.
+    clearAllAnnotations();
+    restoreAllZapped();
+    document.documentElement.classList.remove('mb-annotate-mode', 'mb-zap-mode');
     popover.remove();
 
     bar.classList.remove('--enter');

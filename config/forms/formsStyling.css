@@ -1639,9 +1639,10 @@ details[open] .more-buttons-advanced-toggle::before {
 
 .mb-capture-bar {
   /* Reserved space for the always-visible .mb-capture-tab that sits on top
-   * of the bar's left edge. Keep in sync with .mb-capture-tab's intrinsic
-   * size (dot + gap + "Capture mode" label + horizontal padding). */
-  --tab-w: 138px;
+   * of the bar's left edge. The tab sizes to its label (width: max-content),
+   * so this must clear its WIDEST state — "Annotate mode" — with breathing
+   * room, or the bar's first control renders underneath it. */
+  --tab-w: 148px;
   /* ── Capture mode palette ────────────────────────────────────────────────
    * The whole palette is derived from a single hue token (--cb-hue) using
    * color-mix(). To re-skin capture mode in a different colour, change
@@ -1649,7 +1650,10 @@ details[open] .more-buttons-advanced-toggle::before {
    * and .mb-capture-glow (sibling elements can't inherit), and the matching
    * literal in scripts/captureElement.js (selector overlay).
    * Everything else — backgrounds, borders, text, shadow, glow — falls out
-   * of that single value automatically. */
+   * of that single value automatically.
+   * Annotate/Zapper modes reskin all of these (green/red) via single-rule
+   * hue overrides under html.mb-annotate-mode / html.mb-zap-mode (see the
+   * rules after the capture blocks below). */
   --cb-hue: #f59e0b; /* amber-500 */
 
   --cb-bg:            color-mix(in oklab, var(--cb-hue) 12%, white);
@@ -1794,16 +1798,47 @@ details[open] .more-buttons-advanced-toggle::before {
   letter-spacing: -0.005em;
 }
 
-.mb-capture-bar__hint {
-  font-size: 0.8125rem;
+/* Mode segmented control — Capture / Annotate. Same sunken-track vocabulary
+ * as the padding stepper; the active segment uses the primary fill, so it
+ * reads amber in capture mode and green in annotate mode for free (the whole
+ * bar re-derives from --cb-hue when html.mb-annotate-mode flips it). */
+.mb-capture-bar__mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--cb-border);
+  border-radius: 8px;
+  background: var(--cb-bg-sunken);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.mb-capture-bar__mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   color: var(--cb-text-muted);
-  white-space: nowrap;
-  transition: color 180ms ease-out;
-}
-.mb-capture-bar.--armed .mb-capture-bar__hint {
-  color: var(--cb-accent);
+  font: inherit;
+  font-size: 0.8125rem;
   font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
+.mb-capture-bar__mode-btn .more-buttons-icon { font-size: 0.9375rem; }
+.mb-capture-bar__mode-btn:hover { color: var(--cb-text); }
+.mb-capture-bar__mode-btn.--on {
+  background: var(--cb-primary-bg);
+  color: var(--cb-primary-fg);
+  font-weight: 600;
+}
+.mb-capture-bar__mode-btn.--on:hover { color: var(--cb-primary-fg); }
 
 /* Resize toggle — ghost chip; filled when on */
 .mb-capture-bar__toggle {
@@ -1823,6 +1858,9 @@ details[open] .more-buttons-advanced-toggle::before {
   transition: background 120ms ease-out, color 120ms ease-out,
               border-color 120ms ease-out;
 }
+/* display:inline-flex above defeats the UA's [hidden] rule — restore it so
+ * the conditionally-shown Clear button actually hides. */
+.mb-capture-bar__toggle[hidden] { display: none; }
 .mb-capture-bar__toggle .more-buttons-icon { font-size: 1rem; }
 .mb-capture-bar__toggle:hover {
   background: var(--cb-chip-hover);
@@ -2043,7 +2081,11 @@ details[open] .more-buttons-advanced-toggle::before {
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
-  width: 138px; /* must match .mb-capture-bar's --tab-w */
+  /* Size to the label ("Capture mode" / "Annotate mode") so neither wraps;
+   * .mb-capture-bar's --tab-w must clear the widest state. */
+  width: max-content;
+  min-width: 138px;
+  white-space: nowrap;
   box-sizing: border-box;
   height: 28px;
   padding: 0 14px;
@@ -2131,6 +2173,34 @@ details[open] .more-buttons-advanced-toggle::before {
  * point for sampleBackgroundColor's "hide my overlay" selector to find. */
 .mb-capture-selector,
 .mb-capture-resize { /* selectors only — actual styles set inline at create time */ }
+
+/* Annotate mode: one class on <html> flips every capture-mode surface green.
+ * All derived --cb-* tokens (light + dark) are color-mix()ed from --cb-hue,
+ * so overriding the hue is the whole re-skin. Every capture-mode surface is
+ * mounted on document.documentElement, so the descendant selector reaches
+ * them all — including the selector box, which is torn down and reinstalled
+ * around each capture. */
+html.mb-annotate-mode .mb-capture-bar,
+html.mb-annotate-mode .mb-capture-tab,
+html.mb-annotate-mode .mb-capture-glow,
+html.mb-annotate-mode .mb-capture-selector,
+html.mb-annotate-mode .mb-capture-padding-ring {
+  --cb-hue: #22c55e; /* green-500 */
+}
+/* Zapper mode: same trick, red. */
+html.mb-zap-mode .mb-capture-bar,
+html.mb-zap-mode .mb-capture-tab,
+html.mb-zap-mode .mb-capture-glow,
+html.mb-zap-mode .mb-capture-selector,
+html.mb-zap-mode .mb-capture-padding-ring {
+  --cb-hue: #ef4444; /* red-500 */
+}
+/* Resize + padding shape what gets drawn/captured; zapper picks just delete,
+ * so the controls hide rather than advertise dead affordances. */
+html.mb-zap-mode .mb-capture-bar [data-bar-resize],
+html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
+  display: none;
+}
 
 
 /* ── Report-type table ────────────────────────────────────────────────────── */

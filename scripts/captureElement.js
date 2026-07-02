@@ -556,7 +556,9 @@ export async function screenshotElement(el, { theme, customRect = null, settings
 
   // Hide our own capture-mode overlays for the duration of the screenshot so
   // the inset edge glow, bar, tab, and selector box don't bleed into the PNG
-  // for elements near the viewport edge.
+  // for elements near the viewport edge. Annotate-mode rings (inline outlines
+  // on page elements, applied by captureMode.js) are deliberately NOT hidden —
+  // capturing them is the point of that mode.
   const hiddenOverlays = document.querySelectorAll(
     '.mb-capture-glow, .mb-capture-bar, .mb-capture-bar__popover, .mb-capture-tab, .mb-capture-selector, .mb-capture-padding-ring, .mb-capture-resize'
   );
@@ -660,7 +662,14 @@ function applyDelta(handle, startBox, dx, dy) {
  * `untouched` is true when the box still matches the element's initial rect
  * (position and size) — i.e. the user just pressed Enter without adjusting.
  */
-export function enterResizeMode(el, _settings, onConfirm, onCancel) {
+export function enterResizeMode(el, settings, onConfirm, onCancel) {
+  // Annotate-mode picks confirm a green ring instead of a capture — match
+  // the box/handles/hint to the mode's hue (amber otherwise).
+  const annotate = settings?.pickMode === 'annotate';
+  const accent = annotate ? 'oklch(0.62 0.19 150)' : 'oklch(0.62 0.21 45)';
+  const hintBg = annotate ? 'oklch(0.24 0.05 150)' : 'oklch(0.24 0.05 60)';
+  const hintFg = annotate ? 'oklch(0.95 0.05 150)' : 'oklch(0.95 0.05 80)';
+  const handleBg = annotate ? 'oklch(0.96 0.02 150)' : 'oklch(0.96 0.02 80)';
   const initRect = el.getBoundingClientRect();
   let box = {
     top: initRect.top + window.scrollY,
@@ -674,19 +683,19 @@ export function enterResizeMode(el, _settings, onConfirm, onCancel) {
   resizeOverlay.className = 'mb-capture-resize';
   Object.assign(resizeOverlay.style, {
     position: 'absolute', pointerEvents: 'none', overflow: 'visible',
-    border: '2px solid oklch(0.62 0.21 45)', zIndex: '2147483647', boxSizing: 'border-box',
+    border: `2px solid ${accent}`, zIndex: '2147483647', boxSizing: 'border-box',
   });
   document.body.appendChild(resizeOverlay);
 
   const hint = document.createElement('div');
   Object.assign(hint.style, {
     position: 'absolute', zIndex: '2147483647',
-    background: 'oklch(0.24 0.05 60)', color: 'oklch(0.95 0.05 80)',
+    background: hintBg, color: hintFg,
     fontSize: '11px', padding: '4px 8px', borderRadius: '4px',
     pointerEvents: 'none', whiteSpace: 'nowrap',
     fontFamily: 'system-ui, -apple-system, sans-serif',
   });
-  hint.textContent = '↵ Enter to capture · Esc to cancel';
+  hint.textContent = annotate ? '↵ Enter to annotate · Esc to cancel' : '↵ Enter to capture · Esc to cancel';
   document.body.appendChild(hint);
 
   function updateOverlay() {
@@ -714,7 +723,7 @@ export function enterResizeMode(el, _settings, onConfirm, onCancel) {
     const h = document.createElement('div');
     Object.assign(h.style, {
       position: 'absolute', width: '10px', height: '10px',
-      background: 'oklch(0.96 0.02 80)', border: '2px solid oklch(0.62 0.21 45)', boxSizing: 'border-box',
+      background: handleBg, border: `2px solid ${accent}`, boxSizing: 'border-box',
       pointerEvents: 'auto', zIndex: '2147483647',
       ...styles,
     });
