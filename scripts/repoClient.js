@@ -2,7 +2,7 @@
 // All readers go through readRepoText (no CDN, no HTTP cache).
 // Writers in github.js share the same REPO config + auth header.
 
-export const REPO = { owner: 'ollie-opus', name: 'opus-knowledge-base', branch: 'main' };
+export const REPO = { owner: 'opus-safety', name: 'opus-knowledge-base', branch: 'main' };
 
 // The published Zensical site the repo builds to.
 export const SITE = { baseUrl: 'https://support.opus-safety.co.uk' };

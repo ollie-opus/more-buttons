@@ -529,6 +529,11 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
         if (step === 'close') { resetHistory(); cleanup(); continue; }
         if (step === 'back') { await navigateBack(); continue; }
         let [stepName, stepParam] = step.includes(':') ? step.split(':') : [step, null];
+        // Registered form actions (formActions.js) — mirror the main form path so
+        // `<div>`-rooted overlays (e.g. githubNotConnected) can dispatch them too.
+        // Tear down this overlay first, matching the module-fn branch's convention.
+        const registryFn = getFormAction(stepName);
+        if (registryFn) { cleanup(); await registryFn({ formEl: null, overlay, content, cleanup }); continue; }
         const fn = mod && typeof mod[stepName] === 'function' ? mod[stepName] : null;
         if (fn) { cleanup(); await fn(stepParam); }
         else { console.warn(`createForm: Unknown action step "${stepName}"`); }
