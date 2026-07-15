@@ -35,7 +35,7 @@ import {
 } from './admonitions.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
-import { escapeHtml, captureComponentCard, videoComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard } from './cardRenderer.js';
+import { escapeHtml, captureComponentCard, videoComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, fileExtOf } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
@@ -1143,6 +1143,7 @@ function captureComponentCardFor(cap) {
     thumbSrc: assetCdnUrl('docs/assets/' + cap.lightFilename),
     btnAttr: `data-edit-component="${escapeHtml(cap.uuid ?? '')}"`,
     copyAttr: cap.uuid ? `data-copy-component-md="${escapeHtml(cap.uuid)}"` : '',
+    ext: fileExtOf(cap.lightFilename),
   });
 }
 
@@ -1151,6 +1152,7 @@ function videoComponentCardFor(vid) {
     thumbSrc: assetCdnUrl('docs/assets/' + vid.lightFilename),
     btnAttr: `data-edit-video-component="${escapeHtml(vid.uuid ?? '')}"`,
     copyAttr: vid.uuid ? `data-copy-component-md="${escapeHtml(vid.uuid)}"` : '',
+    ext: fileExtOf(vid.lightFilename),
   });
 }
 

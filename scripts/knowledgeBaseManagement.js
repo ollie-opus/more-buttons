@@ -345,8 +345,8 @@ async function renderKnowledgeBaseManagement() {
     // listen on the parent overlay-content to catch both form-internal clicks
     // and the moved-out mode-toggle / reorder action-group clicks.
     formEl.parentElement?.addEventListener('click', async e => {
-      if (e.target.closest('[data-kb-open-capture-library]')) {
-        await getFormAction('openCaptureLibrary')?.();
+      if (e.target.closest('[data-kb-open-media-library]')) {
+        await getFormAction('openMediaLibrary')?.();
         return;
       }
       if (e.target.closest('[data-kb-create-guide]')) {

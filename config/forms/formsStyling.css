@@ -795,6 +795,67 @@ button.more-buttons-crumb:hover {
   border-radius: 6px;
 }
 
+/* ── Capture upload: PNG file pickers ─────────────────────────────────────── */
+
+/* Input column of an upload form row (mirrors .mb-capture-path-field). */
+.mb-capture-upload-field {
+  min-width: 0;
+}
+
+/* The native file input in the text-input language: hairline border, 6px
+   radius, input surface. The filename readout is the input's own text — muted
+   while it still says "No file chosen", value-weight once a file is picked
+   (controllers toggle --has-file on change). */
+.mb-capture-upload-input {
+  width: 100%;
+  padding: 5px 9px 5px 5px;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--mb-text-muted);
+  box-sizing: border-box;
+  outline: none;
+  background-color: var(--mb-bg-input);
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* Same focus ring as every other input (see the :focus block above). */
+.mb-capture-upload-input:focus-visible {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+.mb-capture-upload-input.--has-file {
+  color: var(--mb-text);
+}
+
+/* Browse control in the neutral ghost-button language (.more-buttons-button):
+   transparent, hairline border, muted 600-weight label, soft wash on hover. */
+.mb-capture-upload-input::file-selector-button {
+  appearance: none;
+  margin-right: 10px;
+  padding: 5px 12px;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mb-text-muted);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background-color 0.14s ease-out, border-color 0.14s ease-out,
+    color 0.14s ease-out;
+}
+
+.mb-capture-upload-input:hover::file-selector-button {
+  background: color-mix(in srgb, var(--mb-acc-neutral) 14%, transparent);
+  border-color: var(--mb-acc-neutral);
+  color: var(--mb-text);
+}
+
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
 
 /* Buttons in the admonition-card edit-button language. By default a button is a
@@ -1065,6 +1126,14 @@ button.more-buttons-crumb:hover {
   margin-left: 6px;
   font-weight: 400;
   color: var(--mb-text-muted);
+}
+/* Right-hand cluster of the card head: the badge plus optional trailing tags
+   (e.g. the grey .png/.svg format pill on media cards). */
+.mb-incident-card__head-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .mb-incident-card__badge {
   font-size: 0.6875rem;
@@ -2750,6 +2819,7 @@ html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  vertical-align: middle; /* keeps pills optically centred inside headings */
 }
 
 .mb-kb-pill {
@@ -2773,6 +2843,22 @@ html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
 .mb-kb-pill.--drafting { --mb-pill-accent: rgb(255, 179, 0); }
 .mb-kb-pill.--resized  { --mb-pill-accent: rgb(255, 179, 0); }  /* same yellow as Drafting */
 .mb-kb-pill.--padded   { --mb-pill-accent: rgb(66, 165, 245); } /* Material blue */
+/* File-format pill (.png / .svg / .mp4…) — neutral grey; the extension text is
+   already lowercase-with-dot, so opt out of the uppercase transform. */
+.mb-kb-pill.--format   { --mb-pill-accent: rgb(148, 163, 184); text-transform: none; }
+
+/* Form titles that carry a format pill (capture entry, edit capture/video):
+   flex the row so the pill sits at the right edge, on the title's level. */
+h2[data-capture-entry-title],
+h2[data-edit-media-title] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+h2[data-capture-entry-title] .mb-kb-pills,
+h2[data-edit-media-title] .mb-kb-pills {
+  margin-left: auto;
+}
 
 /* ── Knowledge Base Search ──────────────────────────────────────────────────── */
 

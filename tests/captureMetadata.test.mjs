@@ -66,6 +66,15 @@ test('captureMetaPills renders a padded pill with the px value', () => {
 });
 test('captureMetaPills renders both pills, resized before padded', () => {
   const html = captureMetaPills({ resized: true, padding: 16 });
+test('captureMetaPills renders the grey format pill last, even without meta', () => {
+  const bare = captureMetaPills(undefined, 'svg');
+  assert.ok(bare.includes('mb-kb-pill --format'));
+  assert.ok(bare.includes('>.svg<'));
+  const both = captureMetaPills({ resized: true }, 'png');
+  assert.ok(both.indexOf('--resized') < both.indexOf('--format'));
+  assert.ok(both.includes('>.png<'));
+});
+
   assert.ok(html.indexOf('--resized') < html.indexOf('--padded'));
 });
 

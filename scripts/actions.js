@@ -7,9 +7,10 @@ export { publishSystemStatus, publishNewIncident, publishUpdatedIncident,
 import './captures.js';
 import './systemUpdates.js';
 import './guides.js';
-import './captureLibrary.js';
+import './mediaLibrary.js';
 import './captureEntry.js';
 import './captureNew.js';
+import './mediaUpload.js';
 import './captureInsertNew.js';
 import './captureComponent.js';
 import './videoEntry.js';
@@ -22,7 +23,7 @@ import './diagramEditor.js';
 import './integrations.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';
-export { openCaptureLibrary } from './captureLibrary.js';
+export { openMediaLibrary } from './mediaLibrary.js';
 export { openCaptureEntry } from './captureEntry.js';
 export { openIntegrations } from './integrations.js';
 

@@ -104,8 +104,8 @@ registerFormAction('completeComponentVideoInsert', async ({ video } = {}) => {
   }
 });
 
-// "Video" insert → browse library (Videos tab) → review → commit at idx.
+// "Video" insert → browse library (videos only) → review → commit at idx.
 export function runComponentVideoLibraryInsert({ container, insertAt }) {
   pendingVideoInsert = { snapshot: snapshotFormStack(), container, insertAt };
-  return getFormAction('openCaptureLibrary')?.({ mode: 'insert', media: 'video' });
+  return getFormAction('openMediaLibrary')?.({ mode: 'insert', accept: 'video' });
 }

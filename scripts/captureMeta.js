@@ -35,14 +35,24 @@ export function applyMetaUpserts(manifest, upserts) {
 }
 
 /**
- * Build the pills HTML for one capture's metadata. Returns '' when there is
- * nothing to show. Matches the KB pill structure (.mb-kb-pills > .mb-kb-pill).
+ * Grey file-format pill (".png" / ".svg" / ".mp4"…). Shared by the library
+ * leaves and the component cards. Returns '' for a missing ext.
  */
-export function captureMetaPills(meta) {
-  if (!meta) return '';
+export function formatPill(ext) {
+  return ext ? `<span class="mb-kb-pill --format">.${ext}</span>` : '';
+}
+
+/**
+ * Build the pills HTML for one capture's metadata, plus an optional trailing
+ * grey file-format pill. Returns '' when there is nothing to show. Matches
+ * the KB pill structure (.mb-kb-pills > .mb-kb-pill).
+ */
+export function captureMetaPills(meta, ext) {
   const pills = [];
-  if (meta.resized) pills.push('<span class="mb-kb-pill --resized">Resized</span>');
-  if (meta.padding > 0) pills.push(`<span class="mb-kb-pill --padded">Padded: ${meta.padding}px</span>`);
+  if (meta?.resized) pills.push('<span class="mb-kb-pill --resized">Resized</span>');
+  if (meta?.padding > 0) pills.push(`<span class="mb-kb-pill --padded">Padded: ${meta.padding}px</span>`);
+  const format = formatPill(ext);
+  if (format) pills.push(format);
   if (!pills.length) return '';
   return `<span class="mb-kb-pills">${pills.join('')}</span>`;
 }

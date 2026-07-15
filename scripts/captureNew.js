@@ -93,7 +93,7 @@ export async function openCaptureNew({ capture } = {}) {
         await pushCaptures([capture], s => setButtonBusy(saveBtn, s));
       }
       done = true;
-      navigateBack(); // replays openCaptureLibrary → re-fetches the tree
+      navigateBack(); // replays openMediaLibrary → re-fetches the tree
     } catch (e) {
       alert(`Failed to save capture: ${e.message}`);
     } finally {

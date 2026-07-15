@@ -393,6 +393,6 @@ registerFormAction('reenterComponentCapture', () => {
 // "Add from library" → pick a library capture → review form → commit at idx.
 export function runComponentLibraryInsert({ container, insertAt }) {
   pendingComponentInsert = { snapshot: snapshotFormStack(), container, insertAt };
-  return getFormAction('openCaptureLibrary')?.({ mode: 'insert' });
+  return getFormAction('openMediaLibrary')?.({ mode: 'insert', accept: 'image' });
 }
 

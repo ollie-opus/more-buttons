@@ -1,5 +1,5 @@
 // Shared tree renderer + search filter for KB-style nav trees.
-// Used by knowledgeBaseManagement and captureLibrary.
+// Used by knowledgeBaseManagement and mediaLibrary.
 //
 // Node format:
 //   { kind: 'file',   label, attrs?: { 'data-x': 'y', ... } }
@@ -28,7 +28,7 @@ function controlsHtml(idxPath, isFirst, isLast) {
 // Keeping the controls a SIBLING of the row button (never nested inside it)
 // preserves the click-isolation the reorder feature depends on. When
 // `reorderable` is off the wrapper is omitted, so the output is byte-identical
-// to the pre-reorder render (the capture-library caller is unaffected).
+// to the pre-reorder render (the media-library caller is unaffected).
 function rowLine(button, ro, idxPath, opts) {
   return ro
     ? `<div class="mb-kb-row-line">${button}${controlsHtml(idxPath, opts.isFirst, opts.isLast)}</div>`

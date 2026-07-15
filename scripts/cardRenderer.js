@@ -26,15 +26,23 @@ export function renderCard({ colour, title, badge, description, meta, btnAttr, b
   </div>`;
 }
 
+// Grey file-format pill for a media component card's head, rendered to the
+// right of the badge (matches the library tree's format pill). '' when the
+// ext is unknown.
+function cardFormatPill(ext) {
+  return ext ? `<span class="mb-kb-pills"><span class="mb-kb-pill --format">.${escapeHtml(ext)}</span></span>` : '';
+}
+
 // A "Video" component card: same chrome as captureComponentCard but a muted
 // inline <video> thumbnail (paused, first-frame poster) and a Video badge.
-// `thumbSrc` is the light/single video's CDN url.
-export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+// `thumbSrc` is the light/single video's CDN url; `ext` renders the grey
+// file-format pill after the badge.
+export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', ext = '' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
       <strong class="mb-incident-card__title">Video</strong>
-      <span class="mb-incident-card__badge">Video</span>
+      <span class="mb-incident-card__head-tags"><span class="mb-incident-card__badge">Video</span>${cardFormatPill(ext)}</span>
     </div>
     ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><video class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" muted playsinline preload="metadata"></video></div>` : ''}
     <div class="mb-incident-card__foot --end">
@@ -105,13 +113,14 @@ export function diagramComponentCard({ btnAttr, btnLabel = 'Edit', copyAttr = ''
 // "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an
 // existing capture, or a data: url for a freshly-captured pending one).
-// `btnAttr` wires the Edit button (e.g. 'data-edit-component="<uuid>"').
-export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+// `btnAttr` wires the Edit button (e.g. 'data-edit-component="<uuid>"');
+// `ext` renders the grey file-format pill after the badge.
+export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', ext = '' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
       <strong class="mb-incident-card__title">Capture</strong>
-      <span class="mb-incident-card__badge">Capture</span>
+      <span class="mb-incident-card__head-tags"><span class="mb-incident-card__badge">Capture</span>${cardFormatPill(ext)}</span>
     </div>
     ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><img class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" alt="" loading="lazy" /></div>` : ''}
     <div class="mb-incident-card__foot --end">
@@ -119,4 +128,10 @@ export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', cop
       <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
+}
+
+// Lowercased file extension of a media filename/path, or '' when there isn't
+// one (e.g. a data: url). For the component cards' format pill.
+export function fileExtOf(path) {
+  return /\.([a-z0-9]+)$/i.exec(path || '')?.[1]?.toLowerCase() ?? '';
 }

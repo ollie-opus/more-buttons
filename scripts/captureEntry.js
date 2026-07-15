@@ -7,6 +7,7 @@ import {
   captureCard, captureGrid, capturePathField, captureBasePath,
   captureSizeField, wireCaptureSizeField, readCaptureSizeField,
   captureThemeField, captureCornerField,
+  captureUploadField, readCaptureImage,
 } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 import { formLoading } from './loading.js';
@@ -53,10 +54,18 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
   const titleEl = formEl.querySelector('[data-capture-entry-title]');
   const bodyEl = formEl.querySelector('[data-capture-entry-body]');
   const actionsEl = contentEl.querySelector('[data-capture-entry-actions]');
-  if (titleEl && label) titleEl.textContent = label;
-
   // Theme-agnostic, root-relative path shown read-only above the previews.
   const displayPath = captureBasePath(lightPath);
+  // Stored file format of the pair. Drives which buttons render (Recapture is
+  // PNG-only), what Replace via upload accepts, and the title's format pill.
+  const storedExt = (/\.(png|svg)$/i.exec(lightPath)?.[1] ?? 'png').toLowerCase();
+
+  if (titleEl) {
+    if (label) titleEl.textContent = label;
+    // Same grey format pill as the library tree, pushed to the row's right
+    // edge (see the h2 flex rules in formsStyling.css).
+    titleEl.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills"><span class="mb-kb-pill --format">.${storedExt}</span></span>`);
+  }
 
   // We fetch each image via the contents API (readRepoBlob) instead of using
   // assetCdnUrl, because raw.githubusercontent.com has a ~5 minute Fastly
@@ -95,7 +104,13 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
     actionsEl.innerHTML = insertMode
       ? `<button type="button" class="more-buttons-button secondary" data-capture-entry-insert-cancel><span class="more-buttons-icon">close</span>Cancel</button>
         <button type="button" class="more-buttons-button" data-capture-entry-insert><span class="more-buttons-icon">add</span>Insert this capture</button>`
-      : `<button type="button" class="more-buttons-button" data-capture-entry-override><span class="more-buttons-icon">swap_vertical_circle</span>Recapture</button>`;
+      : // Recapture pushes PNG screenshot bytes onto the stored paths, so it
+        // only renders for .png pairs — an .svg pair can only be replaced by
+        // uploading fresh SVGs.
+        (storedExt === 'png'
+          ? `<button type="button" class="more-buttons-button" data-capture-entry-override><span class="more-buttons-icon">swap_vertical_circle</span>Recapture</button>`
+          : '') +
+        `<button type="button" class="more-buttons-button" data-capture-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>`;
   }
 
   // Insert mode: reference the existing library asset (no upload). Strip the
@@ -132,6 +147,27 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
     } else {
       navigateBack();
     }
+  }
+
+  // "Replace via upload" — a third in-form view state alongside renderPreview
+  // and renderCompare. The path row reuses capturePathField's read-only default
+  // (disabled readonly) since the stored pair's path is fixed here. Replacement
+  // happens in place at the stored paths, so the pickers only accept the
+  // pair's own file type (a .png pair takes PNGs, a .svg pair takes SVGs).
+  // Once every required file is picked the flow lands in the same compare view
+  // Recapture uses; the dark row only renders for pairs with a dark file.
+  const picked = { light: '', dark: '' }; // data URLs from the file inputs
+
+  function renderUploadPicker() {
+    picked.light = '';
+    picked.dark = '';
+    bodyEl.innerHTML =
+      capturePathField({ label: 'Capture path', value: displayPath }) +
+      captureUploadField({ label: 'Light mode image', name: 'light', exts: [storedExt] }) +
+      (darkPath ? captureUploadField({ label: 'Dark mode image', name: 'dark', exts: [storedExt] }) : '');
+    actionsEl.innerHTML = `
+      <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+    `;
   }
 
   function renderCompare() {
@@ -235,11 +271,37 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
       cancelInsert();
     } else if (e.target.closest('[data-capture-entry-override]')) {
       startOverride();
+    } else if (e.target.closest('[data-capture-entry-upload]')) {
+      renderUploadPicker();
     } else if (e.target.closest('[data-capture-entry-save]')) {
       saveChanges();
     } else if (e.target.closest('[data-capture-entry-cancel]')) {
       pendingCapture = null;
       renderPreview();
+    }
+  });
+
+  // Upload-picker file inputs. Delegated on formEl (bodyEl's contents are
+  // re-rendered per view, but formEl persists). When every required file is
+  // picked, stage the pair as pendingCapture and jump to the compare view —
+  // from there the existing Cancel / Save Changes handlers take over.
+  formEl.addEventListener('change', async (e) => {
+    const input = e.target.closest('[data-capture-upload]');
+    if (!input) return;
+    const file = input.files?.[0];
+    try {
+      picked[input.dataset.captureUpload] = file
+        ? (await readCaptureImage(file, [storedExt])).dataUrl
+        : '';
+    } catch (err) {
+      alert(err.message);
+      input.value = '';
+      picked[input.dataset.captureUpload] = '';
+    }
+    input.classList.toggle('--has-file', !!input.files?.length);
+    if (picked.light && (picked.dark || !darkPath)) {
+      pendingCapture = { lightDataUrl: picked.light, darkDataUrl: picked.dark };
+      renderCompare();
     }
   });
 

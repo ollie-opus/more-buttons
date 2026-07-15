@@ -40,7 +40,7 @@ import { spliceIntoContainer, beginChildNavigation } from './guides.js';
 import { openInsertMenu } from './insertMenu.js';
 import { syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
 import { renderDocHtml } from './markdownInline.js';
-import { escapeHtml, captureComponentCard } from './cardRenderer.js';
+import { escapeHtml, captureComponentCard, fileExtOf } from './cardRenderer.js';
 import { assetCdnUrl } from './repoClient.js';
 
 const STORAGE_KEY = 'moreButtonsEditDataTable';
@@ -443,6 +443,7 @@ function renderRowComponents(formEl) {
     ? captureComponentCard({
         thumbSrc: assetCdnUrl('docs/assets/' + capture.lightFilename),
         btnAttr: `data-edit-component="${escapeHtml(capture.uuid ?? '')}"`,
+        ext: fileExtOf(capture.lightFilename),
       })
     : `<button type="button" class="mb-insert-component__empty" data-dtr-insert-capture><span class="mb-adm-empty__icon">+</span> Insert capture</button>`);
   // Keep the save-gate's container identity pointed at the selected cell.

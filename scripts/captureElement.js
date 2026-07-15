@@ -472,7 +472,7 @@ function looksLikeOpaqueId(s) {
 }
 
 // Library-relative storage prefix for derived capture filenames. Mirrors
-// CAPTURE_ROOT in captureLibrary.js (which carries the repo "docs/assets/"
+// the capture root used by mediaLibrary.js (which carries the repo "docs/assets/"
 // part) — captureBasePath strips exactly this prefix, so the two must agree.
 const LIBRARY_PREFIX = 'media/occ-captures';
 

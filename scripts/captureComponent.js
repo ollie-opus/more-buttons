@@ -15,6 +15,7 @@ import { captureCard, captureGrid, captureSizeField, wireCaptureSizeField } from
 import { videoCard } from './videoCards.js';
 import { registerFormAction } from './formActions.js';
 import { getComponentContainer } from './componentContainers.js';
+import { fileExtOf } from './cardRenderer.js';
 import { captureDimFields, videoDimFields, uuidOfComponent } from './components.js';
 import { mergeSave } from './mergeSave.js';
 import { formLoading } from './loading.js';
@@ -46,7 +47,15 @@ async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
   formEl.dataset.mediaKind = kind;
 
   const titleEl = formEl.querySelector('[data-edit-media-title]');
-  if (titleEl) titleEl.textContent = isVideo ? 'Edit video' : 'Edit capture';
+  if (titleEl) {
+    titleEl.textContent = isVideo ? 'Edit video' : 'Edit capture';
+    // Surface the stored file format while editing (same grey pill as the
+    // library tree and component cards), pushed to the row's right edge by
+    // the h2 flex rules in formsStyling.css — e.g. an .svg capture can only
+    // be replaced by uploading SVGs, so the format matters here.
+    const ext = fileExtOf(media.lightFilename);
+    if (ext) titleEl.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills"><span class="mb-kb-pill --format">.${ext}</span></span>`);
+  }
 
   // Playback radios are video-only; Theme is meaningless for a single video.
   const playbackGroup = formEl.querySelector('[data-video-playback-group]');

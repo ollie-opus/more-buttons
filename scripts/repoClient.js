@@ -130,5 +130,12 @@ export async function readRepoBlob(path, { signal } = {}) {
     signal,
   });
   if (!res.ok) throw new Error('GitHub API error: ' + res.status);
-  return res.blob();
+  const blob = await res.blob();
+  // The contents API reports its own media type, not the file's. That's fine
+  // for formats <img> will sniff (PNG), but SVG is never sniffed for security
+  // reasons — an object URL without image/svg+xml renders nothing. Re-type it.
+  if (/\.svg$/i.test(path) && blob.type !== 'image/svg+xml') {
+    return new Blob([blob], { type: 'image/svg+xml' });
+  }
+  return blob;
 }

@@ -1,23 +1,20 @@
 export function smartDocumentSubmit() {
-  // 1. Grab the file input
-  const fileInput = document.querySelector(
-    'input[type="file"][name="measurement[measurement_value][file]"]'
-  );
+  // 1. Work out the filename.
+  //
+  // Two flows are possible:
+  //   (a) A file was just picked but not yet uploaded — there is a live
+  //       <input type="file"> carrying a File in `.files`.
+  //   (b) Active Storage direct upload already completed — the visible file
+  //       input has been swapped for a hidden signed_id input, and the name
+  //       now lives only in the preview label/anchor.
+  const filename = getSelectedFilename();
 
-  if (!fileInput) {
-    console.error('smartDocumentSubmit: Could not find the file input "measurement[measurement_value][file]".');
-    alert('Error: Could not find the file upload input on this page.');
+  if (!filename) {
+    console.error('smartDocumentSubmit: Could not determine the uploaded file name (no picked file and no preview anchor).');
+    alert('Error: Could not find the uploaded file on this page.\n\nPick a file (or wait for the upload to finish) and try again.');
     return;
   }
 
-  if (!fileInput.files || fileInput.files.length === 0) {
-    console.error('smartDocumentSubmit: No file selected. Choose a file first, then call smartDocumentSubmit().');
-    alert('Please select a file before running smartDocumentSubmit.');
-    return;
-  }
-
-  const file = fileInput.files[0];
-  const filename = file.name;
   console.log('smartDocumentSubmit: Using filename:', filename);
 
   // 2. Extract document_date from filename: _document_date_dd-mm-yyyy_
@@ -66,7 +63,7 @@ export function smartDocumentSubmit() {
   dateInput.dispatchEvent(new Event('change', { bubbles: true }));
 
   // 4. Submit the form using the real submit button if possible
-  const form = dateInput.closest('form') || fileInput.closest('form');
+  const form = dateInput.closest('form');
 
   if (!form) {
     console.error('smartDocumentSubmit: Could not find a parent <form> to submit.');
@@ -86,4 +83,34 @@ export function smartDocumentSubmit() {
     console.log('smartDocumentSubmit: Falling back to form.submit() (may show "You are being redirected.").');
     form.submit();
   }
+}
+
+// Resolve the name of the file the user is submitting, handling both a
+// freshly-picked (not-yet-uploaded) file and an already-direct-uploaded one.
+function getSelectedFilename() {
+  // (a) Freshly-picked file still sitting in a live <input type="file">.
+  const fileInput = document.querySelector('input[type="file"][name="measurement[measurement_value][file]"]')
+    || document.querySelector('input[type="file"]#measurement_measurement_value_file')
+    || document.querySelector('input[type="file"][data-file-direct-upload-target="input"]');
+
+  if (fileInput && fileInput.files && fileInput.files.length > 0) {
+    return fileInput.files[0].name;
+  }
+
+  // (b) Direct upload already completed — read the name from the preview anchor.
+  const anchor = document.querySelector(
+    '[data-file-preview-target="label"] a, label[for="measurement_measurement_value_file"] a'
+  );
+  if (anchor) {
+    const text = anchor.textContent && anchor.textContent.trim();
+    if (text) return text;
+    if (anchor.href) {
+      try {
+        const fromHref = new URL(anchor.href).searchParams.get('filename');
+        if (fromHref) return decodeURIComponent(fromHref);
+      } catch (_) { /* malformed href — fall through */ }
+    }
+  }
+
+  return null;
 }

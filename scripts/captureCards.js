@@ -25,18 +25,18 @@ export function captureGrid(cards) {
   return `<div class="mb-capture-entry-grid">${cards.join('')}</div>`;
 }
 
-// Storage root for all captures (mirrors CAPTURE_ROOT in captureLibrary.js).
+// Storage root for all captures (mirrors the capture write root; the media library (mediaLibrary.js) derives its tabs from the repo).
 const CAPTURE_ROOT = 'docs/assets/media/occ-captures';
 
 /**
  * Reduce a stored capture path to its theme-agnostic, root-relative base.
  * Accepts either a full repo path (captureEntry's `lightPath`) or a
  * library-relative `media/occ-captures/…` filename (captureNew's
- * `lightFilename`), and strips the trailing -light-mode.png / -dark-mode.png
- * so the same string represents the light+dark pair.
+ * `lightFilename`), and strips the trailing -light-mode.<ext> /
+ * -dark-mode.<ext> so the same string represents the light+dark pair.
  *
  *   "docs/assets/media/occ-captures/sites/uuid/foo-light-mode.png" -> "sites/uuid/foo"
- *   "media/occ-captures/sites/uuid/foo-dark-mode.png"              -> "sites/uuid/foo"
+ *   "media/occ-captures/sites/uuid/foo-dark-mode.svg"              -> "sites/uuid/foo"
  *
  * @param {string} path
  * @returns {string}
@@ -46,7 +46,7 @@ export function captureBasePath(path) {
   let p = path;
   if (p.startsWith(CAPTURE_ROOT + '/')) p = p.slice(CAPTURE_ROOT.length + 1);
   else if (p.startsWith('media/occ-captures/')) p = p.slice('media/occ-captures/'.length);
-  return p.replace(/-(light|dark)-mode\.png$/, '');
+  return p.replace(/-(light|dark)-mode\.(png|svg)$/, '');
 }
 
 /** Escape a value for safe interpolation into an HTML attribute. */
@@ -79,6 +79,103 @@ export function capturePathField({ label, value, editable = false, hint = '' }) 
       </div>
     </div>
   `;
+}
+
+// Image types the upload flows can store. Uploaded bytes are pushed to the
+// repo as-is (never converted), so the stored extension must match the type.
+export const CAPTURE_UPLOAD_TYPES = { png: 'image/png', svg: 'image/svg+xml' };
+
+/** Build an accept="" attribute value for a set of capture extensions. */
+export function captureUploadAccept(exts = Object.keys(CAPTURE_UPLOAD_TYPES)) {
+  return exts.map(ext => CAPTURE_UPLOAD_TYPES[ext]).filter(Boolean).join(',');
+}
+
+/**
+ * "Light/Dark mode image" form row — a native file input styled by
+ * .mb-capture-upload-input (its ::file-selector-button carries the ghost-button
+ * language). data-capture-upload names the slot ('light' | 'dark') so callers
+ * can delegate `change` and read the pick back; controllers toggle the
+ * '--has-file' class so the filename reads as filled-in value text.
+ * Pass exts to restrict the picker (e.g. ['png'] when replacing a stored PNG
+ * pair in place); the default offers every storable capture type. Pass
+ * exts: null to accept ANY file (media-library uploads outside occ-captures).
+ * @param {{label:string, name:string, exts?:string[]|null}} opts
+ */
+export function captureUploadField({ label, name, exts }) {
+  const acceptAttr = exts === null ? '' : ` accept="${escapeAttr(captureUploadAccept(exts))}"`;
+  return `
+    <div class="more-buttons-form-group">
+      <label class="more-buttons-label">${escapeAttr(label)}</label>
+      <div class="mb-capture-upload-field">
+        <input class="mb-capture-upload-input" type="file"${acceptAttr} data-capture-upload="${escapeAttr(name)}">
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Storable capture extension of a picked file: 'png' | 'svg' | null. MIME
+ * type first, filename extension as the fallback for files the browser
+ * reports without a type. Pure — unit tested.
+ * @param {{type?:string, name?:string}} [file]
+ */
+export function captureFileExt({ type, name } = {}) {
+  if (type) {
+    const ext = Object.keys(CAPTURE_UPLOAD_TYPES).find(k => CAPTURE_UPLOAD_TYPES[k] === type);
+    return ext ?? null;
+  }
+  const m = /\.(png|svg)$/i.exec(name || '');
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Read a picked capture File into { ext, dataUrl } (the data-URL shape capture
+ * buffers carry). Rejects types outside `exts` — bytes are pushed as-is, so
+ * the stored path's extension must match the actual format.
+ * @param {File} file
+ * @param {string[]} [exts] allowed extensions, default all storable types
+ * @returns {Promise<{ext:string, dataUrl:string}>}
+ */
+/**
+ * Extension of an arbitrary picked file: lowercase filename extension, or null
+ * when the name has none. Unlike captureFileExt this accepts any format — the
+ * media library stores whatever the user uploads. Pure — unit tested.
+ * @param {{name?:string}} [file]
+ */
+export function mediaFileExt({ name } = {}) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Read any picked File into { ext, dataUrl }. Rejects files without a filename
+ * extension — the stored repo path needs one for the library's leaf routing.
+ * @param {File} file
+ * @returns {Promise<{ext:string, dataUrl:string}>}
+ */
+export function readMediaFile(file) {
+  const ext = mediaFileExt(file);
+  if (!ext) return Promise.reject(new Error('The file needs an extension (e.g. .pdf, .mp4).'));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ ext, dataUrl: reader.result });
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export function readCaptureImage(file, exts = Object.keys(CAPTURE_UPLOAD_TYPES)) {
+  const ext = captureFileExt(file);
+  if (!ext || !exts.includes(ext)) {
+    const wanted = exts.map(e => e.toUpperCase()).join(' or ');
+    return Promise.reject(new Error(`Only ${wanted} images are supported here.`));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ ext, dataUrl: reader.result });
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 /**

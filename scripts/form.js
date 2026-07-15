@@ -44,9 +44,10 @@ let navMode = 'root';
 // Fallback breadcrumb labels when a form's <h2> is empty or still loading.
 const FORM_LABELS = {
   knowledgeBaseManagement: 'Knowledge Base',
-  captureLibrary: 'Capture Library',
+  mediaLibrary: 'Media Library',
   captureEntry: 'Capture',
   captureInsertNew: 'New Capture',
+  mediaUpload: 'Upload Media',
   systemUpdatesEntry: 'System Updates',
   systemStatusEntry: 'System Status',
   guideEntry: 'Guide',
@@ -551,7 +552,9 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
       const h2 = formEl.querySelector('h2');
       if (!h2) return '';
       const clone = h2.cloneNode(true);
-      clone.querySelectorAll('.more-buttons-icon').forEach(el => el.remove());
+      // Icons and pills (e.g. the grey .png/.svg format pill) are heading
+      // chrome, not part of the breadcrumb label.
+      clone.querySelectorAll('.more-buttons-icon, .mb-kb-pills').forEach(el => el.remove());
       return clone.textContent.trim();
     };
     const isPlaceholder = (t) => !t || /^loading/i.test(t) || t === '…';
