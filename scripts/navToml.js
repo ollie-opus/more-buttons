@@ -352,3 +352,62 @@ export function attachUnderSegments(tree, segments, node) {
   }
   level.push(node);
 }
+
+// ── mb_created_tags — the nav-links tag suggestion list ──────────────────────
+// Tags used by tag-mode "Nav links" components are registered append-only in a
+// [project.extra] mb_created_tags array so the edit form can suggest them.
+// Both functions are line-based and never touch other blocks; add is idempotent
+// (existing tags match case-insensitively, so a no-op transform lets the GitHub
+// push layer skip the commit).
+
+const CREATED_TAGS_OPEN_RE = /^\s*mb_created_tags\s*=\s*\[\s*$/;
+const ARRAY_CLOSE_RE = /^\s*\]\s*,?\s*$/;
+
+/** The registered tag list, in file order ([] when the block is absent). */
+export function parseCreatedTags(tomlText) {
+  const lines = (tomlText ?? '').split('\n');
+  const start = lines.findIndex(l => CREATED_TAGS_OPEN_RE.test(l));
+  if (start === -1) return [];
+  const tags = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (ARRAY_CLOSE_RE.test(lines[i])) break;
+    const m = lines[i].match(/^\s*"([^"]*)"\s*,?\s*$/);
+    if (m && m[1]) tags.push(m[1]);
+  }
+  return tags;
+}
+
+/**
+ * Registers `tag`, creating the [project.extra] block at EOF on first use
+ * (TOML allows a super-table header after [project.extra.*] sub-tables).
+ * Returns the input unchanged when the tag is blank or already registered.
+ */
+export function addCreatedTag(tomlText, tag) {
+  const clean = String(tag ?? '').trim().replace(/"/g, '');
+  if (!clean) return tomlText;
+  if (parseCreatedTags(tomlText).some(t => t.toLowerCase() === clean.toLowerCase())) return tomlText;
+
+  const lines = (tomlText ?? '').split('\n');
+  const start = lines.findIndex(l => CREATED_TAGS_OPEN_RE.test(l));
+  if (start === -1) {
+    const base = tomlText.endsWith('\n') ? tomlText : tomlText + '\n';
+    return base + [
+      '',
+      '# ----------------------------------------------------------------------------',
+      '# Nav-links tags — registered by the more-buttons extension (suggestions only)',
+      '# ----------------------------------------------------------------------------',
+      '[project.extra]',
+      'mb_created_tags = [',
+      `  "${clean}",`,
+      ']',
+      '',
+    ].join('\n');
+  }
+  for (let i = start + 1; i < lines.length; i++) {
+    if (ARRAY_CLOSE_RE.test(lines[i])) {
+      lines.splice(i, 0, `  "${clean}",`);
+      return lines.join('\n');
+    }
+  }
+  return tomlText; // unclosed block — leave the file untouched
+}

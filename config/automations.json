@@ -99,7 +99,10 @@
     "id": "more_buttons_automation_2f7776f3",
     "pageMatch": {
       "mode": "and",
-      "keywords": ["/templates/label-categories", "/edit"]
+      "keywords": [
+        ["/templates/label-categories", "/edit"],
+        ["/templates/label-categories", "/new"]
+      ]
     },
     "action": "attachColorPresetPills"
   }

@@ -2,10 +2,15 @@
  * buttonEditor.js — the "Button" component overlay (a Zensical .md-button link).
  *
  * The simplest form-authored component: a single markdown line, no children. The
- * form has four fields — Label, Type (Primary/Secondary), Destination, and an
- * optional Icon (the lucide picker reused from page settings). Because a button
- * holds no sub-components, it needs neither a component container registration nor
- * a save-gate `_componentSaver` (it is never a parent in a child navigation).
+ * form fields are Label, Colour (the 26 custom-button swatches, built at open
+ * time from labelColours.json), Theme (Default/Inversed/Force light/Force dark —
+ * which colour trio paints the button, mirroring the capture Theme field),
+ * Border (Default/Always/Light only/Dark only/None — per-trio border override),
+ * Destination, and an optional Icon (the lucide picker reused from page
+ * settings). Legacy Primary/Secondary buttons still parse, but editing one
+ * requires picking a colour (nothing pre-selected). Because a button holds no
+ * sub-components, it needs neither a component container registration nor a
+ * save-gate `_componentSaver` (it is never a parent in a child navigation).
  *
  * Create splices one line into the parent container then flips to edit in place,
  * so an inserted button lands in its editor like every other component kind
@@ -26,6 +31,8 @@ import { generateUUID } from './admonitions.js';
 import { mergeSave } from './mergeSave.js';
 import { spliceIntoContainer } from './guides.js';
 import { attachIconPicker } from './iconPicker.js';
+import { loadLabelPalette } from './richTextEditor.js';
+import { markRequiredFields } from './formValidation.js';
 import {
   buildButtonLines, locateButtonByUUID, replaceButtonByUUID, deleteButtonByUUID, buttonDimFields,
 } from './mdButtons.js';
@@ -35,13 +42,17 @@ const STORAGE_KEY = 'moreButtonsEditButton';
 // ── Form ↔ data ────────────────────────────────────────────────────────────
 
 function emptyFields() {
-  return { buttonLabel: '', buttonType: 'primary', buttonDestination: '', icon: '', buttonNewTab: 'no' };
+  // Colour deliberately unseeded: create starts with no swatch selected and the
+  // required marker blocks save until one is picked.
+  return { buttonLabel: '', buttonColour: '', buttonTheme: 'default', buttonBorder: 'default', buttonDestination: '', icon: '', buttonNewTab: 'no' };
 }
 
 function readButtonFields(formEl) {
   return {
     label: formEl.querySelector('[name="buttonLabel"]')?.value.trim() ?? '',
-    type: formEl.querySelector('[name="buttonType"]:checked')?.value ?? '',
+    colour: formEl.querySelector('[name="buttonColour"]:checked')?.value ?? '',
+    theme: formEl.querySelector('[name="buttonTheme"]:checked')?.value ?? 'default',
+    border: formEl.querySelector('[name="buttonBorder"]:checked')?.value ?? 'default',
     destination: formEl.querySelector('[name="buttonDestination"]')?.value.trim() ?? '',
     icon: formEl.querySelector('[name="icon"]')?.value.trim() ?? '',
     newTab: formEl.querySelector('[name="buttonNewTab"]:checked')?.value === 'yes',
@@ -49,8 +60,48 @@ function readButtonFields(formEl) {
 }
 
 // The single link line (no identity span — replaceButtonByUUID keeps the span).
-function buttonLineFrom({ label, destination, icon, primary, newTab }) {
-  return buildButtonLines([{ label, destination, icon, primary, newTab }])[1];
+// `primary` only matters when colour is '' (a legacy button the merge engine
+// resolved without a colour) — buildButtonLines gives colour precedence.
+function buttonLineFrom({ label, destination, icon, colour, theme, border, primary, newTab }) {
+  return buildButtonLines([{ label, destination, icon, colour, theme, border, primary, newTab }])[1];
+}
+
+// Build the 26 colour swatches as real radio inputs so form.js hydration,
+// dirty-tracking and validation treat them like static fields. MUST run
+// synchronously after createForm resolves (the same slot as attachIconPicker):
+// createForm's chrome.storage.local.get hydration callback is a later
+// macrotask, so the radios exist by the time saved values are restored.
+function buildColourSwatches(formEl, groups) {
+  const host = formEl.querySelector('[data-button-colour-swatches]');
+  if (!host || host.childElementCount) return;
+  let first = true;
+  for (const [groupName, presets] of Object.entries(groups)) {
+    const title = document.createElement('span');
+    title.className = 'mb-rte__swatch-title';
+    title.textContent = groupName;
+    host.appendChild(title);
+    const row = document.createElement('div');
+    row.className = 'mb-rte__swatch-row';
+    for (const [name, preset] of Object.entries(presets)) {
+      const label = document.createElement('label');
+      label.className = 'mb-label mb-rte__swatch mb-swatch-option';
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'buttonColour';
+      input.value = name.toLowerCase();
+      if (first) { input.required = true; first = false; } // one radio marks the group required
+      label.append(input, document.createTextNode(name));
+      label.style.setProperty('--bg', preset.light.bg);
+      label.style.setProperty('--text', preset.light.text);
+      label.style.setProperty('--border', preset.light.border);
+      label.style.setProperty('--bg-dark', preset.dark.bg);
+      label.style.setProperty('--text-dark', preset.dark.text);
+      label.style.setProperty('--border-dark', preset.dark.border);
+      row.appendChild(label);
+    }
+    host.appendChild(row);
+  }
+  markRequiredFields(formEl); // createForm's pass predates these inputs; idempotent
 }
 
 function seedStorage(fields) {
@@ -63,6 +114,7 @@ registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {})
   if (!container?.file) return;
   if (!isFormReplay()) await seedStorage(emptyFields());
 
+  const { groups } = await loadLabelPalette(); // before createForm — injection below must not await
   const { formEl } = await createForm('editButton');
   if (!formEl) return;
   formEl.dataset.mode = 'create';
@@ -77,6 +129,7 @@ registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {})
   // Delete (lives in the moved form-actions) only applies once the button exists.
   formEl.parentElement?.querySelector('[data-delete-button-btn]')?.style.setProperty('display', 'none');
 
+  buildColourSwatches(formEl, groups);
   attachIconPicker(formEl.querySelector('[name="icon"]'));
   resetDirtyBaseline(formEl);
 });
@@ -95,6 +148,7 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
 
   if (!isFormReplay()) await seedStorage(buttonDimFields(btn));
 
+  const { groups } = await loadLabelPalette(); // before createForm — injection below must not await
   const { formEl } = await createForm('editButton');
   if (!formEl) return;
   formEl.dataset.mode = 'edit';
@@ -105,6 +159,7 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
   if (heading) heading.textContent = 'Edit button';
   setCrumbLabel(btn.label || 'Button');
 
+  buildColourSwatches(formEl, groups);
   attachIconPicker(formEl.querySelector('[name="icon"]'));
   resetDirtyBaseline(formEl);
 });
@@ -112,8 +167,8 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 async function persistNewButton(formEl, onProgress = () => {}) {
-  const { label, type, destination, icon, newTab } = readButtonFields(formEl);
-  if (!type) { alert('Type is required.'); return null; }
+  const { label, colour, theme, border, destination, icon, newTab } = readButtonFields(formEl);
+  if (!colour) { alert('Colour is required.'); return null; }
   if (!destination) { alert('Destination is required.'); return null; }
   const newUuid = generateUUID();
   const parent = {
@@ -123,7 +178,7 @@ async function persistNewButton(formEl, onProgress = () => {}) {
   };
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
-  const btn = { uuid: newUuid, label, destination, icon, primary: type === 'primary', newTab };
+  const btn = { uuid: newUuid, label, destination, icon, colour, theme, border, primary: false, newTab };
   await spliceIntoContainer(parent, insertAt, [{ kind: 'button', btn }], onProgress);
   return { newUuid, file: parent.file };
 }
@@ -141,7 +196,8 @@ async function transitionButtonCreateToEdit(formEl, newUuid, file) {
   const f = readButtonFields(formEl);
   setCrumbLabel(f.label || 'Button');
   await seedStorage({
-    buttonLabel: f.label, buttonType: f.type || 'primary',
+    buttonLabel: f.label, buttonColour: f.colour, buttonTheme: f.theme || 'default',
+    buttonBorder: f.border || 'default',
     buttonDestination: f.destination, icon: f.icon,
     buttonNewTab: f.newTab ? 'yes' : 'no',
   });
@@ -149,8 +205,8 @@ async function transitionButtonCreateToEdit(formEl, newUuid, file) {
 }
 
 async function persistButtonEdit(formEl, onProgress = () => {}) {
-  const { type, destination } = readButtonFields(formEl);
-  if (!type) { alert('Type is required.'); return null; }
+  const { colour, destination } = readButtonFields(formEl);
+  if (!colour) { alert('Colour is required.'); return null; }
   if (!destination) { alert('Destination is required.'); return null; }
   const editUuid = formEl.dataset.editUuid;
   const file = formEl.dataset.containerFile;
@@ -161,19 +217,25 @@ async function persistButtonEdit(formEl, onProgress = () => {}) {
     onProgress,
     fieldSpecs: [
       { name: 'buttonLabel', type: 'scalar', label: 'Label' },
-      { name: 'buttonType', type: 'scalar', label: 'Type' },
+      { name: 'buttonColour', type: 'scalar', label: 'Colour' },
+      { name: 'buttonTheme', type: 'scalar', label: 'Theme' },
+      { name: 'buttonBorder', type: 'scalar', label: 'Border' },
       { name: 'buttonDestination', type: 'scalar', label: 'Destination' },
       { name: 'icon', type: 'scalar', label: 'Icon' },
       { name: 'buttonNewTab', type: 'scalar', label: 'Open in new tab' },
     ],
     readFresh: md => buttonDimFields(locateButtonByUUID(md, editUuid) ?? {}),
     build: (md, resolved) => {
-      if (!locateButtonByUUID(md, editUuid)) throw new Error('Button no longer exists.');
+      const fresh = locateButtonByUUID(md, editUuid);
+      if (!fresh) throw new Error('Button no longer exists.');
       const line = buttonLineFrom({
         label: resolved.buttonLabel,
         destination: resolved.buttonDestination,
         icon: resolved.icon,
-        primary: resolved.buttonType === 'primary',
+        colour: resolved.buttonColour,
+        theme: resolved.buttonTheme,
+        border: resolved.buttonBorder,
+        primary: fresh.primary, // legacy fallback if merge resolves colour to ''
         newTab: resolved.buttonNewTab === 'yes',
       });
       return replaceButtonByUUID(md, editUuid, line);

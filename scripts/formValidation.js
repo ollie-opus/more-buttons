@@ -37,7 +37,8 @@ export function fieldError(field) {
 const GROUP = '.more-buttons-form-group';
 const RADIO_GROUP =
   '.more-buttons-radio-group-row, .more-buttons-radio-group-column, ' +
-  '.more-buttons-radio-btn-group-row, .more-buttons-radio-btn-group-column';
+  '.more-buttons-radio-btn-group-row, .more-buttons-radio-btn-group-column, ' +
+  '.mb-swatch-radio-group';
 
 /**
  * Walk the form once and flag every group that owns a `[required]` control with

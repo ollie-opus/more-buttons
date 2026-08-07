@@ -7,6 +7,14 @@
   </div>
 
   <div class="more-buttons-form-group">
+    <div>
+      <label class="more-buttons-label">Tags</label>
+      <div class="more-buttons-label-hint">Comma-separated, e.g. System, Contractors</div>
+    </div>
+    <input type="text" name="tags" placeholder="e.g. System, Contractors" autocomplete="off" />
+  </div>
+
+  <div class="more-buttons-form-group">
     <label class="more-buttons-label">Hide elements</label>
     <div class="more-buttons-radio-group-column">
       <label class="more-buttons-sub-label">
@@ -21,6 +29,17 @@
         <input type="checkbox" name="hidePath" value="path" />
         Path
       </label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <div>
+      <label class="more-buttons-label">Page visibility</label>
+      <div class="more-buttons-label-hint">Unlisted pages stay reachable by link but leave the site navigation and search</div>
+    </div>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --green"><input type="radio" name="visibility" value="public" /> Public</label>
+      <label class="more-buttons-radio-btn --grey"><input type="radio" name="visibility" value="unlisted" /> Unlisted</label>
     </div>
   </div>
 

@@ -323,7 +323,7 @@ test('parseComponents: a table nested inside an admonition is NOT a top-level co
 });
 
 test('buildComponentBody: rebuilds a table component; round-trips', () => {
-  const comp = { kind: 'table', tbl: { uuid: 'TBL', align: ['left', 'center'], header: ['Method', 'Description'], rows: [['`GET`', 'Fetch resource'], ['`PUT`', 'Update resource']] } };
+  const comp = { kind: 'table', tbl: { uuid: 'TBL', wrap: true, align: ['left', 'center'], header: ['Method', 'Description'], rows: [['`GET`', 'Fetch resource'], ['`PUT`', 'Update resource']] } };
   const body = buildComponentBody(null, 'Desc.', [comp]);
   const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
   assert.equal(description, 'Desc.');
@@ -401,6 +401,160 @@ test('migrateComponentIdentity: table as an admonition\'s first body line gets i
   const [t] = locateDataTables(out);
   assert.ok(t.uuid, 'table has its own uuid');
   assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out, 'idempotent');
+});
+
+// ── Text wrapping (nowrap-first wrapper div) ──────────────────────────────────
+
+// Canonical wrapped table: span outside the div, one blank around opener/closer.
+const WRAPPED_MD = [
+  span('TBL'),
+  '',
+  '<div class="nowrap-first" markdown>',
+  '',
+  '| Method | Description |',
+  '| :--- | :---: |',
+  '| `GET` | Fetch resource |',
+  '',
+  '</div>',
+].join('\n');
+
+test('locateDataTables: plain table has wrap=true', () => {
+  const [t] = locateDataTables(TABLE_MD);
+  assert.equal(t.wrap, true);
+});
+
+test('locateDataTables: wrapped table parses with wrap=false, range includes the div', () => {
+  const [t] = locateDataTables(WRAPPED_MD);
+  assert.equal(t.uuid, 'TBL');
+  assert.equal(t.wrap, false);
+  assert.equal(t.startLine, 0);
+  assert.equal(t.endLine, 9);
+  assert.deepEqual(t.header, ['Method', 'Description']);
+  assert.deepEqual(t.rows, [['`GET`', 'Fetch resource']]);
+});
+
+test('locateDataTables: unclosed wrapper opener → table parses as plain (wrap=true)', () => {
+  const md = [span('X'), '', '<div class="nowrap-first" markdown>', '', '| A |', '| --- |', '| x |'].join('\n');
+  const [t] = locateDataTables(md);
+  assert.equal(t.wrap, true);
+  assert.equal(t.uuid, null, 'div opener between span and header blocks the identity claim');
+  assert.equal(t.startLine, 4, 'range starts at the header — the stray div is not claimed');
+});
+
+test('locateDataTables: wrapped table span owned by tab container is not stolen', () => {
+  const md = [
+    '=== "One"',
+    '',
+    span('TAB', '    '),
+    '',
+    '    <div class="nowrap-first" markdown>',
+    '',
+    '    | A |',
+    '    | --- |',
+    '',
+    '    </div>',
+  ].join('\n');
+  const [t] = locateDataTables(md);
+  assert.equal(t.uuid, null, 'tab span must not be stolen as table identity');
+  assert.equal(t.wrap, false);
+});
+
+test('buildDataTable: wrap=false emits the canonical wrapped block', () => {
+  const block = buildDataTable('TBL', ['left', 'center'], ['Method', 'Description'],
+    [['`GET`', 'Fetch resource']], false);
+  assert.equal(block, WRAPPED_MD);
+  const [t] = locateDataTables(block);
+  assert.equal(t.wrap, false);
+  assert.deepEqual(t.rows, [['`GET`', 'Fetch resource']]);
+});
+
+test('buildDataTable: wrap omitted defaults to true (no div)', () => {
+  const block = buildDataTable('U', ['left'], ['H'], [['x']]);
+  assert.ok(!block.includes('nowrap-first'));
+});
+
+test('locateDataTableByUUID: wrapped table range includes the wrapper', () => {
+  const doc = ['# Title', '', WRAPPED_MD, '', 'After.'].join('\n');
+  const loc = locateDataTableByUUID(doc.split('\n'), 'TBL');
+  assert.deepEqual(loc, { startLine: 2, endLine: 11, indent: '' });
+});
+
+test('getDataTableByUUID: indented wrapped table dedents with wrap=false', () => {
+  const md = [
+    '!!! note',
+    '',
+    `    ${span('A1')}`,
+    '    Note text.',
+    '',
+    span('N', '    '),
+    '',
+    '    <div class="nowrap-first" markdown>',
+    '',
+    '    | A |',
+    '    | --- |',
+    '    | x |',
+    '',
+    '    </div>',
+  ].join('\n');
+  const t = getDataTableByUUID(md, 'N');
+  assert.equal(t.wrap, false);
+  assert.equal(t.indent, '    ');
+  assert.deepEqual(t.rows, [['x']]);
+});
+
+test('replaceDataTableByUUID: toggling wrap on/off leaves no stray div lines', () => {
+  const doc = ['Intro.', '', WRAPPED_MD, '', 'After.'].join('\n');
+  const unwrapped = replaceDataTableByUUID(doc, 'TBL',
+    buildDataTable('TBL', ['left'], ['B'], [['y']], true));
+  assert.ok(!unwrapped.includes('nowrap-first'), 'wrapper removed');
+  assert.ok(!unwrapped.includes('</div>'), 'closer removed');
+  assert.equal(getDataTableByUUID(unwrapped, 'TBL').wrap, true);
+  const rewrapped = replaceDataTableByUUID(unwrapped, 'TBL',
+    buildDataTable('TBL', ['left'], ['B'], [['y']], false));
+  assert.equal(getDataTableByUUID(rewrapped, 'TBL').wrap, false);
+  assert.ok(rewrapped.endsWith(['</div>', '', 'After.'].join('\n')));
+});
+
+test('deleteDataTableByUUID: removes the wrapper too', () => {
+  const doc = ['Intro.', '', WRAPPED_MD, '', 'After.'].join('\n');
+  assert.equal(deleteDataTableByUUID(doc, 'TBL'), ['Intro.', '', 'After.'].join('\n'));
+});
+
+test('ensureDataTableUUIDs: backfills the span ABOVE the wrapper div; idempotent', () => {
+  const md = [
+    'Intro.',
+    '',
+    '<div class="nowrap-first" markdown>',
+    '',
+    '| A |',
+    '| --- |',
+    '| x |',
+    '',
+    '</div>',
+  ].join('\n');
+  const out = ensureDataTableUUIDs(md);
+  const [t] = locateDataTables(out);
+  assert.ok(t.uuid, 'uuid backfilled');
+  assert.equal(t.wrap, false);
+  const lines = out.split('\n');
+  assert.match(lines[2], /data-uuid/, 'span sits above the div opener');
+  assert.equal(lines[4], '<div class="nowrap-first" markdown>');
+  assert.equal(ensureDataTableUUIDs(out), out, 'second pass is byte-identical');
+});
+
+test('ensureDataTableUUIDs: migrated wrapped document returns the same reference', () => {
+  assert.equal(ensureDataTableUUIDs(WRAPPED_MD), WRAPPED_MD);
+});
+
+test('parseComponents + buildComponentBody: wrap=false round-trips', () => {
+  const body = buildComponentBody(null, 'Desc.', [
+    { kind: 'table', tbl: { uuid: 'TBL', wrap: false, align: ['left'], header: ['A'], rows: [['x']] } },
+  ]);
+  const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+  assert.equal(description, 'Desc.');
+  assert.equal(components[0].kind, 'table');
+  assert.equal(components[0].tbl.wrap, false);
+  assert.deepEqual(components[0].tbl.rows, [['x']]);
 });
 
 // ── richTextEditor inline mode (pure helper) ──────────────────────────────────

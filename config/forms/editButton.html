@@ -7,10 +7,32 @@
   </div>
 
   <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Type</label>
+    <label class="more-buttons-label">Colour</label>
+    <!-- Swatch radios are injected by buttonEditor.js from labelColours.json
+         (same 26 slugs as the KB's custom-button-* palette). -->
+    <div class="mb-swatch-radio-group" data-button-colour-swatches></div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Theme</label>
     <div class="more-buttons-radio-btn-group-row">
-      <label class="more-buttons-radio-btn --blue"><input type="radio" name="buttonType" value="primary" required /> Primary</label>
-      <label class="more-buttons-radio-btn --grey"><input type="radio" name="buttonType" value="secondary" /> Secondary</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="default" checked /> Default</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="inversed" /> Inversed</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="force-light" /> Force light</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="force-dark" /> Force dark</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Border</label>
+    <!-- "Light/dark only" follows the colour trio the button is showing (so a
+         Force light button keeps its border state in both page schemes). -->
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="default" checked /> Default</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="bordered" /> Always</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="border-light" /> Light only</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="border-dark" /> Dark only</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="borderless" /> None</label>
     </div>
   </div>
 

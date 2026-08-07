@@ -17,7 +17,7 @@ import { formLoading } from './loading.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubPushImageIfNotExists, githubReplaceImage, githubPathExists } from './github.js';
 import { captureBasePath } from './captureCards.js';
-import { writeCaptureMeta } from './captureMeta.js';
+import { writeCaptureMeta, captureFlagSuffix } from './captureMeta.js';
 import { readRepoBlob } from './repoClient.js';
 import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { generateUUID } from './admonitions.js';
@@ -83,10 +83,11 @@ export function resolveCaptures(list) {
   return list.map(c => {
     if (c.lightDataUrl && c.addToLibrary === false) {
       const id = generateUUID();
+      const suffix = captureFlagSuffix(!!c.annotated, !!c.zapped);
       return {
         ...c,
-        lightFilename: `media/occ-captures/uncategorised/${id}-light-mode.png`,
-        darkFilename:  `media/occ-captures/uncategorised/${id}-dark-mode.png`,
+        lightFilename: `media/occ-captures/uncategorised/${id}${suffix}-light-mode.png`,
+        darkFilename:  `media/occ-captures/uncategorised/${id}${suffix}-dark-mode.png`,
       };
     }
     return c;
@@ -104,7 +105,13 @@ export async function pushCaptures(list = [], onProgress) {
     // manifest entry untouched rather than clobber it with this capture's
     // (possibly different) resized/padding values.
     if (created) {
-      upserts.push({ lightPath: `docs/assets/${c.lightFilename}`, resized: !!c.resized, padding: c.padding || 0 });
+      upserts.push({
+        lightPath: `docs/assets/${c.lightFilename}`,
+        resized: !!c.resized,
+        padding: c.padding || 0,
+        annotated: !!c.annotated,
+        zapped: !!c.zapped,
+      });
     }
   }
   await writeCaptureMeta(upserts, onProgress);
@@ -163,7 +170,13 @@ export async function overwriteCapturePair({ lightPath, darkPath, lightExists, d
     ? githubReplaceImage(darkPath, darkB64, onProgress)
     : githubPushImageIfNotExists(darkPath, darkB64, onProgress));
   await writeCaptureMeta(
-    [{ lightPath, resized: !!capture.resized, padding: capture.padding || 0 }],
+    [{
+      lightPath,
+      resized: !!capture.resized,
+      padding: capture.padding || 0,
+      annotated: !!capture.annotated,
+      zapped: !!capture.zapped,
+    }],
     onProgress,
   );
 }

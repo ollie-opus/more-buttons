@@ -236,6 +236,25 @@ export function joinTitleMeta(title, meta) {
   return m ? `${t}<span class="meta">${m}</span>` : t;
 }
 
+/**
+ * Matches a canonical label pill span (see labelMarkup in markdownInline.js —
+ * plain inner text only, so `[^<]*` can't swallow a following tag). Group 1 is
+ * the colour slug, group 2 the pill text.
+ */
+const LABEL_SPAN_RE = /<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/span>/g;
+
+/**
+ * Reduces a title's label pills to their plain text, for display sites that
+ * can't render HTML (breadcrumbs, conflict descriptors). Malformed spans are
+ * left untouched.
+ *
+ * @param {string} title
+ * @returns {string}
+ */
+export function stripLabelSpans(title) {
+  return (title ?? '').replace(LABEL_SPAN_RE, (_, _slug, text) => text);
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /**

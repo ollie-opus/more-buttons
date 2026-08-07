@@ -30,21 +30,40 @@ const TAG_MARKER = {
 // Returns the reconstructed markdown string.
 export function buildSource(root, onText, onBoundary) {
   let out = '';
+  // A <div>/<p> whose sole child is a <br> is the browser's empty-line shape:
+  // the wrapper stands for the line, the <br> is only a caret placeholder and
+  // must not add a second newline. (A bare root-level <br> is still a real line
+  // break — br-based documents come straight from the renderer.)
+  const isEmptyLine = (node) =>
+    node !== root && node.nodeType === ELEMENT_NODE &&
+    (node.tagName.toLowerCase() === 'div' || node.tagName.toLowerCase() === 'p') &&
+    node.childNodes.length === 1 && node.firstChild.nodeType === ELEMENT_NODE &&
+    node.firstChild.tagName.toLowerCase() === 'br';
   // `depth` is the current list-nesting level: each <li> emits 4 spaces per level
   // before its prefix, and a nested <ul>/<ol> inside an <li> recurses at depth+1.
   const walk = (parent, inListItem = false, depth = 0) => {
     const kids = parent.childNodes;
+    // True while the previous sibling was a top-level list: markdown needs a
+    // blank line after a list, or the next line lazily continues the last item.
+    let prevWasList = false;
     if (onBoundary) onBoundary(parent, 0, out.length);
     for (let k = 0; k < kids.length; k++) {
       const child = kids[k];
       if (child.nodeType === TEXT_NODE) {
-        if (child.nodeValue) { if (onText) onText(child, out.length); out += child.nodeValue; }
+        if (child.nodeValue) {
+          if (prevWasList) { out += '\n\n'; prevWasList = false; }
+          if (onText) onText(child, out.length); out += child.nodeValue;
+        }
       } else if (child.nodeType === ELEMENT_NODE) {
         const tag = child.tagName.toLowerCase();
+        const afterList = prevWasList;
+        prevWasList = (tag === 'ul' || tag === 'ol') && !inListItem;
         if (tag === 'br') {
           // Inside a list item a <br> is a browser placeholder (empty <li>) or a
           // soft break we can't represent on a single item line — emit nothing.
-          if (!inListItem) out += '\n';
+          // An empty-line wrapper's placeholder <br> is silent too: its parent
+          // <div>/<p> already contributed the newline.
+          if (!inListItem && !isEmptyLine(parent)) out += '\n';
         } else {
           const marker = TAG_MARKER[tag];
           // Drop an emptied mark element (no text inside) rather than emit bare
@@ -92,7 +111,13 @@ export function buildSource(root, onText, onBoundary) {
             walk(child, true, depth);
             if (idx < siblings.length - 1) out += '\n';
           }
-          else if (tag === 'div' || tag === 'p') { if (out.length) out += '\n'; walk(child, inListItem, depth); }
+          else if (tag === 'div' || tag === 'p') {
+            // After a list a paragraph needs a blank line, not just a newline —
+            // unless the block is itself an empty line, which IS the blank line
+            // (the following block's own newline completes the pair).
+            if (out.length) out += (afterList && !isEmptyLine(child)) ? '\n\n' : '\n';
+            walk(child, inListItem, depth);
+          }
           else { walk(child, inListItem, depth); } // unknown element -> unwrap to contents
         }
       }

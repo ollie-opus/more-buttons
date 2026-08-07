@@ -3,12 +3,42 @@
 
   <div class="more-buttons-form-group">
     <div>
+      <label class="more-buttons-label">List by</label>
+      <div class="more-buttons-label-hint">Pages under a nav path, or pages carrying a tag</div>
+    </div>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="navMode" value="path" /> Nav path</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="navMode" value="tag" /> Tag</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="navMode=path">
+    <div>
       <label class="more-buttons-label">Path</label>
       <div class="more-buttons-label-hint">e.g. guides, or guides/employees</div>
     </div>
     <div class="more-buttons-field-stack">
       <input type="text" name="navPath" placeholder="Part of the nav tree to list, e.g. guides/employees" autocomplete="off" />
       <div class="more-buttons-label-hint" data-navpath-status aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="navMode=tag">
+    <div>
+      <label class="more-buttons-label">Tag</label>
+      <div class="more-buttons-label-hint">A frontmatter tag, e.g. System</div>
+    </div>
+    <input type="text" name="navTag" placeholder="Pages tagged with this are listed, e.g. System" autocomplete="off" />
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="navMode=tag">
+    <div>
+      <label class="more-buttons-label">Layout</label>
+      <div class="more-buttons-label-hint">One flat list of links, or grouped under their nav sections</div>
+    </div>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="navLayout" value="flat" /> Flat</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="navLayout" value="grouped" /> Grouped</label>
     </div>
   </div>
 

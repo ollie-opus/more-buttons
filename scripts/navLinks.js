@@ -2,14 +2,20 @@
  * navLinks.js — "Nav links" component markdown round-trip.
  *
  * A nav-links component is an empty placeholder block whose only content is a
- * nav path; the published page fills it with a live, nested list of links to
- * every page under that part of the site nav (derived from zensical.toml at
- * build time and injected by the KB repo's docs/assets/javascripts/nav-links.js):
+ * nav path OR a frontmatter tag; the published page fills it with a live list of
+ * links (derived from zensical.toml / page frontmatter at build time and
+ * injected by the KB repo's docs/assets/javascripts/nav-links.js):
  *
  *   <div class="mb-nav-links" data-nav-path="guides/employees"></div>
+ *   <div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat"></div>
  *
- * Because the page stores only the PATH (never the list), editing zensical.toml +
- * rebuilding the site updates every nav-links list without re-touching any page.
+ * Path mode lists every page under that part of the site nav, nested. Tag mode
+ * lists every page whose frontmatter carries the tag — `flat` as one plain list,
+ * `grouped` spliced into the surviving nav-section hierarchy.
+ *
+ * Because the page stores only the PATH/TAG (never the list), editing
+ * zensical.toml or page frontmatter + rebuilding the site updates every
+ * nav-links list without re-touching any page.
  *
  * Like the Button it is the simplest kind of component: single-line, holds no
  * sub-components. Identity is a hidden `<span data-uuid>` on the line BEFORE the
@@ -22,19 +28,42 @@
 
 import { generateUUID } from './admonitions.js';
 
-// A nav-links div line. Group 1 indent, group 2 the path. Attribute spacing is
-// tolerated, but class + data-nav-path are required (an arbitrary <div> is not a
-// nav-links block). We always author the canonical form below.
+// A path-mode nav-links div line. Group 1 indent, group 2 the path. Attribute
+// spacing is tolerated, but class + data-nav-path are required (an arbitrary
+// <div> is not a nav-links block). We always author the canonical form below.
 const NAVLINKS_LINE_RE =
   /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-path="([^"]*)"\s*>\s*<\/div>\s*$/;
 
+// A tag-mode nav-links div line. Group 2 the tag, group 3 the layout (the
+// attribute is tolerated-absent → flat, but we always author it explicitly).
+const NAVLINKS_TAG_LINE_RE =
+  /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-tag="([^"]*)"(?:\s+data-nav-layout="([^"]*)")?\s*>\s*<\/div>\s*$/;
+
 const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
 
-/** The canonical div line for a nav-links block (a `"` in the path is dropped so
- * it can never break the attribute / the locate regex). */
+/** A `"` in a path/tag is dropped so it can never break the attribute / the
+ * locate regexes. */
+function cleanAttr(v) {
+  return (v ?? '').trim().replace(/"/g, '');
+}
+
+function cleanLayout(layout) {
+  return layout === 'grouped' ? 'grouped' : 'flat';
+}
+
+/** The canonical div line for a path-mode nav-links block. */
 function navLinksLine(path) {
-  const clean = (path ?? '').trim().replace(/"/g, '');
-  return `<div class="mb-nav-links" data-nav-path="${clean}"></div>`;
+  return `<div class="mb-nav-links" data-nav-path="${cleanAttr(path)}"></div>`;
+}
+
+/** The canonical div line for a tag-mode nav-links block. */
+function navLinksTagLine(tag, layout) {
+  return `<div class="mb-nav-links" data-nav-tag="${cleanAttr(tag)}" data-nav-layout="${cleanLayout(layout)}"></div>`;
+}
+
+/** One nav object → its canonical div line. Tag mode iff `tag` is present. */
+function navLinksLineOf(n) {
+  return n.tag != null ? navLinksTagLine(n.tag, n.layout) : navLinksLine(n.path);
 }
 
 /**
@@ -42,12 +71,12 @@ function navLinksLine(path) {
  * leading '' separator, then an optional uuid span, then the div line.
  * buildComponentBody slices off the leading ''.
  *
- * @param {Array<{uuid?,path}>} list
+ * @param {Array<{uuid?,path?,tag?,layout?}>} list
  * @returns {string[]}
  */
 export function buildNavLinksLines(list = []) {
   return list.flatMap(n => {
-    const line = navLinksLine(n.path);
+    const line = navLinksLineOf(n);
     const spanLines = n.uuid ? [`<span data-uuid="${n.uuid}" style="display:none"></span>`] : [];
     return ['', ...spanLines, line];
   });
@@ -57,15 +86,19 @@ export function buildNavLinksLines(list = []) {
  * Locates every top-level nav-links block in `body`, returning line-addressable
  * entries. A preceding own-line uuid span is swallowed into startLine.
  *
+ * Exactly one of `path` / `tag` is set (the other null); `layout` is only set
+ * for tag blocks (absent attribute → 'flat').
+ *
  * @param {string} body
- * @returns {Array<{uuid,path,indent,startLine,endLine}>}
+ * @returns {Array<{uuid,path,tag,layout,indent,startLine,endLine}>}
  */
 export function locateNavLinksLines(body) {
   const lines = (body ?? '').split('\n');
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(NAVLINKS_LINE_RE);
-    if (!m) continue;
+    const pm = lines[i].match(NAVLINKS_LINE_RE);
+    const tm = pm ? null : lines[i].match(NAVLINKS_TAG_LINE_RE);
+    if (!pm && !tm) continue;
 
     let startLine = i;
     let uuid = null;
@@ -74,7 +107,15 @@ export function locateNavLinksLines(body) {
       if (sm) { uuid = sm[1]; startLine = i - 1; }
     }
 
-    out.push({ uuid, path: m[2], indent: m[1], startLine, endLine: i + 1 });
+    out.push({
+      uuid,
+      path: pm ? pm[2] : null,
+      tag: tm ? tm[2] : null,
+      layout: tm ? cleanLayout(tm[3]) : null,
+      indent: (pm ?? tm)[1],
+      startLine,
+      endLine: i + 1,
+    });
   }
   return out;
 }
@@ -137,16 +178,26 @@ export function navLinksComponent(nav) {
   return { kind: 'navlinks', nav };
 }
 
-/** The single div line (no identity span — replaceNavLinksByUUID keeps the span). */
-export function navLinksLineFrom({ path }) {
-  return navLinksLine(path);
+/** The single div line (no identity span — replaceNavLinksByUUID keeps the span).
+ * `mode` picks the flavour when both fields are populated (the edit form keeps
+ * hidden-mode values around); absent, tag presence decides. */
+export function navLinksLineFrom({ mode, path, tag, layout }) {
+  const isTag = mode ? mode === 'tag' : tag != null;
+  return isTag ? navLinksTagLine(tag, layout) : navLinksLine(path);
 }
 
 /**
  * Canonical form/merge representation of a nav-links block's editable fields.
  * Mirrors buttonDimFields — the edit form seeds its baseline from this AND parses
- * fresh markdown through it, so an untouched block compares equal.
+ * fresh markdown through it, so an untouched block compares equal. Fields of the
+ * inactive mode hold constant defaults for the same reason.
  */
 export function navLinksDimFields(nav) {
-  return { navPath: nav?.path ?? '' };
+  const isTag = nav?.tag != null;
+  return {
+    navMode: isTag ? 'tag' : 'path',
+    navPath: nav?.path ?? '',
+    navTag: nav?.tag ?? '',
+    navLayout: isTag ? cleanLayout(nav.layout) : 'flat',
+  };
 }

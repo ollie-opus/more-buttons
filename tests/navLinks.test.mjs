@@ -37,7 +37,7 @@ test('locate: bare nav-links block', () => {
   const found = locateNavLinksLines('<div class="mb-nav-links" data-nav-path="guides/employees"></div>');
   assert.equal(found.length, 1);
   assert.deepEqual(found[0], {
-    uuid: null, path: 'guides/employees', indent: '', startLine: 0, endLine: 1,
+    uuid: null, path: 'guides/employees', tag: null, layout: null, indent: '', startLine: 0, endLine: 1,
   });
 });
 
@@ -122,9 +122,131 @@ test('delete: removes the addressed block (span + line + trailing blank), keeps 
 
 // ── navLinksDimFields: merge baseline ─────────────────────────────────────────
 
-test('dimFields: maps a parsed block to its scalar form field', () => {
-  assert.deepEqual(navLinksDimFields({ path: 'guides/employees' }), { navPath: 'guides/employees' });
-  assert.deepEqual(navLinksDimFields({}), { navPath: '' });
+test('dimFields: maps a parsed path block to its scalar form fields', () => {
+  assert.deepEqual(navLinksDimFields({ path: 'guides/employees' }), {
+    navMode: 'path', navPath: 'guides/employees', navTag: '', navLayout: 'flat',
+  });
+  assert.deepEqual(navLinksDimFields({}), {
+    navMode: 'path', navPath: '', navTag: '', navLayout: 'flat',
+  });
+});
+
+test('dimFields: maps a parsed tag block to its scalar form fields', () => {
+  assert.deepEqual(navLinksDimFields({ tag: 'System', layout: 'grouped' }), {
+    navMode: 'tag', navPath: '', navTag: 'System', navLayout: 'grouped',
+  });
+});
+
+// ── tag mode ──────────────────────────────────────────────────────────────────
+
+test('build: tag block emits the canonical tag + layout line', () => {
+  const lines = buildNavLinksLines([{ tag: 'System', layout: 'flat' }]);
+  assert.deepEqual(lines, ['', '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat"></div>']);
+});
+
+test('build: tag block with uuid span and grouped layout', () => {
+  const lines = buildNavLinksLines([{ uuid: 't1', tag: 'System', layout: 'grouped' }]);
+  assert.deepEqual(lines, [
+    '',
+    '<span data-uuid="t1" style="display:none"></span>',
+    '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="grouped"></div>',
+  ]);
+});
+
+test('build: a stray double-quote in the tag is dropped, unknown layout coerced to flat', () => {
+  const lines = buildNavLinksLines([{ tag: 'Sys"tem', layout: 'bogus' }]);
+  assert.deepEqual(lines, ['', '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat"></div>']);
+});
+
+test('locate: tag block with layout attr', () => {
+  const found = locateNavLinksLines('<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="grouped"></div>');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].tag, 'System');
+  assert.equal(found[0].layout, 'grouped');
+  assert.equal(found[0].path, null);
+});
+
+test('locate: tag block without layout attr defaults to flat', () => {
+  const found = locateNavLinksLines('<div class="mb-nav-links" data-nav-tag="System"></div>');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].tag, 'System');
+  assert.equal(found[0].layout, 'flat');
+});
+
+test('locate: path block reports tag/layout as null', () => {
+  const found = locateNavLinksLines('<div class="mb-nav-links" data-nav-path="guides"></div>');
+  assert.equal(found[0].path, 'guides');
+  assert.equal(found[0].tag, null);
+  assert.equal(found[0].layout, null);
+});
+
+for (const n of [
+  { uuid: 't1', tag: 'System', layout: 'flat' },
+  { uuid: 't2', tag: 'Contractors', layout: 'grouped' },
+]) {
+  test(`round-trip: tag ${n.tag} (${n.layout})`, () => {
+    const md = buildNavLinksLines([n]).join('\n');
+    const got = locateNavLinksLines(md)[0];
+    assert.equal(got.uuid, n.uuid);
+    assert.equal(got.tag, n.tag);
+    assert.equal(got.layout, n.layout);
+  });
+}
+
+test('ensure: backfills a uuid span before a span-less tag block', () => {
+  const out = ensureNavLinksUUIDs('<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat"></div>');
+  const loc = locateNavLinksLines(out)[0];
+  assert.ok(loc.uuid, 'should have a uuid');
+  assert.equal(loc.tag, 'System');
+});
+
+test('replace: flips a path block to a tag block in place, keeping its span', () => {
+  const md = [
+    '<span data-uuid="u1" style="display:none"></span>',
+    '<div class="mb-nav-links" data-nav-path="guides"></div>',
+  ].join('\n');
+  const newLine = navLinksLineFrom({ mode: 'tag', tag: 'System', layout: 'grouped' });
+  const out = replaceNavLinksByUUID(md, 'u1', newLine);
+  const got = locateNavLinksLines(out)[0];
+  assert.equal(got.uuid, 'u1');
+  assert.equal(got.tag, 'System');
+  assert.equal(got.layout, 'grouped');
+  assert.equal(got.path, null);
+});
+
+test('navLinksLineFrom: explicit mode wins when both fields are populated', () => {
+  assert.equal(
+    navLinksLineFrom({ mode: 'path', path: 'guides', tag: 'System', layout: 'flat' }),
+    '<div class="mb-nav-links" data-nav-path="guides"></div>');
+  assert.equal(
+    navLinksLineFrom({ mode: 'tag', path: 'guides', tag: 'System', layout: 'flat' }),
+    '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat"></div>');
+});
+
+test('parseComponents: a tag block carries tag + layout on its nav object', () => {
+  const body = [
+    '<span data-uuid="t1" style="display:none"></span>',
+    '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="grouped"></div>',
+  ].join('\n');
+  const { components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+  assert.equal(components.length, 1);
+  assert.equal(components[0].nav.tag, 'System');
+  assert.equal(components[0].nav.layout, 'grouped');
+});
+
+test('buildComponentBody → parseComponents round-trips a tag component', () => {
+  const comp = { kind: 'navlinks', nav: { uuid: 't9', tag: 'System', layout: 'flat' } };
+  const body = buildComponentBody(null, 'Desc', [comp]);
+  const { components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+  assert.equal(components.length, 1);
+  assert.equal(components[0].nav.uuid, 't9');
+  assert.equal(components[0].nav.tag, 'System');
+  assert.equal(components[0].nav.layout, 'flat');
+});
+
+test('componentMarkdown: Copy payload for a tag block strips the uuid span', () => {
+  const comp = { kind: 'navlinks', nav: { uuid: 't1', tag: 'System', layout: 'grouped' } };
+  assert.equal(componentMarkdown(comp), '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="grouped"></div>');
 });
 
 // ── components.js integration: nav-links as an ordered component ──────────────

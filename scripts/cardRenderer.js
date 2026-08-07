@@ -2,6 +2,25 @@ export function escapeHtml(str) {
   return (str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Canonical label pill span (matches labelMarkup in markdownInline.js: plain
+// inner text only, so `[^<]*` can't swallow a following tag).
+const LABEL_SPAN_RE = /<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/span>/g;
+
+// Escapes a title for card HTML while re-emitting its label pills as real
+// spans (colours painted afterwards via paintLabels). Anything that isn't a
+// canonical pill — including malformed/partial spans — is escaped to text.
+export function titleWithLabelsHtml(title) {
+  const src = title ?? '';
+  let out = '';
+  let last = 0;
+  for (const m of src.matchAll(LABEL_SPAN_RE)) {
+    out += escapeHtml(src.slice(last, m.index));
+    out += `<span class="mb-label mb-label-${m[1]}">${escapeHtml(m[2])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + escapeHtml(src.slice(last));
+}
+
 // colour: accent variant slug (red|amber|green|blue|purple|light-blue|cyan|teal|
 //         light-green|orange|bright-red|pink|deep-purple|grey|outline|step)
 // title: card title
@@ -53,11 +72,19 @@ export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyA
 }
 
 // A "Button" component card: grey chrome, a "Button" badge, the button's label
-// (or its destination when label-less) plus a Primary/Secondary tag, and an Edit
-// button. `primary` toggles the tag text.
-export function buttonComponentCard({ label, destination, primary, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+// (or its destination when label-less) plus a colour tag ("Emerald", with
+// " · Force dark" / " · Border light only"-style suffixes for non-default theme
+// and border), and an Edit button. Legacy colourless buttons fall back to the
+// old Primary/Secondary tag.
+export function buttonComponentCard({ label, destination, primary, colour, theme, border, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
   const text = (label ?? '').trim() || (destination ?? '').trim() || '(no label)';
-  const tag = primary ? 'Primary' : 'Secondary';
+  const themeLabels = { inversed: 'Inversed', 'force-light': 'Force light', 'force-dark': 'Force dark' };
+  const borderLabels = { bordered: 'Bordered', 'border-light': 'Border light only', 'border-dark': 'Border dark only', borderless: 'Borderless' };
+  const tag = colour
+    ? colour.charAt(0).toUpperCase() + colour.slice(1)
+      + (themeLabels[theme] ? ` · ${themeLabels[theme]}` : '')
+      + (borderLabels[border] ? ` · ${borderLabels[border]}` : '')
+    : (primary ? 'Primary' : 'Secondary');
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">

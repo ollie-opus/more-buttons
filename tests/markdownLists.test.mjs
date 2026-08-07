@@ -76,6 +76,28 @@ test('render -> serialize round-trip for a mixed document', () => {
   assert.equal((html.match(/<li>/g) || []).length, 4);
   assert.equal((html.match(/<br>/g) || []).length, 6);
 });
+test('serialize list + following <div> paragraph inserts a blank line', () => {
+  // Chrome's insertParagraph out of the last <li> leaves a <div> sibling right
+  // after </ul>; without a blank line the paragraph lazily continues the item.
+  const root = el('root', el('ul', el('li', txt('a')), el('li', txt('b'))), el('div', txt('after')));
+  assert.equal(serialize(root), '- a\n- b\n\nafter');
+});
+test('serialize list + empty-line <div> + text <div> keeps exactly one blank line', () => {
+  const root = el('root', el('ul', el('li', txt('a'))), el('div', el('br')), el('div', txt('after')));
+  assert.equal(serialize(root), '- a\n\nafter');
+});
+test('serialize list + <br><br> + text is unchanged (deserializer shape)', () => {
+  const root = el('root', el('ul', el('li', txt('a'))), el('br'), el('br'), txt('after'));
+  assert.equal(serialize(root), '- a\n\nafter');
+});
+test('an empty-line div between text divs serializes to one blank line', () => {
+  const root = el('root', el('div', txt('a')), el('div', el('br')), el('div', txt('b')));
+  assert.equal(serialize(root), 'a\n\nb');
+});
+test('a text node directly after a list gets a separating blank line', () => {
+  const root = el('root', el('ul', el('li', txt('a'))), txt('after'));
+  assert.equal(serialize(root), '- a\n\nafter');
+});
 test('locateOffset lands inside a trailing empty <li>', () => {
   const li2 = el('li');
   const root = el('root', el('ul', el('li', txt('a')), li2)); // source '- a\n- '

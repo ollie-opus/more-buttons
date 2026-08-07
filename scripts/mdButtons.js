@@ -2,9 +2,19 @@
  * mdButtons.js — Zensical "button" component markdown round-trip.
  *
  * A button is a link decorated with attr_list classes:
- *   [Label](destination){ .md-button }                     ← secondary
- *   [Label](destination){ .md-button .md-button--primary } ← primary
- *   [Label :lucide-send:](destination){ .md-button }       ← with icon
+ *   [Label](destination){ .md-button }                            ← legacy secondary
+ *   [Label](destination){ .md-button .md-button--primary }        ← legacy primary
+ *   [Label](destination){ .md-button .custom-button-emerald }     ← custom colour
+ *   [Label](dest){ .md-button .custom-button-red .custom-button--force-dark }
+ *                                                                 ← colour + theme
+ *   [Label :lucide-send:](destination){ .md-button }              ← with icon
+ *
+ * Colour slugs map to the KB's buttons.css `custom-button-<slug>` palette (the
+ * same 26 slugs as labelColours.json). Theme modifiers (`--inversed`,
+ * `--force-light`, `--force-dark`) pin which colour trio paints the button, and
+ * border modifiers (`--bordered`, `--border-light`, `--border-dark`,
+ * `--borderless`) override the trio's default border per side. Both are only
+ * meaningful — and only emitted — alongside a colour class.
  *
  * It is the simplest component: single-line, holds no sub-components. Identity is
  * a hidden `<span data-uuid>` on the line BEFORE the link — the same convention
@@ -52,6 +62,27 @@ function attrsArePrimary(attrs) {
   return /\bmd-button--primary\b/.test(attrs ?? '');
 }
 
+// `.custom-button-<slug>` → slug, '' when absent. The `--` theme modifiers can't
+// match: after the literal `custom-button-` the next char must be alphanumeric.
+const CUSTOM_COLOUR_RE = /\bcustom-button-([a-z0-9]+)\b/;
+function attrsCustomColour(attrs) {
+  return (attrs ?? '').match(CUSTOM_COLOUR_RE)?.[1] ?? '';
+}
+
+// `.custom-button--<theme>` modifier → theme name, 'default' when absent.
+const CUSTOM_THEME_RE = /\bcustom-button--(inversed|force-light|force-dark)\b/;
+function attrsCustomTheme(attrs) {
+  return (attrs ?? '').match(CUSTOM_THEME_RE)?.[1] ?? 'default';
+}
+
+// `.custom-button--<border>` modifier → border mode, 'default' when absent.
+// Like theme, a closed enum on the double-dash prefix so it can never be
+// mistaken for a colour slug.
+const CUSTOM_BORDER_RE = /\bcustom-button--(bordered|borderless|border-light|border-dark)\b/;
+function attrsCustomBorder(attrs) {
+  return (attrs ?? '').match(CUSTOM_BORDER_RE)?.[1] ?? 'default';
+}
+
 /** True when the link opens in a new tab (`target="_blank"`). */
 function attrsOpenNewTab(attrs) {
   return /\btarget\s*=\s*["']?_blank["']?/.test(attrs ?? '');
@@ -62,7 +93,7 @@ function attrsOpenNewTab(attrs) {
  * '' separator, then an optional uuid span, then the link line. buildComponentBody
  * slices off the leading ''.
  *
- * @param {Array<{uuid?,label,destination,icon,primary}>} list
+ * @param {Array<{uuid?,label,destination,icon,colour?,theme?,border?,primary?}>} list
  * @returns {string[]}
  */
 export function buildButtonLines(list = []) {
@@ -70,7 +101,18 @@ export function buildButtonLines(list = []) {
     const label = (b.label ?? '').trim();
     const shortcode = iconToShortcode(b.icon);
     const text = shortcode ? (label ? `${label} ${shortcode}` : shortcode) : label;
-    const classes = b.primary ? '.md-button .md-button--primary' : '.md-button';
+    // Colour wins over the legacy primary flag; theme and border ride only with
+    // a colour (a bare modifier would still match buttons.css's
+    // `[class*="custom-button-"]` painters and wreck an uncoloured button).
+    const classList = ['.md-button'];
+    if (b.colour) {
+      classList.push(`.custom-button-${b.colour}`);
+      if (b.theme && b.theme !== 'default') classList.push(`.custom-button--${b.theme}`);
+      if (b.border && b.border !== 'default') classList.push(`.custom-button--${b.border}`);
+    } else if (b.primary) {
+      classList.push('.md-button--primary');
+    }
+    const classes = classList.join(' ');
     const attrs = b.newTab ? `${classes} target="_blank" rel="noopener"` : classes;
     const line = `[${text}](${b.destination ?? ''}){ ${attrs} }`;
     const spanLines = b.uuid ? [`<span data-uuid="${b.uuid}" style="display:none"></span>`] : [];
@@ -83,7 +125,7 @@ export function buildButtonLines(list = []) {
  * A preceding own-line uuid span is swallowed into startLine (its identity).
  *
  * @param {string} body
- * @returns {Array<{uuid,label,destination,icon,primary,indent,startLine,endLine}>}
+ * @returns {Array<{uuid,label,destination,icon,primary,colour,theme,border,indent,startLine,endLine}>}
  */
 export function locateButtonLines(body) {
   const lines = (body ?? '').split('\n');
@@ -110,6 +152,8 @@ export function locateButtonLines(body) {
     out.push({
       uuid, label: label.trim(), destination: m[3], icon,
       primary: attrsArePrimary(attrs), newTab: attrsOpenNewTab(attrs),
+      colour: attrsCustomColour(attrs), theme: attrsCustomTheme(attrs),
+      border: attrsCustomBorder(attrs),
       indent, startLine, endLine: i + 1,
     });
   }
@@ -185,7 +229,11 @@ export function buttonComponent(btn) {
 export function buttonDimFields(btn) {
   return {
     buttonLabel: btn?.label ?? '',
-    buttonType: btn?.primary ? 'primary' : 'secondary',
+    // Legacy primary AND secondary both map to '' — the form shows no swatch
+    // selected and requires a pick; the distinction survives in btn.primary.
+    buttonColour: btn?.colour ?? '',
+    buttonTheme: btn?.theme ?? 'default',
+    buttonBorder: btn?.border ?? 'default',
     buttonDestination: btn?.destination ?? '',
     icon: btn?.icon ?? '',
     buttonNewTab: btn?.newTab ? 'yes' : 'no',

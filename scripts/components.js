@@ -305,7 +305,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     })),
     ...tbls.map(t => ({
       kind: 'table',
-      tbl: { uuid: t.uuid ?? null, align: t.align, header: t.header, rows: t.rows },
+      tbl: { uuid: t.uuid ?? null, wrap: t.wrap, align: t.align, header: t.header, rows: t.rows },
       startLine: t.startLine,
       endLine: t.endLine,
     })),
@@ -323,13 +323,15 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     })),
     ...topButtons.map(b => ({
       kind: 'button',
-      btn: { uuid: b.uuid ?? null, label: b.label, destination: b.destination, icon: b.icon, primary: b.primary, newTab: b.newTab },
+      btn: { uuid: b.uuid ?? null, label: b.label, destination: b.destination, icon: b.icon, primary: b.primary, colour: b.colour, theme: b.theme, border: b.border, newTab: b.newTab },
       startLine: b.startLine,
       endLine: b.endLine,
     })),
     ...topNavLinks.map(n => ({
       kind: 'navlinks',
-      nav: { uuid: n.uuid ?? null, path: n.path },
+      nav: n.tag != null
+        ? { uuid: n.uuid ?? null, tag: n.tag, layout: n.layout }
+        : { uuid: n.uuid ?? null, path: n.path },
       startLine: n.startLine,
       endLine: n.endLine,
     })),
@@ -415,7 +417,7 @@ export function buildComponentBody(uuid, description, components) {
     } else if (c.kind === 'tabs') {
       lines.push(buildTabGroup(c.grp.uuid, c.grp.tabs));
     } else if (c.kind === 'table') {
-      lines.push(buildDataTable(c.tbl.uuid, c.tbl.align, c.tbl.header, c.tbl.rows));
+      lines.push(buildDataTable(c.tbl.uuid, c.tbl.align, c.tbl.header, c.tbl.rows, c.tbl.wrap));
     } else if (c.kind === 'grid') {
       lines.push(buildGrid(c.grid.uuid, c.grid.flavor, c.grid.cells));
     } else if (c.kind === 'video') {

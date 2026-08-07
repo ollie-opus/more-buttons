@@ -1369,6 +1369,31 @@ button.more-buttons-crumb:hover {
 .mb-popup-menu__item--has-sub.--sub-open .mb-popup-submenu {
   display: flex;
 }
+/* Near the right viewport edge the flyout flips leftward (class set by
+   positionMenu in insertMenu.js); the hover bridge moves to the right gap. */
+.mb-popup-menu__item--has-sub.--flip-left .mb-popup-submenu {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 6px;
+}
+.mb-popup-menu__item--has-sub.--flip-left .mb-popup-submenu::before {
+  left: auto;
+  right: -8px;
+}
+/* Declarative item states (openPopupMenu): leading icon slot, trailing check
+   for radio-style picks, danger and disabled looks. */
+.mb-popup-menu__label { flex: 1 1 auto; }
+.mb-popup-menu__icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+  color: var(--mb-text-muted);
+}
+.mb-popup-menu__check { flex: 0 0 auto; font-size: 16px; }
+.mb-popup-menu__item--danger { color: var(--mb-acc-danger); }
+.mb-popup-menu__item--danger .mb-popup-menu__icon { color: inherit; }
+.mb-popup-menu__item--disabled { opacity: 0.45; cursor: default; }
+.mb-popup-menu__item--disabled:hover { background: transparent; }
 
 .mb-adm-insert {
   appearance: none;
@@ -1942,6 +1967,22 @@ details[open] .more-buttons-advanced-toggle::before {
   border-color: var(--cb-primary-bg);
 }
 
+/* Annotation colour swatch — square chip holding the current-ink dot; shown
+ * only in annotate mode (see the mode-scoped rules by the zap-mode hides).
+ * The dot deliberately ignores --cb-hue: chrome stays green, ink varies. */
+.mb-capture-bar__swatch {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.mb-capture-bar__swatch-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--swatch, #22c55e);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
 /* Padding stepper — inline numeric field */
 .mb-capture-bar__stepper {
   display: inline-flex;
@@ -2049,6 +2090,30 @@ details[open] .more-buttons-advanced-toggle::before {
   margin: 0;
   grid-template-columns: auto 1fr;
   align-items: center;
+}
+
+/* Annotation colour popover — compact grid of the 17 chromatic swatches. */
+.mb-capture-bar__colour-popover { min-width: 0; }
+.mb-capture-bar__colour-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 24px);
+  gap: 6px;
+}
+.mb-capture-bar__colour {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+  transition: transform 120ms ease-out;
+}
+.mb-capture-bar__colour:hover { transform: scale(1.15); }
+.mb-capture-bar__colour.--selected {
+  outline: 2px solid var(--mb-text, #0f172a);
+  outline-offset: 2px;
 }
 
 /* Close — icon button, matches form nav-close */
@@ -2269,6 +2334,14 @@ html.mb-zap-mode .mb-capture-padding-ring {
 html.mb-zap-mode .mb-capture-bar [data-bar-resize],
 html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
   display: none;
+}
+/* The colour swatch only makes sense while annotating — inverse of the zap
+ * hides: hidden by default, shown when annotate mode is on. */
+.mb-capture-bar [data-bar-annotate-colour] {
+  display: none;
+}
+html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
+  display: inline-flex;
 }
 
 
@@ -2570,39 +2643,116 @@ html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
   cursor: default;
 }
 
-/* ── Data Table editor ─────────────────────────────────────────────────────── */
+/* ── Data Table editor (spreadsheet) ───────────────────────────────────────── */
 
+/* Rich-text controls for the active cell, pinned above the grid. The RTE's
+   editing nodes (surface + textarea) are relocated into the cell being edited;
+   while parked here they carry [hidden], so only the toolbar row shows. */
+.mb-dt-toolbar {
+  margin-bottom: 10px;
+}
+.mb-dt-toolbar .mb-rte__toolbar {
+  border-bottom: 1px solid var(--mb-border);
+  border-radius: 6px;
+}
+/* The datatable cell editor is rich-only: no Rich|Markdown mode switch. */
+.mb-dt-toolbar .mb-rte__tabs {
+  display: none;
+}
+.mb-dt-toolbar--disabled .mb-rte__btns,
+.mb-dt-toolbar--disabled .mb-rte__tabs {
+  opacity: 0.4;
+  pointer-events: none;
+}
+/* Right-aligned Insert Capture button — the tabs are hidden here, so this is
+   the toolbar's only right-side control (same margin-left:auto mechanism). */
+.mb-dt-toolbar .mb-dt-insert-capture {
+  width: auto;
+  margin-left: auto;
+  gap: 4px;
+  padding: 0 8px;
+  font-size: 0.8rem;
+}
+
+/* The scrolling spreadsheet viewport. border-collapse breaks position:sticky
+   borders, so the table uses separate per-cell right/bottom borders and this
+   wrap draws the outer frame. It is also the keyboard-navigation target. */
 .mb-dt-grid-wrap {
-  overflow-x: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--mb-border);
+  border-radius: 8px;
   margin-bottom: 14px;
+  outline: none;
+  background: var(--mb-bg);
+}
+.mb-dt-grid-wrap:focus-visible {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
 }
 
 .mb-dt-grid {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
   font-size: 0.875rem;
 }
 
 .mb-dt-cell {
-  border: 1px solid var(--mb-border-subtle);
+  border-right: 1px solid var(--mb-border-subtle);
+  border-bottom: 1px solid var(--mb-border-subtle);
   padding: 6px 10px;
   text-align: left;
-  cursor: pointer;
+  cursor: cell;
   min-width: 90px;
-}
-
-.mb-dt-cell--header {
-  font-weight: 600;
-  background: rgba(127, 127, 127, 0.08);
+  background: var(--mb-bg);
+  font-weight: 400;
+  /* Cells are spreadsheet targets, not prose: click-drag paints a range
+     instead of highlighting preview text. Editing restores selection below. */
+  user-select: none;
 }
 
 .mb-dt-cell:hover {
-  background: rgba(127, 127, 127, 0.10);
+  background: color-mix(in srgb, var(--mb-text-muted) 8%, var(--mb-bg));
 }
 
 .mb-dt-cell--selected {
-  outline: 2px solid var(--mb-radio-checked-bg);
+  outline: 2px solid var(--mb-acc-info);
   outline-offset: -2px;
+}
+
+/* Range membership (drag / shift+click / shift+arrows / handle bands); the
+   active cell keeps its --selected outline on top of the tint, and edge cells
+   carry an inline inset box-shadow perimeter (renderGrid). */
+.mb-dt-cell--in-range {
+  background: color-mix(in srgb, var(--mb-acc-info) 10%, var(--mb-bg));
+}
+
+/* In-place editing: the relocated RTE nodes fill the cell; the cell ring goes
+   accent-blue to read as "editing", not just "selected". */
+.mb-dt-cell--editing {
+  padding: 0;
+  cursor: text;
+  outline: 2px solid var(--mb-acc-info);
+  outline-offset: -2px;
+  background: var(--mb-bg-input);
+  user-select: text;
+}
+.mb-dt-cell--editing .mb-rte__surface,
+.mb-dt-cell--editing .mb-rte__input {
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  box-shadow: none;
+  padding: 6px 10px;
+  resize: none;
+  background: transparent;
+  font-size: 0.875rem;
+}
+.mb-dt-cell--editing .mb-rte__surface:focus {
+  border: none;
+  box-shadow: none;
 }
 
 .mb-dt-cell__empty {
@@ -2620,27 +2770,84 @@ html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
   object-fit: contain;
 }
 
-/* The structure-controls row reuses .mb-ct-manage; it just needs to wrap. */
-.mb-dt-manage {
-  flex-wrap: wrap;
-}
-
-/* Right-most per-row Edit column in the grid. The button reuses the
-   component-card edit style (.mb-incident-card__edit); supply the accent
-   vars it expects (default grey, matching an uncoloured card). */
-.mb-dt-edit-cell {
-  --mb-accent: rgb(158, 158, 158);
-  --mb-card-edit-fg-hover: #fff;
-  border: 1px solid var(--mb-border-subtle);
-  width: 1%;
-  white-space: nowrap;
+/* Spreadsheet chrome: column handles (A, B, C…), row-number gutter, corner.
+   All sticky with opaque backgrounds so content slides beneath. */
+.mb-dt-corner,
+.mb-dt-handle,
+.mb-dt-gutter {
+  background: var(--mb-rt-head-bg);
+  color: var(--mb-text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
   text-align: center;
-  padding: 2px 6px;
+  user-select: none;
+  position: sticky;
+  padding: 0;
+}
+.mb-dt-handle {
+  top: 0;
+  height: var(--mb-dt-handle-h, 24px);
+  z-index: 4;
+  border-right: 1px solid var(--mb-border-subtle);
+  border-bottom: 1px solid var(--mb-border);
+}
+.mb-dt-gutter {
+  left: 0;
+  width: 40px;
+  min-width: 40px;
+  z-index: 2;
+  border-right: 1px solid var(--mb-border);
+  border-bottom: 1px solid var(--mb-border-subtle);
+}
+.mb-dt-corner {
+  top: 0;
+  left: 0;
+  z-index: 6;
+  border-right: 1px solid var(--mb-border);
+  border-bottom: 1px solid var(--mb-border);
 }
 
-/* Column tab strip on the per-row editor. */
-.mb-dtr-tabs {
-  margin-bottom: 14px;
+/* The selected cell's row/column chrome lights up, gsheets-style. */
+.mb-dt-handle--active,
+.mb-dt-gutter--active {
+  background: color-mix(in srgb, var(--mb-acc-info) 18%, var(--mb-rt-head-bg));
+  color: var(--mb-text);
+}
+
+/* Hover-revealed ▾ menu button on handles and gutter cells (the click
+   alternative to right-click, which is undiscoverable in an overlay). */
+.mb-dt-handle__menu {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--mb-text-muted);
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+.mb-dt-handle:hover .mb-dt-handle__menu,
+.mb-dt-gutter:hover .mb-dt-handle__menu,
+.mb-dt-handle--active .mb-dt-handle__menu,
+.mb-dt-gutter--active .mb-dt-handle__menu,
+.mb-dt-handle__menu:focus-visible {
+  opacity: 1;
+}
+.mb-dt-handle__menu:hover {
+  background: color-mix(in srgb, var(--mb-text-muted) 18%, transparent);
+}
+.mb-dt-handle__menu .more-buttons-icon {
+  font-size: 14px;
 }
 
 /* ── Grid editor ───────────────────────────────────────────────────────────── */
@@ -2841,8 +3048,11 @@ html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
 
 .mb-kb-pill.--live     { --mb-pill-accent: rgb(102, 187, 106); }
 .mb-kb-pill.--drafting { --mb-pill-accent: rgb(255, 179, 0); }
+.mb-kb-pill.--unlisted { --mb-pill-accent: rgb(148, 163, 184); } /* neutral grey, same as --format */
 .mb-kb-pill.--resized  { --mb-pill-accent: rgb(255, 179, 0); }  /* same yellow as Drafting */
 .mb-kb-pill.--padded   { --mb-pill-accent: rgb(66, 165, 245); } /* Material blue */
+.mb-kb-pill.--annotated { --mb-pill-accent: rgb(102, 187, 106); } /* same green as Live */
+.mb-kb-pill.--zapped    { --mb-pill-accent: rgb(239, 83, 80); }   /* Material red */
 /* File-format pill (.png / .svg / .mp4…) — neutral grey; the extension text is
    already lowercase-with-dot, so opt out of the uppercase transform. */
 .mb-kb-pill.--format   { --mb-pill-accent: rgb(148, 163, 184); text-transform: none; }
@@ -2997,6 +3207,21 @@ h2[data-edit-media-title] .mb-kb-pills {
 }
 .mb-rte__surface ul { list-style: disc; }
 .mb-rte__surface ol { list-style: decimal; }
+
+/* Single-line inline RTE (e.g. the admonition Title): input-height field, no
+   resize on the Markdown-view textarea. */
+.mb-rte--inline .mb-rte__surface { min-height: 0; padding: 6px 9px; }
+.mb-rte--inline .mb-rte__input   { min-height: 0; resize: none; }
+
+/* Disabled RTE (e.g. step admonitions are auto-titled): dim the toolbar and
+   freeze the surface, mirroring textarea:disabled. The Markdown-view textarea
+   is covered by the existing textarea:disabled rule. */
+.mb-rte--disabled .mb-rte__btns { opacity: 0.4; pointer-events: none; }
+.mb-rte--disabled .mb-rte__surface {
+  background-color: var(--mb-bg-disabled);
+  color: var(--mb-text-disabled);
+  pointer-events: none;
+}
 /* Nested lists: drop the outer vertical margin so each level only adds indent,
    not extra gaps, and alternate the bullet glyph so depth reads at a glance. */
 .mb-rte__surface li > ul,
@@ -3015,6 +3240,16 @@ h2[data-edit-media-title] .mb-kb-pills {
   background: var(--mb-code-bg);
   border: 1px solid var(--mb-border-subtle);
   color: inherit;
+}
+
+/* display:block/flex below defeats the UA's [hidden] rule (host pages usually
+   patch this globally, but don't depend on it) — restore it. The data-table
+   editor also parks BOTH nodes hidden while no cell is being edited, and the
+   link/label popovers are created hidden. */
+.mb-rte__surface[hidden],
+.mb-rte__input[hidden],
+.mb-rte__popover[hidden] {
+  display: none;
 }
 
 /* The raw-markdown textarea (Markdown mode) — hidden until the tab is chosen. */
@@ -3189,6 +3424,99 @@ h2[data-edit-media-title] .mb-kb-pills {
    pills per row (fewer rows → shorter popover). */
 .mb-rte__popover--label { width: 440px; }
 
+/* Link popover: three tabs plus the Internal Page tree need more than the
+   base 260px. */
+.mb-rte__popover--link { width: 400px; }
+
+/* ── AI Rewrite popover ───────────────────────────────────────────────────────
+   Title + "Output styles" group label over one bordered button per prompt.
+   The buttons stay neutral ghosts (left-aligned, no primary blue) — the same
+   outline-that-fills language as .mb-rte__popover-btn, minus the accent. The
+   scope note sits under them as a small coloured footer line: each state only
+   swaps --mb-acc — blue (info) for a selection rewrite, amber (busy) for the
+   whole field. Both tokens are dark-mode aware. */
+.mb-rte__popover--ai { width: 300px; }
+.mb-rte__popover--ai .mb-rte__panel { gap: 6px; }
+.mb-rte__ai-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--mb-text);
+}
+.mb-rte__ai-subhead {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--mb-text-label);
+}
+.mb-rte__ai-actions { display: flex; flex-direction: column; gap: 6px; }
+.mb-rte__ai-action {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mb-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background-color 0.14s ease-out, border-color 0.14s ease-out;
+}
+.mb-rte__ai-action-label { display: block; }
+.mb-rte__ai-action-desc {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--mb-text-label);
+}
+.mb-rte__ai-action:hover:not(:disabled),
+.mb-rte__ai-action:focus-visible {
+  outline: none;
+  border-color: var(--mb-text-muted);
+  background: color-mix(in srgb, var(--mb-text-muted) 10%, transparent);
+}
+.mb-rte__ai-action:disabled { opacity: 0.45; cursor: default; }
+.mb-rte__ai-scope {
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--mb-text-muted) 25%, transparent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--mb-acc);
+}
+.mb-rte__ai-scope.--selection { --mb-acc: var(--mb-acc-info); }
+.mb-rte__ai-scope.--whole { --mb-acc: var(--mb-acc-busy); }
+.mb-rte__hint[data-state='error'] { color: var(--mb-acc-danger); }
+.mb-rte__hint .more-buttons-icon {
+  font-size: 14px;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+/* Internal Page tree: the search input stays put, only the tree scrolls
+   (renderTree emits them as siblings inside the host). */
+.mb-rte__page-tree .mb-kb-tree { max-height: 260px; overflow-y: auto; }
+
+/* Listed / Unlisted group roots read as headers, not folders. */
+.mb-rte__page-tree [data-kb-group] .mb-kb-node-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mb-text-muted);
+}
+
+/* Single-select highlight for the picked page (the generic --selected styling
+   elsewhere in this file is reorder-row specific). */
+.mb-rte__page-tree .mb-kb-node.--selected > .mb-kb-node-row {
+  background: color-mix(in srgb, var(--mb-acc-info) 14%, transparent);
+  color: var(--mb-acc-info);
+}
+
 /* Swatch grid inside the Label popover. `overflow-y: auto` also clips the x-axis,
    which would crop the selected swatch's outline halo — the inner padding gives
    that 4px halo room (especially on the flush-left column). */
@@ -3209,6 +3537,17 @@ h2[data-edit-media-title] .mb-kb-pills {
   outline-offset: 2px;
 }
 .mb-rte__swatch.--selected { outline-color: currentColor; }
+
+/* Colour swatch grid used as a radio group (button editor). Same pill visuals
+   as the label popover swatches, but each pill is a real <label><input
+   type=radio> pair so form.js hydration/dirty-tracking and formValidation see
+   ordinary fields. No max-height/scroll — it lives in a full form, not a
+   popover. */
+.mb-swatch-radio-group { display: flex; flex-direction: column; gap: 6px; padding: 4px; }
+.mb-swatch-option { position: relative; }
+.mb-swatch-option input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.mb-swatch-option:has(input:checked) { outline-color: currentColor; }
+.mb-swatch-option:has(input:focus-visible) { outline-color: currentColor; outline-style: dashed; }
 
 /* ── Create-guide path field ──────────────────────────────────────────────── */
 .mb-path-field {

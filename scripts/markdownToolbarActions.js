@@ -185,6 +185,24 @@ function toggleSameMarker(value, selStart, selEnd, marker) {
     };
   }
 
+  // Selection covers a run's entire CONTENT while staying inside the run, but
+  // straddles only one of its delimiters (the rich surface's select-all maps to
+  // exactly this shape: an edge clamped inside a delimiter) -> toggle OFF the
+  // whole run. Without this the merge below sees an already-single run and
+  // silently no-ops.
+  const whole = runs.find(
+    (sp) => selStart >= sp.open[0] && selEnd <= sp.close[1] &&
+            selStart <= sp.open[1] && selEnd >= sp.close[0],
+  );
+  if (whole) {
+    const content = value.slice(whole.open[1], whole.close[0]);
+    return {
+      value: value.slice(0, whole.open[0]) + content + value.slice(whole.close[1]),
+      selStart: whole.open[0],
+      selEnd: whole.open[0] + content.length,
+    };
+  }
+
   // Otherwise toggle ON by merging the selection with every run it touches.
   let mergeStart = selStart;
   let mergeEnd = selEnd;

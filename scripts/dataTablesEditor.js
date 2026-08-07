@@ -1,27 +1,33 @@
 /**
  * dataTablesEditor.js — the "Data table" overlay for a pipe-table component.
  *
- * The grid form edits a whole TABLE: a clickable grid (header + body cells,
- * each preview rendered from its inline markdown) and structure controls
- * (add / move / delete rows and columns). Clicking a cell selects it; the
- * right-most Edit column opens the per-row (tabbed) child form, which owns
- * content + per-column alignment editing (inline rich text — no lists,
- * no line breaks; see richTextEditor.js).
+ * A single spreadsheet-style form: a grid with a row-number gutter and
+ * lettered column handles (gsheets chrome), one rich-text toolbar pinned at
+ * the top, and in-place cell editing. Clicking a cell selects it; typing,
+ * Enter/F2 or double-click edits it in the cell — the shared rich-text
+ * editor's surface + textarea nodes are physically moved into the cell for
+ * the duration of the edit and parked (hidden) back under the toolbar after.
+ * Structure ops (insert / move / delete rows and columns, per-column
+ * alignment) live in context menus on the gutter / handles / cells
+ * (right-click or the hover ▾), built from dataTableGridModel.js.
  *
- * Editor state lives in formEl._dt, mirrored into ONE hidden named input
+ * Editor state lives in formEl._dt, mirrored into a hidden named input
  * (`tableState`, JSON) for dirty tracking — the grid itself is deliberately
  * UNNAMED so selecting cells never false-dirties the form
- * (contentTabsEditor's pattern).
+ * (contentTabsEditor's pattern). The cell-editor textarea is unnamed too.
+ * The Text wrapping radios (`textWrap`) are the only other named inputs; the
+ * flag also rides inside tableState, which stays authoritative.
  *
  * Save model: the TABLE is whole-table last-write-wins (same v1 trade-off as
  * content tabs). A single twist: a body cell may hold ONE capture, and captures
  * follow the app-wide immediate-save Components model. So each cell is exposed
  * as a tiny `data-table-cell` component container (0-or-1 capture); inserting /
  * editing / deleting a capture commits straight to the draft via the shared
- * capture flows + editCaptureComponent, exactly like every other component. The
- * row editor therefore carries the standard component save-gate (_componentSaver
- * flushes the whole-table state before any child navigation) and re-hydrates its
- * table from the file, so the two save models stay consistent.
+ * capture flows + editCaptureComponent, exactly like every other component.
+ * The grid form therefore carries the standard component save-gate
+ * (_componentSaver flushes the whole-table state before any child navigation)
+ * and re-hydrates its table from the file, so the two save models stay
+ * consistent.
  */
 
 import { registerFormAction } from './formActions.js';
@@ -36,11 +42,20 @@ import {
   getDataTableByUUID, buildDataTable, replaceDataTableByUUID, deleteDataTableByUUID,
   parseCellCapture, serializeCellCapture,
 } from './dataTables.js';
+import {
+  clampSelection, insertRow, insertColumn, moveRow, moveColumn,
+  deleteRow, deleteColumn, setColumnAlign, moveSelection,
+  cellAt, setCellAt, collapseRange, normalizeRange, isMultiCellRange,
+  extendSelection, extendSelectionTo, clearRange, rangeToTsv, parseTsv, applyPaste,
+  selectRowRange, selectColumnRange, fullRowRange, fullColumnRange,
+  rowMenuItems, columnMenuItems, cellMenuItems,
+} from './dataTableGridModel.js';
 import { spliceIntoContainer, beginChildNavigation } from './guides.js';
-import { openInsertMenu } from './insertMenu.js';
-import { syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
+import { openPopupMenu, openInsertMenu, isPopupMenuOpen } from './insertMenu.js';
+import { renderSurface, clearArmed, paintLabels, setMode } from './richTextEditor.js';
+import { placeCaret } from './richEditorMapping.js';
 import { renderDocHtml } from './markdownInline.js';
-import { escapeHtml, captureComponentCard, fileExtOf } from './cardRenderer.js';
+import { escapeHtml } from './cardRenderer.js';
 import { assetCdnUrl } from './repoClient.js';
 
 const STORAGE_KEY = 'moreButtonsEditDataTable';
@@ -49,40 +64,61 @@ const STORAGE_KEY = 'moreButtonsEditDataTable';
 //
 // formEl._dt = { uuid, file, selected: {row, col}, align, header, rows }
 //   - selected.row === -1 addresses the header row; a cell is ALWAYS selected
-//     (default header 0), which drives the structure button-bar.
+//     (default header 0).
+// formEl._dtEdit = { row, col, original } while a cell is being edited in place.
+// formEl._dtRte = the shared rich-text editor instance (wired once on open).
 
 function starterTable() {
   return {
     align: ['left', 'left'],
     header: ['Column 1', 'Column 2'],
     rows: [['', ''], ['', '']],
+    wrap: true,
   };
 }
 
-function cellAt(st, row, col) {
-  return row === -1 ? (st.header[col] ?? '') : (st.rows[row]?.[col] ?? '');
-}
-
-function setCellAt(st, row, col, value) {
-  if (row === -1) st.header[col] = value;
-  else if (st.rows[row]) st.rows[row][col] = value;
-}
-
-function clampSelection(st) {
-  if (!st.selected) st.selected = { row: -1, col: 0 };
-  st.selected.col = Math.max(0, Math.min(st.selected.col, st.align.length - 1));
-  st.selected.row = Math.max(-1, Math.min(st.selected.row, st.rows.length - 1));
+// The selected cell parsed into { text, capture } (exclusive — dataTables.js).
+// Header cells never hold captures.
+function captureOfCell(st, row, col) {
+  const { text, capture } = parseCellCapture(cellAt(st, row, col));
+  return { text, capture: row === -1 ? null : capture };
 }
 
 // Mirror the table into the single named input that drives dirty tracking
-// (and capture-free storage round-trips, via the generic save step).
+// (and capture-free storage round-trips, via the generic save step). The
+// textWrap radios are ALSO named, but `wrap` lives in this JSON too, so
+// tableState alone carries the full table across storage round-trips.
 function syncTableState(formEl) {
   const input = formEl.querySelector('[name="tableState"]');
-  const { align, header, rows } = formEl._dt;
-  if (input) input.value = JSON.stringify({ align, header, rows });
+  const { align, header, rows, wrap } = formEl._dt;
+  if (input) input.value = JSON.stringify({ align, header, rows, wrap });
+}
+
+// Reflect the state's wrap flag into the Text wrapping radio group.
+function syncWrapControls(formEl) {
+  const wrap = formEl._dt?.wrap !== false;
+  formEl.querySelectorAll('[name="textWrap"]').forEach(input => {
+    input.checked = (input.value === (wrap ? 'enabled' : 'disabled'));
+  });
+}
+
+// The cell-container ref the save-gate uses: a body cell is a `data-table-cell`
+// container identified by `tableUuid@row,col`. Kept current on formEl.dataset
+// (renderGrid) so containerFromForm (guides.js) resolves to the SELECTED cell.
+function cellRefOf(tableUuid, row, col) { return `${tableUuid}@${row},${col}`; }
+function selectedCellRef(formEl) {
+  const st = formEl._dt;
+  return cellRefOf(formEl.dataset.tableUuid, st.selected.row, st.selected.col);
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
+
+// Spreadsheet column letters: 0 → A, 25 → Z, 26 → AA…
+function colLetter(i) {
+  let s = '';
+  for (let n = i; n >= 0; n = Math.floor(n / 26) - 1) s = String.fromCharCode(65 + (n % 26)) + s;
+  return s;
+}
 
 function cellPreview(text) {
   // A capture cell holds dual (light+dark) inline image markdown; preview it as
@@ -95,46 +131,208 @@ function cellPreview(text) {
   return renderDocHtml(text ?? '') || '<span class="mb-dt-cell__empty">…</span>';
 }
 
+// The top toolbar is inert while the selected cell holds a capture (there is
+// no text to format; capture ops live in the cell menu).
+function refreshToolbarState(formEl) {
+  const bar = formEl.querySelector('[data-dt-toolbar]');
+  if (!bar) return;
+  const st = formEl._dt;
+  const { capture } = captureOfCell(st, st.selected.row, st.selected.col);
+  bar.classList.toggle('mb-dt-toolbar--disabled', !!capture);
+  // Insert Capture sits outside .mb-rte__btns (and header cells keep the text
+  // toolbar live), so its state is per-button: a cell holds 0-or-1 capture and
+  // header cells never hold one.
+  const btn = formEl._dtInsertCaptureBtn;
+  if (btn) btn.disabled = !!capture || st.selected.row === -1;
+}
+
 function renderGrid(formEl) {
   const grid = formEl.querySelector('[data-dt-grid]');
   const st = formEl._dt;
   if (!grid || !st) return;
+  if (formEl._dtEdit) return; // never re-render mid-edit — callers commit first
   const sel = st.selected;
+  const rect = normalizeRange(st);
+  const hasRange = isMultiCellRange(st);
+  const colActive = c => (hasRange ? c >= rect.c0 && c <= rect.c1 : sel.col === c);
+  const rowActive = r => (hasRange ? r >= rect.r0 && r <= rect.r1 : sel.row === r);
+
+  const menuBtn = label =>
+    `<button type="button" class="mb-dt-handle__menu" data-dt-handle-menu tabindex="-1" aria-haspopup="menu" aria-label="${label} options"><span class="more-buttons-icon">arrow_drop_down</span></button>`;
+
+  const chromeRow = '<tr>'
+    + '<th class="mb-dt-corner"></th>'
+    + st.header.map((_, c) =>
+      `<th class="mb-dt-handle${colActive(c) ? ' mb-dt-handle--active' : ''}" data-dt-col-handle="${c}"><span>${colLetter(c)}</span>${menuBtn(`Column ${colLetter(c)}`)}</th>`).join('')
+    + '</tr>';
+
+  // The markdown header row displays as plain row 1 (body rows are 2..n); its
+  // pinned/structural nature only shows in the menus.
+  const gutter = row => {
+    const cls = 'mb-dt-gutter' + (rowActive(row) ? ' mb-dt-gutter--active' : '');
+    const label = `Row ${row + 2}`;
+    return `<th class="${cls}" data-dt-row-handle="${row}" aria-label="${label}"><span>${row + 2}</span>${menuBtn(label)}</th>`;
+  };
+
   const cell = (row, col, text) => {
     const tag = row === -1 ? 'th' : 'td';
+    const selected = sel.row === row && sel.col === col;
+    const inRange = hasRange && row >= rect.r0 && row <= rect.r1 && col >= rect.c0 && col <= rect.c1;
     const cls = 'mb-dt-cell'
-      + (row === -1 ? ' mb-dt-cell--header' : '')
-      + (sel && sel.row === row && sel.col === col ? ' mb-dt-cell--selected' : '');
-    return `<${tag} class="${cls}" data-dt-cell-at="${row}:${col}">${cellPreview(text)}</${tag}>`;
+      + (selected ? ' mb-dt-cell--selected' : '')
+      + (inRange ? ' mb-dt-cell--in-range' : '');
+    // The released range draws a thin blue perimeter, gsheets-style: each edge
+    // cell carries an inset shadow segment on its outward side(s).
+    const edges = [];
+    if (inRange) {
+      if (row === rect.r0) edges.push('inset 0 1px 0 0 var(--mb-acc-info)');
+      if (row === rect.r1) edges.push('inset 0 -1px 0 0 var(--mb-acc-info)');
+      if (col === rect.c0) edges.push('inset 1px 0 0 0 var(--mb-acc-info)');
+      if (col === rect.c1) edges.push('inset -1px 0 0 0 var(--mb-acc-info)');
+    }
+    const styles = edges.length ? [`box-shadow: ${edges.join(', ')}`] : [];
+    // Paint the column's markdown alignment; published tables align header cells too.
+    const align = st.align[col];
+    if (align === 'center' || align === 'right') styles.push(`text-align: ${align}`);
+    const style = styles.length ? ` style="${styles.join('; ')}"` : '';
+    return `<${tag} class="${cls}" role="${row === -1 ? 'columnheader' : 'gridcell'}"${selected ? ' aria-selected="true"' : ''}${style} data-dt-cell-at="${row}:${col}">${cellPreview(text)}</${tag}>`;
   };
-  // Right-most Edit column — one button per row (incl. the header, row -1).
-  // Reuses the component-card edit button (.mb-incident-card__edit); the accent
-  // vars it needs are supplied by .mb-dt-edit-cell in formsStyling.css.
-  const editCell = row => {
-    const tag = row === -1 ? 'th' : 'td';
-    const cls = 'mb-dt-edit-cell' + (row === -1 ? ' mb-dt-cell--header' : '');
-    const label = row === -1 ? 'header' : `row ${row + 1}`;
-    return `<${tag} class="${cls}"><button type="button" class="mb-incident-card__edit" data-edit-table-row="${row}" title="Edit ${label}">Edit</button></${tag}>`;
-  };
+
   grid.innerHTML =
-    `<thead><tr>${st.header.map((h, c) => cell(-1, c, h)).join('')}${editCell(-1)}</tr></thead>` +
-    `<tbody>${st.rows.map((r, ri) => `<tr>${r.map((v, c) => cell(ri, c, v)).join('')}${editCell(ri)}</tr>`).join('')}</tbody>`;
+    `<thead>${chromeRow}<tr>${gutter(-1)}${st.header.map((h, c) => cell(-1, c, h)).join('')}</tr></thead>` +
+    `<tbody>${st.rows.map((r, ri) => `<tr>${gutter(ri)}${r.map((v, c) => cell(ri, c, v)).join('')}</tr>`).join('')}</tbody>`;
   paintLabels(grid); // colour any label pills in the rendered cell previews
-  refreshControls(formEl);
+  syncWrapControls(formEl);
+  // Keep the save-gate's container identity pointed at the selected cell.
+  formEl.dataset.editUuid = selectedCellRef(formEl);
+  refreshToolbarState(formEl);
 }
 
-// Enable/disable the structure controls for the current selection.
-function refreshControls(formEl) {
+// Mid-drag range highlight WITHOUT an innerHTML rebuild — rebuilding on every
+// pointerover would destroy the node under the cursor mid-gesture. The full
+// renderGrid on pointerup reconciles everything else (gutters, editUuid,
+// toolbar state).
+function paintRange(formEl) {
   const st = formEl._dt;
-  const sel = st.selected;
-  const q = s => formEl.querySelector(s);
-  const onBody = sel.row >= 0;
-  q('[data-dt-move="up"]').disabled = !onBody || sel.row <= 0;
-  q('[data-dt-move="down"]').disabled = !onBody || sel.row >= st.rows.length - 1;
-  q('[data-dt-move="left"]').disabled = sel.col <= 0;
-  q('[data-dt-move="right"]').disabled = sel.col >= st.align.length - 1;
-  q('[data-dt-delete="row"]').disabled = !onBody || st.rows.length <= 1;
-  q('[data-dt-delete="col"]').disabled = st.align.length <= 1;
+  const rect = normalizeRange(st);
+  const hasRange = isMultiCellRange(st);
+  formEl.querySelectorAll('[data-dt-cell-at]').forEach(el => {
+    const [row, col] = el.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
+    el.classList.toggle('mb-dt-cell--in-range',
+      hasRange && row >= rect.r0 && row <= rect.r1 && col >= rect.c0 && col <= rect.c1);
+    const selected = row === st.selected.row && col === st.selected.col && !el.classList.contains('mb-dt-cell--editing');
+    el.classList.toggle('mb-dt-cell--selected', selected);
+    if (selected) el.setAttribute('aria-selected', 'true');
+    else el.removeAttribute('aria-selected');
+    el.style.boxShadow = ''; // the range perimeter only appears on release (renderGrid)
+  });
+  formEl.querySelectorAll('[data-dt-col-handle]').forEach(el => {
+    const c = parseInt(el.dataset.dtColHandle, 10);
+    el.classList.toggle('mb-dt-handle--active', hasRange ? c >= rect.c0 && c <= rect.c1 : c === st.selected.col);
+  });
+  formEl.querySelectorAll('[data-dt-row-handle]').forEach(el => {
+    const r = parseInt(el.dataset.dtRowHandle, 10);
+    el.classList.toggle('mb-dt-gutter--active', hasRange ? r >= rect.r0 && r <= rect.r1 : r === st.selected.row);
+  });
+}
+
+// Selection moved but the table structure/content didn't: repaint classes and
+// selection-tracking chrome WITHOUT an innerHTML rebuild. Plain clicks must go
+// through here, not renderGrid — a rebuild detaches the clicked node, so the
+// browser dispatches the paired dblclick on a detached target and it never
+// bubbles to the form (dblclick-to-edit would silently never fire).
+function syncSelectionChrome(formEl) {
+  paintRange(formEl);
+  formEl.dataset.editUuid = selectedCellRef(formEl);
+  refreshToolbarState(formEl);
+}
+
+function scrollSelectedIntoView(formEl) {
+  formEl.querySelector('.mb-dt-cell--selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function focusGrid(formEl) {
+  formEl.querySelector('[data-dt-grid-wrap]')?.focus({ preventScroll: true });
+}
+
+// ── In-place editing state machine ────────────────────────────────────────────
+
+// Park the shared editor nodes back under the toolbar, hidden.
+function parkEditor(formEl) {
+  const rte = formEl._dtRte;
+  const wrapper = formEl.querySelector('[data-dt-toolbar] .mb-rte');
+  if (!rte || !wrapper) return;
+  wrapper.append(rte.surface, rte.textarea);
+  rte.surface.hidden = true;
+  rte.textarea.hidden = true;
+  // The editor is shared across cells: drop the parked content and any armed
+  // format state so nothing from this cell can leak into the next edit. The
+  // textarea is unnamed, so clearing it never touches dirty tracking.
+  rte.surface.innerHTML = '';
+  rte.textarea.value = '';
+  clearArmed(rte);
+}
+
+// Begin editing the SELECTED cell: move the rich editor's surface + textarea
+// into the cell's <td>. caret: 'end' | 'all'. replaceWith: type-to-replace —
+// the cell starts over with that text (already a dirtying edit).
+function startEditing(formEl, { caret = 'end', replaceWith = null } = {}) {
+  const st = formEl._dt;
+  const rte = formEl._dtRte;
+  if (!st || !rte || formEl._dtEdit) return;
+  const { row, col } = st.selected;
+  const raw = cellAt(st, row, col);
+  if (captureOfCell(st, row, col).capture) return; // capture cells: no text editing
+  const td = formEl.querySelector(`[data-dt-cell-at="${row}:${col}"]`);
+  if (!td) return;
+  if (st.anchor) { collapseRange(st); paintRange(formEl); } // editing collapses a range
+
+  formEl._dtEdit = { row, col, original: raw };
+  const value = replaceWith != null ? replaceWith : raw;
+  td.innerHTML = '';
+  td.classList.add('mb-dt-cell--editing');
+  td.classList.remove('mb-dt-cell--selected');
+  // Seed + render BEFORE relocating: the surface must be re-rendered from this
+  // cell's value while the shared editor still holds no live selection, and via
+  // the direct rte ref (a closest('.mb-rte') lookup breaks once relocated).
+  rte.textarea.value = value;
+  renderSurface(rte);
+  td.append(rte.surface, rte.textarea);
+  rte.surface.hidden = rte.mode !== 'rich';
+  rte.textarea.hidden = rte.mode === 'rich';
+  if (replaceWith != null) {
+    setCellAt(st, row, col, value);
+    syncTableState(formEl);
+    formEl._refreshSaveState?.();
+  }
+  const [s, e] = caret === 'all' ? [0, value.length] : [value.length, value.length];
+  if (rte.mode === 'rich') {
+    rte.surface.focus();
+    placeCaret(rte.surface, s, e);
+  } else {
+    rte.textarea.focus();
+    rte.textarea.setSelectionRange(s, e);
+  }
+}
+
+// The edited value is live-synced into _dt on every keystroke, so committing
+// is UI-only: park the editor nodes and restore the cell preview.
+function commitEditing(formEl) {
+  if (!formEl._dtEdit) return;
+  formEl._dtEdit = null;
+  parkEditor(formEl);
+  renderGrid(formEl);
+}
+
+function cancelEditing(formEl) {
+  const ed = formEl._dtEdit;
+  if (!ed) return;
+  setCellAt(formEl._dt, ed.row, ed.col, ed.original);
+  syncTableState(formEl);
+  formEl._refreshSaveState?.();
+  formEl._dtEdit = null;
+  parkEditor(formEl);
+  renderGrid(formEl);
 }
 
 // ── Structure operations ──────────────────────────────────────────────────────
@@ -144,79 +342,434 @@ function afterStructureChange(formEl) {
   renderGrid(formEl);
   syncTableState(formEl);
   formEl._refreshSaveState?.();
+  scrollSelectedIntoView(formEl);
 }
 
-function addRow(formEl) {
-  const st = formEl._dt;
-  st.rows.push(Array.from({ length: st.align.length }, () => ''));
-  st.selected = { row: st.rows.length - 1, col: st.selected.col };
-  afterStructureChange(formEl);
+// ── Context menus ─────────────────────────────────────────────────────────────
+//
+// anchor: the ▾ / gutter / handle element (click) or {x, y} (contextmenu).
+// The openers re-render the grid first (selection highlight), which detaches a
+// clicked element anchor — re-resolve it in the fresh DOM before positioning.
+
+function liveAnchor(formEl, anchor, selector) {
+  if (!(anchor instanceof HTMLElement) || anchor.isConnected) return anchor;
+  return formEl.querySelector(selector) ?? anchor;
 }
 
-function addColumn(formEl) {
+// Opening a row menu selects the whole row (gsheets) unless the row is already
+// inside a handle-selected band — then the band survives and the menu offers
+// bulk ops on it.
+function openRowMenu(formEl, row, anchor, opts) {
   const st = formEl._dt;
-  st.align.push('left');
-  st.header.push(`Column ${st.header.length + 1}`);
-  st.rows.forEach(r => r.push(''));
-  st.selected = { row: -1, col: st.align.length - 1 };
-  afterStructureChange(formEl);
+  const band = fullRowRange(st);
+  if (!(band && row >= band.r0 && row <= band.r1)) selectRowRange(st, row);
+  renderGrid(formEl);
+  anchor = liveAnchor(formEl, anchor, `[data-dt-row-handle="${row}"]`);
+  const { r0, r1 } = fullRowRange(st) ?? { r0: row, r1: row };
+  const n = r1 - r0 + 1;
+  openPopupMenu(anchor, rowMenuItems(st, row), id => {
+    if (id === 'row-insert-above') insertRow(st, row);
+    else if (id === 'row-insert-below') insertRow(st, row + 1);
+    else if (id === 'row-move-up') moveRow(st, row, row - 1);
+    else if (id === 'row-move-down') moveRow(st, row, row + 1);
+    else if (id === 'row-delete') deleteRow(st, row);
+    else if (id === 'rows-insert-above') { for (let i = 0; i < n; i++) insertRow(st, r0); }
+    else if (id === 'rows-insert-below') { for (let i = 0; i < n; i++) insertRow(st, r1 + 1); }
+    else if (id === 'rows-delete') { for (let i = r1; i >= r0; i--) deleteRow(st, i); }
+    afterStructureChange(formEl);
+    focusGrid(formEl);
+  }, opts);
 }
 
-function moveSelected(formEl, dir) {
+function openColumnMenu(formEl, col, anchor, opts) {
   const st = formEl._dt;
-  const sel = st.selected;
-  if (dir === 'up' || dir === 'down') {
-    const j = sel.row + (dir === 'up' ? -1 : 1);
-    if (sel.row < 0 || j < 0 || j >= st.rows.length) return;
-    [st.rows[sel.row], st.rows[j]] = [st.rows[j], st.rows[sel.row]];
-    sel.row = j; // the selected row travels with the move
-  } else {
-    const j = sel.col + (dir === 'left' ? -1 : 1);
-    if (j < 0 || j >= st.align.length) return;
-    for (const arr of [st.align, st.header, ...st.rows]) [arr[sel.col], arr[j]] = [arr[j], arr[sel.col]];
-    sel.col = j;
-  }
-  afterStructureChange(formEl);
+  const band = fullColumnRange(st);
+  if (!(band && col >= band.c0 && col <= band.c1)) selectColumnRange(st, col);
+  renderGrid(formEl);
+  anchor = liveAnchor(formEl, anchor, `[data-dt-col-handle="${col}"]`);
+  const { c0, c1 } = fullColumnRange(st) ?? { c0: col, c1: col };
+  const n = c1 - c0 + 1;
+  openPopupMenu(anchor, columnMenuItems(st, col), id => {
+    if (id === 'col-insert-left') insertColumn(st, col);
+    else if (id === 'col-insert-right') insertColumn(st, col + 1);
+    else if (id === 'col-move-left') moveColumn(st, col, col - 1);
+    else if (id === 'col-move-right') moveColumn(st, col, col + 1);
+    else if (id === 'col-delete') deleteColumn(st, col);
+    else if (id.startsWith('col-align-')) setColumnAlign(st, col, id.slice('col-align-'.length));
+    else if (id === 'cols-insert-left') { for (let i = 0; i < n; i++) insertColumn(st, c0); }
+    else if (id === 'cols-insert-right') { for (let i = 0; i < n; i++) insertColumn(st, c1 + 1); }
+    else if (id === 'cols-delete') { for (let i = c1; i >= c0; i--) deleteColumn(st, i); }
+    afterStructureChange(formEl);
+    focusGrid(formEl);
+  }, opts);
 }
 
-function deleteSelected(formEl, what) {
+// Insert a capture into the SELECTED cell (the container the save-gate
+// resolves via selectedCellRef). Shared by the cell context menu and the
+// toolbar's Insert Capture button. A cell is exclusively text OR a capture,
+// so text cells confirm the replacement first.
+function insertCaptureIntoSelectedCell(formEl, kind) {
   const st = formEl._dt;
-  const sel = st.selected;
-  if (what === 'row') {
-    if (sel.row < 0 || st.rows.length <= 1) return;
-    st.rows.splice(sel.row, 1);
-  } else {
-    if (st.align.length <= 1) return;
-    st.align.splice(sel.col, 1);
-    st.header.splice(sel.col, 1);
-    st.rows.forEach(r => r.splice(sel.col, 1));
-  }
-  afterStructureChange(formEl);
+  const { text, capture } = captureOfCell(st, st.selected.row, st.selected.col);
+  if (capture || st.selected.row === -1) return;
+  if (text.trim() && !confirm('This cell has text. Replace it with a capture?')) return;
+  beginChildNavigation(formEl, { type: 'insert', kind, insertAt: 0 });
+}
+
+function openCellMenu(formEl, row, col, anchor, opts) {
+  const st = formEl._dt;
+  const { capture } = captureOfCell(st, row, col);
+  openPopupMenu(anchor, cellMenuItems(st, row, col, { hasCapture: !!capture }), id => {
+    if (id === 'cell-clear' || id === 'cell-remove-capture') {
+      // Removing a capture is a normal unsaved edit: the whole-table save
+      // writes the emptied cell, exactly what writeCellBody with no
+      // components produces.
+      setCellAt(st, row, col, '');
+      afterStructureChange(formEl);
+      focusGrid(formEl);
+    } else if (id === 'cell-capture-new' || id === 'cell-capture-library') {
+      // The menu-open path selected (row, col), so the selected-cell insert
+      // targets exactly the right-clicked cell.
+      insertCaptureIntoSelectedCell(formEl, id === 'cell-capture-new' ? 'capture-new' : 'capture-library');
+    } else if (id === 'cell-edit-capture') {
+      beginChildNavigation(formEl, { type: 'edit-capture', uuid: capture.uuid });
+    }
+  }, opts);
 }
 
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
 function wireTableEditor(formEl) {
+  const wrap = formEl.querySelector('[data-dt-grid-wrap]');
+  const rte = formEl._dtRte;
+
+  // Text wrapping toggle (gridEditor's flavor-radio pattern): the radios are
+  // named, but the flag is authoritative in _dt and rides in tableState.
+  formEl.addEventListener('change', e => {
+    if (e.target.name !== 'textWrap') return;
+    formEl._dt.wrap = e.target.value === 'enabled';
+    syncTableState(formEl);
+    formEl._refreshSaveState?.();
+  });
+
+  // Toolbar acts on the selected cell, gsheets-style: using any control while
+  // merely selected enters edit mode with the whole cell content selected —
+  // capture phase, so this runs before the button's own mousedown handler
+  // (which preventDefaults to keep the selection alive).
+  rte?.toolbar.addEventListener('mousedown', e => {
+    if (formEl._dtEdit) return;
+    if (!e.target.closest('button')) return;
+    if (e.target.closest('[data-dt-insert-capture]')) return; // acts on the cell, not its text
+    startEditing(formEl, { caret: 'all' });
+  }, true);
+
+  // The rich editor re-dispatches surface edits as bubbling `input` events on
+  // its (relocated) textarea, so this covers both Rich and Markdown modes.
+  formEl.addEventListener('input', e => {
+    if (!e.target.matches?.('[data-dt-cell-editor]')) return;
+    const ed = formEl._dtEdit;
+    if (!ed) return;
+    setCellAt(formEl._dt, ed.row, ed.col, e.target.value);
+    syncTableState(formEl);
+    formEl._refreshSaveState?.();
+  });
+
+  // Drag range selection. Delegated pointer events (no setPointerCapture —
+  // capture retargets events to the captured element, breaking closest()
+  // hit-testing on the cells). pointerdown never preventDefaults, so dblclick,
+  // focus and native caret behavior are untouched; a motionless press leaves
+  // moved=false and the click handler does the single-select as before.
+  wrap?.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.shiftKey) return; // shift+click extends via the click handler
+    if (e.target.closest('[data-dt-handle-menu], [data-dt-row-handle], [data-dt-col-handle]')) return;
+    const cellEl = e.target.closest('[data-dt-cell-at]');
+    if (!cellEl) return;
+    const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
+    const ed = formEl._dtEdit;
+    if (ed && ed.row === row && ed.col === col) return; // native caret placement in the RTE
+    if (ed) {
+      // Commit up-front so no re-render happens mid-drag. The rebuild destroys
+      // the pressed cell, which can swallow the trailing click — select the
+      // pressed cell here so it doesn't get lost.
+      commitEditing(formEl);
+      const st = formEl._dt;
+      collapseRange(st);
+      st.selected = { row, col };
+      renderGrid(formEl);
+      focusGrid(formEl);
+    }
+    formEl._dtDrag = { row, col, moved: false };
+    window.addEventListener('pointerup', () => {
+      const drag = formEl._dtDrag;
+      formEl._dtDrag = null;
+      if (drag?.moved) {
+        // The trailing click (if any — none when released outside the grid)
+        // must not collapse the range; it dispatches before timers run.
+        formEl._dtSuppressClick = true;
+        setTimeout(() => { formEl._dtSuppressClick = false; }, 0);
+        renderGrid(formEl);
+        focusGrid(formEl);
+      }
+    }, { once: true });
+  });
+
+  wrap?.addEventListener('pointerover', e => {
+    const drag = formEl._dtDrag;
+    if (!drag) return;
+    const cellEl = e.target.closest('[data-dt-cell-at]');
+    if (!cellEl) return;
+    const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
+    if (!drag.moved && row === drag.row && col === drag.col) return;
+    const st = formEl._dt;
+    if (!drag.moved) {
+      drag.moved = true;
+      st.anchor = { row: drag.row, col: drag.col };
+      st.selected = { row: drag.row, col: drag.col };
+    }
+    extendSelectionTo(st, row, col);
+    paintRange(formEl); // class toggling only — no innerHTML rebuild mid-drag
+  });
+
   formEl.addEventListener('click', e => {
-    const editRow = e.target.closest('[data-edit-table-row]');
-    if (editRow) {
-      beginChildNavigation(formEl, { type: 'edit-table-row', row: parseInt(editRow.dataset.editTableRow, 10) });
+    const menuBtn = e.target.closest('[data-dt-handle-menu]');
+    if (menuBtn) {
+      commitEditing(formEl);
+      const colHandle = menuBtn.closest('[data-dt-col-handle]');
+      const rowHandle = menuBtn.closest('[data-dt-row-handle]');
+      if (colHandle) openColumnMenu(formEl, parseInt(colHandle.dataset.dtColHandle, 10), menuBtn);
+      else if (rowHandle) openRowMenu(formEl, parseInt(rowHandle.dataset.dtRowHandle, 10), menuBtn);
+      return;
+    }
+    // Clicking a gutter / handle selects the whole row / column, gsheets-style
+    // (shift+click extends the band). Menus live on right-click and the ▾.
+    const rowHandle = e.target.closest('[data-dt-row-handle]');
+    if (rowHandle) {
+      commitEditing(formEl);
+      selectRowRange(formEl._dt, parseInt(rowHandle.dataset.dtRowHandle, 10), e.shiftKey);
+      renderGrid(formEl);
+      focusGrid(formEl);
+      return;
+    }
+    const colHandle = e.target.closest('[data-dt-col-handle]');
+    if (colHandle) {
+      commitEditing(formEl);
+      selectColumnRange(formEl._dt, parseInt(colHandle.dataset.dtColHandle, 10), e.shiftKey);
+      renderGrid(formEl);
+      focusGrid(formEl);
       return;
     }
     const cellEl = e.target.closest('[data-dt-cell-at]');
     if (cellEl) {
+      if (formEl._dtSuppressClick) { formEl._dtSuppressClick = false; return; } // drag just ended
       const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
-      formEl._dt.selected = { row, col };
+      const ed = formEl._dtEdit;
+      if (ed && ed.row === row && ed.col === col) return; // native caret placement
+      commitEditing(formEl);
+      const st = formEl._dt;
+      if (e.shiftKey) {
+        extendSelectionTo(st, row, col);
+        renderGrid(formEl); // draws the released range's perimeter
+      } else {
+        collapseRange(st);
+        st.selected = { row, col };
+        syncSelectionChrome(formEl); // no rebuild — keeps a paired dblclick alive
+      }
+      focusGrid(formEl);
+    }
+  });
+
+  formEl.addEventListener('dblclick', e => {
+    const cellEl = e.target.closest('[data-dt-cell-at]');
+    if (!cellEl) return;
+    const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
+    const ed = formEl._dtEdit;
+    if (ed && ed.row === row && ed.col === col) return;
+    commitEditing(formEl);
+    const st = formEl._dt;
+    collapseRange(st);
+    st.selected = { row, col };
+    const { capture } = captureOfCell(st, row, col);
+    if (capture) {
       renderGrid(formEl);
+      beginChildNavigation(formEl, { type: 'edit-capture', uuid: capture.uuid });
       return;
     }
-    const add = e.target.closest('[data-dt-add]');
-    if (add) { (add.dataset.dtAdd === 'row' ? addRow : addColumn)(formEl); return; }
-    const move = e.target.closest('[data-dt-move]');
-    if (move) { if (!move.disabled) moveSelected(formEl, move.dataset.dtMove); return; }
-    const del = e.target.closest('[data-dt-delete]');
-    if (del) { if (!del.disabled) deleteSelected(formEl, del.dataset.dtDelete); return; }
+    startEditing(formEl, { caret: 'all' });
   });
+
+  formEl.addEventListener('contextmenu', e => {
+    const rowHandle = e.target.closest('[data-dt-row-handle]');
+    const colHandle = e.target.closest('[data-dt-col-handle]');
+    const cellEl = e.target.closest('[data-dt-cell-at]');
+    if (!rowHandle && !colHandle && !cellEl) return;
+    // Right-clicking inside the cell being edited keeps the native menu
+    // (paste, spellcheck…).
+    if (cellEl && formEl._dtEdit
+      && `${formEl._dtEdit.row}:${formEl._dtEdit.col}` === cellEl.dataset.dtCellAt) return;
+    e.preventDefault();
+    commitEditing(formEl);
+    const at = { x: e.clientX, y: e.clientY };
+    if (rowHandle) { openRowMenu(formEl, parseInt(rowHandle.dataset.dtRowHandle, 10), at); return; }
+    if (colHandle) { openColumnMenu(formEl, parseInt(colHandle.dataset.dtColHandle, 10), at); return; }
+    const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
+    const st = formEl._dt;
+    // Right-clicking inside a handle-selected row/column band targets the
+    // band (bulk insert/delete), not the individual cell.
+    const rowBand = fullRowRange(st);
+    if (rowBand && row >= rowBand.r0 && row <= rowBand.r1) { openRowMenu(formEl, row, at); return; }
+    const colBand = fullColumnRange(st);
+    if (colBand && col >= colBand.c0 && col <= colBand.c1) { openColumnMenu(formEl, col, at); return; }
+    collapseRange(st);
+    st.selected = { row, col };
+    renderGrid(formEl);
+    openCellMenu(formEl, row, col, at);
+  });
+
+  // Keyboard navigation while merely selected (the grid wrap holds focus).
+  wrap?.addEventListener('keydown', e => {
+    if (formEl._dtEdit) return; // editing keys are handled at the form level
+    const st = formEl._dt;
+    const arrow = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[e.key];
+    if (arrow || e.key === 'Tab') {
+      e.preventDefault();
+      if (arrow && e.shiftKey) extendSelection(st, arrow); // shift+arrow grows the range
+      else moveSelection(st, arrow || (e.shiftKey ? 'prev' : 'next'));
+      renderGrid(formEl);
+      scrollSelectedIntoView(formEl);
+      return;
+    }
+    // Copy / cut the selection as TSV. Cells are user-select:none, so there is
+    // never a document selection and Chrome won't fire a native `copy` event
+    // on the focused wrap — write the clipboard directly instead (permission-
+    // free under a user gesture).
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'x')) {
+      e.preventDefault();
+      navigator.clipboard?.writeText(rangeToTsv(st));
+      if (e.key === 'x') {
+        clearRange(st);
+        afterStructureChange(formEl);
+      }
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'F2') {
+      e.preventDefault();
+      const { capture } = captureOfCell(st, st.selected.row, st.selected.col);
+      if (capture) beginChildNavigation(formEl, { type: 'edit-capture', uuid: capture.uuid });
+      else startEditing(formEl, { caret: 'end' });
+      return;
+    }
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      if (isMultiCellRange(st)) { // range clear includes capture cells
+        clearRange(st);
+        afterStructureChange(formEl);
+        return;
+      }
+      if (captureOfCell(st, st.selected.row, st.selected.col).capture) return; // menu owns capture removal
+      setCellAt(st, st.selected.row, st.selected.col, '');
+      afterStructureChange(formEl);
+      return;
+    }
+    if (e.key === 'ContextMenu') {
+      e.preventDefault();
+      const td = formEl.querySelector('.mb-dt-cell--selected');
+      if (td) openCellMenu(formEl, st.selected.row, st.selected.col, td, { focusFirst: true });
+      return;
+    }
+    // Type-to-replace: a printable character starts the cell over.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (captureOfCell(st, st.selected.row, st.selected.col).capture) return;
+      e.preventDefault();
+      startEditing(formEl, { replaceWith: e.key });
+    }
+  });
+
+  // Editing keys. The inline RTE preventDefaults Enter but lets it bubble, so
+  // commit-and-move-down works in both Rich and Markdown modes.
+  formEl.addEventListener('keydown', e => {
+    if (!formEl._dtEdit || !rte) return;
+    if (e.target !== rte.surface && e.target !== rte.textarea) return;
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      commitEditing(formEl);
+      moveSelection(formEl._dt, 'commitDown');
+      renderGrid(formEl);
+      focusGrid(formEl);
+      scrollSelectedIntoView(formEl);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      commitEditing(formEl);
+      moveSelection(formEl._dt, e.shiftKey ? 'prev' : 'next');
+      renderGrid(formEl);
+      focusGrid(formEl);
+      scrollSelectedIntoView(formEl);
+    } else if (e.key === 'Escape') {
+      // Popovers and popup menus consume Escape first.
+      if (isPopupMenuOpen() || formEl.querySelector('.mb-rte__popover:not([hidden])')) return;
+      e.stopPropagation(); // don't let the overlay's Escape-close fire
+      cancelEditing(formEl);
+      focusGrid(formEl);
+    }
+  });
+
+  // Paste while merely selected: TSV lands from the range's top-left,
+  // auto-growing the grid; a single value fills a multi-cell range. The native
+  // paste event fires on the focused wrap regardless of editability, and
+  // e.clipboardData is a permission-free synchronous read (unlike
+  // navigator.clipboard.readText, which would prompt).
+  wrap?.addEventListener('paste', e => {
+    if (formEl._dtEdit) return; // the in-cell RTE owns paste while editing
+    const text = e.clipboardData?.getData('text/plain');
+    if (!text) return;
+    e.preventDefault();
+    applyPaste(formEl._dt, parseTsv(text));
+    afterStructureChange(formEl);
+    focusGrid(formEl);
+  });
+
+  // Focus leaving the grid AND the toolbar (e.g. into the dock) commits the
+  // edit — the value is already live-synced, this just restores the preview.
+  formEl.addEventListener('focusout', e => {
+    if (!formEl._dtEdit) return;
+    const to = e.relatedTarget;
+    if (!to) return; // focus dropped to body (popover mousedown etc.) — keep editing
+    if (to.closest?.('[data-dt-grid-wrap], [data-dt-toolbar], .mb-rte__popover, .mb-popup-menu')) return;
+    commitEditing(formEl);
+  });
+}
+
+// Locate the upgraded rich-text editor and park its editing nodes. Runs after
+// initStateFromStorage, whose awaited storage.get sequences us behind
+// form.js's hydration — which is also what upgraded the textarea.
+function initCellEditor(formEl) {
+  const ta = formEl.querySelector('[data-dt-cell-editor]');
+  const rte = ta?.closest('.mb-rte')?._rte;
+  if (!rte) return;
+  formEl._dtRte = rte;
+  // The datatable editor is rich-only: its Rich|Markdown tabs are hidden via
+  // CSS (.mb-dt-toolbar .mb-rte__tabs), so pin the mode defensively too.
+  if (rte.mode !== 'rich') setMode(rte, 'rich', { focus: false });
+  rte.surface.hidden = true;
+  rte.textarea.hidden = true;
+
+  // Right-aligned "Insert Capture" on the toolbar: the discoverable twin of
+  // the cell menu's insert flow. Datatable-only, so it is grafted onto the
+  // shared RTE toolbar here rather than in richTextEditor's buildButtons.
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mb-rte__btn mb-dt-insert-capture';
+  btn.dataset.dtInsertCapture = '';
+  btn.innerHTML = '<span class="more-buttons-icon">photo_camera</span>Insert Capture';
+  btn.addEventListener('mousedown', e => e.preventDefault()); // keep grid selection alive
+  btn.addEventListener('click', () => {
+    if (formEl._dtEdit) commitEditing(formEl); // the popup acts on the committed selected cell
+    openInsertMenu(btn, 0, {
+      captureNew: () => insertCaptureIntoSelectedCell(formEl, 'capture-new'),
+      captureLibrary: () => insertCaptureIntoSelectedCell(formEl, 'capture-library'),
+    }, { capturesOnly: true });
+  });
+  rte.toolbar.append(btn);
+  formEl._dtInsertCaptureBtn = btn;
 }
 
 // Initialise state. Storage (seeded by the opener, or carrying in-flight edits
@@ -233,12 +786,12 @@ async function initStateFromStorage(formEl, fallback, file, uuid) {
       if (Array.isArray(parsed?.align) && parsed.align.length) table = parsed;
     }
   } catch { /* fall back to markdown-derived state */ }
-  formEl._dt = { uuid, file, selected: { row: -1, col: 0 }, align: table.align, header: table.header, rows: table.rows };
+  formEl._dt = { uuid, file, selected: { row: -1, col: 0 }, align: table.align, header: table.header, rows: table.rows, wrap: table.wrap !== false };
 }
 
 function seedStorage(table) {
-  const { align, header, rows } = table;
-  return chrome.storage.local.set({ [STORAGE_KEY]: { tableState: JSON.stringify({ align, header, rows }) } });
+  const { align, header, rows, wrap } = table;
+  return chrome.storage.local.set({ [STORAGE_KEY]: { tableState: JSON.stringify({ align, header, rows, wrap }) } });
 }
 
 // ── Openers ───────────────────────────────────────────────────────────────────
@@ -258,14 +811,16 @@ registerFormAction('openCreateDataTable', async ({ container, insertAtIndex } = 
   formEl.dataset.insertAtIndex = insertAtIndex == null ? '' : String(insertAtIndex);
   formEl.dataset.tableUuid = '';
   formEl.dataset.containerFile = container.file;
+  formEl.dataset.componentContainerKind = 'data-table-cell';
   formEl.dataset.componentNoun = 'data table';
-  formEl._componentSaver = () => saveDataTableForRow(formEl);
+  formEl._componentSaver = () => saveGridForComponent(formEl);
 
   const heading = formEl.querySelector('[data-dt-heading]');
   if (heading) heading.textContent = 'Add data table';
   formEl.parentElement?.querySelector('[data-delete-table-btn]')?.style.setProperty('display', 'none');
 
   await initStateFromStorage(formEl, initial, container.file, null);
+  initCellEditor(formEl);
   wireTableEditor(formEl);
   renderGrid(formEl);
   syncTableState(formEl);
@@ -285,22 +840,29 @@ registerFormAction('openEditDataTable', async ({ uuid, file } = {}) => {
   }
   const tbl = getDataTableByUUID(md, uuid);
   if (!tbl) { alert('Data table not found.'); return; }
-  const fallback = { align: tbl.align, header: tbl.header, rows: tbl.rows };
-  if (!isFormReplay()) await seedStorage(fallback);
+  const fallback = { align: tbl.align, header: tbl.header, rows: tbl.rows, wrap: tbl.wrap };
+  // Seed from the FILE on every open, replays included: this form hosts the
+  // immediate-commit capture children directly, and any navigation away went
+  // through the save-gate (which flushed in-flight edits), so the file is
+  // authoritative — a replay from stale storage could clobber a capture
+  // committed while the form was away.
+  await seedStorage(fallback);
 
   const { formEl } = await createForm('editDataTable');
   if (!formEl) return;
   formEl.dataset.mode = 'edit';
   formEl.dataset.tableUuid = uuid;
   formEl.dataset.containerFile = file;
+  formEl.dataset.componentContainerKind = 'data-table-cell';
   formEl.dataset.componentNoun = 'data table';
-  formEl._componentSaver = () => saveDataTableForRow(formEl);
+  formEl._componentSaver = () => saveGridForComponent(formEl);
 
   const heading = formEl.querySelector('[data-dt-heading]');
   if (heading) heading.textContent = 'Edit data table';
   setCrumbLabel('Data table');
 
   await initStateFromStorage(formEl, fallback, file, uuid);
+  initCellEditor(formEl);
   wireTableEditor(formEl);
   renderGrid(formEl);
   syncTableState(formEl);
@@ -324,7 +886,7 @@ async function persistNewDataTable(formEl, onProgress = () => {}) {
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
   await spliceIntoContainer(parent, insertAt,
-    [{ kind: 'table', tbl: { uuid, align: st.align, header: st.header, rows: st.rows } }], onProgress);
+    [{ kind: 'table', tbl: { uuid, wrap: st.wrap, align: st.align, header: st.header, rows: st.rows } }], onProgress);
   return { uuid, file: parent.file };
 }
 
@@ -340,6 +902,7 @@ async function transitionTableCreateToEdit(formEl, uuid, file) {
   if (heading) heading.textContent = 'Edit data table';
   setCrumbLabel('Data table');
   formEl.parentElement?.querySelector('[data-delete-table-btn]')?.style.removeProperty('display');
+  formEl.dataset.editUuid = selectedCellRef(formEl); // uuid was blank pre-save
   syncTableState(formEl);
   await seedStorage(formEl._dt);
   resetDirtyBaseline(formEl);
@@ -354,7 +917,7 @@ async function persistDataTableEdit(formEl, onProgress = () => {}) {
   let found = true;
   await githubFetchAndPushFile(file, onProgress, md => {
     if (!getDataTableByUUID(md, uuid)) { found = false; return md; }
-    return replaceDataTableByUUID(md, uuid, buildDataTable(uuid, st.align, st.header, st.rows));
+    return replaceDataTableByUUID(md, uuid, buildDataTable(uuid, st.align, st.header, st.rows, st.wrap));
   });
   if (!found) {
     alert(`This data table was deleted in another session — your changes can't be saved.`);
@@ -375,164 +938,12 @@ async function saveDataTable(formEl, onProgress = () => {}) {
   return persistDataTableEdit(formEl, onProgress);
 }
 
-// The grid form is the PARENT of the per-row form. The save-gate calls this to
-// persist (create → splice + transition; edit → whole-table rewrite) before
-// opening a row child, so the table always has a uuid in the file by then.
-// The `edit-table-row` branch re-reads the saved identity from the grid form's
-// dataset (tableUuid/containerFile), so for that flow only the truthiness of
-// this return matters; the container payload is kept for the saver contract.
-async function saveDataTableForRow(formEl, onProgress = () => {}) {
+// The grid form's component save-gate hook: flush the in-flight table to the
+// draft (create → splice + transition, so the table has a UUID in the file),
+// then hand back the SELECTED cell as the container the pending child (capture
+// insert / edit) will act on.
+async function saveGridForComponent(formEl, onProgress = () => {}) {
   const res = await saveDataTable(formEl, onProgress);
-  if (!res) return null;
-  return { container: { kind: 'table', uuid: res.uuid, file: res.file }, formEl };
-}
-
-// ── Per-row (tabbed) editor ─────────────────────────────────────────────────
-//
-// A child form of the grid. Tabs = columns; the active tab edits one cell of a
-// fixed row (selected.row), reusing the shared formEl._dt + tableState. The
-// header row (row === -1) edits the column titles, so typing live-renames the
-// active tab. Alignment is a column property, surfaced in every tab.
-
-function clampRowIndex(st, row) {
-  return row === -1 ? -1 : Math.max(0, Math.min(row, st.rows.length - 1));
-}
-
-function renderRowStrip(formEl) {
-  const strip = formEl.querySelector('[data-dtr-strip]');
-  const st = formEl._dt;
-  if (!strip || !st) return;
-  strip.innerHTML = st.header.map((h, i) =>
-    `<button type="button" class="more-buttons-tab${i === st.selected.col ? ' --active' : ''}" data-dtr-tab="${i}">${escapeHtml((h ?? '').trim() || `Column ${i + 1}`)}</button>`
-  ).join('');
-}
-
-function refreshRowAlign(formEl) {
-  const st = formEl._dt;
-  formEl.querySelectorAll('[data-dt-align]').forEach(label => {
-    const input = label.querySelector('input');
-    if (input) input.checked = (st.align[st.selected.col] === label.dataset.dtAlign);
-  });
-}
-
-// The active cell parsed into { text, capture } (exclusive — see dataTables.js).
-function activeCell(formEl) {
-  const st = formEl._dt;
-  return parseCellCapture(cellAt(st, st.selected.row, st.selected.col));
-}
-
-// The cell-container ref the save-gate uses: a body cell is a `data-table-cell`
-// container identified by `tableUuid@row,col`. Kept current on formEl.dataset so
-// containerFromForm (guides.js) resolves to the SELECTED cell.
-function cellRefOf(tableUuid, row, col) { return `${tableUuid}@${row},${col}`; }
-function selectedCellRef(formEl) {
-  const st = formEl._dt;
-  return cellRefOf(formEl.dataset.tableUuid, st.selected.row, st.selected.col);
-}
-
-// Render the active cell's Components group: the capture card (Edit → the shared
-// editCaptureComponent form, which owns size + delete) when the cell holds one,
-// otherwise the standard "+ Insert capture" empty-state button. Header cells
-// (row -1) never hold captures, so the group stays empty there.
-function renderRowComponents(formEl) {
-  const host = formEl.querySelector('[data-dtr-components]');
-  if (!host) return;
-  const onHeader = formEl._dt.selected.row === -1;
-  const { capture } = activeCell(formEl);
-  host.innerHTML = onHeader ? '' : (capture
-    ? captureComponentCard({
-        thumbSrc: assetCdnUrl('docs/assets/' + capture.lightFilename),
-        btnAttr: `data-edit-component="${escapeHtml(capture.uuid ?? '')}"`,
-        ext: fileExtOf(capture.lightFilename),
-      })
-    : `<button type="button" class="mb-insert-component__empty" data-dtr-insert-capture><span class="mb-adm-empty__icon">+</span> Insert capture</button>`);
-  // Keep the save-gate's container identity pointed at the selected cell.
-  formEl.dataset.editUuid = selectedCellRef(formEl);
-}
-
-// Push the active cell into the editor — text editor when the cell is text (or a
-// header), capture card when it holds a capture (exclusive) — and light its
-// alignment. The text editor is hidden while a capture occupies the cell.
-function loadRowCell(formEl) {
-  const st = formEl._dt;
-  const { text, capture } = activeCell(formEl);
-  const onHeader = st.selected.row === -1;
-  const hasCapture = !!capture && !onHeader;
-
-  const textGroup = formEl.querySelector('[data-dtr-text-group]');
-  if (textGroup) textGroup.hidden = hasCapture;
-  // Header cells (column titles) can't hold captures — hide the whole group.
-  const compGroup = formEl.querySelector('[data-components-row]');
-  if (compGroup) compGroup.hidden = onHeader;
-  if (!hasCapture) {
-    const ta = formEl.querySelector('[data-dt-cell]');
-    if (ta) { ta.value = text; syncSurfaceFromTextarea(ta); }
-  }
-  renderRowComponents(formEl);
-  refreshRowAlign(formEl);
-}
-
-// "+ Insert capture" → captures-only menu → the shared capture flows, routed
-// through the component save-gate (beginChildNavigation flushes the whole-table
-// state first). Inserting into a text cell replaces its text (exclusive model).
-function openCellCaptureMenu(formEl, anchorBtn) {
-  const hasText = !!activeCell(formEl).text.trim();
-  const dispatch = (kind) => {
-    if (hasText && !confirm('This cell has text. Replace it with a capture?')) return;
-    beginChildNavigation(formEl, { type: 'insert', kind, insertAt: 0 });
-  };
-  openInsertMenu(anchorBtn, 0, {
-    captureNew: () => dispatch('capture-new'),
-    captureLibrary: () => dispatch('capture-library'),
-  }, { capturesOnly: true });
-}
-
-function wireRowEditor(formEl) {
-  // The rich editor re-dispatches surface edits as bubbling `input` events on
-  // its textarea, so this listener covers the in-view text editor.
-  formEl.addEventListener('input', e => {
-    if (!e.target.matches?.('[data-dt-cell]')) return;
-    const st = formEl._dt;
-    setCellAt(st, st.selected.row, st.selected.col, e.target.value);
-    if (st.selected.row === -1) renderRowStrip(formEl); // header rename → live tab label
-    syncTableState(formEl);
-    formEl._refreshSaveState?.();
-  });
-
-  formEl.addEventListener('click', e => {
-    const tabBtn = e.target.closest('[data-dtr-tab]');
-    if (tabBtn) {
-      formEl._dt.selected.col = parseInt(tabBtn.dataset.dtrTab, 10);
-      renderRowStrip(formEl);
-      loadRowCell(formEl);
-      return;
-    }
-    const alignBtn = e.target.closest('[data-dt-align]');
-    if (alignBtn) {
-      const st = formEl._dt;
-      st.align[st.selected.col] = alignBtn.dataset.dtAlign;
-      refreshRowAlign(formEl);
-      syncTableState(formEl);
-      formEl._refreshSaveState?.();
-      return;
-    }
-    // The capture card's Edit → shared edit-capture flow (size + delete live in
-    // editCaptureComponent), routed through the save-gate like every container.
-    const editCap = e.target.closest('[data-edit-component]');
-    if (editCap) {
-      beginChildNavigation(formEl, { type: 'edit-capture', uuid: editCap.dataset.editComponent });
-      return;
-    }
-    const insertCap = e.target.closest('[data-dtr-insert-capture]');
-    if (insertCap) { openCellCaptureMenu(formEl, insertCap); return; }
-  });
-}
-
-// Whole-table save used as the row editor's component save-gate hook: flush the
-// in-flight table to the draft, then hand back the SELECTED cell as the container
-// the pending child (capture insert / edit) will act on.
-async function saveRowForComponent(formEl) {
-  const res = await persistDataTableEdit(formEl);
   if (!res) return null;
   return {
     container: { kind: 'data-table-cell', uuid: selectedCellRef(formEl), file: formEl.dataset.containerFile },
@@ -540,61 +951,13 @@ async function saveRowForComponent(formEl) {
   };
 }
 
-registerFormAction('openEditDataTableRow', async ({ uuid, file, row } = {}) => {
-  if (!uuid || !file || row == null) return;
-  let md;
-  try {
-    md = await fetchFileMigratingIdentity(file);
-  } catch (e) {
-    alert('Failed to load file: ' + e.message);
-    return;
-  }
-  const tbl = getDataTableByUUID(md, uuid);
-  if (!tbl) { alert('Data table not found.'); return; }
-  const fallback = { align: tbl.align, header: tbl.header, rows: tbl.rows };
-  // The row editor sources its table from the FILE on every open (incl. replay):
-  // the save-gate flushes any in-flight whole-table edits before any navigation
-  // away, so the file is authoritative, and cell captures committed immediately
-  // by editCaptureComponent / the capture flows always round-trip. Seeding
-  // storage from the file keeps the grid's back-navigation re-render correct.
-  await seedStorage(fallback);
-
-  const { formEl } = await createForm('editDataTableRow');
-  if (!formEl) return;
-  formEl.dataset.mode = 'edit';
-  formEl.dataset.tableUuid = uuid;
-  formEl.dataset.containerFile = file;
-  // Make the row editor a component host: each cell is a `data-table-cell`
-  // container (resolved per-selection via dataset.editUuid in renderRowComponents),
-  // and the save-gate flushes the whole table before opening a capture child.
-  formEl.dataset.componentContainerKind = 'data-table-cell';
-  formEl.dataset.componentNoun = 'data table';
-  formEl._componentSaver = () => saveRowForComponent(formEl);
-
-  await initStateFromStorage(formEl, fallback, file, uuid);
-  const st = formEl._dt;
-  const rowIdx = clampRowIndex(st, row);
-  st.selected = { row: rowIdx, col: 0 };
-  formEl.dataset.rowIndex = String(rowIdx);
-
-  const heading = formEl.querySelector('[data-dtr-heading]');
-  if (heading) heading.textContent = rowIdx === -1 ? 'Edit header' : `Edit row ${rowIdx + 1}`;
-  setCrumbLabel(rowIdx === -1 ? 'Header' : `Row ${rowIdx + 1}`);
-
-  wireRowEditor(formEl);
-  renderRowStrip(formEl);
-  loadRowCell(formEl);
-  syncTableState(formEl);
-  resetDirtyBaseline(formEl);
-});
-
 // ── data-table-cell component container ─────────────────────────────────────
 //
 // Each body cell is a leaf container holding 0-or-1 capture. The cell is keyed
 // by `tableUuid@row,col` so the registry's (md, uuid) contract carries the
 // coordinates. Insert / edit / delete go through the shared capture flows +
 // editCaptureComponent, which commit to the draft via these helpers. After any
-// commit, the live row editor (if mounted) is re-hydrated from the file so its
+// commit, the live grid form (if mounted) is re-hydrated from the file so its
 // in-memory `_dt` — the whole-table save's source of truth — never goes stale.
 
 function parseCellRef(ref) {
@@ -621,33 +984,32 @@ function writeCellBody(md, cellRef, _description, components) {
   const header = tbl.header.slice();
   const rows = tbl.rows.map(r => r.slice());
   if (row === -1) header[col] = cellStr; else if (rows[row]) rows[row][col] = cellStr;
-  return replaceDataTableByUUID(md, tableUuid, buildDataTable(tableUuid, tbl.align, header, rows));
+  return replaceDataTableByUUID(md, tableUuid, buildDataTable(tableUuid, tbl.align, header, rows, tbl.wrap));
 }
 
 function cellExists(md, cellRef) {
   return !!getDataTableByUUID(md, parseCellRef(cellRef).tableUuid);
 }
 
-// Re-read the table from the file into the live row editor's `_dt` and re-render.
-// Used after a capture commit so the whole-table save can't clobber it. A no-op
-// when the row editor isn't the mounted form (e.g. delete happens from the
-// editCaptureComponent child — the row editor re-reads the file on navigate-back).
-// `select` (the committed cell's coords) is surfaced so an insert lands the user
-// on the cell they just filled rather than the replay's reset column.
-async function refreshLiveRowFormFromFile(select) {
-  const formEl = document.getElementById('edit-data-table-row-form');
+// Re-read the table from the file into the live grid form's `_dt` and
+// re-render. Used after a capture commit so the whole-table save can't clobber
+// it. A no-op when the grid isn't the mounted form (e.g. delete happens from
+// the editCaptureComponent child — the grid re-reads the file on
+// navigate-back, since its opener always seeds from the file). `select` (the
+// committed cell's coords) lands the user on the cell they just filled.
+async function refreshLiveGridFromFile(select) {
+  const formEl = document.getElementById('edit-data-table-form');
   if (!formEl?.isConnected || !formEl._dt) return;
   const md = await fetchFileMigratingIdentity(formEl.dataset.containerFile);
   const tbl = getDataTableByUUID(md, formEl.dataset.tableUuid);
   if (!tbl) return;
   const st = formEl._dt;
-  st.align = tbl.align; st.header = tbl.header; st.rows = tbl.rows;
+  st.align = tbl.align; st.header = tbl.header; st.rows = tbl.rows; st.wrap = tbl.wrap;
   if (select && Number.isInteger(select.col)) st.selected = { row: select.row, col: select.col };
   clampSelection(st);
   syncTableState(formEl);
   await seedStorage(st);
-  renderRowStrip(formEl);
-  loadRowCell(formEl);
+  renderGrid(formEl);
   resetDirtyBaseline(formEl);
 }
 
@@ -662,24 +1024,11 @@ registerComponentContainer('data-table-cell', {
       const next = transform(components, description) || components;
       return writeCellBody(md, container.uuid, description, next);
     });
-    await refreshLiveRowFormFromFile(parseCellRef(container.uuid));
+    await refreshLiveGridFromFile(parseCellRef(container.uuid));
   },
 });
 
 // ── Form actions ──────────────────────────────────────────────────────────────
-
-registerFormAction('submitEditDataTableRow', async ({ formEl, content }) => {
-  const btn = content.querySelector('[data-save-state]');
-  setButtonBusy(btn, 'Saving…');
-  try {
-    const res = await persistDataTableEdit(formEl, s => setButtonBusy(btn, s));
-    if (res) { await navigateBack(); return; } // back to the grid, which re-renders from storage
-    formEl._refreshSaveState?.();
-  } catch (e) {
-    formEl._refreshSaveState?.();
-    alert('Failed to save data table: ' + e.message);
-  }
-});
 
 registerFormAction('submitEditDataTable', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-save-state]');

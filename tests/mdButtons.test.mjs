@@ -56,7 +56,8 @@ test('locate: secondary button', () => {
   assert.equal(found.length, 1);
   assert.deepEqual(found[0], {
     uuid: null, label: 'Subscribe', destination: '/signup', icon: '',
-    primary: false, newTab: false, indent: '', startLine: 0, endLine: 1,
+    primary: false, newTab: false, colour: '', theme: 'default', border: 'default',
+    indent: '', startLine: 0, endLine: 1,
   });
 });
 
@@ -157,9 +158,152 @@ test('delete: removes the addressed button (span + line + trailing blank), keeps
 test('dimFields: maps a parsed button to scalar form fields', () => {
   const btn = { label: 'Send', destination: '/x', primary: true, icon: 'lucide/send', newTab: true };
   assert.deepEqual(buttonDimFields(btn), {
-    buttonLabel: 'Send', buttonType: 'primary', buttonDestination: '/x', icon: 'lucide/send',
-    buttonNewTab: 'yes',
+    buttonLabel: 'Send', buttonColour: '', buttonTheme: 'default', buttonBorder: 'default',
+    buttonDestination: '/x', icon: 'lucide/send', buttonNewTab: 'yes',
   });
+});
+
+// ── custom colour + theme classes ────────────────────────────────────────────
+
+test('build: custom colour emits .custom-button-<slug> (no --primary)', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: 'emerald', icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .custom-button-emerald }']);
+});
+
+test('build: colour + theme, theme class before target/rel', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: 'emerald', theme: 'force-dark', newTab: true, icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .custom-button-emerald .custom-button--force-dark target="_blank" rel="noopener" }']);
+});
+
+test('build: theme "default" emits no modifier class', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: 'red', theme: 'default', icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .custom-button-red }']);
+});
+
+test('build: no colour + primary still emits the legacy classes', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: '', theme: 'default', primary: true, icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .md-button--primary }']);
+});
+
+test('locate: reads colour + newTab from a hand-authored attr order', () => {
+  const got = locateButtonLines('[Subscribe](/n){ .md-button .custom-button-cyan target="_blank" rel="noopener" }')[0];
+  assert.equal(got.colour, 'cyan');
+  assert.equal(got.theme, 'default');
+  assert.equal(got.newTab, true);
+  assert.equal(got.primary, false);
+});
+
+for (const theme of ['inversed', 'force-light', 'force-dark']) {
+  test(`locate: theme modifier ${theme}, order-tolerant`, () => {
+    const got = locateButtonLines(`[Go](/x){ .custom-button-red .custom-button--${theme} .md-button }`)[0];
+    assert.equal(got.colour, 'red');
+    assert.equal(got.theme, theme);
+  });
+}
+
+test('locate: a theme modifier alone is NOT a colour', () => {
+  const got = locateButtonLines('[Go](/x){ .md-button .custom-button--inversed }')[0];
+  assert.equal(got.colour, '');
+  assert.equal(got.theme, 'inversed');
+});
+
+test('locate: the real system-updates.md line (onclick attrs) parses', () => {
+  const line = '[Contact us :lucide-send:](#){ .md-button .custom-button-emerald onclick="event.preventDefault(); window.groove.widget.open();" }';
+  const got = locateButtonLines(line)[0];
+  assert.equal(got.label, 'Contact us');
+  assert.equal(got.icon, 'lucide/send');
+  assert.equal(got.colour, 'emerald');
+  assert.equal(got.theme, 'default');
+});
+
+test('round-trip: legacy primary and full custom lines are byte-identical', () => {
+  for (const line of [
+    '[Send :lucide-send:](/x){ .md-button .md-button--primary }',
+    '[Docs](/d){ .md-button target="_blank" rel="noopener" }',
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--inversed }',
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--force-light target="_blank" rel="noopener" }',
+  ]) {
+    const got = locateButtonLines(line)[0];
+    assert.equal(buildButtonLines([got])[1], line);
+  }
+});
+
+test('rebuild: colour wins over a stray legacy --primary class', () => {
+  const got = locateButtonLines('[Go](/x){ .md-button .md-button--primary .custom-button-red }')[0];
+  assert.equal(got.colour, 'red');
+  assert.equal(got.primary, true);
+  assert.equal(buildButtonLines([got])[1], '[Go](/x){ .md-button .custom-button-red }');
+});
+
+test('dimFields: custom colour + theme map through; legacy maps to empty colour', () => {
+  const custom = { label: 'Go', destination: '/x', colour: 'emerald', theme: 'force-dark', icon: '', newTab: false };
+  assert.equal(buttonDimFields(custom).buttonColour, 'emerald');
+  assert.equal(buttonDimFields(custom).buttonTheme, 'force-dark');
+  // Legacy primary and secondary both baseline to '' + 'default' → no false-dirty.
+  const primary = locateButtonLines('[Go](/x){ .md-button .md-button--primary }')[0];
+  const secondary = locateButtonLines('[Go](/x){ .md-button }')[0];
+  for (const legacy of [primary, secondary]) {
+    assert.equal(buttonDimFields(legacy).buttonColour, '');
+    assert.equal(buttonDimFields(legacy).buttonTheme, 'default');
+  }
+});
+
+// ── border modifier classes ──────────────────────────────────────────────────
+
+test('build: colour + border emits the border class after theme, before target/rel', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: 'emerald', theme: 'force-dark', border: 'border-light', newTab: true, icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .custom-button-emerald .custom-button--force-dark .custom-button--border-light target="_blank" rel="noopener" }']);
+});
+
+test('build: border "default" emits no modifier class', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: 'red', border: 'default', icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .custom-button-red }']);
+});
+
+test('build: border without a colour is dropped (legacy classes only)', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: '', border: 'bordered', primary: true, icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .md-button--primary }']);
+});
+
+for (const border of ['bordered', 'borderless', 'border-light', 'border-dark']) {
+  test(`locate: border modifier ${border}, order-tolerant`, () => {
+    const got = locateButtonLines(`[Go](/x){ .custom-button--${border} .custom-button-red .md-button }`)[0];
+    assert.equal(got.colour, 'red');
+    assert.equal(got.border, border);
+    assert.equal(got.theme, 'default');
+  });
+}
+
+test('locate: a border modifier alone is NOT a colour, nor a theme', () => {
+  const got = locateButtonLines('[Go](/x){ .md-button .custom-button--borderless }')[0];
+  assert.equal(got.colour, '');
+  assert.equal(got.theme, 'default');
+  assert.equal(got.border, 'borderless');
+});
+
+test('locate: theme and border modifiers coexist', () => {
+  const got = locateButtonLines('[Go](/x){ .md-button .custom-button-teal .custom-button--inversed .custom-button--bordered }')[0];
+  assert.equal(got.colour, 'teal');
+  assert.equal(got.theme, 'inversed');
+  assert.equal(got.border, 'bordered');
+});
+
+test('round-trip: bordered custom lines are byte-identical', () => {
+  for (const line of [
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--border-dark }',
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--inversed .custom-button--borderless }',
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--force-light .custom-button--bordered target="_blank" rel="noopener" }',
+  ]) {
+    const got = locateButtonLines(line)[0];
+    assert.equal(buildButtonLines([got])[1], line);
+  }
+});
+
+test('dimFields: border maps through; absent border baselines to default', () => {
+  const custom = { label: 'Go', destination: '/x', colour: 'emerald', theme: 'default', border: 'border-light', icon: '', newTab: false };
+  assert.equal(buttonDimFields(custom).buttonBorder, 'border-light');
+  const plain = locateButtonLines('[Go](/x){ .md-button .custom-button-red }')[0];
+  assert.equal(buttonDimFields(plain).buttonBorder, 'default');
 });
 
 // ── components.js integration: button as an ordered component ────────────────
@@ -189,7 +333,7 @@ test('parseComponents: recognises a button interleaved with an admonition', () =
 });
 
 test('buildComponentBody → parseComponents round-trips a button component', () => {
-  const comp = { kind: 'button', btn: { uuid: 'u9', label: 'Go', destination: '/go', icon: 'lucide/star', primary: false, newTab: true } };
+  const comp = { kind: 'button', btn: { uuid: 'u9', label: 'Go', destination: '/go', icon: 'lucide/star', primary: false, colour: '', theme: 'default', border: 'default', newTab: true } };
   const body = buildComponentBody(null, 'Desc', [comp]);
   const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
   assert.equal(description, 'Desc');

@@ -35,9 +35,13 @@
 import { installSelector, screenshotElement, enterResizeMode } from './captureElement.js';
 import { getFormAction } from './formActions.js';
 import { captureSizeField, wireCaptureSizeField, readCaptureSizeField } from './captureCards.js';
+import { captureFlagSuffix, appendCaptureSuffix } from './captureMeta.js';
 
 const STORAGE_KEY = 'moreButtonsCaptureSettings';
 const SESSION_KEY = 'moreButtonsCaptureSession';
+
+const ANNOTATE_DEFAULT_SLUG = 'green';
+const ANNOTATE_DEFAULT_HEX  = '#22c55e'; // matches the annotate-mode --cb-hue chrome
 
 function persistSession(snapshot) {
   try { window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(snapshot)); } catch {}
@@ -80,12 +84,50 @@ export function planColdExit({ cancelled, hasLiveReturnTo, intent, formStackSnap
   return { action: intent.action, payload: { intent, formStackSnapshot, sessionBuffer } };
 }
 
+/**
+ * Flatten labelColours.json's chromatic group into annotate swatch entries
+ * ({ slug, name, colour }). The 'green' slug is pinned to #22c55e — the
+ * annotate-mode chrome green — rather than the palette's rgb(0,201,80), so
+ * the default ink matches the selector/bar re-skin exactly. Null/absent input
+ * (fetch failure) degrades to a green-only set; annotating never blocks on
+ * the palette.
+ */
+export function annotateColourEntries(chromatic) {
+  const entries = Object.entries(chromatic ?? {})
+    .filter(([, def]) => def?.dark?.border)
+    .map(([name, def]) => {
+      const slug = name.toLowerCase();
+      return { slug, name, colour: slug === ANNOTATE_DEFAULT_SLUG ? ANNOTATE_DEFAULT_HEX : def.dark.border };
+    });
+  if (!entries.some(e => e.slug === ANNOTATE_DEFAULT_SLUG)) {
+    entries.unshift({ slug: ANNOTATE_DEFAULT_SLUG, name: 'Green', colour: ANNOTATE_DEFAULT_HEX });
+  }
+  return entries;
+}
+
+export function resolveAnnotateColour(slug, entries) {
+  return entries.find(e => e.slug === slug)?.colour ?? ANNOTATE_DEFAULT_HEX;
+}
+
+// Direct fetch rather than importing richTextEditor's loadLabelPalette —
+// capture mode runs on arbitrary pages and shouldn't pull the editor module
+// (same reasoning as attachColorPresetPills.js).
+let annotatePalettePromise = null;
+function loadAnnotateColours() {
+  annotatePalettePromise ??= fetch(chrome.runtime.getURL('config/labelColours.json'))
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(json => annotateColourEntries(json.chromatic))
+    .catch(() => { annotatePalettePromise = null; return annotateColourEntries(null); });
+  return annotatePalettePromise;
+}
+
 async function loadSettings() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const s = stored[STORAGE_KEY] ?? {};
   return {
     resizeMode:       false, // ephemeral — never restored from storage
     pickMode:         'capture', // 'capture' | 'annotate' | 'zap'; ephemeral — never restored
+    annotateColour:   ANNOTATE_DEFAULT_SLUG, // session-scoped — restored from sessionStorage only, so fresh sessions start green
     capturePadding:   0,
     forceResizeMode:  'none', // ephemeral; bar "Force Resize" advanced setting
     forceResizeValue: null,
@@ -121,7 +163,7 @@ function buildBar({ settings }) {
         <span class="more-buttons-icon" aria-hidden="true">photo_camera</span>Capture
       </button>
       <button type="button" class="mb-capture-bar__mode-btn" data-mode-annotate
-        title="Shift + click marks the element with a green ring" aria-pressed="false">
+        title="Shift + click marks the element with a coloured ring" aria-pressed="false">
         <span class="more-buttons-icon" aria-hidden="true">border_color</span>Annotate
       </button>
       <button type="button" class="mb-capture-bar__mode-btn" data-mode-zap
@@ -140,6 +182,13 @@ function buildBar({ settings }) {
         aria-pressed="${settings.resizeMode ? 'true' : 'false'}">
         <span class="more-buttons-icon" aria-hidden="true">crop_free</span>
         <span class="mb-capture-bar__toggle-label">Resize</span>
+      </button>
+
+      <button type="button" class="mb-capture-bar__toggle mb-capture-bar__swatch"
+        data-bar-annotate-colour
+        title="Annotation colour" aria-label="Annotation colour"
+        aria-haspopup="true" aria-expanded="false">
+        <span class="mb-capture-bar__swatch-dot" aria-hidden="true"></span>
       </button>
 
       <button type="button" class="mb-capture-bar__toggle" data-bar-clear-annotations hidden
@@ -289,9 +338,10 @@ export async function enterCaptureMode(opts = {}) {
     tab.classList.remove('--in-bar');
   }
   function scheduleHide() {
-    // Keep the bar pinned while the advanced-settings popover is open — it
-    // hangs below the bar, so dismissing the bar mid-interaction is jarring.
-    if (popover && !popover.hidden) return;
+    // Keep the bar pinned while a popover is open (advanced settings or
+    // annotation colour) — they hang below the bar, so dismissing the bar
+    // mid-interaction is jarring.
+    if ((popover && !popover.hidden) || (colourPopover && !colourPopover.hidden)) return;
     clearTimeout(hideTimer);
     hideTimer = setTimeout(hideBar, 10);
   }
@@ -344,6 +394,7 @@ export async function enterCaptureMode(opts = {}) {
         // pickMode deliberately excluded — annotations and zaps are DOM state
         // and die on hard nav, so a restored session always re-enters capture.
         resizeMode:       settings.resizeMode,
+        annotateColour:   settings.annotateColour,
         capturePadding:   settings.capturePadding,
         forceResizeMode:  settings.forceResizeMode,
         forceResizeValue: settings.forceResizeValue,
@@ -372,8 +423,13 @@ export async function enterCaptureMode(opts = {}) {
   // at pick time, like capture padding. Prior inline values saved for clean
   // removal. Resize-mode picks confirm a draggable box instead and drop an
   // absolutely-positioned box annotation (see addBoxAnnotation).
-  const ANNOTATION_COLOR = '#22c55e'; // matches --cb-hue green in formsStyling.css
   const ANNOTATION_WIDTH = 3; // px
+  // Ink colour is read at pick/creation time from settings.annotateColour, so
+  // changing colour only affects annotations drawn afterwards (mixed colours
+  // in one shot are deliberate). Green-only until the palette fetch lands —
+  // the colour popover block below swaps in the full chromatic set.
+  let colourEntries = annotateColourEntries(null);
+  const annotationInk = () => resolveAnnotateColour(settings.annotateColour, colourEntries);
   const annotations = new Map(); // Element -> { outline, outlineOffset } (prior inline values)
 
   const boxAnnotations = new Set(); // free-drawn <div> rings from resize-mode picks
@@ -396,7 +452,7 @@ export async function enterCaptureMode(opts = {}) {
       outline: el.style.getPropertyValue('outline'),
       outlineOffset: el.style.getPropertyValue('outline-offset'),
     });
-    el.style.setProperty('outline', `${ANNOTATION_WIDTH}px solid ${ANNOTATION_COLOR}`, 'important');
+    el.style.setProperty('outline', `${ANNOTATION_WIDTH}px solid ${annotationInk()}`, 'important');
     el.style.setProperty('outline-offset', `${settings.capturePadding - ANNOTATION_WIDTH}px`, 'important');
     refreshClearButton();
   }
@@ -417,7 +473,7 @@ export async function enterCaptureMode(opts = {}) {
       left: `${rect.left - P}px`,
       width: `${rect.width + P * 2}px`,
       height: `${rect.height + P * 2}px`,
-      border: `${ANNOTATION_WIDTH}px solid ${ANNOTATION_COLOR}`,
+      border: `${ANNOTATION_WIDTH}px solid ${annotationInk()}`,
       boxSizing: 'border-box',
       pointerEvents: 'none',
       zIndex: '2147483640', // above page content, below the capture-mode UI
@@ -477,6 +533,35 @@ export async function enterCaptureMode(opts = {}) {
     refreshRestoreButton();
   }
 
+  // ── Annotation-in-shot test ───────────────────────────────────────────────
+  // A capture only counts as "annotated" when a ring actually lands in the
+  // shot — annotations are page-wide state, so a ring on an unrelated element
+  // must not flag an unrelated capture. Doc-coord rect intersection; the shot
+  // rect is expanded by the bar's padding value since the screenshot clip
+  // includes it (and rings sit ~P px outside their element). Detached nodes
+  // report zero rects and never intersect.
+  function docRect(el) {
+    const r = el.getBoundingClientRect();
+    return { top: r.top + window.scrollY, left: r.left + window.scrollX, width: r.width, height: r.height };
+  }
+
+  function rectsOverlap(a, b) {
+    return a.left < b.left + b.width && b.left < a.left + a.width
+        && a.top < b.top + b.height && b.top < a.top + a.height;
+  }
+
+  function annotationInShot(shot) {
+    const P = settings.capturePadding;
+    const padded = { top: shot.top - P, left: shot.left - P, width: shot.width + P * 2, height: shot.height + P * 2 };
+    for (const el of annotations.keys()) {
+      if (el.isConnected && rectsOverlap(docRect(el), padded)) return true;
+    }
+    for (const box of boxAnnotations) {
+      if (box.isConnected && rectsOverlap(docRect(box), padded)) return true;
+    }
+    return false;
+  }
+
   const MODE_TAB_LABEL = { capture: 'Capture mode', annotate: 'Annotate mode', zap: 'Zapper mode' };
 
   function setPickMode(mode) {
@@ -490,6 +575,9 @@ export async function enterCaptureMode(opts = {}) {
     }
     const tabLabel = tab.querySelector('.mb-capture-tab__label');
     if (tabLabel) tabLabel.textContent = MODE_TAB_LABEL[mode];
+    // Leaving annotate hides the swatch button — don't orphan its popover.
+    // (closeColourPopover is a hoisted function declaration, so ordering is safe.)
+    if (mode !== 'annotate') closeColourPopover();
     // Ephemeral, like resizeMode — not persisted to storage or the session.
   }
 
@@ -577,13 +665,88 @@ export async function enterCaptureMode(opts = {}) {
     if (popover.hidden) openPopover(); else closePopover();
   });
 
+  // ── Annotation colour popover (swatch button; annotate mode only) ─────────
+  // Same body-sibling popover shape as the cog's, anchored left because the
+  // swatch button sits toward the bar's left edge. The button itself is only
+  // shown in annotate mode (CSS, inverse of the zap-mode hides).
+  const swatchBtn = $('[data-bar-annotate-colour]');
+  const colourPopover = document.createElement('div');
+  colourPopover.className = 'more-buttons-overlay-content mb-capture-bar__popover mb-capture-bar__colour-popover';
+  colourPopover.hidden = true;
+  document.documentElement.appendChild(colourPopover);
+
+  function updateSwatchDot() {
+    swatchBtn.querySelector('.mb-capture-bar__swatch-dot')
+      .style.setProperty('--swatch', annotationInk());
+  }
+  function renderColourGrid() {
+    colourPopover.innerHTML = `
+      <div class="mb-capture-bar__popover-title">Annotation colour</div>
+      <div class="mb-capture-bar__colour-grid" role="listbox" aria-label="Annotation colour">
+        ${colourEntries.map(e => `
+          <button type="button" role="option"
+            class="mb-capture-bar__colour${e.slug === settings.annotateColour ? ' --selected' : ''}"
+            data-colour="${e.slug}" title="${e.name}"
+            aria-selected="${e.slug === settings.annotateColour}"
+            style="--swatch: ${e.colour}"></button>`).join('')}
+      </div>`;
+  }
+  renderColourGrid();
+  updateSwatchDot(); // a restored session may carry a non-green slug
+  loadAnnotateColours().then(entries => {
+    if (active !== ctx) return; // session exited during the fetch
+    colourEntries = entries;
+    renderColourGrid();
+    updateSwatchDot();
+  });
+
+  function setAnnotateColour(slug) {
+    settings.annotateColour = slug;
+    renderColourGrid();
+    updateSwatchDot();
+    persistSession(snapshotForSession()); // survives hard nav within the session
+  }
+  colourPopover.addEventListener('click', e => {
+    const btn = e.target.closest('[data-colour]');
+    if (!btn) return;
+    setAnnotateColour(btn.dataset.colour);
+    closeColourPopover();
+  });
+
+  function onColourPopoverOutside(e) {
+    if (colourPopover.contains(e.target) || swatchBtn.contains(e.target)) return;
+    closeColourPopover();
+  }
+  function openColourPopover() {
+    const r = swatchBtn.getBoundingClientRect();
+    colourPopover.style.top = `${Math.round(r.bottom + 8)}px`;
+    colourPopover.style.left = `${Math.round(r.left)}px`;
+    colourPopover.hidden = false;
+    swatchBtn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', onColourPopoverOutside, true);
+  }
+  function closeColourPopover() {
+    if (colourPopover.hidden) return;
+    colourPopover.hidden = true;
+    swatchBtn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', onColourPopoverOutside, true);
+  }
+  swatchBtn.addEventListener('click', () => {
+    if (colourPopover.hidden) openColourPopover(); else closeColourPopover();
+  });
+
   // ── Esc handler (controller-level) ────────────────────────────────────────
   // Resize mode owns Esc while its overlay is mounted — let that handler
   // cancel just the resize and leave Capture Mode active.
   function onKey(e) {
     if (e.key !== 'Escape') return;
     if (document.querySelector('.mb-capture-resize')) return;
-    // Esc dismisses an open advanced-settings popover before it exits mode.
+    // Esc dismisses an open popover before it exits mode.
+    if (!colourPopover.hidden) {
+      e.stopPropagation();
+      closeColourPopover();
+      return;
+    }
     if (!popover.hidden) {
       e.stopPropagation();
       closePopover();
@@ -656,9 +819,9 @@ export async function enterCaptureMode(opts = {}) {
     selectorCleanup = null;
     bar.classList.add('--capturing');
 
-    const finishCapture = (light, dark, resized) => {
+    const finishCapture = (light, dark, resized, annotated) => {
       if (!light || !dark) return;
-      handleCapture(light, dark, resized);
+      handleCapture(light, dark, resized, annotated);
     };
 
     try {
@@ -670,9 +833,11 @@ export async function enterCaptureMode(opts = {}) {
             // exactly like a non-resize-mode capture. Only an adjusted box
             // captures the raw region (whose corner radii are unknowable).
             const customRect = untouched ? null : rect;
+            // rect is doc coords (same space addBoxAnnotation positions with).
+            const annotated = annotationInShot(untouched ? docRect(target) : rect);
             const light = await screenshotElement(target, { theme: 'light', customRect, settings });
             const dark  = await screenshotElement(target, { theme: 'dark',  customRect, settings });
-            finishCapture(light, dark, resized);
+            finishCapture(light, dark, resized, annotated);
             resolve();
           }, () => resolve());
         });
@@ -682,9 +847,10 @@ export async function enterCaptureMode(opts = {}) {
         }
         // small settle delay matches the prior implementation's 100ms blur gap
         await new Promise(r => setTimeout(r, 100));
+        const annotated = annotationInShot(docRect(target));
         const light = await screenshotElement(target, { theme: 'light', settings });
         const dark  = await screenshotElement(target, { theme: 'dark',  settings });
-        finishCapture(light, dark, false);
+        finishCapture(light, dark, false, annotated);
       }
     } finally {
       capturing = false;
@@ -694,14 +860,21 @@ export async function enterCaptureMode(opts = {}) {
     }
   }
 
-  function handleCapture(light, dark, resized) {
+  function handleCapture(light, dark, resized, annotated) {
+    // New captures carry the annotate/zap marker in the filename (-a / -z /
+    // -a-z); recaptures never see these names — they replace bytes at the
+    // stored path (captureEntry.js) — so names are fixed at creation.
+    const wasZapped = zapped.size > 0;
+    const suffix = captureFlagSuffix(!!annotated, wasZapped);
     sessionBuffer.push({
       lightDataUrl: light.dataUrl,
-      lightFilename: light.filename,
+      lightFilename: appendCaptureSuffix(light.filename, suffix),
       darkDataUrl: dark.dataUrl,
-      darkFilename: dark.filename,
+      darkFilename: appendCaptureSuffix(dark.filename, suffix),
       resized: !!resized,
       padding: light.appliedPadding || 0,
+      annotated: !!annotated,
+      zapped: wasZapped,
       dimMode: 'height',
       dimValue: 50,
       addToLibrary: true,
@@ -734,6 +907,7 @@ export async function enterCaptureMode(opts = {}) {
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onPopoverOutside, true);
+    document.removeEventListener('mousedown', onColourPopoverOutside, true);
     clearTimeout(hideTimer);
     selectorCleanup?.();
     selectorCleanup = null;
@@ -743,6 +917,7 @@ export async function enterCaptureMode(opts = {}) {
     restoreAllZapped();
     document.documentElement.classList.remove('mb-annotate-mode', 'mb-zap-mode');
     popover.remove();
+    colourPopover.remove();
 
     bar.classList.remove('--enter');
     bar.classList.add('--exit');

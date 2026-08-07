@@ -5,7 +5,7 @@
 //   { kind: 'file',   label, attrs?: { 'data-x': 'y', ... } }
 //   { kind: 'folder', label, children: Node[] }
 //
-// Leaves always carry data-kb-file (selector used by applySearch). Extra
+// Leaves are marked data-kb-leaf (selector used by applySearch). Extra
 // per-leaf metadata flows through `attrs`.
 
 const escapeAttr = (s) =>
@@ -78,6 +78,26 @@ export function renderTree(nodes, { emptyMessage = 'Nothing found.', reorderable
   `;
 }
 
+// Segment normalization for path-mode search: folds whitespace to hyphens so
+// a typed slug ("occ-captures") matches its humanized label ("Occ captures").
+const normalizeSegment = (s) => s.trim().toLowerCase().replace(/\s+/g, '-');
+
+// labelPath: display labels root→leaf, e.g. ['Sites', 'uuid', 'todos', 'Edit page'].
+// A query without '/' is a plain substring match on the leaf label. A query
+// with '/' matches the whole path as a root-anchored prefix: 'sites/uuid/todos'
+// shows everything under that folder, but not 'admin/sites/uuid/todos'.
+export function searchMatches(labelPath, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (!q.includes('/')) {
+    const leaf = labelPath[labelPath.length - 1] ?? '';
+    return leaf.trim().toLowerCase().includes(q);
+  }
+  const path = labelPath.map(normalizeSegment).join('/');
+  const wanted = q.split('/').filter(Boolean).map(normalizeSegment).join('/');
+  return path.startsWith(wanted);
+}
+
 export function applySearch(tree, query) {
   const q = query.trim().toLowerCase();
   tree.querySelectorAll('.mb-kb-node').forEach(n => n.classList.remove('--search-hidden', '--search-match'));
@@ -86,15 +106,30 @@ export function applySearch(tree, query) {
     return;
   }
   tree.setAttribute('data-search-active', '');
+  // Own-row lookup: a folder's .mb-kb-node contains its descendants' rows too,
+  // and reorder mode wraps the row button in .mb-kb-row-line.
+  const ownRow = (node) => node.querySelector(
+    ':scope > .mb-kb-node-row, :scope > .mb-kb-row-line > .mb-kb-node-row'
+  );
   tree.querySelectorAll('[data-kb-leaf]').forEach(btn => {
-    // Match the label only — decorations (e.g. pills) live in the row too but
-    // must not count toward search hits.
-    const label = (btn.querySelector('.mb-kb-node-label') ?? btn).textContent;
-    if (label.trim().toLowerCase().includes(q)) {
-      let node = btn.closest('.mb-kb-node');
-      while (node && tree.contains(node)) {
-        node.classList.add('--search-match');
-        node = node.parentElement?.closest('.mb-kb-node');
+    // Match labels only — decorations (e.g. pills) live in the row too but
+    // must not count toward search hits. Synthetic grouping folders
+    // (data-kb-group, e.g. "Live pages" in the internal-page picker) are UI
+    // chrome, not directories, so they don't contribute a path segment.
+    const labelPath = [];
+    let node = btn.closest('.mb-kb-node');
+    while (node && tree.contains(node)) {
+      const row = ownRow(node);
+      if (row && !row.hasAttribute('data-kb-group')) {
+        labelPath.unshift(row.querySelector('.mb-kb-node-label')?.textContent ?? '');
+      }
+      node = node.parentElement?.closest('.mb-kb-node');
+    }
+    if (searchMatches(labelPath, query)) {
+      let hit = btn.closest('.mb-kb-node');
+      while (hit && tree.contains(hit)) {
+        hit.classList.add('--search-match');
+        hit = hit.parentElement?.closest('.mb-kb-node');
       }
     }
   });

@@ -196,7 +196,7 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
       } else if (c.kind === 'button') {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {
-        labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || 'Nav links' };
+        labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
       } else {
@@ -379,11 +379,16 @@ export const parseDraftBlocks = parseUpdateBlocks;
 export function insertDraftIntoMarkdown(markdown, update, captures = []) {
   const block = buildUpdateBlock(update, captures);
   const base = markdown && markdown.trim() ? markdown : DRAFTS_HEADER;
-  const headerMatch = base.match(/^(#\s.*\n+)/);
+  // The drafts file may carry leading YAML frontmatter (e.g. search: exclude);
+  // it must stay at the very top, above the H1.
+  const fm = /^---\n[\s\S]*?\n---\n*/.exec(base);
+  const bodyStart = fm ? fm[0].length : 0;
+  const headerMatch = /^(#\s.*\n+)/.exec(base.slice(bodyStart));
   if (headerMatch) {
-    return base.slice(0, headerMatch[0].length) + block + '\n\n' + base.slice(headerMatch[0].length);
+    const at = bodyStart + headerMatch[0].length;
+    return base.slice(0, at) + block + '\n\n' + base.slice(at);
   }
-  return DRAFTS_HEADER + block + '\n\n' + base;
+  return base.slice(0, bodyStart) + DRAFTS_HEADER + block + '\n\n' + base.slice(bodyStart);
 }
 
 export function replaceDraftInMarkdown(markdown, uuid, update, captures = []) {

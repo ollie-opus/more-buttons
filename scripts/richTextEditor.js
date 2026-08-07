@@ -1,6 +1,9 @@
 import { markSpans, renderDocHtml } from './markdownInline.js';
 import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
+import { renderTree, applySearch } from './kbTree.js';
+import { loadInternalNav, buildInternalTreeNodes, resolveInternalHref, isInternalHrefShape } from './internalPages.js';
+import { resolveScope, spliceReplacement, normalizeModelOutput, stripInventedHeadings, createAiUndo, deriveUi, loadAiPrompts, getAvailability, rewrite } from './aiReword.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
 // applies (via the pure markdownToolbarActions transforms); { tags } are the
@@ -8,12 +11,12 @@ import { serialize, serializeWithSelection, placeCaret } from './richEditorMappi
 // when the caret sits inside it). Order matters: it is the nesting order used
 // when several marks are armed at once (outermost first). Matches the old toolbar.
 const MARKS = [
-  { marker: '**', tags: ['strong', 'b'], icon: 'format_bold', label: 'Bold' },
-  { marker: '*', tags: ['em', 'i'], icon: 'format_italic', label: 'Italic' },
-  { marker: '^^', tags: ['u'], icon: 'format_underlined', label: 'Underline' },
-  { marker: '~~', tags: ['s', 'strike', 'del'], icon: 'strikethrough_s', label: 'Strikethrough' },
-  { marker: '==', tags: ['mark'], icon: 'format_ink_highlighter', label: 'Highlight' },
-  { marker: '`', tags: ['code'], icon: 'code', label: 'Code' },
+  { key: 'bold', marker: '**', tags: ['strong', 'b'], icon: 'format_bold', label: 'Bold' },
+  { key: 'italic', marker: '*', tags: ['em', 'i'], icon: 'format_italic', label: 'Italic' },
+  { key: 'underline', marker: '^^', tags: ['u'], icon: 'format_underlined', label: 'Underline' },
+  { key: 'strike', marker: '~~', tags: ['s', 'strike', 'del'], icon: 'strikethrough_s', label: 'Strikethrough' },
+  { key: 'highlight', marker: '==', tags: ['mark'], icon: 'format_ink_highlighter', label: 'Highlight' },
+  { key: 'code', marker: '`', tags: ['code'], icon: 'code', label: 'Code' },
 ];
 
 // Block-level list buttons. Unlike MARKS these are never "armed": a collapsed
@@ -21,16 +24,16 @@ const MARKS = [
 // of queuing a format for the next typed text. `tag` is the rendered list
 // element that means "the caret is inside this kind" (lights the button).
 const LISTS = [
-  { kind: 'ul', tag: 'ul', icon: 'format_list_bulleted', label: 'Bulleted list' },
-  { kind: 'ol', tag: 'ol', icon: 'format_list_numbered', label: 'Numbered list' },
+  { key: 'ul', kind: 'ul', tag: 'ul', icon: 'format_list_bulleted', label: 'Bulleted list' },
+  { key: 'ol', kind: 'ol', tag: 'ol', icon: 'format_list_numbered', label: 'Numbered list' },
 ];
 
 // Indent / outdent the current list item(s) by one nesting level. Like LISTS
 // these act on the caret's line; they're disabled (greyed) unless the caret sits
 // inside a list, since there's nothing to nest otherwise. `dir`: +1 / -1.
 const INDENTS = [
-  { dir: -1, icon: 'format_indent_decrease', label: 'Decrease indent' },
-  { dir: 1, icon: 'format_indent_increase', label: 'Increase indent' },
+  { key: 'outdent', dir: -1, icon: 'format_indent_decrease', label: 'Decrease indent' },
+  { key: 'indent', dir: 1, icon: 'format_indent_increase', label: 'Increase indent' },
 ];
 
 // Pure: collapse line breaks (and surrounding whitespace) to single spaces —
@@ -41,6 +44,9 @@ export function collapseNewlines(text) {
 
 // opts.inline: single-line cell mode — no list/indent buttons, Enter blocked,
 // pasted newlines collapsed. Default (multiline) behaviour is unchanged.
+// opts.buttons: allowlist of toolbar button keys (e.g. ['label', 'clear']) —
+// only those buttons are built, and native format* input events for the
+// excluded marks are blocked. Omitted/empty ⇒ full toolbar.
 export function upgradeTextarea(textarea, opts = {}) {
   if (textarea.dataset.rteReady === '1') return; // idempotent
   textarea.dataset.rteReady = '1';
@@ -48,6 +54,7 @@ export function upgradeTextarea(textarea, opts = {}) {
 
   const wrapper = document.createElement('div');
   wrapper.className = 'mb-rte';
+  if (inline) wrapper.classList.add('mb-rte--inline');
 
   const toolbar = document.createElement('div');
   toolbar.className = 'mb-rte__toolbar';
@@ -84,6 +91,8 @@ export function upgradeTextarea(textarea, opts = {}) {
 
   const rte = {
     textarea, surface, toolbar, btnGroup, richTab, mdTab, buttons: [], mode: 'rich', inline,
+    // null ⇒ every button; a Set of keys ⇒ restricted toolbar.
+    allowed: Array.isArray(opts.buttons) && opts.buttons.length ? new Set(opts.buttons) : null,
     // Google-Docs-style "armed" formatting for the next typed text when there is
     // no selection. `pending` = marks to turn ON (wrap the text); `pendingOff` =
     // marks to turn OFF (escape past the enclosing mark's close), set when you
@@ -95,10 +104,16 @@ export function upgradeTextarea(textarea, opts = {}) {
   buildButtons(rte);
   attachLinkPopover(rte);
   attachLabelPopover(rte);
+  if (!inline) attachAiPopover(rte);
   buildTabs(rte);
   attachSurfaceEvents(rte);
   attachSelectionTracking(rte);
   setMode(rte, 'rich', { focus: false }); // initial render, no focus steal during hydration
+
+  // A caller may have disabled the raw textarea before the upgrade ran (e.g.
+  // the step-admonition title, disabled synchronously at form setup while
+  // hydration is still in flight) — carry that state onto the surface.
+  if (textarea.disabled) applyRteDisabled(rte, true);
 
   if (inline) {
     // Markdown view: the raw textarea must obey the same single-line rule.
@@ -141,11 +156,13 @@ function makeBtn(icon, label, onClick) {
 // and cached for the session. Drives the Label popover swatches AND paints
 // `.mb-label` pills wherever they're previewed — the rich surface here, plus the
 // datatable whole-table grid (dataTablesEditor renders cells outside any surface
-// and imports paintLabels from this module). Kept out of the pure markdownInline
-// module because it needs fetch/chrome; the load is lazy so importing this module
-// stays test-safe (no fetch at import time).
+// and imports paintLabels from this module), plus the button editor's colour
+// swatch radios (buttonEditor imports this loader — the KB's custom-button-*
+// palette is a hand-synced copy of the same 26 colours). Kept out of the pure
+// markdownInline module because it needs fetch/chrome; the load is lazy so
+// importing this module stays test-safe (no fetch at import time).
 let _palettePromise = null;
-function loadLabelPalette() {
+export function loadLabelPalette() {
   if (_palettePromise) return _palettePromise;
   _palettePromise = fetch(chrome.runtime.getURL('config/labelColours.json'))
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
@@ -191,7 +208,7 @@ function setSurfaceHtml(rte, value) {
   paintLabels(rte.surface);
 }
 
-function renderSurface(rte) {
+export function renderSurface(rte) {
   setSurfaceHtml(rte, rte.textarea.value || '');
 }
 
@@ -302,7 +319,7 @@ function toggleArmed(rte, marker, anchor) {
 }
 
 function isArmed(rte) { return rte.pending.size > 0 || rte.pendingOff.size > 0; }
-function clearArmed(rte) { rte.pending.clear(); rte.pendingOff.clear(); }
+export function clearArmed(rte) { rte.pending.clear(); rte.pendingOff.clear(); }
 
 // The armed-on markers in nesting order (outermost first), per MARKS order.
 function pendingMarkers(rte) {
@@ -441,7 +458,9 @@ function selectionInLabel(rte) {
 }
 
 function buildButtons(rte) {
+  const want = k => !rte.allowed || rte.allowed.has(k);
   MARKS.forEach(m => {
+    if (!want(m.key)) return;
     const btn = makeBtn(m.icon, m.label, () => runMarker(rte, m.marker));
     btn._mark = m;
     rte.btnGroup.appendChild(btn);
@@ -449,12 +468,14 @@ function buildButtons(rte) {
   });
   if (!rte.inline) {
     LISTS.forEach(l => {
+      if (!want(l.key)) return;
       const btn = makeBtn(l.icon, l.label, () => runTransform(rte, (v, s, e) => toggleList(v, s, e, l.kind)));
       btn._list = l;
       rte.btnGroup.appendChild(btn);
       rte.buttons.push(btn);
     });
     INDENTS.forEach(ind => {
+      if (!want(ind.key)) return;
       const btn = makeBtn(ind.icon, ind.label, () => runTransform(rte, (v, s, e) => indentSelection(v, s, e, ind.dir)));
       btn._indent = ind;
       rte.btnGroup.appendChild(btn);
@@ -463,26 +484,42 @@ function buildButtons(rte) {
 
     // Horizontal rule (thematic break). A one-shot block insert with no active
     // state — multiline only, since a single-line cell can't hold a block.
-    const hrBtn = makeBtn('horizontal_rule', 'Horizontal rule', () => runTransform(rte, insertHorizontalRule));
-    hrBtn._hr = true;
-    rte.btnGroup.appendChild(hrBtn);
-    rte.buttons.push(hrBtn);
+    if (want('hr')) {
+      const hrBtn = makeBtn('horizontal_rule', 'Horizontal rule', () => runTransform(rte, insertHorizontalRule));
+      hrBtn._hr = true;
+      rte.btnGroup.appendChild(hrBtn);
+      rte.buttons.push(hrBtn);
+    }
+
+    // AI Rewrite — opens the reword popover. Multiline only: the popover needs
+    // room and a single-line cell has little worth rewording.
+    if (want('ai')) {
+      const aiBtn = makeBtn('auto_awesome', 'AI Rewrite', () => rte.openAiPopover?.());
+      rte.btnGroup.appendChild(aiBtn);
+      rte.buttons.push(aiBtn);
+    }
   }
 
-  const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());
-  linkBtn._link = true;
-  rte.btnGroup.appendChild(linkBtn);
-  rte.buttons.push(linkBtn);
+  if (want('link')) {
+    const linkBtn = makeBtn('link', 'Link', () => rte.openLinkPopover?.());
+    linkBtn._link = true;
+    rte.btnGroup.appendChild(linkBtn);
+    rte.buttons.push(linkBtn);
+  }
 
   // Label pill — always added (like Link), so it works in inline cell editors too.
-  const labelBtn = makeBtn('label', 'Label', () => rte.openLabelPopover?.());
-  labelBtn._label = true;
-  rte.btnGroup.appendChild(labelBtn);
-  rte.buttons.push(labelBtn);
+  if (want('label')) {
+    const labelBtn = makeBtn('label', 'Label', () => rte.openLabelPopover?.());
+    labelBtn._label = true;
+    rte.btnGroup.appendChild(labelBtn);
+    rte.buttons.push(labelBtn);
+  }
 
-  const clearBtn = makeBtn('format_clear', 'Clear formatting', () => runStrip(rte));
-  rte.btnGroup.appendChild(clearBtn);
-  rte.buttons.push(clearBtn);
+  if (want('clear')) {
+    const clearBtn = makeBtn('format_clear', 'Clear formatting', () => runStrip(rte));
+    rte.btnGroup.appendChild(clearBtn);
+    rte.buttons.push(clearBtn);
+  }
 }
 
 // Strip all inline formatting from the current selection (both modes). No-op on
@@ -496,7 +533,7 @@ function buildTabs(rte) {
   rte.mdTab.addEventListener('click', () => setMode(rte, 'markdown'));
 }
 
-function setMode(rte, mode, { focus = true } = {}) {
+export function setMode(rte, mode, { focus = true } = {}) {
   // Sync the textarea from the surface before leaving Rich mode so Markdown
   // mode shows the current value.
   if (rte.mode === 'rich' && mode === 'markdown') rte.textarea.value = serialize(rte.surface);
@@ -518,6 +555,33 @@ function setMode(rte, mode, { focus = true } = {}) {
   refreshActiveStates(rte);
 }
 
+// Native contentEditable format* inputTypes → the toolbar key they map to.
+// Unmapped format* types (formatIndent, …) resolve to undefined and are
+// blocked on restricted editors.
+const FORMAT_INPUT_KEYS = {
+  formatBold: 'bold',
+  formatItalic: 'italic',
+  formatUnderline: 'underline',
+  formatStrikeThrough: 'strike',
+};
+
+// Toggle an upgraded editor's disabled state: raw textarea, surface editability
+// and a wrapper class for the dimmed styling.
+function applyRteDisabled(rte, disabled) {
+  rte.textarea.disabled = disabled;
+  rte.surface.contentEditable = String(!disabled);
+  rte.surface.closest('.mb-rte')?.classList.toggle('mb-rte--disabled', disabled);
+}
+
+// Public disable toggle addressed by the textarea (the form-facing element).
+// Safe to call before the upgrade ran: the plain `disabled` flag is picked up
+// by upgradeTextarea at build time.
+export function setRteDisabled(textarea, disabled) {
+  const rte = textarea?.closest?.('.mb-rte')?._rte;
+  if (rte) applyRteDisabled(rte, disabled);
+  else if (textarea) textarea.disabled = disabled;
+}
+
 function attachSurfaceEvents(rte) {
   const { surface } = rte;
 
@@ -527,7 +591,18 @@ function attachSurfaceEvents(rte) {
   // right context. Only plain text insertions consume the armed state;
   // navigation and deletion leave it for the selectionchange handler to clear.
   surface.addEventListener('beforeinput', e => {
+    // One-shot AI-rewrite undo: the first Cmd+Z after a rewrite restores the
+    // pre-rewrite snapshot (native undo can't — the re-render emptied its stack).
+    if (e.inputType === 'historyUndo' && rte.aiUndo?.pending) {
+      e.preventDefault();
+      applyResult(rte, rte.aiUndo.consume());
+      return;
+    }
     if (rte.inline && (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak')) { e.preventDefault(); return; }
+    // Restricted toolbars must also block the browser's native formatting
+    // shortcuts (Cmd+B etc. arrive as format* inputTypes and would otherwise
+    // serialize back to markdown marks the toolbar doesn't offer).
+    if (rte.allowed && e.inputType.startsWith('format') && !rte.allowed.has(FORMAT_INPUT_KEYS[e.inputType])) { e.preventDefault(); return; }
     if (!isArmed(rte) || e.inputType !== 'insertText') return;
     const data = e.data;
     if (data == null || data === '') return;
@@ -601,12 +676,19 @@ function attachLinkPopover(rte) {
   let saved = null; // { value, selStart, selEnd } captured when the popover opens
 
   const popover = document.createElement('div');
-  popover.className = 'mb-rte__popover';
+  popover.className = 'mb-rte__popover mb-rte__popover--link';
   popover.hidden = true;
   popover.innerHTML = `
     <div class="mb-rte__tabs" role="tablist">
+      <button type="button" class="mb-rte__tab" data-tab="internal">Internal Page</button>
       <button type="button" class="mb-rte__tab" data-tab="url">URL</button>
       <button type="button" class="mb-rte__tab" data-tab="groove">Groove Support</button>
+    </div>
+    <div class="mb-rte__panel" data-panel="internal" hidden>
+      <label class="mb-rte__field"><span>Text</span><input type="text" data-internal-text></label>
+      <div class="mb-rte__page-tree" data-internal-tree>
+        <p class="mb-rte__hint">Loading pages…</p>
+      </div>
     </div>
     <div class="mb-rte__panel" data-panel="url">
       <label class="mb-rte__field"><span>Text</span><input type="text" data-link-text></label>
@@ -625,9 +707,69 @@ function attachLinkPopover(rte) {
   const textInput = popover.querySelector('[data-link-text]');
   const urlInput = popover.querySelector('[data-link-url]');
   const grooveInput = popover.querySelector('[data-groove-text]');
+  const internalText = popover.querySelector('[data-internal-text]');
+  const treeHost = popover.querySelector('[data-internal-tree]');
   const tabs = [...popover.querySelectorAll('[data-tab]')];
   const panels = [...popover.querySelectorAll('[data-panel]')];
+  // Each tab's own Text input — the carry-across on tab switch and the focus
+  // fallback both key off this map.
+  const textFor = { internal: internalText, url: textInput, groove: grooveInput };
   let activeTab = 'url';
+
+  // Internal Page tree: built lazily on first show (one toml fetch per page
+  // load via loadInternalNav's cache), single-select state held here.
+  let treePromise = null;
+  let selectedHref = null;
+  let selectedLabel = null;
+
+  const ensureInternalTree = () => {
+    treePromise ??= loadInternalNav().then(({ listed, unlisted }) => {
+      treeHost.innerHTML = renderTree(buildInternalTreeNodes(listed, unlisted), { emptyMessage: 'No pages found.' });
+    });
+    return treePromise;
+  };
+
+  const clearTreeSelection = () => {
+    selectedHref = null;
+    selectedLabel = null;
+    for (const n of treeHost.querySelectorAll('.mb-kb-node.--selected')) n.classList.remove('--selected');
+  };
+
+  // Mark the leaf for `href` selected, expand its ancestors and scroll it into
+  // view. Returns false when the tree has no such page.
+  const selectLeafByHref = href => {
+    const btn = treeHost.querySelector(`[data-kb-file="${CSS.escape(href)}"]`);
+    if (!btn) return false;
+    clearTreeSelection();
+    const node = btn.closest('.mb-kb-node');
+    node.classList.add('--selected');
+    let anc = node.parentElement?.closest('.mb-kb-node');
+    while (anc) { anc.classList.remove('--collapsed'); anc = anc.parentElement?.closest('.mb-kb-node'); }
+    btn.scrollIntoView({ block: 'nearest' });
+    selectedHref = href;
+    selectedLabel = btn.dataset.kbLabel;
+    return true;
+  };
+
+  // Scoped to treeHost — the KB-management/media-library pages delegate
+  // .mb-kb-search/.mb-kb-node handlers on their own form roots, so nothing
+  // here may listen wider than the popover's tree.
+  treeHost.addEventListener('input', e => {
+    if (e.target.classList.contains('mb-kb-search')) {
+      applySearch(treeHost.querySelector('.mb-kb-tree'), e.target.value);
+    }
+  });
+  treeHost.addEventListener('click', e => {
+    const section = e.target.closest('[data-kb-section]');
+    if (section) { section.closest('.mb-kb-node').classList.toggle('--collapsed'); return; }
+    const leaf = e.target.closest('[data-kb-leaf]');
+    if (leaf) {
+      clearTreeSelection();
+      leaf.closest('.mb-kb-node').classList.add('--selected');
+      selectedHref = leaf.dataset.kbFile;
+      selectedLabel = leaf.dataset.kbLabel;
+    }
+  });
 
   // Show one tab's panel and focus its first input. Used by the tab buttons and
   // by openLinkPopover when detection picks a tab from the caret context.
@@ -635,17 +777,19 @@ function attachLinkPopover(rte) {
     activeTab = name;
     for (const t of tabs) t.classList.toggle('--active', t.dataset.tab === name);
     for (const p of panels) p.hidden = p.dataset.panel !== name;
-    if (focus) (name === 'groove' ? grooveInput : urlInput).focus();
+    if (name === 'internal') ensureInternalTree();
+    if (focus) {
+      const target = name === 'internal'
+        ? (treeHost.querySelector('.mb-kb-search') ?? internalText)
+        : (name === 'groove' ? grooveInput : urlInput);
+      target.focus();
+    }
   };
-  // Carry the Text across when the user switches tabs so it's preserved (the two
-  // tabs each have their own Text input; the URL/Groove specifics don't carry).
+  // Carry the Text across when the user switches tabs so it's preserved (each
+  // tab has its own Text input; the URL/Groove/page specifics don't carry).
   for (const t of tabs) t.addEventListener('click', () => {
     const to = t.dataset.tab;
-    if (to !== activeTab) {
-      const fromInput = activeTab === 'groove' ? grooveInput : textInput;
-      const toInput = to === 'groove' ? grooveInput : textInput;
-      toInput.value = fromInput.value;
-    }
+    if (to !== activeTab) textFor[to].value = textFor[activeTab].value;
     setTab(to);
   });
 
@@ -665,13 +809,14 @@ function attachLinkPopover(rte) {
     // Detection picks the tab and prefills. When the caret sits inside an existing
     // link/anchor we widen the saved range to its whole syntax so Insert REPLACES
     // it rather than nesting a new one inside it.
+    clearTreeSelection();
     const groove = grooveAt(saved.value, saved.selStart, saved.selEnd);
     const link = groove ? null : linkAt(saved.value, saved.selStart, saved.selEnd);
     if (groove) {
       saved.selStart = groove.start;
       saved.selEnd = groove.end;
       grooveInput.value = groove.text;
-      textInput.value = ''; urlInput.value = '';
+      textInput.value = ''; urlInput.value = ''; internalText.value = '';
       setTab('groove');
     } else if (link) {
       saved.selStart = link.start;
@@ -679,20 +824,43 @@ function attachLinkPopover(rte) {
       textInput.value = link.text;
       urlInput.value = link.href;
       grooveInput.value = '';
-      setTab('url');
+      internalText.value = link.text;
+      if (isInternalHrefShape(link.href)) {
+        // Optimistic: show the Internal tab (with its loading state) while the
+        // nav resolves; an internal-shaped href that isn't a known page falls
+        // back to the URL tab, which is already fully prefilled.
+        setTab('internal');
+        ensureInternalTree().then(async () => {
+          const { listed, unlisted } = await loadInternalNav();
+          const hit = resolveInternalHref(link.href, listed, unlisted);
+          if (hit) selectLeafByHref(hit.href);
+          else if (activeTab === 'internal') setTab('url', false);
+        });
+      } else {
+        setTab('url');
+      }
     } else {
-      // Plain text / selection: seed both tabs' Text from the selection so either
-      // kind wraps it; default to the URL tab.
+      // Plain text / selection: seed every tab's Text from the selection so any
+      // kind wraps it; default to the first tab, Internal Page.
       textInput.value = selText;
       urlInput.value = '';
       grooveInput.value = selText;
-      setTab('url');
+      internalText.value = selText;
+      setTab('internal');
     }
   };
 
   popover.querySelector('[data-link-cancel]').addEventListener('click', close);
 
   popover.querySelector('[data-link-insert]').addEventListener('click', () => {
+    if (activeTab === 'internal') {
+      if (!selectedHref) { close(); return; } // no page picked → no-op
+      const text = internalText.value.trim() || selectedLabel; // empty Text → page display name
+      close();
+      clearArmed(rte);
+      applyResult(rte, applyLink(saved.value, saved.selStart, saved.selEnd, text, selectedHref));
+      return;
+    }
     if (activeTab === 'groove') {
       const text = grooveInput.value.trim();
       if (!text) { close(); return; } // empty text → no-op
@@ -839,4 +1007,186 @@ function attachLabelPopover(rte) {
   });
 
   popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+}
+
+// ── AI Rewrite popover ───────────────────────────────────────────────────────
+// Rewords the selection (or, with a collapsed caret, the whole field) with the
+// on-device Prompt API via aiReword.js. The scope line under the actions tells
+// the user which of the two applies before they commit; the rewrite actions
+// (one button per entry) come from config/aiPrompts.json. The rewrite replaces the text
+// immediately and keeps a
+// one-shot snapshot restored by the next Cmd+Z (see the beforeinput handlers).
+function attachAiPopover(rte) {
+  const { toolbar } = rte;
+  let saved = null;      // { value, selStart, selEnd } captured when the popover opens
+  let controller = null; // AbortController for the in-flight rewrite
+  let modelReady = false; // last availability check said 'available' — session creation replays downloadprogress 0→1 even for a cached model, so ignore it then
+
+  rte.aiUndo = createAiUndo();
+  rte._aiSquelch = false; // true while the rewrite itself writes, so its own input event doesn't invalidate the snapshot
+
+  const popover = document.createElement('div');
+  popover.className = 'mb-rte__popover mb-rte__popover--ai';
+  popover.hidden = true;
+  popover.innerHTML = `
+    <div class="mb-rte__panel">
+      <p class="mb-rte__ai-title">AI Rewriter</p>
+      <p class="mb-rte__ai-subhead">Output styles</p>
+      <div class="mb-rte__ai-actions" data-ai-actions></div>
+      <p class="mb-rte__ai-scope" data-ai-scope aria-live="polite"></p>
+      <p class="mb-rte__hint" data-ai-status aria-live="polite" hidden></p>
+    </div>`;
+  toolbar.parentNode.insertBefore(popover, toolbar.nextSibling);
+
+  const scopeLine = popover.querySelector('[data-ai-scope]');
+  const actionsRow = popover.querySelector('[data-ai-actions]');
+  const statusLine = popover.querySelector('[data-ai-status]');
+
+  // The action buttons are config-owned: one per entry in aiPrompts.json, in
+  // file order. Built once the config first loads (loadAiPrompts caches).
+  let lastUi = deriveUi({ kind: 'checking' });
+  const buildActions = cfg => {
+    if (actionsRow.childElementCount) return;
+    cfg.forEach(({ label, description }, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mb-rte__ai-action';
+      btn.dataset.aiIndex = i;
+      const title = document.createElement('span');
+      title.className = 'mb-rte__ai-action-label';
+      title.textContent = label;
+      btn.appendChild(title);
+      if (description) {
+        const desc = document.createElement('span');
+        desc.className = 'mb-rte__ai-action-desc';
+        desc.textContent = description;
+        btn.appendChild(desc);
+      }
+      btn.disabled = !lastUi.actionsEnabled;
+      actionsRow.appendChild(btn);
+    });
+  };
+
+  const setUi = state => {
+    const ui = lastUi = deriveUi(state);
+    actionsRow.querySelectorAll('[data-ai-index]').forEach(b => { b.disabled = !ui.actionsEnabled; });
+    if (ui.isError) statusLine.dataset.state = 'error';
+    else delete statusLine.dataset.state;
+    statusLine.replaceChildren();
+    if (ui.spin) {
+      const s = document.createElement('span');
+      s.className = 'more-buttons-icon more-buttons-icon--spin';
+      s.textContent = 'progress_activity';
+      statusLine.appendChild(s);
+    }
+    if (ui.statusText) statusLine.appendChild(document.createTextNode(ui.statusText));
+    statusLine.hidden = !ui.statusText && !ui.spin;
+  };
+
+  const onDocMouseDown = e => {
+    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
+  };
+  const close = () => {
+    popover.hidden = true;
+    document.removeEventListener('mousedown', onDocMouseDown);
+    if (controller) { controller.abort(); controller = null; }
+  };
+
+  rte.openAiPopover = () => {
+    if (rte.textarea.disabled) return;
+    saved = currentSelection(rte);
+    for (const p of toolbar.parentNode.querySelectorAll('.mb-rte__popover')) if (p !== popover) p.hidden = true;
+    const scope = resolveScope(saved);
+    scopeLine.textContent = scope.kind === 'selection' ? 'Rewriting selected text' : 'Rewriting whole text';
+    scopeLine.classList.toggle('--selection', scope.kind === 'selection');
+    scopeLine.classList.toggle('--whole', scope.kind === 'whole');
+    popover.hidden = false;
+    document.addEventListener('mousedown', onDocMouseDown);
+    setUi({ kind: 'checking' });
+    const token = saved; // a re-open supersedes this check
+    loadAiPrompts().then(cfg => {
+      buildActions(cfg);
+      if (popover.hidden || saved !== token) return;
+      if (!scope.text.trim()) { setUi({ kind: 'empty' }); return; }
+      return getAvailability().then(availability => {
+        modelReady = availability === 'available';
+        if (popover.hidden || saved !== token) return;
+        setUi({ kind: modelReady ? 'ready' : availability });
+      });
+    }).catch(err => {
+      if (popover.hidden || saved !== token) return;
+      setUi({ kind: 'error', message: err?.message || 'Could not load the AI prompt configuration.' });
+    });
+  };
+
+  const runRewrite = async index => {
+    const scope = resolveScope(saved);
+    controller?.abort();
+    controller = new AbortController();
+    const { signal } = controller;
+    setUi({ kind: 'working' });
+    try {
+      const prompts = await loadAiPrompts();
+      const out = stripInventedHeadings(scope.text, normalizeModelOutput(await rewrite({
+        system: prompts[index].system,
+        text: scope.text,
+        signal,
+        onProgress: loaded => { if (!signal.aborted && !modelReady) setUi({ kind: 'working', progress: loaded }); },
+      })));
+      if (signal.aborted) return;
+      // The result belongs to the value captured at open; if the field moved on
+      // (an edit landed mid-flight), applying it would clobber the newer text.
+      if (rte.textarea.value !== saved.value) { setUi({ kind: 'discarded' }); return; }
+      if (!out) { setUi({ kind: 'error', message: 'The AI returned an empty rewrite — please try again.' }); return; }
+      rte.aiUndo.capture({ value: saved.value, selStart: saved.selStart, selEnd: saved.selEnd });
+      rte._aiSquelch = true;
+      try {
+        clearArmed(rte);
+        applyResult(rte, spliceReplacement(saved.value, scope.start, scope.end, out));
+      } finally {
+        rte._aiSquelch = false;
+      }
+      close();
+    } catch (err) {
+      if (signal.aborted || popover.hidden) return; // closed mid-flight — stay quiet
+      setUi({ kind: 'error', message: err?.message || 'Rewrite failed — please try again.' });
+      // Chrome can refuse a session even after a positive availability check
+      // (model evicted, mid-update, disk pressure). Re-check and, if the model
+      // really isn't usable, show that state instead of the dead-end error.
+      getAvailability().then(availability => {
+        modelReady = availability === 'available';
+        if (!modelReady && !popover.hidden && controller === null) setUi({ kind: availability });
+      });
+    } finally {
+      if (controller?.signal === signal) controller = null;
+    }
+  };
+
+  actionsRow.addEventListener('click', e => {
+    const btn = e.target.closest('[data-ai-index]');
+    if (btn && !btn.disabled) runRewrite(Number(btn.dataset.aiIndex));
+  });
+  popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+
+  // One-shot undo interception. Cmd/Ctrl+Z must be caught at KEYDOWN: with the
+  // native undo stack empty (always true right after the programmatic rewrite
+  // replace) Chrome doesn't fire a historyUndo beforeinput at all. The
+  // beforeinput paths still exist for menu-driven Undo, which skips keydown.
+  const onUndoKey = e => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && rte.aiUndo.pending) {
+      e.preventDefault();
+      applyResult(rte, rte.aiUndo.consume());
+    }
+  };
+  rte.surface.addEventListener('keydown', onUndoKey);
+  rte.textarea.addEventListener('keydown', onUndoKey);
+  rte.textarea.addEventListener('beforeinput', e => {
+    if (e.inputType === 'historyUndo' && rte.aiUndo.pending) {
+      e.preventDefault();
+      applyResult(rte, rte.aiUndo.consume());
+    }
+  });
+  // Any user edit outdates the snapshot (every edit path funnels through a
+  // textarea input event); only the rewrite's own apply is squelched.
+  rte.textarea.addEventListener('input', () => { if (!rte._aiSquelch) rte.aiUndo.invalidate(); });
 }

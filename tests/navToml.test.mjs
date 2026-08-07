@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { slugify, titleCaseSegment, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue } from '../scripts/navToml.js';
+import { slugify, titleCaseSegment, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue, parseCreatedTags, addCreatedTag } from '../scripts/navToml.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -135,6 +135,64 @@ test('removeByValue removes all leaves sharing a value', () => {
   const items = [{ name: 'A', value: 'pages/x.md' }, { name: 'B', value: 'pages/x.md' }];
   removeByValue(items, 'pages/x.md');
   assert.deepEqual(items, []);
+});
+
+// ── mb_created_tags: the nav-links tag suggestion list ───────────────────────
+
+const TOML_NO_TAGS = [
+  '[project]',
+  'site_name = "KB"',
+  'nav = [',
+  '  {"Home" = "index.md"}',
+  ']',
+  '',
+  '[project.markdown_extensions.tables]',
+].join('\n');
+
+test('parseCreatedTags: empty list when the block is absent', () => {
+  assert.deepEqual(parseCreatedTags(TOML_NO_TAGS), []);
+});
+
+test('addCreatedTag: first tag appends a [project.extra] block at EOF', () => {
+  const out = addCreatedTag(TOML_NO_TAGS, 'System');
+  assert.ok(out.startsWith(TOML_NO_TAGS), 'existing content untouched');
+  assert.ok(out.includes('[project.extra]'));
+  assert.ok(out.includes('mb_created_tags = ['));
+  assert.deepEqual(parseCreatedTags(out), ['System']);
+});
+
+test('addCreatedTag: second tag lands in the existing block', () => {
+  const out = addCreatedTag(addCreatedTag(TOML_NO_TAGS, 'System'), 'Contractors');
+  assert.deepEqual(parseCreatedTags(out), ['System', 'Contractors']);
+  assert.equal((out.match(/mb_created_tags/g) ?? []).length, 1, 'one block only');
+  assert.equal((out.match(/\[project\.extra\]/g) ?? []).length, 1, 'one header only');
+});
+
+test('addCreatedTag: an existing tag is skipped (case-insensitively), input returned as-is', () => {
+  const one = addCreatedTag(TOML_NO_TAGS, 'System');
+  assert.equal(addCreatedTag(one, 'System'), one);
+  assert.equal(addCreatedTag(one, '  system '), one);
+});
+
+test('addCreatedTag: blank / quote-only tags are a no-op', () => {
+  assert.equal(addCreatedTag(TOML_NO_TAGS, ''), TOML_NO_TAGS);
+  assert.equal(addCreatedTag(TOML_NO_TAGS, '  '), TOML_NO_TAGS);
+});
+
+test('addCreatedTag: double-quotes are stripped so the toml string cannot break', () => {
+  const out = addCreatedTag(TOML_NO_TAGS, 'Sys"tem');
+  assert.deepEqual(parseCreatedTags(out), ['System']);
+});
+
+test('parseCreatedTags/addCreatedTag: tolerate a pre-existing hand-written block', () => {
+  const toml = TOML_NO_TAGS + '\n\n[project.extra]\nmb_created_tags = [\n  "Alpha",\n  "Beta",\n]\n';
+  assert.deepEqual(parseCreatedTags(toml), ['Alpha', 'Beta']);
+  assert.deepEqual(parseCreatedTags(addCreatedTag(toml, 'Gamma')), ['Alpha', 'Beta', 'Gamma']);
+});
+
+test('addCreatedTag: nav blocks are untouched', () => {
+  const out = addCreatedTag(TOML_NO_TAGS, 'System');
+  assert.deepEqual(parseNavBlock(out, 'nav').items, parseNavBlock(TOML_NO_TAGS, 'nav').items);
 });
 
 console.log(`\n${passed} passed`);

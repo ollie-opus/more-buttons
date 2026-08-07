@@ -1,15 +1,19 @@
 /**
  * navLinksEditor.js — the "Nav links" component overlay.
  *
- * A form-authored component with ONE field: a nav path (e.g. `guides` or
- * `guides/employees`). The page stores only that path; the published site renders
- * the live nested list (see navLinks.js for the markdown round-trip and the KB
- * repo's nav-links.js for the runtime injection).
+ * A form-authored component listing pages by one of two modes (a radio pill):
+ * a nav path (e.g. `guides/employees`, nested list of everything under that nav
+ * section) or a frontmatter tag (e.g. `System`, every page carrying the tag,
+ * with a flat/grouped Layout option). The page stores only the path/tag; the
+ * published site renders the live list (see navLinks.js for the markdown
+ * round-trip and the KB repo's nav-links.js for the runtime injection).
  *
- * As the path is typed it is validated against the live nav tree from
+ * As a path is typed it is validated against the live nav tree from
  * zensical.toml (the same slugify-and-walk convention guide creation uses — see
  * navToml.js insertPath): a tick if it resolves to a section, a warning if not.
- * Saving is allowed regardless (a path may be pre-authored ahead of a toml edit).
+ * Saving is allowed regardless (a path may be pre-authored ahead of a toml
+ * edit). Tags are deliberately free-text: there is no cheap source of
+ * tags-in-use in the source repo (they live in per-page frontmatter).
  *
  * Mirrors buttonEditor.js: create splices one line into the parent container then
  * flips to edit in place; edit rewrites that one line through the merge engine;
@@ -28,6 +32,8 @@ import { mergeSave } from './mergeSave.js';
 import { spliceIntoContainer } from './guides.js';
 import { readRepoText } from './repoClient.js';
 import { parseNavBlock, slugify } from './navToml.js';
+import { loadCreatedTags, registerCreatedTag } from './tagRegistry.js';
+import { attachSuggestCombobox } from './suggestCombobox.js';
 import {
   locateNavLinksByUUID, replaceNavLinksByUUID, deleteNavLinksByUUID,
   navLinksLineFrom, navLinksDimFields,
@@ -38,13 +44,25 @@ const STORAGE_KEY = 'moreButtonsEditNavLinks';
 // ── Form ↔ data ────────────────────────────────────────────────────────────
 
 function emptyFields() {
-  return { navPath: '' };
+  return { navMode: 'path', navPath: '', navTag: '', navLayout: 'flat' };
 }
 
 function readNavLinksFields(formEl) {
   return {
+    mode: formEl.querySelector('[name="navMode"]:checked')?.value === 'tag' ? 'tag' : 'path',
     path: formEl.querySelector('[name="navPath"]')?.value.trim() ?? '',
+    tag: formEl.querySelector('[name="navTag"]')?.value.trim() ?? '',
+    layout: formEl.querySelector('[name="navLayout"]:checked')?.value === 'grouped' ? 'grouped' : 'flat',
   };
+}
+
+/** The saved-form label for the breadcrumb / crumb: the active mode's value. */
+function fieldsLabel(f) {
+  return (f.mode === 'tag' ? f.tag : f.path) || 'Nav links';
+}
+
+function fieldsToStorage(f) {
+  return { navMode: f.mode, navPath: f.path, navTag: f.tag, navLayout: f.layout };
 }
 
 function seedStorage(fields) {
@@ -53,16 +71,27 @@ function seedStorage(fields) {
 
 // ── Live path validation against the nav tree ─────────────────────────────────
 
+let _tomlPromise = null;
+function loadToml() {
+  _tomlPromise ??= readRepoText('zensical.toml').catch(() => '');
+  return _tomlPromise;
+}
+
 let _navCache = null;
 async function loadNavSections() {
   if (_navCache) return _navCache;
   try {
-    const toml = await readRepoText('zensical.toml');
-    _navCache = parseNavBlock(toml, 'nav').items;
+    _navCache = parseNavBlock(await loadToml(), 'nav').items;
   } catch {
     _navCache = [];
   }
   return _navCache;
+}
+
+// Tag suggestions come from the shared mb_created_tags register (tagRegistry.js)
+// through the shared combobox (suggestCombobox.js) — whole-value mode, one tag.
+function attachTagSuggest(formEl) {
+  attachSuggestCombobox(formEl.querySelector('[name="navTag"]'), { getItems: loadCreatedTags });
 }
 
 /** Walks the nav tree to the SECTION node named by a `/`-delimited slug path, or
@@ -139,6 +168,7 @@ registerFormAction('openCreateNavLinks', async ({ container, insertAtIndex } = {
   formEl.parentElement?.querySelector('[data-delete-nav-links-btn]')?.style.setProperty('display', 'none');
 
   attachNavPathValidation(formEl);
+  attachTagSuggest(formEl);
   resetDirtyBaseline(formEl);
 });
 
@@ -164,17 +194,21 @@ registerFormAction('openEditNavLinks', async ({ uuid, file } = {}) => {
 
   const heading = formEl.querySelector('[data-nav-links-heading]');
   if (heading) heading.textContent = 'Edit nav links';
-  setCrumbLabel(block.path || 'Nav links');
+  setCrumbLabel(block.path || block.tag || 'Nav links');
 
   attachNavPathValidation(formEl);
+  attachTagSuggest(formEl);
   resetDirtyBaseline(formEl);
 });
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 async function persistNewNavLinks(formEl, onProgress = () => {}) {
-  const { path } = readNavLinksFields(formEl);
-  if (!path) { alert('Path is required.'); return null; }
+  const f = readNavLinksFields(formEl);
+  if (f.mode === 'tag' ? !f.tag : !f.path) {
+    alert(f.mode === 'tag' ? 'Tag is required.' : 'Path is required.');
+    return null;
+  }
   const newUuid = generateUUID();
   const parent = {
     kind: formEl.dataset.parentKind,
@@ -183,8 +217,11 @@ async function persistNewNavLinks(formEl, onProgress = () => {}) {
   };
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
-  const nav = { uuid: newUuid, path };
+  const nav = f.mode === 'tag'
+    ? { uuid: newUuid, tag: f.tag, layout: f.layout }
+    : { uuid: newUuid, path: f.path };
   await spliceIntoContainer(parent, insertAt, [{ kind: 'navlinks', nav }], onProgress);
+  if (f.mode === 'tag') await registerCreatedTag(f.tag, onProgress);
   return { newUuid, file: parent.file };
 }
 
@@ -199,31 +236,45 @@ async function transitionNavLinksCreateToEdit(formEl, newUuid, file) {
   if (heading) heading.textContent = 'Edit nav links';
   formEl.parentElement?.querySelector('[data-delete-nav-links-btn]')?.style.removeProperty('display');
   const f = readNavLinksFields(formEl);
-  setCrumbLabel(f.path || 'Nav links');
-  await seedStorage({ navPath: f.path });
+  setCrumbLabel(fieldsLabel(f));
+  await seedStorage(fieldsToStorage(f));
   resetDirtyBaseline(formEl);
 }
 
 async function persistNavLinksEdit(formEl, onProgress = () => {}) {
-  const { path } = readNavLinksFields(formEl);
-  if (!path) { alert('Path is required.'); return null; }
+  const f = readNavLinksFields(formEl);
+  if (f.mode === 'tag' ? !f.tag : !f.path) {
+    alert(f.mode === 'tag' ? 'Tag is required.' : 'Path is required.');
+    return null;
+  }
   const editUuid = formEl.dataset.editUuid;
   const file = formEl.dataset.containerFile;
 
+  // Conflict resolution may land on the other side's tag — register what was
+  // actually saved, not what the form held.
+  let savedTag = null;
   await mergeSave({
     formEl,
     file,
     onProgress,
     fieldSpecs: [
+      { name: 'navMode', type: 'scalar', label: 'List by' },
       { name: 'navPath', type: 'scalar', label: 'Path' },
+      { name: 'navTag', type: 'scalar', label: 'Tag' },
+      { name: 'navLayout', type: 'scalar', label: 'Layout' },
     ],
     readFresh: md => navLinksDimFields(locateNavLinksByUUID(md, editUuid) ?? {}),
     build: (md, resolved) => {
       if (!locateNavLinksByUUID(md, editUuid)) throw new Error('Nav links block no longer exists.');
-      const line = navLinksLineFrom({ path: resolved.navPath });
+      savedTag = resolved.navMode === 'tag' ? resolved.navTag : null;
+      const line = navLinksLineFrom({
+        mode: resolved.navMode, path: resolved.navPath,
+        tag: resolved.navTag, layout: resolved.navLayout,
+      });
       return replaceNavLinksByUUID(md, editUuid, line);
     },
   });
+  await registerCreatedTag(savedTag, onProgress);
   return { editUuid, file };
 }
 

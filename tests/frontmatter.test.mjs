@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readHideTitle, writeHideTitle } from '../scripts/frontmatter.js';
+import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readFrontmatterTags, writeFrontmatterTags, splitTagList, readHideTitle, writeHideTitle } from '../scripts/frontmatter.js';
 import { buildSection, replaceSectionByUUID } from '../scripts/sections.js';
 
 let passed = 0;
@@ -186,6 +186,113 @@ test('hide round-trips through read → write unchanged', () => {
   const md = `---\nicon: lucide/x\nhide:\n  - navigation\n  - toc\n---\n\n${NO_FM}`;
   const out = writeFrontmatterHide(md, readFrontmatterHide(md));
   assert.equal(out, md);
+});
+
+// ── tags: read ─────────────────────────────────────────────────────────────────
+
+test('tags read: no frontmatter → []', () => {
+  assert.deepEqual(readFrontmatterTags(NO_FM), []);
+});
+
+test('tags read: block without a tags key → []', () => {
+  assert.deepEqual(readFrontmatterTags(MULTI_KEY), []);
+});
+
+test('tags read: block-style list → values in order', () => {
+  const md = `---\ntags:\n  - System\n  - Contractors\n---\n\n${NO_FM}`;
+  assert.deepEqual(readFrontmatterTags(md), ['System', 'Contractors']);
+});
+
+test('tags read: tolerates inline flow style with quotes', () => {
+  const md = `---\ntags: [System, "Contractors"]\n---\n\n${NO_FM}`;
+  assert.deepEqual(readFrontmatterTags(md), ['System', 'Contractors']);
+});
+
+test('tags read: does not bleed into the hide list (and vice versa)', () => {
+  const md = `---\ntags:\n  - System\nhide:\n  - toc\n---\n\n${NO_FM}`;
+  assert.deepEqual(readFrontmatterTags(md), ['System']);
+  assert.deepEqual(readFrontmatterHide(md), ['toc']);
+});
+
+test('tags read: the exact KB-repo shape round-trips', () => {
+  const md = `---\ntags:\n  - System\n---\n\n${NO_FM}`;
+  const out = writeFrontmatterTags(md, readFrontmatterTags(md));
+  assert.equal(out, md);
+});
+
+// ── tags: write ────────────────────────────────────────────────────────────────
+
+test('tags write: creates a block when the file has none', () => {
+  const out = writeFrontmatterTags(NO_FM, ['System', 'Contractors']);
+  assert.equal(out, `---\ntags:\n  - System\n  - Contractors\n---\n\n${NO_FM}`);
+  assert.deepEqual(readFrontmatterTags(out), ['System', 'Contractors']);
+});
+
+test('tags write: appends the block, preserving icon and hide', () => {
+  const out = writeFrontmatterTags(MULTI_KEY, ['System']);
+  assert.match(out, /^---\nicon: lucide\/user-plus\nhide:\n  - toc\ntags:\n  - System\n---\n/);
+  assert.equal(readFrontmatterIcon(out), 'lucide/user-plus');
+  assert.deepEqual(readFrontmatterHide(out), ['toc']);
+});
+
+test('tags write: replaces an existing block-style list', () => {
+  const md = `---\ntags:\n  - System\n---\n\n${NO_FM}`;
+  const out = writeFrontmatterTags(md, ['Contractors', 'Safety']);
+  assert.equal(out, `---\ntags:\n  - Contractors\n  - Safety\n---\n\n${NO_FM}`);
+});
+
+test('tags write: replaces an inline-flow list with block style', () => {
+  const md = `---\ntags: [System, Contractors]\n---\n\n${NO_FM}`;
+  const out = writeFrontmatterTags(md, ['Safety']);
+  assert.equal(out, `---\ntags:\n  - Safety\n---\n\n${NO_FM}`);
+});
+
+test('tags write: trims, drops empties, dedupes case-insensitively (first spelling wins)', () => {
+  const out = writeFrontmatterTags(NO_FM, [' System ', '', 'contractors', 'SYSTEM']);
+  assert.deepEqual(readFrontmatterTags(out), ['System', 'contractors']);
+});
+
+test('tags write: empty list removes the key but keeps other keys', () => {
+  const md = `---\nicon: lucide/x\ntags:\n  - System\n---\n\n${NO_FM}`;
+  const out = writeFrontmatterTags(md, []);
+  assert.deepEqual(readFrontmatterTags(out), []);
+  assert.match(out, /^---\nicon: lucide\/x\n---\n/);
+});
+
+test('tags write: clearing the only key removes the whole block', () => {
+  const md = `---\ntags:\n  - System\n---\n\n${NO_FM}`;
+  assert.equal(writeFrontmatterTags(md, []), NO_FM);
+});
+
+test('tags write: empty list on a file with no tags key is a no-op', () => {
+  assert.equal(writeFrontmatterTags(WITH_ICON, []), WITH_ICON);
+  assert.equal(writeFrontmatterTags(NO_FM, []), NO_FM);
+});
+
+test('tags compose with icon + hide in build() order', () => {
+  let out = writeFrontmatterIcon(NO_FM, 'lucide/users');
+  out = writeFrontmatterTags(out, ['System']);
+  out = writeFrontmatterHide(out, ['toc']);
+  assert.equal(readFrontmatterIcon(out), 'lucide/users');
+  assert.deepEqual(readFrontmatterTags(out), ['System']);
+  assert.deepEqual(readFrontmatterHide(out), ['toc']);
+});
+
+// ── splitTagList ───────────────────────────────────────────────────────────────
+
+test('splitTagList: trims, drops empties, dedupes case-insensitively', () => {
+  assert.deepEqual(splitTagList('System, contractors,, System '), ['System', 'contractors']);
+});
+
+test('splitTagList: empty/nullish input → []', () => {
+  assert.deepEqual(splitTagList(''), []);
+  assert.deepEqual(splitTagList('  ,  , '), []);
+  assert.deepEqual(splitTagList(null), []);
+  assert.deepEqual(splitTagList(undefined), []);
+});
+
+test('splitTagList: single tag, no comma', () => {
+  assert.deepEqual(splitTagList('System'), ['System']);
 });
 
 // ── hide page title (body <style> marker) ───────────────────────────────────────

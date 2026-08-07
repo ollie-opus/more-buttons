@@ -247,8 +247,16 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
       if (darkPath && pendingCapture.darkDataUrl) {
         await githubReplaceImage(darkPath, pendingCapture.darkDataUrl.split(',')[1], s => setButtonBusy(saveBtn, s));
       }
+      // The path is never renamed on recapture, but the metadata is the NEW
+      // shot's — so Annotated/Zapped pills follow the recapture's own state.
       await writeCaptureMeta(
-        [{ lightPath, resized: !!pendingCapture.resized, padding: pendingCapture.padding || 0 }],
+        [{
+          lightPath,
+          resized: !!pendingCapture.resized,
+          padding: pendingCapture.padding || 0,
+          annotated: !!pendingCapture.annotated,
+          zapped: !!pendingCapture.zapped,
+        }],
         s => setButtonBusy(saveBtn, s),
       );
       setButtonBusy(saveBtn, 'Refreshing…');

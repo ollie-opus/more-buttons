@@ -98,10 +98,11 @@ function collectValues(nodes, set) {
   return set;
 }
 
-// Tag each tree leaf with Live / Drafting pills. navFiles/draftFiles are sets of
-// leaf *filenames* (e.g. "foo.md") — keyed on basename so a node merged from a
-// pages/ nav entry and a drafts/ draft_nav entry matches both sets.
-function decorateKbPills(panel, draftFiles, navFiles) {
+// Tag each tree leaf with Live / Drafting / Unlisted pills. navFiles/draftFiles/
+// unlistedFiles are sets of leaf *filenames* (e.g. "foo.md") — keyed on basename
+// so a node merged from a pages/ nav entry and a drafts/ draft_nav entry matches
+// all the sets.
+function decorateKbPills(panel, draftFiles, navFiles, unlistedFiles = new Set()) {
   panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
     const file = leaf.dataset.kbFile || '';
     const base = baseOf(file);
@@ -112,6 +113,9 @@ function decorateKbPills(panel, draftFiles, navFiles) {
     }
     if (navFiles.has(base)) {
       pills.push('<span class="mb-kb-pill --live">Live</span>');
+    }
+    if (unlistedFiles.has(base)) {
+      pills.push('<span class="mb-kb-pill --unlisted">Unlisted</span>');
     }
     if (pills.length) {
       leaf.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills">${pills.join('')}</span>`);
@@ -228,6 +232,7 @@ async function renderKnowledgeBaseManagement() {
 
     const livePanel = formEl.querySelector('[data-kb-panel="guides"]');
     const systemPanel = formEl.querySelector('[data-kb-panel="system"]');
+    const unlistedPanel = formEl.querySelector('[data-kb-panel="unlisted"]');
 
     let reorder = null;
     let reorderMode = false;
@@ -292,8 +297,10 @@ async function renderKnowledgeBaseManagement() {
       const tomlText = await readRepoText('zensical.toml');
       const nav = parseNavBlock(tomlText, 'nav').items;
       const draftNav = parseNavBlock(tomlText, 'draft_nav').items;
+      const unlistedNav = parseNavBlock(tomlText, 'unlisted_nav').items;
       const navFiles = collectValues(nav, new Set());
       const draftFiles = collectValues(draftNav, new Set());
+      const unlistedFiles = collectValues(unlistedNav, new Set());
 
       if (livePanel) {
         // Strip only live leaves whose draft MOVED them to another section, so
@@ -308,11 +315,11 @@ async function renderKnowledgeBaseManagement() {
         resetReorder = () => { reorder = seedReorder(); };
         livePanel.innerHTML =
           renderTree(merged.map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
-        decorateKbPills(livePanel, draftFiles, navFiles);
+        decorateKbPills(livePanel, draftFiles, navFiles, unlistedFiles);
         rerenderGuides = () => {
           livePanel.innerHTML =
             renderTree(reorder.getTree().map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
-          decorateKbPills(livePanel, draftFiles, navFiles);
+          decorateKbPills(livePanel, draftFiles, navFiles, unlistedFiles);
           updateReorderUi();
           applySelection();   // re-pin selection by stable id after the rebuild
         };
@@ -322,14 +329,27 @@ async function renderKnowledgeBaseManagement() {
         const systemEntry = nav.find(n => n.name === 'System' && n.children);
         if (systemEntry) {
           systemPanel.innerHTML = renderKbHierarchy([systemEntry]);
-          decorateKbPills(systemPanel, draftFiles, navFiles);
+          decorateKbPills(systemPanel, draftFiles, navFiles, unlistedFiles);
         } else {
           systemPanel.innerHTML = '<p class="more-buttons-description">No system pages found.</p>';
+        }
+      }
+
+      // Unlisted pages: parked in unlisted_nav (built + linkable, but out of the
+      // site nav and search index). Not reorderable — unlisted_nav ordering is
+      // only placement memory for re-listing, and kbReorder never touches it.
+      if (unlistedPanel) {
+        if (unlistedNav.length) {
+          unlistedPanel.innerHTML = renderKbHierarchy(unlistedNav);
+          decorateKbPills(unlistedPanel, draftFiles, navFiles, unlistedFiles);
+        } else {
+          unlistedPanel.innerHTML = '<p class="more-buttons-description">No unlisted pages.</p>';
         }
       }
     } catch {
       if (livePanel) livePanel.innerHTML = '<p class="more-buttons-description">Failed to load articles.</p>';
       if (systemPanel) systemPanel.innerHTML = '<p class="more-buttons-description">Failed to load system pages.</p>';
+      if (unlistedPanel) unlistedPanel.innerHTML = '<p class="more-buttons-description">Failed to load unlisted pages.</p>';
     } finally {
       formLoading.dismiss();
     }

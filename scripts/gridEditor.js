@@ -1,7 +1,8 @@
 /**
  * gridEditor.js — the "Grid" overlay for a grid component.
  *
- * Two forms, mirroring the data-table editor (editDataTable → editDataTableRow):
+ * Two forms (the data-table editor used to share this shape; it is now a
+ * single spreadsheet form):
  *
  *   • editGrid (PARENT) — a flavor toggle (Card / Plain), a structure bar
  *     (add / move / delete cell) and a clickable strip of SQUARE cell TILES.

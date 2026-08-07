@@ -40,6 +40,25 @@ test('toggle off: selection includes the markers', () => {
     { value: 'foo', selStart: 0, selEnd: 3 });
 });
 
+// applyMarker — toggle off when the selection covers a run's whole content but
+// straddles only ONE of its delimiters. The rich surface's DOM↔markdown mapping
+// produces exactly this from a select-all over a fully-marked value: the start
+// offset clamps inside the opening delimiter while the end lands after the
+// closing one (or vice versa), e.g. placeCaret(0,4) over '*hi*' reads back as
+// (1,4). Without this the click was a silent no-op (merge path, already one run).
+test('toggle off: selection covers content + closing delimiter only', () => {
+  assert.deepEqual(applyMarker('*hi*', 1, 4, '*'),
+    { value: 'hi', selStart: 0, selEnd: 2 });
+});
+test('toggle off: selection covers opening delimiter + content only', () => {
+  assert.deepEqual(applyMarker('*hi*', 0, 3, '*'),
+    { value: 'hi', selStart: 0, selEnd: 2 });
+});
+test('toggle off: content + one delimiter, run embedded in plain text', () => {
+  assert.deepEqual(applyMarker('a **hi** b', 4, 8, '**'),
+    { value: 'a hi b', selStart: 2, selEnd: 4 });
+});
+
 // applyMarker — sub-delimiter must NOT toggle off a longer adjacent marker (fall back to wrapping)
 test('italic inside bold wraps, not toggles (outside form)', () => {
   assert.deepEqual(applyMarker('**foo**', 2, 5, '*'),

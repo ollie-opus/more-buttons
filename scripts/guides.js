@@ -30,17 +30,20 @@ import {
   ensureAdmonitionUUIDs, parseAdmonitions, buildAdmonition,
   generateUUID, replaceAdmonitionByUUID,
   deleteAdmonitionByUUID,
-  splitTitleMeta, joinTitleMeta,
+  splitTitleMeta, joinTitleMeta, stripLabelSpans,
   GUIDE_ADMONITION_TYPES_RE,
 } from './admonitions.js';
+import { setRteDisabled, syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
-import { escapeHtml, captureComponentCard, videoComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, fileExtOf } from './cardRenderer.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, fileExtOf } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
-import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide } from './frontmatter.js';
+import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readFrontmatterTags, writeFrontmatterTags, splitTagList, writeFrontmatterSearchExclude } from './frontmatter.js';
 import { attachIconPicker } from './iconPicker.js';
+import { attachSuggestCombobox } from './suggestCombobox.js';
+import { loadCreatedTags, registerCreatedTags } from './tagRegistry.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -139,6 +142,16 @@ function navValueOf(livePath) {
 // entry is promoted into `nav` with its navValueOf (pages/) value instead.
 function draftNavValueOf(livePath) {
   return navValueOf(livePath).replace(/^pages\//, 'drafts/');
+}
+
+// True when the guide has an entry in unlisted_nav — the page is built and
+// reachable by URL but deliberately absent from the site nav and the search
+// index. Like drafting state, unlisted state is conveyed by which zensical.toml
+// array holds the entry; the page markdown's `search: exclude` frontmatter is
+// kept in lockstep by the visibility save and the publish flow.
+function isUnlistedInToml(tomlText, livePath) {
+  const items = parseNavBlock(tomlText, 'unlisted_nav').items;
+  return !!findPathByValueSlug(items, valueSlug(navValueOf(livePath)));
 }
 
 // ── Entry form: open + re-render ──────────────────────────────────────────────
@@ -577,7 +590,10 @@ async function createGuideDraft(formEl) {
       ),
     );
 
-    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s), () => migrated);
+    // Search-exclude the draft copy so it doesn't shadow the live page in the
+    // site search bar; publishGuideDraft strips the flag on promotion.
+    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s),
+      () => writeFrontmatterSearchExclude(migrated, true));
     // Mirror the page's nav location into draft_nav so it shows a Drafting pill.
     setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
@@ -586,9 +602,12 @@ async function createGuideDraft(formEl) {
       const draftItems = parseNavBlock(md, 'draft_nav').items;
       // Clear any stale draft entry by slug, then mirror the live nav location with
       // the draft file's value (drafts/<slug>.md) — a draft_nav entry references the
-      // draft, not the live page.
+      // draft, not the live page. An unlisted page has no nav entry, so fall back
+      // to its unlisted_nav location — without this its draft would land at the
+      // top level of the tree, losing its section.
       removeByValueSlug(draftItems, valueSlug(value));
-      const loc = findPathOfValue(navItems, value);
+      const unlistedItems = parseNavBlock(md, 'unlisted_nav').items;
+      const loc = findPathOfValue(navItems, value) ?? findPathByValueSlug(unlistedItems, valueSlug(value));
       insertPath(draftItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), draftNavValueOf(currentGuide.livePath));
       return replaceNavBlock(md, 'draft_nav', draftItems);
     });
@@ -626,7 +645,16 @@ async function publishGuideDraft(formEl) {
         `entry value is likely malformed — it should be pages/<slug>.md.`,
       );
     }
-    await githubFetchAndPushFile(currentGuide.livePath, s => setButtonBusy(btn, s), () => draftMarkdown);
+    // An unlisted page must stay unlisted across a draft/publish cycle: keep
+    // its search exclusion and leave `nav` alone below — otherwise publish
+    // would silently re-list it, since "absent from nav" is indistinguishable
+    // from "never published".
+    setButtonBusy(btn, 'Checking visibility…');
+    const unlisted = isUnlistedInToml(await readRepoText('zensical.toml'), currentGuide.livePath);
+    // Public pages: strip the draft-only search exclusion — published verbatim,
+    // the live page would inherit it and vanish from the search index.
+    await githubFetchAndPushFile(currentGuide.livePath, s => setButtonBusy(btn, s),
+      () => writeFrontmatterSearchExclude(draftMarkdown, unlisted));
     setButtonBusy(btn, 'Deleting draft…');
     await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
     // Promote into nav (mirroring its draft_nav location) and drop from draft_nav.
@@ -640,6 +668,19 @@ async function publishGuideDraft(formEl) {
       // draft_nav leaf may carry a drafts/<slug>.md value, which exact matching
       // misses — dropping its display name and section location on promotion.
       const loc = findPathByValueSlug(draftItems, slug);
+      if (unlisted) {
+        // Unlisted publish: never touch `nav`. Mirror the draft's location into
+        // unlisted_nav instead, so a Path edited on the draft still takes effect.
+        const unlistedItems = parseNavBlock(md, 'unlisted_nav').items;
+        setPathByValueSlug(unlistedItems, slug, loc?.segments ?? [], {
+          value,
+          fallbackName: loc?.leafName ?? guideBaseName(currentGuide.livePath),
+        });
+        removeByValueSlug(draftItems, slug);
+        let out = replaceNavBlock(md, 'unlisted_nav', unlistedItems);
+        out = replaceNavBlock(out, 'draft_nav', draftItems);
+        return out;
+      }
       // Move the live nav entry to wherever the draft sits, so a Path edited on the
       // draft takes effect on publish. For a never-published guide this creates the
       // nav leaf; for a republished one whose Path changed, this RELOCATES the stale
@@ -710,6 +751,14 @@ async function deleteGuide(formEl) {
       removeByValueSlug(draftItems, valueSlug(value));
       let out = replaceNavBlock(md, 'nav', navItems);
       out = replaceNavBlock(out, 'draft_nav', draftItems);
+      // Also drop any unlisted_nav entry, else deleting an unlisted page leaves
+      // an orphan. Guarded on presence so a repo without the array doesn't get
+      // one auto-created at EOF (wrong TOML section — see replaceNavBlock).
+      const unlistedBlock = parseNavBlock(md, 'unlisted_nav');
+      if (unlistedBlock.start !== -1) {
+        removeByValueSlug(unlistedBlock.items, valueSlug(value));
+        out = replaceNavBlock(out, 'unlisted_nav', unlistedBlock.items);
+      }
       return out;
     });
     currentGuide = null;
@@ -779,9 +828,11 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
     }
 
     // Write the draft file (H1 = title, UUID span injected so the tree renders).
+    // Born search-excluded so unfinished drafts never surface in the site
+    // search bar; publishGuideDraft strips the flag on promotion to live.
     setButtonBusy(btn, 'Creating draft…');
     await githubFetchAndPushFile(draftPath, s => setButtonBusy(btn, s),
-      () => ensureSectionUUIDs(`# ${title}\n`));
+      () => writeFrontmatterSearchExclude(ensureSectionUUIDs(`# ${title}\n`), true));
     draftWritten = true;
 
     // Add to draft_nav.
@@ -1161,6 +1212,9 @@ function buttonComponentCardFor(btn) {
     label: btn.label,
     destination: btn.destination,
     primary: btn.primary,
+    colour: btn.colour,
+    theme: btn.theme,
+    border: btn.border,
     btnAttr: `data-edit-button-component="${escapeHtml(btn.uuid ?? '')}"`,
     copyAttr: btn.uuid ? `data-copy-component-md="${escapeHtml(btn.uuid)}"` : '',
   });
@@ -1168,7 +1222,7 @@ function buttonComponentCardFor(btn) {
 
 function navLinksComponentCardFor(nav) {
   return navLinksComponentCard({
-    path: nav.path,
+    path: nav.tag != null ? `Tag: ${nav.tag}` : nav.path,
     btnAttr: `data-edit-nav-links-component="${escapeHtml(nav.uuid ?? '')}"`,
     copyAttr: nav.uuid ? `data-copy-component-md="${escapeHtml(nav.uuid)}"` : '',
   });
@@ -1225,6 +1279,7 @@ export function renderComponents(listEl, components, numberSteps = true) {
   });
   parts.push(insertComponentTrigger(components.length));
   listEl.innerHTML = parts.join('');
+  paintLabels(listEl); // colour any label pills in admonition card titles
 }
 
 // Wraps a component card with a vertical up/down reorder rail on its left edge.
@@ -1333,11 +1388,6 @@ async function runChildAction(container, formEl, action) {
     await getFormAction('openEditDataTable')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-grid') {
     await getFormAction('openEditGrid')?.({ uuid: action.uuid, file: container.file });
-  } else if (action.type === 'edit-table-row') {
-    // The data-table grid form is the parent here; after ensureContainerReady
-    // the saved table's uuid/file live on its dataset (set by the opener or the
-    // create→edit transition).
-    await getFormAction('openEditDataTableRow')?.({ uuid: formEl.dataset.tableUuid, file: formEl.dataset.containerFile, row: action.row });
   } else if (action.type === 'edit-grid-cell') {
     // The grid form is the parent here; after ensureContainerReady the saved
     // grid's uuid/file live on its dataset (set by the opener or the create→edit
@@ -1538,7 +1588,7 @@ function admonitionCard(adm, stepNumber = null) {
   return `
     <div class="mb-incident-card --${colour}">
       <div class="mb-incident-card__head">
-        <strong class="mb-incident-card__title">${escapeHtml(title)}${meta ? `<span class="mb-incident-card__title-meta">${escapeHtml(meta)}</span>` : ''}</strong>
+        <strong class="mb-incident-card__title">${titleWithLabelsHtml(title)}${meta ? `<span class="mb-incident-card__title-meta">${escapeHtml(meta)}</span>` : ''}</strong>
         <span class="mb-incident-card__badge">${escapeHtml(badge)}</span>
       </div>
       ${description ? `<p class="mb-incident-card__body">${escapeHtml(description)}</p>` : ''}
@@ -1691,7 +1741,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     for (const c of comps) {
       if (c.kind === 'admonition') {
         const { title } = splitTitleMeta(c.adm.title || '');
-        labelMap[c.adm.uuid] = { kind: 'admonition', title: title || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+        labelMap[c.adm.uuid] = { kind: 'admonition', title: stripLabelSpans(title) || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
       } else if (c.kind === 'tabs') {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else if (c.kind === 'table') {
@@ -1703,7 +1753,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       } else if (c.kind === 'button') {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {
-        labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || 'Nav links' };
+        labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
       } else {
@@ -1817,12 +1867,18 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
     // Reflect the current `hide:` frontmatter list onto the three checkboxes.
     // (Hiding a title is now a per-section toggle, not a page setting.)
     const hide = readFrontmatterHide(draftMarkdown);
+    // Visibility lives in zensical.toml, not the draft file: unlisted iff the
+    // page has an unlisted_nav entry. Pages in neither array (never-published
+    // new guides) seed as public.
+    const tomlText = await readRepoText('zensical.toml');
     await chrome.storage.local.set({
       moreButtonsEditPageSettings: {
         icon: readFrontmatterIcon(draftMarkdown),
+        tags: readFrontmatterTags(draftMarkdown).join(', '),
         hideNavigation: hide.includes('navigation'),
         hideToc: hide.includes('toc'),
         hidePath: hide.includes('path'),
+        visibility: isUnlistedInToml(tomlText, currentGuide.livePath) ? 'unlisted' : 'public',
       },
     });
   }
@@ -1832,13 +1888,63 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
   formEl.dataset.containerFile = currentGuide.draftPath;
   setCrumbLabel('Page settings');
   attachIconPicker(formEl.querySelector('[name="icon"]')); // fire-and-forget; degrades to plain input
+  attachSuggestCombobox(formEl.querySelector('[name="tags"]'), { getItems: loadCreatedTags, segmented: true });
 });
+
+// Apply the Page visibility choice. Unlike the rest of Page settings this
+// touches the LIVE page and zensical.toml, not the draft — mergeSave can't
+// carry it (single-file, draft-only), so it runs as a follow-up step after the
+// draft save resolves, same pattern as registerCreatedTags. Unlisted moves the
+// page's entry nav → unlisted_nav (section + display name preserved) and adds
+// `search: exclude` to the live md; Public reverses both. No-op when the toml
+// already matches, so an ordinary settings save spawns no extra commits.
+async function applyPageVisibility(visibility, onProgress) {
+  const unlisted = visibility === 'unlisted';
+  const value = navValueOf(currentGuide.livePath);
+  const slug = valueSlug(value);
+
+  if (isUnlistedInToml(await readRepoText('zensical.toml'), currentGuide.livePath) === unlisted) return;
+
+  onProgress('Updating visibility…');
+  await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+    const navItems = parseNavBlock(md, 'nav').items;
+    // Absent unlisted_nav is tolerated (replaceNavBlock auto-creates it), but
+    // the array is expected to be pre-seeded under [project] next to draft_nav
+    // — auto-create appends at EOF, which lands it inside [project.extra].
+    const unlistedItems = parseNavBlock(md, 'unlisted_nav').items;
+    const [from, to] = unlisted ? [navItems, unlistedItems] : [unlistedItems, navItems];
+    // Section + display name follow the entry; a page listed in neither array
+    // (never-published guide) borrows its draft's placement so it surfaces in
+    // the right section when publish later consults unlisted_nav.
+    const loc = findPathByValueSlug(from, slug)
+      ?? findPathByValueSlug(parseNavBlock(md, 'draft_nav').items, slug);
+    removeByValueSlug(from, slug);
+    setPathByValueSlug(to, slug, loc?.segments ?? [], {
+      value,
+      fallbackName: loc?.leafName ?? guideBaseName(currentGuide.livePath),
+    });
+    let out = replaceNavBlock(md, 'nav', navItems);
+    out = replaceNavBlock(out, 'unlisted_nav', unlistedItems);
+    return out;
+  });
+
+  // Keep the live page's frontmatter in lockstep. A never-published guide has
+  // no live file yet — publishGuideDraft derives the exclusion from
+  // unlisted_nav when the page first goes live.
+  if (await readRepoText(currentGuide.livePath)) {
+    await githubFetchAndPushFile(currentGuide.livePath, onProgress,
+      md => writeFrontmatterSearchExclude(md, unlisted));
+  }
+}
 
 registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
   if (!currentGuide) return;
   const btn = content.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
   try {
+    // Conflict resolution may land on the other side's tags — register what was
+    // actually committed (captured in build, which re-runs on conflict retry).
+    let savedTags = [];
     const resolved = await mergeSave({
       formEl,
       file: currentGuide.draftPath,
@@ -1848,6 +1954,7 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
       // session merge cleanly without ever raising a conflict.
       fieldSpecs: [
         { name: 'icon', type: 'scalar', label: 'Icon' },
+        { name: 'tags', type: 'scalar', label: 'Tags' },
         { name: 'hideNavigation', type: 'scalar', label: 'Hide navigation' },
         { name: 'hideToc', type: 'scalar', label: 'Hide table of contents' },
         { name: 'hidePath', type: 'scalar', label: 'Hide path' },
@@ -1856,6 +1963,9 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
         const hide = readFrontmatterHide(md);
         return {
           icon: readFrontmatterIcon(md),
+          // Joined with ', ' identically to the open-time seed, so an untouched
+          // field is textually equal across the 3-way merge.
+          tags: readFrontmatterTags(md).join(', '),
           hideNavigation: hide.includes('navigation'),
           hideToc: hide.includes('toc'),
           hidePath: hide.includes('path'),
@@ -1863,6 +1973,8 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
       },
       build: (md, resolved) => {
         let out = writeFrontmatterIcon(md, (resolved.icon ?? '').trim());
+        savedTags = splitTagList(resolved.tags ?? '');
+        out = writeFrontmatterTags(out, savedTags);
         const want = {
           navigation: !!resolved.hideNavigation,
           toc: !!resolved.hideToc,
@@ -1883,6 +1995,11 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
     });
     if (!resolved) { formEl._refreshSaveState?.(); return; }
 
+    await registerCreatedTags(savedTags, s => setButtonBusy(btn, s));
+    await applyPageVisibility(
+      formEl.querySelector('[name="visibility"]:checked')?.value ?? 'public',
+      s => setButtonBusy(btn, s),
+    );
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();
@@ -2081,7 +2198,7 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
     if (admMeta) crumb += ` ${admMeta}`;
   } else {
     const typeLabel = ADMONITION_TYPE_LABELS[adm.type] ?? adm.type;
-    crumb = admTitle ? `${typeLabel}: ${admTitle}` : typeLabel;
+    crumb = admTitle ? `${typeLabel}: ${stripLabelSpans(admTitle)}` : typeLabel;
   }
   setCrumbLabel(crumb);
 
@@ -2103,8 +2220,11 @@ function applyAdmonitionTypeState(formEl, type) {
   const titleInput = formEl.querySelector('[name="admonitionTitle"]');
   if (!titleInput) return;
   const isStep = type === 'step';
-  titleInput.disabled = isStep;
-  if (isStep) titleInput.value = '';
+  setRteDisabled(titleInput, isStep);
+  if (isStep) {
+    titleInput.value = '';
+    syncSurfaceFromTextarea(titleInput); // no-op before the RTE upgrade runs
+  }
 }
 
 function wireAdmonitionTypeToggle(formEl, initialType) {
@@ -2160,7 +2280,7 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
     for (const c of comps) {
       if (c.kind === 'admonition') {
         const { title: t } = splitTitleMeta(c.adm.title || '');
-        labelMap[c.adm.uuid] = { kind: 'admonition', title: t || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+        labelMap[c.adm.uuid] = { kind: 'admonition', title: stripLabelSpans(t) || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
       } else if (c.kind === 'tabs') {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else if (c.kind === 'table') {
@@ -2172,7 +2292,7 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
       } else if (c.kind === 'button') {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {
-        labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || 'Nav links' };
+        labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
       } else {
