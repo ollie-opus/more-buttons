@@ -49,6 +49,25 @@ export function captureBasePath(path) {
   return p.replace(/-(light|dark)-mode\.(png|svg)$/, '');
 }
 
+/**
+ * Reduce a stored single-media path to its media-root-relative base (folder +
+ * name, extension stripped). The media-library counterpart of captureBasePath
+ * for files OUTSIDE occ-captures, which have no theme suffix and keep their
+ * folder (it distinguishes them):
+ *
+ *   "docs/assets/media/buttons/menu-icon.png" -> "buttons/menu-icon"
+ *   "media/buttons/menu-icon.png"             -> "buttons/menu-icon"
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+export function mediaBasePath(path) {
+  let p = path ?? '';
+  if (p.startsWith('docs/assets/media/')) p = p.slice('docs/assets/media/'.length);
+  else if (p.startsWith('media/')) p = p.slice('media/'.length);
+  return p.replace(/\.[a-z0-9]+$/i, '');
+}
+
 /** Escape a value for safe interpolation into an HTML attribute. */
 function escapeAttr(value) {
   return String(value)
@@ -85,9 +104,13 @@ export function capturePathField({ label, value, editable = false, hint = '' }) 
 // repo as-is (never converted), so the stored extension must match the type.
 export const CAPTURE_UPLOAD_TYPES = { png: 'image/png', svg: 'image/svg+xml' };
 
-/** Build an accept="" attribute value for a set of capture extensions. */
+/**
+ * Build an accept="" attribute value for a set of extensions. Capture types
+ * map to their MIME type; anything else (e.g. 'mp4' when replacing a stored
+ * video in place) uses the .ext token form the accept attribute also takes.
+ */
 export function captureUploadAccept(exts = Object.keys(CAPTURE_UPLOAD_TYPES)) {
-  return exts.map(ext => CAPTURE_UPLOAD_TYPES[ext]).filter(Boolean).join(',');
+  return exts.map(ext => CAPTURE_UPLOAD_TYPES[ext] ?? `.${ext}`).join(',');
 }
 
 /**

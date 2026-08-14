@@ -29,6 +29,21 @@ function fetchSvg(name) {
   return svgCache.get(name);
 }
 
+/**
+ * Fetches a lucide icon and returns markup safe to assign to innerHTML, or ''
+ * when unavailable. lucide-static SVGs open with an HTML license comment —
+ * strip leading comments before checking the root element. Defense-in-depth:
+ * the CDN is trusted-ish but unpinned — never inject markup that could carry
+ * handlers or scripts into the host page. Shared by the picker dropdown and
+ * the button preview tiles.
+ */
+export function getLucideSvgMarkup(name) {
+  return fetchSvg(name).then(svg => {
+    const body = svg.replace(/^(\s*<!--[\s\S]*?-->)*\s*/, '');
+    return body.startsWith('<svg') && !/<script|\bon\w+\s*=/i.test(body) ? body : '';
+  });
+}
+
 // Prefix matches outrank substring matches; `lucide/` is ignored while typing
 // so a saved value like "lucide/user-plus" still filters sensibly on refocus.
 function rankMatches(names, query) {
@@ -103,15 +118,8 @@ export async function attachIconPicker(input) {
       row.addEventListener('mousedown', e => { e.preventDefault(); select(name); });
       dropdown.appendChild(row);
       rows.push(row);
-      fetchSvg(name).then(svg => {
-        // lucide-static SVGs open with an HTML license comment — strip leading
-        // comments before checking the root element. Defense-in-depth: the CDN
-        // is trusted-ish but unpinned — never inject markup that could carry
-        // handlers or scripts into the host page.
-        const body = svg.replace(/^(\s*<!--[\s\S]*?-->)*\s*/, '');
-        if (body.startsWith('<svg') && !/<script|\bon\w+\s*=/i.test(body)) {
-          glyph.innerHTML = body;
-        }
+      getLucideSvgMarkup(name).then(body => {
+        if (body) glyph.innerHTML = body;
       });
     }
     dropdown.style.display = '';

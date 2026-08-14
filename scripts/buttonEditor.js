@@ -6,8 +6,9 @@
  * time from labelColours.json), Theme (Default/Inversed/Force light/Force dark —
  * which colour trio paints the button, mirroring the capture Theme field),
  * Border (Default/Always/Light only/Dark only/None — per-trio border override),
- * Destination, and an optional Icon (the lucide picker reused from page
- * settings). Legacy Primary/Secondary buttons still parse, but editing one
+ * Style (Default/Slim — the full-width flex row), Destination, and an optional
+ * Icon (the lucide picker reused from page settings). Live light/dark preview
+ * tiles above the fields repaint on every edit (buttonPreview.js). Legacy Primary/Secondary buttons still parse, but editing one
  * requires picking a colour (nothing pre-selected). Because a button holds no
  * sub-components, it needs neither a component container registration nor a
  * save-gate `_componentSaver` (it is never a parent in a child navigation).
@@ -30,7 +31,8 @@ import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js'
 import { generateUUID } from './admonitions.js';
 import { mergeSave } from './mergeSave.js';
 import { spliceIntoContainer } from './guides.js';
-import { attachIconPicker } from './iconPicker.js';
+import { attachIconPicker, getLucideSvgMarkup } from './iconPicker.js';
+import { renderButtonPreview } from './buttonPreview.js';
 import { loadLabelPalette } from './richTextEditor.js';
 import { markRequiredFields } from './formValidation.js';
 import {
@@ -44,7 +46,7 @@ const STORAGE_KEY = 'moreButtonsEditButton';
 function emptyFields() {
   // Colour deliberately unseeded: create starts with no swatch selected and the
   // required marker blocks save until one is picked.
-  return { buttonLabel: '', buttonColour: '', buttonTheme: 'default', buttonBorder: 'default', buttonDestination: '', icon: '', buttonNewTab: 'no' };
+  return { buttonLabel: '', buttonColour: '', buttonTheme: 'default', buttonBorder: 'default', buttonStyle: 'default', buttonDestination: '', icon: '', buttonNewTab: 'no' };
 }
 
 function readButtonFields(formEl) {
@@ -53,6 +55,7 @@ function readButtonFields(formEl) {
     colour: formEl.querySelector('[name="buttonColour"]:checked')?.value ?? '',
     theme: formEl.querySelector('[name="buttonTheme"]:checked')?.value ?? 'default',
     border: formEl.querySelector('[name="buttonBorder"]:checked')?.value ?? 'default',
+    style: formEl.querySelector('[name="buttonStyle"]:checked')?.value ?? 'default',
     destination: formEl.querySelector('[name="buttonDestination"]')?.value.trim() ?? '',
     icon: formEl.querySelector('[name="icon"]')?.value.trim() ?? '',
     newTab: formEl.querySelector('[name="buttonNewTab"]:checked')?.value === 'yes',
@@ -62,8 +65,8 @@ function readButtonFields(formEl) {
 // The single link line (no identity span — replaceButtonByUUID keeps the span).
 // `primary` only matters when colour is '' (a legacy button the merge engine
 // resolved without a colour) — buildButtonLines gives colour precedence.
-function buttonLineFrom({ label, destination, icon, colour, theme, border, primary, newTab }) {
-  return buildButtonLines([{ label, destination, icon, colour, theme, border, primary, newTab }])[1];
+function buttonLineFrom({ label, destination, icon, colour, theme, border, style, primary, newTab }) {
+  return buildButtonLines([{ label, destination, icon, colour, theme, border, style, primary, newTab }])[1];
 }
 
 // Build the 26 colour swatches as real radio inputs so form.js hydration,
@@ -104,6 +107,51 @@ function buildColourSwatches(formEl, groups) {
   markRequiredFields(formEl); // createForm's pass predates these inputs; idempotent
 }
 
+// Live light/dark preview tiles above the fields. Repaints on every input/
+// change (radio groups, Label/Icon typing — Destination/newTab repaints are
+// harmless no-ops). The lucide icon resolves through the picker's sanitized
+// CDN fetch: debounced so Label keystrokes stay instant, sequence-guarded so
+// a slow fetch never paints over a newer pick.
+function attachButtonPreview(formEl, flat) {
+  const host = formEl.querySelector('[data-button-preview]');
+  if (!host) return;
+
+  let seq = 0;
+  let iconTimer = null;
+  let iconSvg = '';
+  let iconName = null;
+
+  const paint = () => renderButtonPreview(host, { ...readButtonFields(formEl), iconSvg }, flat);
+
+  const resolveIcon = () => {
+    const value = formEl.querySelector('[name="icon"]')?.value.trim() ?? '';
+    const m = value.match(/^lucide\/([a-z0-9-]+)$/);
+    const name = m?.[1] ?? null;
+    if (name === iconName) return;
+    iconName = name;
+    if (!name) { iconSvg = ''; paint(); return; }
+    const mySeq = ++seq;
+    clearTimeout(iconTimer);
+    iconTimer = setTimeout(() => {
+      getLucideSvgMarkup(name).then(svg => {
+        if (mySeq !== seq || iconName !== name) return; // stale fetch
+        iconSvg = svg;
+        paint();
+      });
+    }, 200);
+  };
+
+  const repaint = () => { paint(); resolveIcon(); };
+  formEl.addEventListener('input', repaint);
+  formEl.addEventListener('change', repaint);
+
+  // createForm's storage hydration is a later macrotask and dispatches no
+  // events — paint the ghost now, then once more after hydration has applied
+  // saved values (storage callbacks service in issue order).
+  repaint();
+  chrome.storage.local.get(STORAGE_KEY, () => repaint());
+}
+
 function seedStorage(fields) {
   return chrome.storage.local.set({ [STORAGE_KEY]: fields });
 }
@@ -114,7 +162,7 @@ registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {})
   if (!container?.file) return;
   if (!isFormReplay()) await seedStorage(emptyFields());
 
-  const { groups } = await loadLabelPalette(); // before createForm — injection below must not await
+  const { groups, flat } = await loadLabelPalette(); // before createForm — injection below must not await
   const { formEl } = await createForm('editButton');
   if (!formEl) return;
   formEl.dataset.mode = 'create';
@@ -131,6 +179,7 @@ registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {})
 
   buildColourSwatches(formEl, groups);
   attachIconPicker(formEl.querySelector('[name="icon"]'));
+  attachButtonPreview(formEl, flat);
   resetDirtyBaseline(formEl);
 });
 
@@ -148,7 +197,7 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
 
   if (!isFormReplay()) await seedStorage(buttonDimFields(btn));
 
-  const { groups } = await loadLabelPalette(); // before createForm — injection below must not await
+  const { groups, flat } = await loadLabelPalette(); // before createForm — injection below must not await
   const { formEl } = await createForm('editButton');
   if (!formEl) return;
   formEl.dataset.mode = 'edit';
@@ -161,13 +210,14 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
 
   buildColourSwatches(formEl, groups);
   attachIconPicker(formEl.querySelector('[name="icon"]'));
+  attachButtonPreview(formEl, flat);
   resetDirtyBaseline(formEl);
 });
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 async function persistNewButton(formEl, onProgress = () => {}) {
-  const { label, colour, theme, border, destination, icon, newTab } = readButtonFields(formEl);
+  const { label, colour, theme, border, style, destination, icon, newTab } = readButtonFields(formEl);
   if (!colour) { alert('Colour is required.'); return null; }
   if (!destination) { alert('Destination is required.'); return null; }
   const newUuid = generateUUID();
@@ -178,7 +228,7 @@ async function persistNewButton(formEl, onProgress = () => {}) {
   };
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
-  const btn = { uuid: newUuid, label, destination, icon, colour, theme, border, primary: false, newTab };
+  const btn = { uuid: newUuid, label, destination, icon, colour, theme, border, style, primary: false, newTab };
   await spliceIntoContainer(parent, insertAt, [{ kind: 'button', btn }], onProgress);
   return { newUuid, file: parent.file };
 }
@@ -197,7 +247,7 @@ async function transitionButtonCreateToEdit(formEl, newUuid, file) {
   setCrumbLabel(f.label || 'Button');
   await seedStorage({
     buttonLabel: f.label, buttonColour: f.colour, buttonTheme: f.theme || 'default',
-    buttonBorder: f.border || 'default',
+    buttonBorder: f.border || 'default', buttonStyle: f.style || 'default',
     buttonDestination: f.destination, icon: f.icon,
     buttonNewTab: f.newTab ? 'yes' : 'no',
   });
@@ -220,6 +270,7 @@ async function persistButtonEdit(formEl, onProgress = () => {}) {
       { name: 'buttonColour', type: 'scalar', label: 'Colour' },
       { name: 'buttonTheme', type: 'scalar', label: 'Theme' },
       { name: 'buttonBorder', type: 'scalar', label: 'Border' },
+      { name: 'buttonStyle', type: 'scalar', label: 'Style' },
       { name: 'buttonDestination', type: 'scalar', label: 'Destination' },
       { name: 'icon', type: 'scalar', label: 'Icon' },
       { name: 'buttonNewTab', type: 'scalar', label: 'Open in new tab' },
@@ -235,6 +286,7 @@ async function persistButtonEdit(formEl, onProgress = () => {}) {
         colour: resolved.buttonColour,
         theme: resolved.buttonTheme,
         border: resolved.buttonBorder,
+        style: resolved.buttonStyle,
         primary: fresh.primary, // legacy fallback if merge resolves colour to ''
         newTab: resolved.buttonNewTab === 'yes',
       });

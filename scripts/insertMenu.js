@@ -228,16 +228,17 @@ export function isPopupMenuOpen() { return !!openEl; }
 /**
  * @param {HTMLElement} triggerEl - the clicked "+ Insert Component" button.
  * @param {number} insertAtIndex - component index to insert at.
- * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, grid:Function, video:Function, button:Function, navLinks:Function, diagram:Function, pasteMarkdown:Function}} handlers
+ * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, grid:Function, image:Function, video:Function, button:Function, navLinks:Function, diagram:Function, pasteMarkdown:Function}} handlers
  *   Each receives `insertAtIndex`.
- * @param {{capturesOnly?: boolean}} [opts] - capturesOnly renders just the two
- *   capture choices flat (no submenu / other kinds), for hosts where a cell can
- *   only hold a capture (data-table cells).
+ * @param {{capturesOnly?: boolean}} [opts] - capturesOnly renders just the
+ *   media choices flat (no submenu / other kinds), for hosts where a cell can
+ *   only hold a capture or image (data-table cells).
  */
 export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
   const items = opts.capturesOnly ? [
     { id: 'capture-new', label: 'Create a new capture' },
-    { id: 'capture-library', label: 'Add from library' },
+    { id: 'capture-library', label: 'Add capture from library' },
+    { id: 'image', label: 'Add image from library' },
   ] : [
     { id: 'admonition', label: 'Admonition' },
     {
@@ -250,6 +251,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
     { id: 'content-tabs', label: 'Content tabs' },
     { id: 'data-table', label: 'Data table' },
     { id: 'grid', label: 'Grid' },
+    { id: 'image', label: 'Image' },
     { id: 'video', label: 'Video' },
     { id: 'button', label: 'Button' },
     { id: 'nav-links', label: 'Nav links' },
@@ -265,6 +267,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
     'content-tabs': handlers.contentTabs,
     'data-table': handlers.dataTable,
     'grid': handlers.grid,
+    'image': handlers.image,
     'video': handlers.video,
     'button': handlers.button,
     'nav-links': handlers.navLinks,

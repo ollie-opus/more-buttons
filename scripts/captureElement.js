@@ -293,7 +293,7 @@ function sampleBackgroundColor(el) {
   return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'rgb(255,255,255)';
 }
 
-function getElementLabel(el) {
+export function getElementLabel(el) {
   const clean = s => s?.trim().replace(/\s*\([^)]*\)/g, '').trim() || null;
   const legendEl = el.tagName === 'FIELDSET' ? el.querySelector('legend') : null;
   const firstLine = () => {
@@ -476,9 +476,16 @@ function looksLikeOpaqueId(s) {
 // part) — captureBasePath strips exactly this prefix, so the two must agree.
 const LIBRARY_PREFIX = 'media/occ-captures';
 
+// Slug treatment shared by the capture's own base name and (via captureMode)
+// the annotated-element names spliced into the flag suffix — the two must
+// never drift apart.
+export function slugifyLabel(raw) {
+  return (raw || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+}
+
 function deriveFilename(el, forcedTheme) {
   const rawLabel = getElementLabel(el);
-  const slug = (rawLabel || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+  const slug = slugifyLabel(rawLabel);
   const theme = forcedTheme
     ? `${forcedTheme}-mode`
     : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark-mode' : 'light-mode');

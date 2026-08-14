@@ -375,24 +375,26 @@ export function columnMenuItems(st, col) {
   ];
 }
 
-export function cellMenuItems(st, row, col, { hasCapture = false } = {}) {
+export function cellMenuItems(st, row, col, { mediaKind = null } = {}) {
   if (row === -1) {
-    // Header cells hold column titles only — no captures.
+    // Header cells hold column titles only — no media.
     return [{ id: 'cell-clear', label: 'Clear cell', icon: 'backspace' }];
   }
-  if (hasCapture) {
+  if (mediaKind) {
+    // mediaKind: 'capture' | 'image' — same ids, kind-specific labels.
     return [
-      { id: 'cell-edit-capture', label: 'Edit capture', icon: 'photo_camera' },
+      { id: 'cell-edit-capture', label: `Edit ${mediaKind}`, icon: 'photo_camera' },
       { divider: true },
-      { id: 'cell-remove-capture', label: 'Remove capture', icon: 'delete', danger: true },
+      { id: 'cell-remove-capture', label: `Remove ${mediaKind}`, icon: 'delete', danger: true },
     ];
   }
   return [
     {
-      id: 'cell-capture', label: 'Insert capture', icon: 'photo_camera',
+      id: 'cell-capture', label: 'Insert media', icon: 'photo_camera',
       submenu: [
         { id: 'cell-capture-new', label: 'Create a new capture' },
-        { id: 'cell-capture-library', label: 'Add from library' },
+        { id: 'cell-capture-library', label: 'Add capture from library' },
+        { id: 'cell-image-library', label: 'Add image from library' },
       ],
     },
     { divider: true },

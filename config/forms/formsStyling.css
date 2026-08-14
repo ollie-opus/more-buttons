@@ -729,6 +729,31 @@ button.more-buttons-crumb:hover {
   color: var(--mb-text-muted);
 }
 
+/* ── Integrations hub tiles ───────────────────────────────────────────────── */
+
+.mb-integration-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mb-integration-tile {
+  justify-content: flex-start;
+}
+
+.mb-integration-tile .mb-integration-status {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+.mb-integration-status {
+  font-size: 12px;
+  color: var(--mb-text-muted);
+}
+
+.mb-integration-status.--ok { color: #16a34a; }
+.mb-integration-status.--warn { color: var(--mb-acc-busy); }
+
 /* ── Capture Entry: light/dark cards ──────────────────────────────────────── */
 
 /* Input column of the capture-path form row: input plus optional hint below. */
@@ -794,6 +819,96 @@ button.more-buttons-crumb:hover {
   display: block;
   border-radius: 6px;
 }
+
+/* ── Button edit: live light/dark preview tiles ───────────────────────────────
+   Reuses .mb-capture-entry-grid for the two-up layout, but NOT the capture
+   cards: their tile chrome is the CONTRASTING backdrop (light capture on a
+   dark card). A button preview must simulate the actual page instead — light
+   tile = white page, dark tile = the KB's slate background — so the tile named
+   for a mode is painted in that mode. buttonPreview.js sets the button's
+   bg/colour/border-colour inline per tile from labelColours.json. */
+
+[data-button-preview][hidden] { display: none; } /* popup.html has no host [hidden] patch */
+
+.mb-btn-tile {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid;
+  min-width: 0;
+}
+
+.mb-btn-tile--light {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+/* The KB slate scheme's page background (--md-default-bg-color at --md-hue:225). */
+.mb-btn-tile--dark {
+  background: hsl(225, 15%, 5%);
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+.mb-btn-tile__title {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+/* Synthesized .md-button at the KB's effective sizes (20px root → paragraph
+   15px, radius 1.2rem → 24px, padding .625em 2em). Colours arrive inline. */
+.mb-btn-preview {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.5;
+  padding: .625em 2em;
+  border-radius: 24px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  cursor: pointer;
+  transition: filter 125ms;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Slim style — keep in lockstep with the KB buttons.css --slim rule. */
+.mb-btn-preview--slim {
+  display: flex;
+  align-self: stretch;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 500;
+  padding: .4em .9em;
+  border-radius: 6px;
+}
+
+.mb-btn-preview .twemoji {
+  display: inline-flex;
+  height: 1.125em;
+  vertical-align: text-top;
+  flex-shrink: 0;
+}
+.mb-btn-preview .twemoji svg {
+  width: 1.125em;
+  max-height: 100%;
+  fill: transparent;
+  stroke: currentColor;
+}
+
+/* No colour picked yet (create mode): a ghost so Label/Icon still preview. */
+.mb-btn-preview--ghost {
+  border: 1px dashed currentColor;
+  opacity: 0.55;
+}
+
+.mb-btn-preview:hover { filter: var(--mb-btn-hover, none); }
 
 /* ── Capture upload: PNG file pickers ─────────────────────────────────────── */
 
@@ -1150,6 +1265,93 @@ button.more-buttons-crumb:hover {
   color: var(--mb-text-muted);
   margin: 0 0 6px 0;
 }
+/* Rich card body previews (renderDocHtml output) — mirrors the .mb-rte__surface
+   typography; links are decorative here, previews don't navigate. */
+.mb-card-rich { overflow-wrap: anywhere; }
+.mb-card-rich ul,
+.mb-card-rich ol { margin: 2px 0; padding-left: 20px; }
+.mb-card-rich ul { list-style: disc; }
+.mb-card-rich ol { list-style: decimal; }
+.mb-card-rich li > ul,
+.mb-card-rich li > ol { margin: 0; }
+.mb-card-rich ul ul { list-style: circle; }
+.mb-card-rich ul ul ul { list-style: square; }
+.mb-card-rich mark { background-color: #fef08a; color: inherit; }
+.mb-card-rich u { text-decoration: underline; }
+.mb-card-rich s { text-decoration: line-through; }
+.mb-card-rich a { color: #3b82f6; text-decoration: underline; pointer-events: none; }
+.mb-card-rich code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--mb-code-bg);
+  border: 1px solid var(--mb-border-subtle);
+  color: inherit;
+}
+/* Collapsed state: clamp the fully rendered HTML at N line boxes (Chrome-only
+   extension, so -webkit-line-clamp is safe); overflow:hidden also makes
+   scrollHeight > clientHeight a reliable overflow test for applyCardClamps. */
+.mb-incident-card__body[data-card-clamp] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--mb-card-clamp, 3);
+  overflow: hidden;
+}
+/* Preview wrapper: description + nested sub-component stack + one shared
+   Show more toggle. Expansion lives on the wrapper: it unclamps the
+   description and reveals the hidden rest of the subs. */
+.mb-card-preview { margin: 0 0 6px; }
+.mb-card-preview > [data-card-clamp] { margin-bottom: 0; }
+.mb-card-preview.--expanded [data-card-clamp] {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.mb-card-subs { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.mb-card-subs-rest { display: none; }
+.mb-card-preview.--expanded .mb-card-subs-rest {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Inert compact sub-cards — inherit the --{colour} accent variants from
+   .mb-incident-card; no foot, no actions. */
+.mb-card-sub { margin-bottom: 0; padding: 6px 9px; border-radius: 6px; }
+.mb-card-sub .mb-incident-card__title { font-size: 0.75rem; }
+.mb-card-sub .mb-incident-card__badge { font-size: 0.5625rem; }
+.mb-card-sub__body {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--mb-text-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+/* Bare media subs (captures/images/videos) — no card chrome; size/look comes
+   from the shared .mb-component-card__thumb class (64px capture-card thumb).
+   align-self overrides the flex column's default stretch, which would pull the
+   media to full container width while max-height caps it — warping the
+   aspect ratio. */
+.mb-card-sub-media {
+  display: block;
+  align-self: flex-start;
+}
+.mb-card-expand {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: -2px 0 6px;
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #3b82f6;
+  cursor: pointer;
+}
+/* display:block above defeats the UA's [hidden] rule — restore it (same
+   pattern as the .mb-rte__*[hidden] rules). */
+.mb-card-expand[hidden] { display: none; }
 .mb-incident-card__foot {
   display: flex;
   justify-content: space-between;

@@ -11,6 +11,7 @@ import {
 } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 import { formLoading } from './loading.js';
+import { buildUsagePanelHtml, wireUsagePanel } from './usagePanel.js';
 
 // Cold-DOM hand-off for the recapture round-trip. While the user hunts for an
 // element in Capture Mode they can navigate to other pages; a Turbo navigation
@@ -87,6 +88,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
   }
 
   let pendingCapture = null; // { lightDataUrl, darkDataUrl }
+  let usageHtml = ''; // "Used on pages" block, loaded once per open (browse only)
 
   function renderPreview() {
     bodyEl.innerHTML =
@@ -99,7 +101,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         ? captureSizeField({ dimMode: 'height', dimValue: 50 })
           + (darkPath ? captureThemeField() : '')
           + captureCornerField()
-        : '');
+        : usageHtml);
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
       ? `<button type="button" class="more-buttons-button secondary" data-capture-entry-insert-cancel><span class="more-buttons-icon">close</span>Cancel</button>
@@ -313,9 +315,14 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
     }
   });
 
+  if (!insertMode) wireUsagePanel(formEl);
+
   formLoading.show();
   try {
-    await loadRepoImages();
+    await Promise.all([
+      loadRepoImages(),
+      (async () => { if (!insertMode) usageHtml = await buildUsagePanelHtml([lightPath, darkPath]); })(),
+    ]);
   } finally {
     formLoading.dismiss();
   }

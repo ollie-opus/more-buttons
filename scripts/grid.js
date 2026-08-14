@@ -47,6 +47,9 @@ function valignFromStyle(style) {
 // Any div opener (depth counting inside cell bodies / nested grids).
 const DIV_OPEN_ANY_RE = /^\s*<div(?:\s|>)/;
 const DIV_CLOSE_RE = /^\s*<\/div>\s*$/;
+// A div that opens AND closes on one line (e.g. the nav-links placeholder
+// `<div class="mb-nav-links" …></div>`) — net-zero for depth tracking.
+const DIV_SELFCLOSED_RE = /^\s*<div\b[^>]*>.*<\/div>\s*$/;
 const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
 const TAB_HEADER_RE = /^\s*=== "/;
 
@@ -125,6 +128,7 @@ export function locateGrids(markdown) {
     let cellValign = 'default';// the open cell's vertical alignment, applied on close
     while (j < lines.length && depth > 0) {
       const line = lines[j];
+      if (DIV_SELFCLOSED_RE.test(line)) { j++; continue; }
       const isClose = DIV_CLOSE_RE.test(line);
       const cm = (!isClose && depth === 1) ? line.match(CELL_OPEN_RE) : null;
       if (cm && cm[1] === indent) {
@@ -229,6 +233,7 @@ export function locateGridByUUID(lines, uuid) {
   let depth = 1;
   let j = spanIdx + 2;
   for (; j < lines.length; j++) {
+    if (DIV_SELFCLOSED_RE.test(lines[j])) continue;
     if (DIV_OPEN_ANY_RE.test(lines[j])) depth++;
     else if (DIV_CLOSE_RE.test(lines[j])) { depth--; if (depth === 0) break; }
   }

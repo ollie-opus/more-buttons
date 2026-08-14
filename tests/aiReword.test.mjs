@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   resolveScope, spliceReplacement, normalizeModelOutput, stripInventedHeadings,
-  validatePromptsConfig, createAiUndo, deriveUi, samplingOptions,
+  validatePromptsConfig, createAiUndo, deriveUi, buildGeminiRequest,
+  parseGeminiResponse, DEFAULT_MODEL,
 } from '../scripts/aiReword.js';
 
 let passed = 0;
@@ -63,19 +64,19 @@ test('null/undefined become empty string', () => {
 });
 
 // validatePromptsConfig
-test('valid config normalizes to an array of {label, system} in file order', () => {
+test('valid config normalizes to prompts of {label, system} in file order', () => {
   const out = validatePromptsConfig([
     { label: 'Simple', system: 'be simple' },
     { label: 'Advanced', system: 'be advanced' },
   ]);
-  assert.deepEqual(out, [
+  assert.deepEqual(out.prompts, [
     { label: 'Simple', system: 'be simple' },
     { label: 'Advanced', system: 'be advanced' },
   ]);
 });
 test('extra fields on an entry are dropped', () => {
   const out = validatePromptsConfig([{ label: 'A', system: 's', note: 'ignored' }]);
-  assert.deepEqual(out, [{ label: 'A', system: 's' }]);
+  assert.deepEqual(out.prompts, [{ label: 'A', system: 's' }]);
 });
 test('empty array throws', () => {
   assert.throws(() => validatePromptsConfig([]), /at least one/);
@@ -93,19 +94,19 @@ test('object shape: shared is appended to every system with a blank line', () =>
       { label: 'Advanced', system: 'be advanced' },
     ],
   });
-  assert.deepEqual(out, [
+  assert.deepEqual(out.prompts, [
     { label: 'Simple', system: 'be simple\n\nformatting rules' },
     { label: 'Advanced', system: 'be advanced\n\nformatting rules' },
   ]);
 });
 test('object shape without shared leaves systems untouched', () => {
   assert.deepEqual(
-    validatePromptsConfig({ prompts: [{ label: 'A', system: 's' }] }),
+    validatePromptsConfig({ prompts: [{ label: 'A', system: 's' }] }).prompts,
     [{ label: 'A', system: 's' }]);
 });
 test('blank shared is ignored', () => {
   assert.deepEqual(
-    validatePromptsConfig({ shared: '   ', prompts: [{ label: 'A', system: 's' }] }),
+    validatePromptsConfig({ shared: '   ', prompts: [{ label: 'A', system: 's' }] }).prompts,
     [{ label: 'A', system: 's' }]);
 });
 test('non-string shared throws', () => {
@@ -118,11 +119,11 @@ test('object shape with empty prompts throws', () => {
 });
 test('entry description is passed through', () => {
   assert.deepEqual(
-    validatePromptsConfig([{ label: 'A', system: 's', description: 'Shortens the text.' }]),
+    validatePromptsConfig([{ label: 'A', system: 's', description: 'Shortens the text.' }]).prompts,
     [{ label: 'A', system: 's', description: 'Shortens the text.' }]);
 });
 test('entry without description stays description-free', () => {
-  assert.deepEqual(validatePromptsConfig([{ label: 'A', system: 's' }]),
+  assert.deepEqual(validatePromptsConfig([{ label: 'A', system: 's' }]).prompts,
     [{ label: 'A', system: 's' }]);
 });
 test('non-string description throws', () => {
@@ -143,7 +144,7 @@ test('entry with shared:false skips the shared block', () => {
         { label: 'Rewrite', system: 'rewrite it' },
         { label: 'Proofread', system: 'fix errors only', shared: false },
       ],
-    }),
+    }).prompts,
     [
       { label: 'Rewrite', system: 'rewrite it\n\nformatting rules' },
       { label: 'Proofread', system: 'fix errors only' },
@@ -177,24 +178,99 @@ test('blank system throws', () => {
 test('null throws', () => {
   assert.throws(() => validatePromptsConfig(null), /must be an array/);
 });
+test('explicit model passes through trimmed', () => {
+  assert.equal(
+    validatePromptsConfig({ model: '  gemini-2.5-pro ', prompts: [{ label: 'A', system: 's' }] }).model,
+    'gemini-2.5-pro');
+});
+test('absent model defaults', () => {
+  assert.equal(
+    validatePromptsConfig({ prompts: [{ label: 'A', system: 's' }] }).model,
+    DEFAULT_MODEL);
+});
+test('legacy array shape defaults the model', () => {
+  assert.equal(validatePromptsConfig([{ label: 'A', system: 's' }]).model, DEFAULT_MODEL);
+});
+test('non-string model throws', () => {
+  assert.throws(
+    () => validatePromptsConfig({ model: 7, prompts: [{ label: 'A', system: 's' }] }),
+    /"model"/);
+});
+test('blank model throws', () => {
+  assert.throws(
+    () => validatePromptsConfig({ model: '  ', prompts: [{ label: 'A', system: 's' }] }),
+    /"model"/);
+});
 
-// samplingOptions
-test('normal params clamp to the low-variance editing profile', () => {
-  assert.deepEqual(
-    samplingOptions({ defaultTemperature: 1, maxTemperature: 2, defaultTopK: 3, maxTopK: 8 }),
-    { temperature: 0.3, topK: 3 });
+// buildGeminiRequest
+test('request targets the configured model', () => {
+  const { url } = buildGeminiRequest({ model: 'gemini-3.5-flash', apiKey: 'k', system: 's', text: 't' });
+  assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent');
 });
-test('tight caps are respected', () => {
-  assert.deepEqual(
-    samplingOptions({ defaultTemperature: 0.2, maxTemperature: 0.2, defaultTopK: 1, maxTopK: 1 }),
-    { temperature: 0.2, topK: 1 });
+test('the key travels in the x-goog-api-key header', () => {
+  const { headers } = buildGeminiRequest({ model: 'm', apiKey: 'AIza-test', system: 's', text: 't' });
+  assert.equal(headers['x-goog-api-key'], 'AIza-test');
+  assert.equal(headers['Content-Type'], 'application/json');
 });
-test('missing params yield no overrides (create() uses its defaults)', () => {
-  assert.deepEqual(samplingOptions(null), {});
-  assert.deepEqual(samplingOptions(undefined), {});
+test('request body carries system, text, and deterministic minimal-thinking config', () => {
+  const { body } = buildGeminiRequest({ model: 'gemini-3.5-flash', apiKey: 'k', system: 'sys prompt', text: 'the text' });
+  assert.deepEqual(body, {
+    systemInstruction: { parts: [{ text: 'sys prompt' }] },
+    contents: [{ role: 'user', parts: [{ text: 'the text' }] }],
+    generationConfig: { temperature: 0.3, thinkingConfig: { thinkingLevel: 'minimal' } },
+  });
 });
-test('non-numeric fields yield no overrides', () => {
-  assert.deepEqual(samplingOptions({ maxTemperature: 'x', maxTopK: 8 }), {});
+test('2.x models get thinkingBudget 0, never thinkingLevel (mixing is a 400)', () => {
+  const { body } = buildGeminiRequest({ model: 'gemini-2.5-flash', apiKey: 'k', system: 's', text: 't' });
+  assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+});
+test('non-2.x models get thinkingLevel minimal', () => {
+  for (const model of ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3-pro']) {
+    const { body } = buildGeminiRequest({ model, apiKey: 'k', system: 's', text: 't' });
+    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: 'minimal' });
+  }
+});
+
+// parseGeminiResponse
+test('happy path joins multi-part output', () => {
+  assert.equal(
+    parseGeminiResponse(200, { candidates: [{ content: { parts: [{ text: 'a' }, { text: 'b' }] } }] }),
+    'ab');
+});
+test('429 maps to a wait-a-minute message', () => {
+  assert.throws(() => parseGeminiResponse(429, {}), /wait a minute/);
+});
+test('403 maps to the key message pointing at Integrations', () => {
+  assert.throws(() => parseGeminiResponse(403, {}), /Integrations/);
+});
+test('400 with API_KEY_INVALID detail maps to the key message', () => {
+  assert.throws(
+    () => parseGeminiResponse(400, { error: { details: [{ reason: 'API_KEY_INVALID' }] } }),
+    /Integrations/);
+});
+test('400 with API_KEY_INVALID in the message maps to the key message', () => {
+  assert.throws(
+    () => parseGeminiResponse(400, { error: { message: 'API key not valid [API_KEY_INVALID]' } }),
+    /Integrations/);
+});
+test('other non-2xx surfaces the API error message', () => {
+  assert.throws(() => parseGeminiResponse(500, { error: { message: 'backend exploded' } }),
+    /backend exploded/);
+  assert.throws(() => parseGeminiResponse(503, {}), /HTTP 503/);
+});
+test('safety block maps to a clear message', () => {
+  assert.throws(
+    () => parseGeminiResponse(200, { promptFeedback: { blockReason: 'SAFETY' } }),
+    /safety/i);
+});
+test('missing or empty candidates map to a no-rewrite message', () => {
+  assert.throws(() => parseGeminiResponse(200, {}), /no rewrite/);
+  assert.throws(() => parseGeminiResponse(200, { candidates: [{ content: { parts: [] } }] }), /no rewrite/);
+});
+test('parts without text join as empty strings', () => {
+  assert.equal(
+    parseGeminiResponse(200, { candidates: [{ content: { parts: [{ text: 'a' }, {}] } }] }),
+    'a');
 });
 
 // stripInventedHeadings
@@ -256,37 +332,28 @@ test('ready: enabled, no status', () => {
   assert.deepEqual(deriveUi({ kind: 'ready' }),
     { actionsEnabled: true, statusText: '', spin: false, isError: false });
 });
-test('downloadable: enabled with a download warning', () => {
-  const ui = deriveUi({ kind: 'downloadable' });
-  assert.equal(ui.actionsEnabled, true);
-  assert.match(ui.statusText, /download/i);
-});
-test('downloading: disabled + spinner', () => {
-  const ui = deriveUi({ kind: 'downloading' });
+test('no-key: disabled with the Integrations hint, not an error', () => {
+  const ui = deriveUi({ kind: 'no-key' });
   assert.equal(ui.actionsEnabled, false);
-  assert.equal(ui.spin, true);
+  assert.equal(ui.isError, false);
+  assert.match(ui.statusText, /Integrations/);
 });
-test('unavailable: disabled with an explanation', () => {
-  const ui = deriveUi({ kind: 'unavailable' });
-  assert.equal(ui.actionsEnabled, false);
-  assert.match(ui.statusText, /not available/i);
+test('retired Nano download states fall through to the inert default', () => {
+  for (const kind of ['downloadable', 'downloading', 'unavailable']) {
+    assert.deepEqual(deriveUi({ kind }),
+      { actionsEnabled: false, statusText: '', spin: false, isError: false });
+  }
 });
 test('empty: disabled with a hint', () => {
   const ui = deriveUi({ kind: 'empty' });
   assert.equal(ui.actionsEnabled, false);
   assert.match(ui.statusText, /nothing to rewrite/i);
 });
-test('working without progress says Rewriting', () => {
+test('working says Rewriting with a spinner', () => {
   const ui = deriveUi({ kind: 'working' });
   assert.equal(ui.actionsEnabled, false);
   assert.equal(ui.spin, true);
   assert.match(ui.statusText, /rewriting/i);
-});
-test('working with partial progress shows the download percentage', () => {
-  assert.match(deriveUi({ kind: 'working', progress: 0.42 }).statusText, /42%/);
-});
-test('working with complete progress goes back to Rewriting', () => {
-  assert.match(deriveUi({ kind: 'working', progress: 1 }).statusText, /rewriting/i);
 });
 test('error: enabled again, marked as error, custom message', () => {
   const ui = deriveUi({ kind: 'error', message: 'boom' });

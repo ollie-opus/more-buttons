@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { migrateComponentIdentity } from '../scripts/github.js';
-import { locateCaptureLines } from '../scripts/components.js';
+import { locateCaptureLines, locateImageLines } from '../scripts/components.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -46,6 +46,20 @@ test('system-updates drafts file is also migrated', () => {
   assert.ok(c.uuid, 'capture should have a uuid after migration');
 });
 
+test('guide draft: a uuid-less single image gets a data-uuid span backfilled', () => {
+  const md = ['# Title', '', '## Section One', '', '![](../assets/media/buttons/x.png)', ''].join('\n');
+  const out = migrateComponentIdentity('docs/drafts/some-guide.md', md);
+  const [img] = locateImageLines(out);
+  assert.ok(img.uuid, 'image should have a uuid after migration');
+});
+
+test('system-updates.md: single images in update bodies get uuids', () => {
+  const md = ['/// feature-release | New | 5th June 2026', '', '![](../assets/media/buttons/y.svg)', '///', ''].join('\n');
+  const out = migrateComponentIdentity('docs/pages/system-updates.md', md);
+  const [img] = locateImageLines(out);
+  assert.ok(img.uuid, 'image should have a uuid after migration');
+});
+
 // ── Safety: never touch non-component files ───────────────────────────────────
 
 test('non-component file (zensical.toml) is returned byte-for-byte unchanged', () => {
@@ -73,6 +87,35 @@ test('already-migrated capture is not double-spanned', () => {
   const spanCount = (once.match(/data-uuid/g) || []).length;
   const twice = migrateComponentIdentity('docs/drafts/g.md', once);
   assert.equal((twice.match(/data-uuid/g) || []).length, spanCount);
+});
+
+test('system-status.md: legacy event cards migrate to the pill format, idempotently', () => {
+  const md = [
+    '## Services', '',
+    '!!! status-available "Server"', '', '    <span data-uuid="s1" style="display:none"></span>', '', '', '    **Status:** AVAILABLE', '',
+    '---', '',
+    '## Active Events', '',
+    '!!! status-outage "Server"', '',
+    '    <span data-uuid="i1" style="display:none"></span>', '',
+    '    - **Service Impact:** OUTAGE',
+    '    - **Current Status:** `Ongoing`',
+    '    - **Description:** Down',
+    '    - **Reported:** 2026-08-13 09:00',
+    '    - **Resolved:** ',
+    '    - **Causation:** ',
+    '',
+    '---', '',
+    '## Past Events', '',
+    '??? outline "View past events"', '',
+  ].join('\n');
+  const now = Date.parse('2026-08-14T00:00Z');
+  const once = migrateComponentIdentity('docs/pages/system-status.md', md, now);
+  assert.ok(once.includes('!!! status-outage "<span class="mb-label mb-label-red">OUTAGE</span>"'));
+  assert.ok(once.includes('- **Services Affected:** Server'));
+  assert.ok(!once.includes('Service Impact'));
+  // Ongoing outage on Server flips the tile via the recalc that ends the hook.
+  assert.ok(once.includes('!!! status-outage "Server"'));
+  assert.equal(migrateComponentIdentity('docs/pages/system-status.md', once, now), once);
 });
 
 console.log(`\n${passed} passed`);

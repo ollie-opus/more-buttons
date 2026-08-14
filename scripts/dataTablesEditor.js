@@ -40,7 +40,7 @@ import { generateUUID } from './admonitions.js';
 import { getComponentContainer, registerComponentContainer } from './componentContainers.js';
 import {
   getDataTableByUUID, buildDataTable, replaceDataTableByUUID, deleteDataTableByUUID,
-  parseCellCapture, serializeCellCapture,
+  parseCellMedia, serializeCellCapture, serializeCellImage,
 } from './dataTables.js';
 import {
   clampSelection, insertRow, insertColumn, moveRow, moveColumn,
@@ -77,11 +77,12 @@ function starterTable() {
   };
 }
 
-// The selected cell parsed into { text, capture } (exclusive — dataTables.js).
-// Header cells never hold captures.
-function captureOfCell(st, row, col) {
-  const { text, capture } = parseCellCapture(cellAt(st, row, col));
-  return { text, capture: row === -1 ? null : capture };
+// The selected cell parsed into { text, capture, image } (exclusive —
+// dataTables.js). Header cells never hold media.
+function mediaOfCell(st, row, col) {
+  const { text, capture, image } = parseCellMedia(cellAt(st, row, col));
+  if (row === -1) return { text, capture: null, image: null };
+  return { text, capture, image };
 }
 
 // Mirror the table into the single named input that drives dirty tracking
@@ -123,27 +124,29 @@ function colLetter(i) {
 function cellPreview(text) {
   // A capture cell holds dual (light+dark) inline image markdown; preview it as
   // a single light-mode thumbnail rather than letting the mini-renderer stack
-  // both themed images.
-  const { capture } = parseCellCapture(text ?? '');
-  if (capture) {
-    return `<img class="mb-dt-cell__capture" src="${escapeHtml(assetCdnUrl('docs/assets/' + capture.lightFilename))}" alt="" loading="lazy" />`;
+  // both themed images. An image cell is a single file — same thumbnail.
+  const { capture, image } = parseCellMedia(text ?? '');
+  if (capture || image) {
+    const file = capture ? capture.lightFilename : image.filename;
+    return `<img class="mb-dt-cell__capture" src="${escapeHtml(assetCdnUrl('docs/assets/' + file))}" alt="" loading="lazy" />`;
   }
   return renderDocHtml(text ?? '') || '<span class="mb-dt-cell__empty">…</span>';
 }
 
-// The top toolbar is inert while the selected cell holds a capture (there is
-// no text to format; capture ops live in the cell menu).
+// The top toolbar is inert while the selected cell holds media (there is
+// no text to format; media ops live in the cell menu).
 function refreshToolbarState(formEl) {
   const bar = formEl.querySelector('[data-dt-toolbar]');
   if (!bar) return;
   const st = formEl._dt;
-  const { capture } = captureOfCell(st, st.selected.row, st.selected.col);
-  bar.classList.toggle('mb-dt-toolbar--disabled', !!capture);
-  // Insert Capture sits outside .mb-rte__btns (and header cells keep the text
-  // toolbar live), so its state is per-button: a cell holds 0-or-1 capture and
-  // header cells never hold one.
+  const { capture, image } = mediaOfCell(st, st.selected.row, st.selected.col);
+  const media = capture || image;
+  bar.classList.toggle('mb-dt-toolbar--disabled', !!media);
+  // Insert Media sits outside .mb-rte__btns (and header cells keep the text
+  // toolbar live), so its state is per-button: a cell holds 0-or-1 media item
+  // and header cells never hold one.
   const btn = formEl._dtInsertCaptureBtn;
-  if (btn) btn.disabled = !!capture || st.selected.row === -1;
+  if (btn) btn.disabled = !!media || st.selected.row === -1;
 }
 
 function renderGrid(formEl) {
@@ -282,7 +285,8 @@ function startEditing(formEl, { caret = 'end', replaceWith = null } = {}) {
   if (!st || !rte || formEl._dtEdit) return;
   const { row, col } = st.selected;
   const raw = cellAt(st, row, col);
-  if (captureOfCell(st, row, col).capture) return; // capture cells: no text editing
+  const media = mediaOfCell(st, row, col);
+  if (media.capture || media.image) return; // media cells: no text editing
   const td = formEl.querySelector(`[data-dt-cell-at="${row}:${col}"]`);
   if (!td) return;
   if (st.anchor) { collapseRange(st); paintRange(formEl); } // editing collapses a range
@@ -404,35 +408,38 @@ function openColumnMenu(formEl, col, anchor, opts) {
   }, opts);
 }
 
-// Insert a capture into the SELECTED cell (the container the save-gate
+// Insert a capture/image into the SELECTED cell (the container the save-gate
 // resolves via selectedCellRef). Shared by the cell context menu and the
-// toolbar's Insert Capture button. A cell is exclusively text OR a capture,
+// toolbar's Insert Media button. A cell is exclusively text OR media,
 // so text cells confirm the replacement first.
 function insertCaptureIntoSelectedCell(formEl, kind) {
   const st = formEl._dt;
-  const { text, capture } = captureOfCell(st, st.selected.row, st.selected.col);
-  if (capture || st.selected.row === -1) return;
-  if (text.trim() && !confirm('This cell has text. Replace it with a capture?')) return;
+  const { text, capture, image } = mediaOfCell(st, st.selected.row, st.selected.col);
+  if (capture || image || st.selected.row === -1) return;
+  if (text.trim() && !confirm('This cell has text. Replace it?')) return;
   beginChildNavigation(formEl, { type: 'insert', kind, insertAt: 0 });
 }
 
 function openCellMenu(formEl, row, col, anchor, opts) {
   const st = formEl._dt;
-  const { capture } = captureOfCell(st, row, col);
-  openPopupMenu(anchor, cellMenuItems(st, row, col, { hasCapture: !!capture }), id => {
+  const { capture, image } = mediaOfCell(st, row, col);
+  const mediaKind = capture ? 'capture' : image ? 'image' : null;
+  openPopupMenu(anchor, cellMenuItems(st, row, col, { mediaKind }), id => {
     if (id === 'cell-clear' || id === 'cell-remove-capture') {
-      // Removing a capture is a normal unsaved edit: the whole-table save
+      // Removing media is a normal unsaved edit: the whole-table save
       // writes the emptied cell, exactly what writeCellBody with no
       // components produces.
       setCellAt(st, row, col, '');
       afterStructureChange(formEl);
       focusGrid(formEl);
-    } else if (id === 'cell-capture-new' || id === 'cell-capture-library') {
+    } else if (id === 'cell-capture-new' || id === 'cell-capture-library' || id === 'cell-image-library') {
       // The menu-open path selected (row, col), so the selected-cell insert
       // targets exactly the right-clicked cell.
-      insertCaptureIntoSelectedCell(formEl, id === 'cell-capture-new' ? 'capture-new' : 'capture-library');
+      insertCaptureIntoSelectedCell(formEl, { 'cell-capture-new': 'capture-new', 'cell-capture-library': 'capture-library', 'cell-image-library': 'image' }[id]);
     } else if (id === 'cell-edit-capture') {
-      beginChildNavigation(formEl, { type: 'edit-capture', uuid: capture.uuid });
+      beginChildNavigation(formEl, capture
+        ? { type: 'edit-capture', uuid: capture.uuid }
+        : { type: 'edit-image', uuid: image.uuid });
     }
   }, opts);
 }
@@ -588,10 +595,12 @@ function wireTableEditor(formEl) {
     const st = formEl._dt;
     collapseRange(st);
     st.selected = { row, col };
-    const { capture } = captureOfCell(st, row, col);
-    if (capture) {
+    const { capture, image } = mediaOfCell(st, row, col);
+    if (capture || image) {
       renderGrid(formEl);
-      beginChildNavigation(formEl, { type: 'edit-capture', uuid: capture.uuid });
+      beginChildNavigation(formEl, capture
+        ? { type: 'edit-capture', uuid: capture.uuid }
+        : { type: 'edit-image', uuid: image.uuid });
       return;
     }
     startEditing(formEl, { caret: 'all' });
@@ -653,8 +662,9 @@ function wireTableEditor(formEl) {
     }
     if (e.key === 'Enter' || e.key === 'F2') {
       e.preventDefault();
-      const { capture } = captureOfCell(st, st.selected.row, st.selected.col);
+      const { capture, image } = mediaOfCell(st, st.selected.row, st.selected.col);
       if (capture) beginChildNavigation(formEl, { type: 'edit-capture', uuid: capture.uuid });
+      else if (image) beginChildNavigation(formEl, { type: 'edit-image', uuid: image.uuid });
       else startEditing(formEl, { caret: 'end' });
       return;
     }
@@ -665,7 +675,8 @@ function wireTableEditor(formEl) {
         afterStructureChange(formEl);
         return;
       }
-      if (captureOfCell(st, st.selected.row, st.selected.col).capture) return; // menu owns capture removal
+      const del = mediaOfCell(st, st.selected.row, st.selected.col);
+      if (del.capture || del.image) return; // menu owns media removal
       setCellAt(st, st.selected.row, st.selected.col, '');
       afterStructureChange(formEl);
       return;
@@ -678,7 +689,8 @@ function wireTableEditor(formEl) {
     }
     // Type-to-replace: a printable character starts the cell over.
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      if (captureOfCell(st, st.selected.row, st.selected.col).capture) return;
+      const sel = mediaOfCell(st, st.selected.row, st.selected.col);
+      if (sel.capture || sel.image) return;
       e.preventDefault();
       startEditing(formEl, { replaceWith: e.key });
     }
@@ -752,20 +764,22 @@ function initCellEditor(formEl) {
   rte.surface.hidden = true;
   rte.textarea.hidden = true;
 
-  // Right-aligned "Insert Capture" on the toolbar: the discoverable twin of
+  // Right-aligned "Insert Media" on the toolbar: the discoverable twin of
   // the cell menu's insert flow. Datatable-only, so it is grafted onto the
   // shared RTE toolbar here rather than in richTextEditor's buildButtons.
+  // ("Add from library" covers captures AND single images — routed per file.)
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'mb-rte__btn mb-dt-insert-capture';
   btn.dataset.dtInsertCapture = '';
-  btn.innerHTML = '<span class="more-buttons-icon">photo_camera</span>Insert Capture';
+  btn.innerHTML = '<span class="more-buttons-icon">photo_camera</span>Insert Media';
   btn.addEventListener('mousedown', e => e.preventDefault()); // keep grid selection alive
   btn.addEventListener('click', () => {
     if (formEl._dtEdit) commitEditing(formEl); // the popup acts on the committed selected cell
     openInsertMenu(btn, 0, {
       captureNew: () => insertCaptureIntoSelectedCell(formEl, 'capture-new'),
       captureLibrary: () => insertCaptureIntoSelectedCell(formEl, 'capture-library'),
+      image: () => insertCaptureIntoSelectedCell(formEl, 'image'),
     }, { capturesOnly: true });
   });
   rte.toolbar.append(btn);
@@ -971,8 +985,11 @@ function readCellComponents(md, cellRef) {
   const tbl = getDataTableByUUID(md, tableUuid);
   if (!tbl) return { description: '', components: [] };
   const cellStr = row === -1 ? tbl.header[col] : tbl.rows[row]?.[col];
-  const { capture } = parseCellCapture(cellStr ?? '');
-  return { description: '', components: capture ? [{ kind: 'capture', cap: capture }] : [] };
+  const { capture, image } = parseCellMedia(cellStr ?? '');
+  return {
+    description: '',
+    components: capture ? [{ kind: 'capture', cap: capture }] : image ? [{ kind: 'image', img: image }] : [],
+  };
 }
 
 function writeCellBody(md, cellRef, _description, components) {
@@ -980,7 +997,8 @@ function writeCellBody(md, cellRef, _description, components) {
   const tbl = getDataTableByUUID(md, tableUuid);
   if (!tbl) return md;
   const cap = components.find(c => c.kind === 'capture')?.cap;
-  const cellStr = cap ? serializeCellCapture(cap) : '';
+  const img = components.find(c => c.kind === 'image')?.img;
+  const cellStr = cap ? serializeCellCapture(cap) : img ? serializeCellImage(img) : '';
   const header = tbl.header.slice();
   const rows = tbl.rows.map(r => r.slice());
   if (row === -1) header[col] = cellStr; else if (rows[row]) rows[row][col] = cellStr;

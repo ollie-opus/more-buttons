@@ -1,0 +1,30 @@
+<form id="gemini-integration-form" data-storage-key="moreButtonsGeminiIntegration" data-nav data-width="720px">
+  <h2>Google Gemini</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Gemini API key</label>
+    <input class="more-buttons-input-text" type="password" name="geminiApiKey" placeholder="AIza..." />
+  </div>
+
+  <p class="more-buttons-description">
+    This integration enables AI features in this extension. Create a free API key in Google AI Studio
+    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">here</a>
+    or by navigating to:<br />
+    <strong>aistudio.google.com</strong> → <strong>Get API key</strong> → <strong>Create API key</strong>.
+  </p>
+
+  <div class="mb-rate-limit" data-test-key-panel>
+    <div class="mb-rate-limit__head">
+      <span class="mb-rate-limit__title">Test key</span>
+      <button type="button" class="mb-rate-limit__refresh" data-test-key aria-label="Test API key">
+        <span class="material-symbols-outlined">play_arrow</span>
+      </button>
+    </div>
+    <div class="mb-rate-limit__meta" data-test-key-meta>Enter a key above, then press play to check it.</div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="save,close"><span class="more-buttons-icon">save</span>Save</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close"><span class="more-buttons-icon">close</span>Close</button>
+  </div>
+</form>

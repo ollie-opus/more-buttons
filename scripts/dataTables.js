@@ -298,20 +298,46 @@ function parseCellDimAttrs(attrs) {
   return { dimMode, dimValue };
 }
 
+// Whole-(trimmed)-cell match for a SINGLE image (no theme pair): optional
+// leading span, one hashless image, optional dim attrs. The filename must be
+// hash-free (`[^)#\s]+`), carry an image extension, and NOT be a theme half —
+// mirrors components.js's IMAGE_LINE_RE (local copies: leaf module, no import).
+const CELL_IMAGE_RE =
+  /^(?:<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>)?\s*!\[\]\(\.\.\/assets\/([^)#\s]+)\)(?:\{\s*([^}]+?)\s*\})?$/;
+const CELL_IMAGE_EXT_RE = /\.(png|svg|jpe?g|gif|webp)$/i;
+const CELL_IMAGE_MODE_SUFFIX_RE = /-(light|dark)-mode\.[a-z0-9]+$/i;
+
 /**
- * Interprets one cell string as either inline text or a capture. Returns
- * `{ text, capture }` where exactly one is meaningful: a capture cell yields
- * `capture = { uuid|null, lightFilename, darkFilename, dimMode, dimValue }` and
- * `text = ''`; any other cell yields `capture = null` and `text` = the original.
+ * Interprets one cell string as inline text, a capture pair, or a single
+ * image. Returns `{ text, capture, image }` where exactly one is meaningful:
+ * a capture cell yields `capture = { uuid|null, lightFilename, darkFilename,
+ * dimMode, dimValue }`, an image cell yields `image = { uuid|null, filename,
+ * dimMode, dimValue }`, any other cell yields `text` = the original.
+ */
+export function parseCellMedia(cell) {
+  const str = (cell ?? '').trim();
+  const cm = str.match(CELL_CAPTURE_RE);
+  if (cm) {
+    const lightFilename = cm[2];
+    const darkFilename = lightFilename.replace('-light-mode', '-dark-mode');
+    const { dimMode, dimValue } = parseCellDimAttrs(cm[3]);
+    return { text: '', capture: { uuid: cm[1] ?? null, lightFilename, darkFilename, dimMode, dimValue }, image: null };
+  }
+  const im = str.match(CELL_IMAGE_RE);
+  if (im && CELL_IMAGE_EXT_RE.test(im[2]) && !CELL_IMAGE_MODE_SUFFIX_RE.test(im[2])) {
+    const { dimMode, dimValue } = parseCellDimAttrs(im[3]);
+    return { text: '', capture: null, image: { uuid: im[1] ?? null, filename: im[2], dimMode, dimValue } };
+  }
+  return { text: cell ?? '', capture: null, image: null };
+}
+
+/**
+ * Interprets one cell string as either inline text or a capture. Kept for the
+ * capture-only call sites; parseCellMedia is the media-aware superset.
  */
 export function parseCellCapture(cell) {
-  const str = (cell ?? '').trim();
-  const m = str.match(CELL_CAPTURE_RE);
-  if (!m) return { text: cell ?? '', capture: null };
-  const lightFilename = m[2];
-  const darkFilename = lightFilename.replace('-light-mode', '-dark-mode');
-  const { dimMode, dimValue } = parseCellDimAttrs(m[3]);
-  return { text: '', capture: { uuid: m[1] ?? null, lightFilename, darkFilename, dimMode, dimValue } };
+  const { text, capture } = parseCellMedia(cell);
+  return { text, capture };
 }
 
 /**
@@ -329,6 +355,20 @@ export function serializeCellCapture(cap) {
   }
   const dimAttr = cap.dimMode === 'width' ? `width="${cap.dimValue}"` : `style="height: ${cap.dimValue}px"`;
   return `${spanPart}${light}{ ${dimAttr} loading=lazy } ${dark}{ ${dimAttr} loading=lazy }`;
+}
+
+/**
+ * Serializes a single-image descriptor to the inline cell form (inverse of
+ * parseCellMedia's image case). Mirrors serializeCellCapture, minus the dark
+ * partner. Returns '' for an incomplete descriptor.
+ */
+export function serializeCellImage(img) {
+  if (!img || !img.filename) return '';
+  const el = `![](../assets/${img.filename})`;
+  const spanPart = img.uuid ? `<span data-uuid="${img.uuid}" style="display:none"></span>` : '';
+  if (img.dimMode === 'none' || img.dimValue == null) return `${spanPart}${el}`;
+  const dimAttr = img.dimMode === 'width' ? `width="${img.dimValue}"` : `style="height: ${img.dimValue}px"`;
+  return `${spanPart}${el}{ ${dimAttr} loading=lazy }`;
 }
 
 // ── Locate / replace / delete by UUID ─────────────────────────────────────────

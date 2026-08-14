@@ -32,12 +32,14 @@ import {
   deleteAdmonitionByUUID,
   splitTitleMeta, joinTitleMeta, stripLabelSpans,
   GUIDE_ADMONITION_TYPES_RE,
+  ADMONITION_TYPE_LABELS, ADMONITION_TYPE_COLOURS,
 } from './admonitions.js';
 import { setRteDisabled, syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, fileExtOf } from './cardRenderer.js';
-import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents } from './components.js';
+import { runComponentImageLibraryInsert } from './images.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand } from './cardRenderer.js';
+import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readFrontmatterTags, writeFrontmatterTags, splitTagList, writeFrontmatterSearchExclude } from './frontmatter.js';
@@ -51,30 +53,6 @@ import { loadCreatedTags, registerCreatedTags } from './tagRegistry.js';
 // central UUID migration can reference it without importing this module; re-
 // exported here for the callers (e.g. systemUpdates.js) that import it from guides.
 export { GUIDE_ADMONITION_TYPES_RE };
-
-const ADMONITION_TYPE_LABELS = {
-  step: 'Step', outline: 'Outline', note: 'Note', abstract: 'Abstract',
-  info: 'Info', tip: 'Tip', success: 'Success', question: 'Question',
-  warning: 'Warning', failure: 'Failure', danger: 'Danger', bug: 'Bug',
-  example: 'Example', quote: 'Quote',
-};
-
-const ADMONITION_TYPE_COLOURS = {
-  step: 'step',
-  outline: 'outline',
-  note: 'blue',
-  abstract: 'light-blue',
-  info: 'cyan',
-  tip: 'teal',
-  success: 'green',
-  question: 'light-green',
-  warning: 'orange',
-  failure: 'red',
-  danger: 'bright-red',
-  bug: 'pink',
-  example: 'deep-purple',
-  quote: 'grey',
-};
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -1207,6 +1185,15 @@ function videoComponentCardFor(vid) {
   });
 }
 
+function imageComponentCardFor(img) {
+  return imageComponentCard({
+    thumbSrc: assetCdnUrl('docs/assets/' + img.filename),
+    btnAttr: `data-edit-image-component="${escapeHtml(img.uuid ?? '')}"`,
+    copyAttr: img.uuid ? `data-copy-component-md="${escapeHtml(img.uuid)}"` : '',
+    ext: fileExtOf(img.filename),
+  });
+}
+
 function buttonComponentCardFor(btn) {
   return buttonComponentCard({
     label: btn.label,
@@ -1266,6 +1253,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
       card = gridCard(c.grid);
     } else if (c.kind === 'video') {
       card = videoComponentCardFor(c.vid);
+    } else if (c.kind === 'image') {
+      card = imageComponentCardFor(c.img);
     } else if (c.kind === 'button') {
       card = buttonComponentCardFor(c.btn);
     } else if (c.kind === 'navlinks') {
@@ -1279,7 +1268,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
   });
   parts.push(insertComponentTrigger(components.length));
   listEl.innerHTML = parts.join('');
-  paintLabels(listEl); // colour any label pills in admonition card titles
+  paintLabels(listEl); // colour any label pills in admonition card titles/bodies
+  applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp
 }
 
 // Wraps a component card with a vertical up/down reorder rail on its left edge.
@@ -1363,6 +1353,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'capture-new') runComponentCaptureFlow({ container, insertAt: action.insertAt, formEl, overlay });
     else if (action.kind === 'capture-library') await runComponentLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'video') await runComponentVideoLibraryInsert({ container, insertAt: action.insertAt });
+    else if (action.kind === 'image') await runComponentImageLibraryInsert({ container, insertAt: action.insertAt });
     else if (action.kind === 'button') await getFormAction('openCreateButton')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'navlinks') await getFormAction('openCreateNavLinks')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'diagram') await getFormAction('openCreateDiagram')?.({ container, insertAtIndex: action.insertAt });
@@ -1376,6 +1367,8 @@ async function runChildAction(container, formEl, action) {
     await openCaptureComponentEditor(container, action.uuid);
   } else if (action.type === 'edit-video') {
     await openVideoComponentEditor(container, action.uuid);
+  } else if (action.type === 'edit-image') {
+    await openImageComponentEditor(container, action.uuid);
   } else if (action.type === 'edit-button') {
     await getFormAction('openEditButton')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-navlinks') {
@@ -1400,6 +1393,12 @@ async function runChildAction(container, formEl, action) {
 // system-update). Routes all child navigation through the save-gate.
 export function onComponentEditorClick(e) {
   const formEl = e.currentTarget;
+
+  const expandBtn = e.target.closest('[data-card-expand]');
+  if (expandBtn) {
+    toggleCardExpand(expandBtn);
+    return;
+  }
 
   const moveBtn = e.target.closest('[data-move-component]');
   if (moveBtn) {
@@ -1430,6 +1429,12 @@ export function onComponentEditorClick(e) {
   const editVid = e.target.closest('[data-edit-video-component]');
   if (editVid) {
     beginChildNavigation(formEl, { type: 'edit-video', uuid: editVid.dataset.editVideoComponent });
+    return;
+  }
+
+  const editImg = e.target.closest('[data-edit-image-component]');
+  if (editImg) {
+    beginChildNavigation(formEl, { type: 'edit-image', uuid: editImg.dataset.editImageComponent });
     return;
   }
 
@@ -1480,6 +1485,7 @@ export function onComponentEditorClick(e) {
       contentTabs: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'tabs', insertAt: i }),
       dataTable: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'table', insertAt: i }),
       grid: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'grid', insertAt: i }),
+      image: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'image', insertAt: i }),
       video: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'video', insertAt: i }),
       button: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'button', insertAt: i }),
       navLinks: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'navlinks', insertAt: i }),
@@ -1509,6 +1515,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditGrid')?.({ uuid: component.grid.uuid, file: container.file });
   } else if (component.kind === 'video') {
     await getFormAction('openEditVideoComponent')?.({ container, uuid: component.vid.uuid, vid: component.vid });
+  } else if (component.kind === 'image') {
+    await getFormAction('openEditImageComponent')?.({ container, uuid: component.img.uuid, img: component.img });
   } else if (component.kind === 'button') {
     await getFormAction('openEditButton')?.({ uuid: component.btn.uuid, file: container.file });
   } else if (component.kind === 'navlinks') {
@@ -1532,6 +1540,14 @@ async function openVideoComponentEditor(container, uuid) {
   const md = await readRepoText(container.file);
   const { components } = readContainerComponents(md, container);
   const c = components.find(x => x.kind === 'video' && x.vid.uuid === uuid);
+  if (!c) return;
+  await openEditorForComponent(container, c);
+}
+
+async function openImageComponentEditor(container, uuid) {
+  const md = await readRepoText(container.file);
+  const { components } = readContainerComponents(md, container);
+  const c = components.find(x => x.kind === 'image' && x.img.uuid === uuid);
   if (!c) return;
   await openEditorForComponent(container, c);
 }
@@ -1570,12 +1586,6 @@ async function copyComponentMarkdown(formEl, uuid, btn) {
 function admonitionCard(adm, stepNumber = null) {
   const colour = ADMONITION_TYPE_COLOURS[adm.type] ?? 'amber';
   const badge = ADMONITION_TYPE_LABELS[adm.type] ?? adm.type;
-  const preview = (adm.body ?? '')
-    .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
-    .replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '')
-    .replace(/\n+/g, ' ')
-    .trim();
-  const description = preview.length > 120 ? preview.slice(0, 120) + '…' : preview || null;
   // No explicit title → fall back to the type label (matches MkDocs's auto-title behavior).
   const { title: parsedTitle, meta } = splitTitleMeta(adm.title || '');
   const title = adm.type === 'step'
@@ -1591,7 +1601,7 @@ function admonitionCard(adm, stepNumber = null) {
         <strong class="mb-incident-card__title">${titleWithLabelsHtml(title)}${meta ? `<span class="mb-incident-card__title-meta">${escapeHtml(meta)}</span>` : ''}</strong>
         <span class="mb-incident-card__badge">${escapeHtml(badge)}</span>
       </div>
-      ${description ? `<p class="mb-incident-card__body">${escapeHtml(description)}</p>` : ''}
+      ${cardPreviewBlock(cardPreviewModel(adm.body, GUIDE_ADMONITION_TYPES_RE))}
       <div class="mb-incident-card__foot --end">
         ${adm.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(adm.uuid)}">Copy</button>` : ''}
         <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
@@ -1750,6 +1760,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
       } else if (c.kind === 'video') {
         labelMap[c.vid.uuid] = { kind: 'video', thumbSrc: assetCdnUrl('docs/assets/' + c.vid.lightFilename) };
+      } else if (c.kind === 'image') {
+        labelMap[c.img.uuid] = { kind: 'image', thumbSrc: assetCdnUrl('docs/assets/' + c.img.filename) };
       } else if (c.kind === 'button') {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {
@@ -2289,6 +2301,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
       } else if (c.kind === 'video') {
         labelMap[c.vid.uuid] = { kind: 'video', thumbSrc: assetCdnUrl('docs/assets/' + c.vid.lightFilename) };
+      } else if (c.kind === 'image') {
+        labelMap[c.img.uuid] = { kind: 'image', thumbSrc: assetCdnUrl('docs/assets/' + c.img.filename) };
       } else if (c.kind === 'button') {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {

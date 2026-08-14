@@ -19,10 +19,11 @@
  * All functions here are pure (no DOM, no network) — markdown in, markdown out.
  */
 
-import { parseAdmonitions, buildAdmonition, generateUUID, GUIDE_ADMONITION_TYPES_RE, ensureAdmonitionUUIDs } from './admonitions.js';
+import { parseAdmonitions, buildAdmonition, generateUUID, GUIDE_ADMONITION_TYPES_RE, ensureAdmonitionUUIDs, splitTitleMeta } from './admonitions.js';
 import { buildSectionUUIDSpan } from './sections.js';
 import { buildCaptureLines } from './captures.js';
 import { buildVideoLines } from './videos.js';
+import { buildImageLines } from './images.js';
 import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from './grid.js';
@@ -49,12 +50,29 @@ const VIDEO_LINE_RE =
   /^(\s*)<video\s+src="\.\.\/assets\/([^"#]+?)(#only-(light|dark))?"\s*([^>]*?)\s*><\/video>\s*$/;
 const VIDEO_LIGHT_SUFFIX_RE = /-light-mode\.[a-z0-9]+$/i;
 const VIDEO_DARK_SUFFIX_RE = /-dark-mode\.[a-z0-9]+$/i;
+
+// Per-line single-image matcher: a lone empty-alt `![](../assets/…)` with NO
+// #only-* hash (which `[^)#\s]+` cannot match, keeping this disjoint from
+// LIGHT_LINE_RE) and no theme suffix in the filename (a hand-written hashless
+// capture half must never be swallowed as a single image). Empty alt only —
+// images with alt text stay description prose. Group 1 indent, group 2 the
+// assets-relative filename, group 3 the attr block body.
+const IMAGE_LINE_RE = /^(\s*)!\[\]\(\.\.\/assets\/([^)#\s]+)\)(?:\{\s*([^}]+?)\s*\})?\s*$/;
+const IMAGE_FILE_EXT_RE = /\.(png|svg|jpe?g|gif|webp)$/i;
+const IMAGE_MODE_SUFFIX_RE = /-(light|dark)-mode\.[a-z0-9]+$/i;
 const UUID_SPAN_RE = /<span[^>]*data-uuid[^>]*><\/span>\n?/g;
 const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
 // Whole-line variant: removes an own-line uuid span INCLUDING its indent and
 // newline, so nested (indented) spans vanish without leaving indent residue —
 // UUID_SPAN_RE alone would merge the leftover indent into the following line.
 const UUID_SPAN_FULL_LINE_RE = /^[ \t]*<span[^>]*data-uuid[^>]*><\/span>[ \t]*\r?\n?/gm;
+// First description lines that python-markdown can't start while a paragraph is
+// open: lists, blockquotes, fences, tables. Glued directly under a uuid span
+// these get lazily absorbed into the span's paragraph ("- a - b" as running
+// text on the published page), so buildComponentBody separates them with a
+// blank line. Plain text stays glued — the span rides inside the first
+// paragraph instead of minting an empty <p> above every description.
+const BLOCK_AFTER_SPAN_RE = /^(?:[-*+]\s|\d{1,9}[.)]\s|>|```|~~~|\|)/;
 
 /** True when `line` falls within any `[start, end)` range. */
 function inAnyRange(line, ranges) {
@@ -166,6 +184,60 @@ export function ensureVideoUUIDs(markdown) {
 }
 
 /**
+ * Locates every single image in `body`, returning line-addressable entries.
+ * One line per image (no pair scan — pairs are captures); non-image extensions
+ * (e.g. a hand-linked PDF) and -light/-dark-mode filenames are skipped.
+ *
+ * @param {string} body
+ * @returns {Array<{filename,dimMode,dimValue,rounded,indent,uuid,startLine,endLine}>}
+ */
+export function locateImageLines(body) {
+  const lines = (body ?? '').split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(IMAGE_LINE_RE);
+    if (!m) continue;
+    const filename = m[2];
+    if (!IMAGE_FILE_EXT_RE.test(filename)) continue;
+    // A theme-suffixed file is a capture half (even hashless), never an image.
+    if (IMAGE_MODE_SUFFIX_RE.test(filename)) continue;
+    const indent = m[1];
+    const { dimMode, dimValue, rounded } = parseDimAttrs(m[3]);
+
+    // A hidden data-uuid span on the line immediately before this image is its
+    // identity; extend startLine to swallow it.
+    let startLine = i;
+    let uuid = null;
+    if (i > 0) {
+      const sm = lines[i - 1].match(UUID_SPAN_LINE_RE);
+      if (sm) { uuid = sm[1]; startLine = i - 1; }
+    }
+
+    out.push({ filename, dimMode, dimValue, rounded, indent, uuid, startLine, endLine: i + 1 });
+  }
+  return out;
+}
+
+/**
+ * Backfills a hidden data-uuid span before every single image that lacks one.
+ * Idempotent; matches images at any indent. Mirrors ensureVideoUUIDs.
+ */
+export function ensureImageUUIDs(markdown) {
+  const imgs = locateImageLines(markdown);
+  if (imgs.length === 0) return markdown;
+  const lines = (markdown ?? '').split('\n');
+  let modified = false;
+  for (let k = imgs.length - 1; k >= 0; k--) {
+    const img = imgs[k];
+    if (img.uuid) continue;
+    const span = `${img.indent}<span data-uuid="${generateUUID()}" style="display:none"></span>`;
+    lines.splice(img.startLine, 0, span);
+    modified = true;
+  }
+  return modified ? lines.join('\n') : markdown;
+}
+
+/**
  * Locates every top-level capture pair in `body`, returning line-addressable
  * entries. A pair is a `#only-light` line immediately followed (ignoring blanks)
  * by its `#only-dark` partner.
@@ -271,6 +343,10 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   const topVideos = locateVideoLines(src)
     .filter(v => v.indent === '' && !inContainer(v.startLine));
 
+  // Top-level single images: indent 0 and not buried inside an admonition or grid.
+  const topImages = locateImageLines(src)
+    .filter(i => i.indent === '' && !inContainer(i.startLine));
+
   // Immediate-child data tables (indent 0; tables inside admonitions/grids excluded).
   const tbls = locateDataTables(src)
     .filter(t => t.indent === '' && !inContainer(t.startLine));
@@ -321,9 +397,15 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
       startLine: v.startLine,
       endLine: v.endLine,
     })),
+    ...topImages.map(i => ({
+      kind: 'image',
+      img: { uuid: i.uuid ?? null, filename: i.filename, dimMode: i.dimMode, dimValue: i.dimValue, rounded: i.rounded },
+      startLine: i.startLine,
+      endLine: i.endLine,
+    })),
     ...topButtons.map(b => ({
       kind: 'button',
-      btn: { uuid: b.uuid ?? null, label: b.label, destination: b.destination, icon: b.icon, primary: b.primary, colour: b.colour, theme: b.theme, border: b.border, newTab: b.newTab },
+      btn: { uuid: b.uuid ?? null, label: b.label, destination: b.destination, icon: b.icon, primary: b.primary, colour: b.colour, theme: b.theme, border: b.border, style: b.style, newTab: b.newTab },
       startLine: b.startLine,
       endLine: b.endLine,
     })),
@@ -352,6 +434,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     if (it.kind === 'table') return { kind: 'table', tbl: it.tbl };
     if (it.kind === 'grid') return { kind: 'grid', grid: it.grid };
     if (it.kind === 'video') return { kind: 'video', vid: it.vid };
+    if (it.kind === 'image') return { kind: 'image', img: it.img };
     if (it.kind === 'button') return { kind: 'button', btn: it.btn };
     if (it.kind === 'navlinks') return { kind: 'navlinks', nav: it.nav };
     if (it.kind === 'diagram') return { kind: 'diagram', dia: it.dia };
@@ -381,6 +464,39 @@ function extractDescription(body, items) {
 }
 
 /**
+ * Depth-1 view model for card previews: the container's own description plus a
+ * small per-kind summary of each nested component, ready for cardRenderer's
+ * cardPreviewBlock. Pure. Media subs carry raw filenames — the renderer
+ * resolves CDN urls, keeping this module URL-free.
+ */
+export function cardPreviewModel(body, typeRegex = GUIDE_ADMONITION_TYPES_RE) {
+  const { description, components } = parseComponents(body ?? '', typeRegex);
+  return { description, subs: components.map(c => subViewModel(c, typeRegex)) };
+}
+
+function subViewModel(c, typeRegex) {
+  switch (c.kind) {
+    case 'admonition': {
+      const { title, meta } = splitTitleMeta(c.adm.title || '');
+      // Depth 1: the nested admonition's OWN description only — its
+      // sub-components are parsed out and dropped so they never leak as raw
+      // markdown into the mini-card.
+      const description = parseComponents(c.adm.body, typeRegex).description;
+      return { kind: 'admonition', type: c.adm.type, title, meta, description };
+    }
+    case 'tabs':     return { kind: 'tabs', titles: (c.grp.tabs ?? []).map(t => t.title).filter(Boolean) };
+    case 'table':    return { kind: 'table', cols: c.tbl.align?.length ?? (c.tbl.header ?? []).length, rows: c.tbl.rows.length };
+    case 'grid':     return { kind: 'grid', cells: (c.grid.cells ?? []).length, flavor: c.grid.flavor };
+    case 'button':   return { kind: 'button', label: c.btn.label, destination: c.btn.destination };
+    case 'navlinks': return { kind: 'navlinks', text: c.nav.tag != null ? `Tag: ${c.nav.tag}` : c.nav.path };
+    case 'diagram':  return { kind: 'diagram' };
+    case 'video':    return { kind: 'video', filename: c.vid.lightFilename };
+    case 'image':    return { kind: 'image', filename: c.img.filename };
+    default:         return { kind: 'capture', filename: c.cap.lightFilename };
+  }
+}
+
+/**
  * Rebuilds a body from a description + ordered component list. Inverse of
  * parseComponents. Replaces both rebuildSectionBody and rebuildAdmonitionBody.
  *
@@ -402,7 +518,10 @@ export function buildComponentBody(uuid, description, components) {
   const lines = [];
   if (uuid) lines.push(buildSectionUUIDSpan(uuid));
   const desc = (description ?? '').trim();
-  if (desc.length) lines.push(desc);
+  if (desc.length) {
+    if (uuid && BLOCK_AFTER_SPAN_RE.test(desc)) lines.push('');
+    lines.push(desc);
+  }
 
   for (const c of components) {
     lines.push(''); // one blank separator before each component
@@ -423,6 +542,9 @@ export function buildComponentBody(uuid, description, components) {
     } else if (c.kind === 'video') {
       // buildVideoLines emits a leading '' we don't want (we add our own).
       lines.push(...buildVideoLines([c.vid]).slice(1));
+    } else if (c.kind === 'image') {
+      // buildImageLines emits a leading '' we don't want (we add our own).
+      lines.push(...buildImageLines([c.img]).slice(1));
     } else if (c.kind === 'button') {
       // buildButtonLines emits a leading '' we don't want (we add our own).
       lines.push(...buildButtonLines([c.btn]).slice(1));
@@ -486,6 +608,27 @@ export function videoComponent(vid) {
   return { kind: 'video', vid };
 }
 
+/**
+ * Canonical form/merge representation of a single image's editable fields.
+ * Reuses the capture Corner radio name (captureCorner) so the SHARED edit form
+ * hydrates it from the same radio; no captureTheme (an image has no pair) and
+ * no videoPlayback — hidden fields must stay out of the spec or merge sees
+ * phantom conflicts on radios the form never shows.
+ */
+export function imageDimFields(img) {
+  const dimMode = img?.dimMode ?? 'none';
+  return {
+    dimMode,
+    dimValue: dimMode === 'none' ? '' : String(img?.dimValue ?? ''),
+    captureCorner: img?.rounded ? 'enabled' : 'disabled',
+  };
+}
+
+/** Builds a fresh image component from a (resolved) image object. */
+export function imageComponent(img) {
+  return { kind: 'image', img };
+}
+
 /** Builds an admonition component from a parsed admonition entry. */
 export function admonitionComponent(adm) {
   return { kind: 'admonition', adm };
@@ -498,6 +641,7 @@ export function uuidOfComponent(c) {
   if (c.kind === 'table') return c.tbl.uuid;
   if (c.kind === 'grid') return c.grid.uuid;
   if (c.kind === 'video') return c.vid.uuid;
+  if (c.kind === 'image') return c.img.uuid;
   if (c.kind === 'button') return c.btn.uuid;
   if (c.kind === 'navlinks') return c.nav.uuid;
   if (c.kind === 'diagram') return c.dia.uuid;
@@ -506,7 +650,13 @@ export function uuidOfComponent(c) {
 
 /** Removes every own-line `data-uuid` identity span (any indent) from `markdown`. */
 export function stripUUIDSpans(markdown) {
-  return (markdown ?? '').replace(UUID_SPAN_FULL_LINE_RE, '');
+  return (markdown ?? '')
+    // Span line flanked by blank lines (or at string start with a blank after):
+    // deleting only the line would leave a doubled blank where the reader saw
+    // one — consume one flanking blank with it. Glued spans fall through to
+    // the plain line-strip below.
+    .replace(/(?<=^|\n[ \t]*\n)[ \t]*<span[^>]*data-uuid[^>]*><\/span>[ \t]*\r?\n[ \t]*\r?\n/g, '')
+    .replace(UUID_SPAN_FULL_LINE_RE, '');
 }
 
 /**
@@ -533,10 +683,10 @@ export function componentMarkdown(component) {
 export function parsePastedComponents(text) {
   const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  const withUuids = ensureDiagramUUIDs(ensureNavLinksUUIDs(ensureButtonUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)))))))));
+  const withUuids = ensureDiagramUUIDs(ensureNavLinksUUIDs(ensureButtonUUIDs(ensureImageUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE))))))))));
   const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
   if (components.length === 0) {
-    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video, button, nav links or diagram).' };
+    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video, image, button, nav links or diagram).' };
   }
   if (description.trim() !== '') {
     return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };

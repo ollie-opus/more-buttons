@@ -1,0 +1,32 @@
+<form id="github-integration-form" data-storage-key="moreButtonsIntegrations" data-nav data-width="720px">
+  <h2>GitHub</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">GitHub PAT</label>
+    <input class="more-buttons-input-text" type="password" name="githubPAT" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+  </div>
+
+  <p class="more-buttons-description">
+    Generate a fine-grained token in GitHub
+    <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">here</a>
+    or by navigating to:<br />
+    <strong>Settings</strong> → <strong>Developer settings</strong> → <strong>Personal access tokens</strong> → <strong>Fine-grained tokens</strong>.<br />
+    Set repository access to <strong>opus-knowledge-base</strong> only, with <strong>Contents: Read and write</strong>.
+  </p>
+
+  <div class="mb-rate-limit" data-rate-limit hidden>
+    <div class="mb-rate-limit__head">
+      <span class="mb-rate-limit__title">GitHub API usage</span>
+      <button type="button" class="mb-rate-limit__refresh" data-rate-limit-refresh aria-label="Refresh rate limit">
+        <span class="material-symbols-outlined">refresh</span>
+      </button>
+    </div>
+    <div class="mb-rate-limit__bar"><div class="mb-rate-limit__fill" data-rate-limit-fill></div></div>
+    <div class="mb-rate-limit__meta" data-rate-limit-meta>Loading…</div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="save,close"><span class="more-buttons-icon">save</span>Save</button>
+    <button type="button" class="more-buttons-button secondary" data-action="close"><span class="more-buttons-icon">close</span>Close</button>
+  </div>
+</form>

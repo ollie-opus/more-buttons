@@ -1,6 +1,7 @@
 import { createForm } from './form.js';
 import { authHeader } from './repoClient.js';
 import { registerFormAction } from './formActions.js';
+import { GEMINI_STORAGE_KEY, loadAiPrompts, buildGeminiRequest, parseGeminiResponse } from './aiReword.js';
 
 // /rate_limit is itself free — it does not count against the core quota.
 async function fetchRateLimit() {
@@ -45,8 +46,25 @@ async function populateRateLimit(panel) {
   }
 }
 
+// The hub: one tile per service, each showing whether its credential is saved.
 export async function openIntegrations() {
   const { formEl } = await createForm('integrations', openIntegrations);
+  if (!formEl) return;
+  const store = await chrome.storage.local.get(['moreButtonsIntegrations', GEMINI_STORAGE_KEY]);
+  const connected = {
+    github: !!store.moreButtonsIntegrations?.githubPAT,
+    gemini: !!store[GEMINI_STORAGE_KEY]?.geminiApiKey,
+  };
+  formEl.querySelectorAll('[data-integration-status]').forEach(el => {
+    const ok = connected[el.dataset.integrationStatus];
+    el.textContent = ok ? 'Connected' : 'Not connected';
+    el.classList.toggle('--ok', ok);
+    el.classList.toggle('--warn', !ok);
+  });
+}
+
+export async function openGithubIntegration() {
+  const { formEl } = await createForm('githubIntegration', openGithubIntegration);
   if (!formEl) return;
   const contentEl = formEl.parentElement ?? formEl;
   const panel = contentEl.querySelector('[data-rate-limit]');
@@ -60,4 +78,41 @@ export async function openIntegrations() {
   });
 }
 
+// Checks the key TYPED IN THE FORM (not the saved one) so it can be verified
+// before saving. A real one-word generateContent against the configured model
+// rather than a models.list ping — that also catches the model itself being
+// retired or the request shape being rejected, which a key-only check misses
+// (learned the hard way when Google closed gemini-2.5-flash to new keys).
+async function testGeminiKey(formEl, meta) {
+  const key = formEl.querySelector('input[name="geminiApiKey"]')?.value.trim();
+  if (!key) { meta.textContent = 'Enter a key first.'; return; }
+  meta.textContent = 'Testing…';
+  try {
+    const { model } = await loadAiPrompts();
+    const { url, headers, body } = buildGeminiRequest({
+      model, apiKey: key, system: 'Reply with exactly: OK', text: 'ping',
+    });
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), cache: 'no-store' });
+    const json = await res.json().catch(() => ({}));
+    parseGeminiResponse(res.status, json);
+    meta.textContent = `Key works — ${model} responded.`;
+  } catch (e) {
+    meta.textContent = e.message;
+  }
+}
+
+export async function openGeminiIntegration() {
+  const { formEl } = await createForm('geminiIntegration', openGeminiIntegration);
+  if (!formEl) return;
+  const contentEl = formEl.parentElement ?? formEl;
+  const meta = contentEl.querySelector('[data-test-key-meta]');
+  if (!meta) return;
+
+  contentEl.addEventListener('click', (e) => {
+    if (e.target.closest('[data-test-key]')) testGeminiKey(formEl, meta);
+  });
+}
+
 registerFormAction('openIntegrations', openIntegrations);
+registerFormAction('openGithubIntegration', openGithubIntegration);
+registerFormAction('openGeminiIntegration', openGeminiIntegration);

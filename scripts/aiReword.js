@@ -1,24 +1,23 @@
 // AI Rewrite engine for the rich text editor — rewords a markdown string with
-// Chrome's built-in on-device Prompt API (Gemini Nano). The prompt profiles
-// live in config/aiPrompts.json — each entry ({label, system}) becomes a
-// rewrite button, so both the wording and the set of actions can be changed
-// without a code change.
+// the Google Gemini API (gemini-2.5-flash unless config overrides it). The
+// prompt profiles live in config/aiPrompts.json — each entry ({label, system})
+// becomes a rewrite button, so both the wording and the set of actions can be
+// changed without a code change; the file's top-level "model" picks the model.
 //
-// `rewrite`/`getAvailability` run in the background service worker by default
-// (sendMessage for the availability check, a long-lived Port for the rewrite —
-// each port message resets the MV3 idle timer, keeping the worker alive through
-// a multi-second prompt or a multi-minute model download). Two reasons the SW
-// is primary rather than a fallback: on Chrome 138–149 the content-script
-// world may not expose LanguageModel at all (web exposure was origin-trial-
-// gated), and calling availability() in a page renderer was observed to block
-// the main thread while the model download is in flight (CDP-verified on
-// Chrome 150) — a stall in the worker leaves the form UI responsive, the same
-// stall in-page freezes it. Direct in-context LanguageModel is kept only as
-// the fallback for when the extension messaging channel itself fails.
+// The API key is per-user, stored in chrome.storage.local under
+// GEMINI_STORAGE_KEY by the Google Gemini integration form. The rewrite is a
+// plain in-context fetch: generativelanguage.googleapis.com is CORS-permissive
+// the same way api.github.com is (integrations.js relies on that today), so no
+// background-worker routing or host permission is needed. Thinking is disabled
+// (thinkingBudget 0) — an editing task gains nothing from it, and the latency
+// matters in a popover.
 //
 // Everything above the "engine" divider is pure and unit-tested; the module
 // touches fetch/chrome only inside function bodies so importing it in node
 // tests is safe (same rule as richTextEditor.js).
+
+export const GEMINI_STORAGE_KEY = 'moreButtonsGeminiIntegration';
+export const DEFAULT_MODEL = 'gemini-3.5-flash';
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -52,11 +51,11 @@ export function normalizeModelOutput(text) {
   return out;
 }
 
-// The on-device model sometimes invents structure despite the prompts telling
-// it not to. If the source had no markdown headings, any heading in the output
-// is made up: a LEADING heading is an invented title (drop the whole line), a
-// later one is restructured content (keep the text, strip the marker so
-// nothing is lost). Lines inside code fences are left alone.
+// Models sometimes invent structure despite the prompts telling them not to.
+// If the source had no markdown headings, any heading in the output is made
+// up: a LEADING heading is an invented title (drop the whole line), a later
+// one is restructured content (keep the text, strip the marker so nothing is
+// lost). Lines inside code fences are left alone.
 export function stripInventedHeadings(source, output) {
   const HEADING = /^ {0,3}#{1,6}\s+/;
   const FENCE = /^\s*(```|~~~)/;
@@ -76,17 +75,21 @@ export function stripInventedHeadings(source, output) {
 
 // Validate + normalize config/aiPrompts.json. Throws with a pointed message on
 // a bad shape so a hand-edited config fails loudly instead of half-working.
-// The file is {shared, prompts: [{label, system, description?}]} — `shared`
-// (optional) holds
-// the formatting rules common to every prompt and is appended to each system
-// prompt here, so the rules live in one place as the editor's feature set
-// grows; an entry can opt out with "shared": false (e.g. a proofread action
-// that must not receive the may-add-formatting rules). A plain array of
-// {label, system} is still accepted. Each entry becomes a rewrite action, in
-// file order — adding an entry adds a button.
+// The file is {model?, shared?, prompts: [{label, system, description?}]} —
+// `shared` holds the formatting rules common to every prompt and is appended
+// to each system prompt here, so the rules live in one place as the editor's
+// feature set grows; an entry can opt out with "shared": false (e.g. a
+// proofread action that must not receive the may-add-formatting rules).
+// `model` names the Gemini model, defaulting to DEFAULT_MODEL. A plain array
+// of {label, system} is still accepted. Returns {model, prompts}; each prompt
+// becomes a rewrite action, in file order — adding an entry adds a button.
 export function validatePromptsConfig(json) {
-  let entries = json, shared = '';
+  let entries = json, shared = '', model = DEFAULT_MODEL;
   if (json && !Array.isArray(json) && typeof json === 'object') {
+    if (json.model != null) {
+      if (typeof json.model !== 'string' || !json.model.trim()) throw new Error('aiPrompts.json "model" must be a non-empty string');
+      model = json.model.trim();
+    }
     if (json.shared != null) {
       if (typeof json.shared !== 'string') throw new Error('aiPrompts.json "shared" must be a string');
       shared = json.shared.trim();
@@ -96,7 +99,7 @@ export function validatePromptsConfig(json) {
   }
   if (!Array.isArray(entries)) throw new Error('aiPrompts.json must be an array of {label, system} entries');
   if (!entries.length) throw new Error('aiPrompts.json must define at least one prompt');
-  return entries.map((entry, i) => {
+  const prompts = entries.map((entry, i) => {
     if (!entry || typeof entry !== 'object') throw new Error(`aiPrompts.json entry ${i} must be an object`);
     if (typeof entry.label !== 'string' || !entry.label.trim()) {
       throw new Error(`aiPrompts.json entry ${i} "label" must be a non-empty string`);
@@ -115,19 +118,52 @@ export function validatePromptsConfig(json) {
     if (entry.description != null) out.description = entry.description;
     return out;
   });
+  return { model, prompts };
 }
 
-// Sampling overrides for LanguageModel.create, from LanguageModel.params().
-// Editing wants determinism, not variety: the default sampling is tuned for
-// creative tasks and makes the same prompt restructure text differently run to
-// run. Low temperature + small topK pin it down. The API requires temperature
-// and topK together and rejects out-of-range values, so both are clamped to
-// the device caps; when params are unavailable, return no overrides so
-// create() falls back to its own defaults instead of throwing.
-export function samplingOptions(params) {
-  const maxTemp = params?.maxTemperature, maxTopK = params?.maxTopK;
-  if (typeof maxTemp !== 'number' || typeof maxTopK !== 'number') return {};
-  return { temperature: Math.min(0.3, maxTemp), topK: Math.max(1, Math.min(3, maxTopK)) };
+// The generateContent request for one rewrite. The key travels in a header
+// rather than the documented ?key= query param so it never lands in URLs
+// (history, logs, error messages). Temperature is pinned low for the same
+// reason samplingOptions existed under Nano: editing wants determinism, and
+// the default sampling restructures the same text differently run to run.
+// Thinking is kept as close to off as each model family allows — the popover
+// is latency-sensitive and an editing task gains nothing from reasoning. The
+// two families use mutually exclusive fields (mixing them is a 400): 2.x takes
+// thinkingBudget (0 = off), 3.x takes thinkingLevel ('minimal' is its floor).
+export function buildGeminiRequest({ model, apiKey, system, text }) {
+  const thinkingConfig = /^gemini-2\./.test(model)
+    ? { thinkingBudget: 0 }
+    : { thinkingLevel: 'minimal' };
+  return {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text }] }],
+      generationConfig: { temperature: 0.3, thinkingConfig },
+    },
+  };
+}
+
+// Map a generateContent response to the output text, or throw the message the
+// popover should show. Key problems must mention Integrations (that's where
+// the fix lives); a 429 is transient on the free tier's requests-per-minute
+// cap, so it says to wait rather than reading like a failure.
+export function parseGeminiResponse(status, json) {
+  if (status === 429) throw new Error('The Gemini rate limit was reached — wait a minute and try again.');
+  const err = json?.error;
+  const keyInvalid = status === 403 || (status === 400 && (
+    err?.details?.some(d => d?.reason === 'API_KEY_INVALID') ||
+    /API_KEY_INVALID/.test(`${err?.status ?? ''} ${err?.message ?? ''}`)
+  ));
+  if (keyInvalid) throw new Error('Your Google Gemini API key is missing or invalid — add a valid key in Integrations.');
+  if (status < 200 || status >= 300) {
+    throw new Error(err?.message ? `The AI request failed: ${err.message}` : `The AI request failed (HTTP ${status}).`);
+  }
+  if (json?.promptFeedback?.blockReason) throw new Error('The AI declined this text (safety block) — please try different text.');
+  const parts = json?.candidates?.[0]?.content?.parts;
+  if (!parts?.length) throw new Error('The AI returned no rewrite — please try again.');
+  return parts.map(p => p.text ?? '').join('');
 }
 
 // One-shot undo snapshot for the rewrite. Native undo never survives a surface
@@ -146,30 +182,20 @@ export function createAiUndo() {
 
 // Popover UI state → what the controls should show. Pure so the state machine
 // is testable without a DOM. `state.kind` is one of: checking | ready |
-// downloadable | downloading | unavailable | empty | working | error | discarded.
+// no-key | empty | working | error | discarded.
 export function deriveUi(state) {
   const ui = { actionsEnabled: false, statusText: '', spin: false, isError: false };
   switch (state.kind) {
     case 'checking':
-      return { ...ui, statusText: 'Checking on-device AI availability…', spin: true };
+      return { ...ui, statusText: 'Checking AI availability…', spin: true };
     case 'ready':
       return { ...ui, actionsEnabled: true };
-    case 'downloadable':
-      return { ...ui, actionsEnabled: true, statusText: 'First use downloads the on-device AI model (a few GB, one-time).' };
-    case 'downloading':
-      return { ...ui, statusText: 'The on-device AI model is downloading — try again shortly.', spin: true };
-    case 'unavailable':
-      return { ...ui, statusText: 'AI rewrite is not available on this device. It needs Chrome 138+ with on-device AI support and enough free disk space.' };
+    case 'no-key':
+      return { ...ui, statusText: 'Add your Google Gemini API key in Integrations to enable AI rewrite.' };
     case 'empty':
       return { ...ui, statusText: 'Nothing to rewrite yet.' };
     case 'working':
-      return {
-        ...ui,
-        spin: true,
-        statusText: state.progress != null && state.progress < 1
-          ? `Downloading AI model… ${Math.round(state.progress * 100)}%`
-          : 'Rewriting…',
-      };
+      return { ...ui, spin: true, statusText: 'Rewriting…' };
     case 'error':
       return { ...ui, actionsEnabled: true, statusText: state.message || 'Rewrite failed — please try again.', isError: true };
     case 'discarded':
@@ -179,7 +205,7 @@ export function deriveUi(state) {
   }
 }
 
-// ── Engine (fetch/chrome/LanguageModel — lazy, nothing runs at import) ───────
+// ── Engine (fetch/chrome — lazy, nothing runs at import) ─────────────────────
 
 let _promptsPromise = null;
 export function loadAiPrompts() {
@@ -194,57 +220,26 @@ export function loadAiPrompts() {
   return _promptsPromise;
 }
 
+async function getStoredKey() {
+  const store = await chrome.storage.local.get(GEMINI_STORAGE_KEY);
+  return store[GEMINI_STORAGE_KEY]?.geminiApiKey || '';
+}
+
 export async function getAvailability() {
   try {
-    const viaWorker = await chrome.runtime.sendMessage({ type: 'aiAvailability' });
-    if (viaWorker != null) return viaWorker;
-  } catch { /* messaging failed — try the local context below */ }
-  if (typeof LanguageModel !== 'undefined') {
-    try { return await LanguageModel.availability(); } catch { /* fall through */ }
+    return (await getStoredKey()) ? 'available' : 'no-key';
+  } catch {
+    return 'no-key';
   }
-  return 'unavailable';
-}
-
-async function rewriteLocal({ system, text, signal, onProgress }) {
-  const session = await LanguageModel.create({
-    initialPrompts: [{ role: 'system', content: system }],
-    ...samplingOptions(await LanguageModel.params().catch(() => null)),
-    monitor(m) { m.addEventListener('downloadprogress', e => onProgress?.(e.loaded)); },
-    signal,
-  });
-  try {
-    return await session.prompt(text, { signal });
-  } finally {
-    session.destroy();
-  }
-}
-
-function rewriteViaBackground({ system, text, signal, onProgress }) {
-  return new Promise((resolve, reject) => {
-    const port = chrome.runtime.connect({ name: 'mb-ai' });
-    let settled = false;
-    const settle = (fn, arg) => {
-      if (settled) return;
-      settled = true;
-      signal?.removeEventListener('abort', onAbort);
-      try { port.disconnect(); } catch { /* already gone */ }
-      fn(arg);
-    };
-    const onAbort = () => settle(reject, new DOMException('Aborted', 'AbortError'));
-    signal?.addEventListener('abort', onAbort);
-    port.onMessage.addListener(msg => {
-      if (msg.type === 'progress' && msg.loaded != null) onProgress?.(msg.loaded);
-      else if (msg.type === 'result') settle(resolve, msg.text);
-      else if (msg.type === 'error') settle(reject, new Error(msg.message));
-    });
-    port.onDisconnect.addListener(() => settle(reject, new Error('The AI rewrite was interrupted — please try again.')));
-    port.postMessage({ type: 'rewrite', system, text });
-  });
 }
 
 // Reword `text` under the given system prompt. Resolves with the raw model
 // output (pass through normalizeModelOutput before splicing it in).
-export function rewrite(opts) {
-  if (typeof chrome !== 'undefined' && chrome.runtime?.connect) return rewriteViaBackground(opts);
-  return rewriteLocal(opts);
+export async function rewrite({ model, system, text, signal }) {
+  const apiKey = await getStoredKey().catch(() => '');
+  if (!apiKey) throw new Error('Your Google Gemini API key is missing or invalid — add a valid key in Integrations.');
+  const { url, headers, body } = buildGeminiRequest({ model: model || DEFAULT_MODEL, apiKey, system, text });
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
+  const json = await res.json().catch(() => ({}));
+  return parseGeminiResponse(res.status, json);
 }

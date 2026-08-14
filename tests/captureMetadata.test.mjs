@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { applyMetaUpserts, captureMetaPills, captureFlagSuffix, appendCaptureSuffix } from '../scripts/captureMeta.js';
-import { dimensionsChanged } from '../scripts/captureElement.js';
+import { applyMetaUpserts, captureMetaPills, captureFlagSuffix, appendCaptureSuffix, captureBaseSlug } from '../scripts/captureMeta.js';
+import { dimensionsChanged, slugifyLabel } from '../scripts/captureElement.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -75,6 +75,69 @@ test('appendCaptureSuffix inserts before the light/dark theme tail', () => {
 test('appendCaptureSuffix is a no-op for an empty suffix or non-capture name', () => {
   assert.equal(appendCaptureSuffix('media/occ-captures/foo-light-mode.png', ''), 'media/occ-captures/foo-light-mode.png');
   assert.equal(appendCaptureSuffix('media/docs/diagram.svg', '-a'), 'media/docs/diagram.svg');
+});
+test('appendCaptureSuffix splices a named suffix before the terminal tail only', () => {
+  assert.equal(
+    appendCaptureSuffix('media/occ-captures/foo/bar-light-mode.png', '-a-time-clock-z'),
+    'media/occ-captures/foo/bar-a-time-clock-z-light-mode.png',
+  );
+  // annotation slug ending in "light-mode" must not confuse the $-anchored tail regex
+  assert.equal(
+    appendCaptureSuffix('media/occ-captures/foo/bar-light-mode.png', '-a-light-mode'),
+    'media/occ-captures/foo/bar-a-light-mode-light-mode.png',
+  );
+});
+
+// ── captureFlagSuffix with annotation names ───────────────────────────────────
+test('captureFlagSuffix appends annotation names after -a', () => {
+  assert.equal(captureFlagSuffix(true, false, ['time', 'clock']), '-a-time-clock');
+});
+test('captureFlagSuffix keeps -z terminal after annotation names', () => {
+  assert.equal(captureFlagSuffix(true, true, ['time']), '-a-time-z');
+});
+test('captureFlagSuffix caps annotation names at 3', () => {
+  assert.equal(captureFlagSuffix(true, false, ['one', 'two', 'three', 'four']), '-a-one-two-three');
+});
+test('captureFlagSuffix dedupes names against the base slug', () => {
+  assert.equal(captureFlagSuffix(true, false, ['system', 'time'], 'system'), '-a-time');
+});
+test('captureFlagSuffix dedupes among names; dupes do not consume cap slots', () => {
+  assert.equal(captureFlagSuffix(true, false, ['x', 'x', 'y', 'z', 'w']), '-a-x-y-z');
+});
+test('captureFlagSuffix skips empty names without consuming slots', () => {
+  assert.equal(captureFlagSuffix(true, false, ['', 'time']), '-a-time');
+  assert.equal(captureFlagSuffix(true, false, ['', '', '']), '-a');
+});
+test('captureFlagSuffix ignores names when not annotated', () => {
+  assert.equal(captureFlagSuffix(false, true, ['time']), '-z');
+  assert.equal(captureFlagSuffix(false, false, ['time']), '');
+});
+
+// ── captureBaseSlug ───────────────────────────────────────────────────────────
+test('captureBaseSlug extracts the base from a light path', () => {
+  assert.equal(captureBaseSlug('media/occ-captures/foo/system-light-mode.png'), 'system');
+});
+test('captureBaseSlug extracts the base from a dark path', () => {
+  assert.equal(captureBaseSlug('media/occ-captures/foo/nav-bar-dark-mode.png'), 'nav-bar');
+});
+test('captureBaseSlug returns empty for a non-capture name', () => {
+  assert.equal(captureBaseSlug('media/docs/diagram.svg'), '');
+  assert.equal(captureBaseSlug(''), '');
+});
+
+// ── slugifyLabel ──────────────────────────────────────────────────────────────
+test('slugifyLabel lowercases and collapses punctuation runs to single hyphens', () => {
+  assert.equal(slugifyLabel('System Status!'), 'system-status');
+  assert.equal(slugifyLabel('Time  &  Date'), 'time-date');
+});
+test('slugifyLabel trims edge hyphens', () => {
+  assert.equal(slugifyLabel('  (Time) '), 'time');
+  assert.equal(slugifyLabel('!!!'), '');
+});
+test('slugifyLabel slices to 50 chars and tolerates null/empty', () => {
+  assert.equal(slugifyLabel('x'.repeat(80)).length, 50);
+  assert.equal(slugifyLabel(null), '');
+  assert.equal(slugifyLabel(''), '');
 });
 
 // ── captureMetaPills ──────────────────────────────────────────────────────────

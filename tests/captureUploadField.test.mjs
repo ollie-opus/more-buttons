@@ -38,10 +38,19 @@ test('label and name are attribute-escaped', () => {
 
 // ── captureUploadAccept ───────────────────────────────────────────────────────
 
-test('builds accept values and drops unknown extensions', () => {
+test('builds accept values, MIME for capture types', () => {
   assert.equal(captureUploadAccept(), 'image/png,image/svg+xml');
   assert.equal(captureUploadAccept(['png']), 'image/png');
-  assert.equal(captureUploadAccept(['svg', 'bmp']), 'image/svg+xml');
+});
+
+test('non-capture extensions fall back to the .ext token form', () => {
+  assert.equal(captureUploadAccept(['mp4']), '.mp4');
+  assert.equal(captureUploadAccept(['svg', 'bmp']), 'image/svg+xml,.bmp');
+});
+
+test('exts option accepts video extensions via the token form', () => {
+  const html = captureUploadField({ label: 'Video file', name: 'light', exts: ['mp4'] });
+  assert.match(html, /accept="\.mp4"/);
 });
 
 test('exts: null drops the accept attribute entirely (any file)', () => {

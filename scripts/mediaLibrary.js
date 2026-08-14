@@ -5,6 +5,7 @@ import { renderTree, applySearch } from './kbTree.js';
 import { buildMediaNodes, groupMediaPaths } from './mediaTree.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { MANIFEST_PATH, readCaptureMeta, captureMetaPills } from './captureMeta.js';
+import { USAGE_INDEX_PATH } from './mediaUsage.js';
 import { formLoading } from './loading.js';
 
 // The library mirrors this repo folder: every top-level subfolder becomes a
@@ -13,9 +14,17 @@ const MEDIA_ROOT = 'docs/assets/media';
 // The one folder with extra behaviour: capture-manifest pills and the
 // create/upload dock buttons (both write into this folder).
 const CAPTURE_TAB_KEY = 'occ-captures';
-const IMAGE_EXTS = ['png', 'svg'];
+const IMAGE_EXTS = ['png', 'svg', 'jpg', 'jpeg', 'gif', 'webp'];
 const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
-const ACCEPT_EXTS = { image: IMAGE_EXTS, video: VIDEO_EXTS };
+// Insert-mode filters, one per component kind: each library insert shows ONLY
+// its own kind of file (a capture is a theme PAIR, an image a lone file), so
+// e.g. the Capture flow never surfaces the buttons tab and vice versa. Tabs
+// whose tree is empty after the filter are dropped entirely.
+const ACCEPT = {
+  capture: { exts: IMAGE_EXTS, shape: 'pair' },
+  image: { exts: IMAGE_EXTS, shape: 'single' },
+  video: { exts: VIDEO_EXTS, shape: null },
+};
 
 // Snapshot of the open library's tabs + active tab, read by the upload action
 // so its destination dropdown mirrors the library (plain data — replay-safe).
@@ -28,7 +37,7 @@ async function listMediaPaths() {
   if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
   const data = await res.json();
   return (data.tree ?? [])
-    .filter(e => e.type === 'blob' && e.path.startsWith(MEDIA_ROOT + '/') && e.path !== MANIFEST_PATH)
+    .filter(e => e.type === 'blob' && e.path.startsWith(MEDIA_ROOT + '/') && e.path !== MANIFEST_PATH && e.path !== USAGE_INDEX_PATH)
     .map(e => e.path);
 }
 
@@ -47,7 +56,7 @@ function decorateCapturePills(panel, meta) {
 
 export async function openMediaLibrary({ mode, accept } = {}) {
   const insertMode = mode === 'insert';
-  const exts = ACCEPT_EXTS[accept] ?? null; // null = browse: every file shows
+  const filter = ACCEPT[accept] ?? null; // null = browse: every file shows
   const opener = () => openMediaLibrary({ mode, accept });
   const { formEl } = await createForm('mediaLibrary', opener);
   if (!formEl) return;
@@ -74,7 +83,7 @@ export async function openMediaLibrary({ mode, accept } = {}) {
     const [paths, meta] = await Promise.all([listMediaPaths(), readCaptureMeta()]);
     captureMeta = meta;
     tabs = groupMediaPaths(paths, MEDIA_ROOT)
-      .map(group => ({ ...group, nodes: buildMediaNodes(group.paths, { root: group.root, exts }) }))
+      .map(group => ({ ...group, nodes: buildMediaNodes(group.paths, { root: group.root, exts: filter?.exts ?? null, shape: filter?.shape ?? null }) }))
       .filter(tab => tab.nodes.length);
   } catch (e) {
     panel.innerHTML = `<p class="more-buttons-description">Failed to load media: ${e.message}</p>`;
@@ -137,8 +146,10 @@ export async function openMediaLibrary({ mode, accept } = {}) {
     if (VIDEO_EXTS.includes(ext)) {
       getFormAction('openVideoEntry')?.({ lightPath, darkPath, singlePath, label, mode });
     } else if (IMAGE_EXTS.includes(ext)) {
-      if (!lightPath) return;
-      getFormAction('openCaptureEntry')?.({ lightPath, darkPath, label, mode });
+      // A theme pair is a capture; a lone file is an image (the shape decides,
+      // not the tab — occ-captures holds pairs, every other folder singles).
+      if (lightPath) getFormAction('openCaptureEntry')?.({ lightPath, darkPath, label, mode });
+      else if (singlePath) getFormAction('openImageEntry')?.({ singlePath, label, mode });
     } else if (!insertMode) {
       // Odd formats (e.g. a PDF in other/) are browse-only: open the raw file.
       const path = singlePath || lightPath || darkPath;

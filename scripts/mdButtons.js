@@ -11,10 +11,11 @@
  *
  * Colour slugs map to the KB's buttons.css `custom-button-<slug>` palette (the
  * same 26 slugs as labelColours.json). Theme modifiers (`--inversed`,
- * `--force-light`, `--force-dark`) pin which colour trio paints the button, and
+ * `--force-light`, `--force-dark`) pin which colour trio paints the button,
  * border modifiers (`--bordered`, `--border-light`, `--border-dark`,
- * `--borderless`) override the trio's default border per side. Both are only
- * meaningful — and only emitted — alongside a colour class.
+ * `--borderless`) override the trio's default border per side, and the style
+ * modifier (`--slim`) swaps the default pill geometry for a full-width flex
+ * row. All are only meaningful — and only emitted — alongside a colour class.
  *
  * It is the simplest component: single-line, holds no sub-components. Identity is
  * a hidden `<span data-uuid>` on the line BEFORE the link — the same convention
@@ -83,6 +84,13 @@ function attrsCustomBorder(attrs) {
   return (attrs ?? '').match(CUSTOM_BORDER_RE)?.[1] ?? 'default';
 }
 
+// `.custom-button--<style>` modifier → style name, 'default' when absent.
+// Same closed-enum-on-double-dash pattern as theme/border.
+const CUSTOM_STYLE_RE = /\bcustom-button--(slim)\b/;
+function attrsCustomStyle(attrs) {
+  return (attrs ?? '').match(CUSTOM_STYLE_RE)?.[1] ?? 'default';
+}
+
 /** True when the link opens in a new tab (`target="_blank"`). */
 function attrsOpenNewTab(attrs) {
   return /\btarget\s*=\s*["']?_blank["']?/.test(attrs ?? '');
@@ -93,7 +101,7 @@ function attrsOpenNewTab(attrs) {
  * '' separator, then an optional uuid span, then the link line. buildComponentBody
  * slices off the leading ''.
  *
- * @param {Array<{uuid?,label,destination,icon,colour?,theme?,border?,primary?}>} list
+ * @param {Array<{uuid?,label,destination,icon,colour?,theme?,border?,style?,primary?}>} list
  * @returns {string[]}
  */
 export function buildButtonLines(list = []) {
@@ -101,14 +109,15 @@ export function buildButtonLines(list = []) {
     const label = (b.label ?? '').trim();
     const shortcode = iconToShortcode(b.icon);
     const text = shortcode ? (label ? `${label} ${shortcode}` : shortcode) : label;
-    // Colour wins over the legacy primary flag; theme and border ride only with
-    // a colour (a bare modifier would still match buttons.css's
+    // Colour wins over the legacy primary flag; theme, border and style ride
+    // only with a colour (a bare modifier would still match buttons.css's
     // `[class*="custom-button-"]` painters and wreck an uncoloured button).
     const classList = ['.md-button'];
     if (b.colour) {
       classList.push(`.custom-button-${b.colour}`);
       if (b.theme && b.theme !== 'default') classList.push(`.custom-button--${b.theme}`);
       if (b.border && b.border !== 'default') classList.push(`.custom-button--${b.border}`);
+      if (b.style && b.style !== 'default') classList.push(`.custom-button--${b.style}`);
     } else if (b.primary) {
       classList.push('.md-button--primary');
     }
@@ -125,7 +134,7 @@ export function buildButtonLines(list = []) {
  * A preceding own-line uuid span is swallowed into startLine (its identity).
  *
  * @param {string} body
- * @returns {Array<{uuid,label,destination,icon,primary,colour,theme,border,indent,startLine,endLine}>}
+ * @returns {Array<{uuid,label,destination,icon,primary,colour,theme,border,style,indent,startLine,endLine}>}
  */
 export function locateButtonLines(body) {
   const lines = (body ?? '').split('\n');
@@ -153,7 +162,7 @@ export function locateButtonLines(body) {
       uuid, label: label.trim(), destination: m[3], icon,
       primary: attrsArePrimary(attrs), newTab: attrsOpenNewTab(attrs),
       colour: attrsCustomColour(attrs), theme: attrsCustomTheme(attrs),
-      border: attrsCustomBorder(attrs),
+      border: attrsCustomBorder(attrs), style: attrsCustomStyle(attrs),
       indent, startLine, endLine: i + 1,
     });
   }
@@ -234,6 +243,7 @@ export function buttonDimFields(btn) {
     buttonColour: btn?.colour ?? '',
     buttonTheme: btn?.theme ?? 'default',
     buttonBorder: btn?.border ?? 'default',
+    buttonStyle: btn?.style ?? 'default',
     buttonDestination: btn?.destination ?? '',
     icon: btn?.icon ?? '',
     buttonNewTab: btn?.newTab ? 'yes' : 'no',

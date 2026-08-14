@@ -279,19 +279,24 @@ test('columnMenuItems: alignment submenu checks the current alignment', () => {
   assert.deepEqual(sub.map(i => !!i.checked), [false, true, false]);
 });
 
-test('cellMenuItems: header cell → clear only; text cell → capture submenu + clear', () => {
+test('cellMenuItems: header cell → clear only; text cell → media submenu + clear', () => {
   const s = st();
   assert.deepEqual(ids(cellMenuItems(s, -1, 0)), ['cell-clear']);
-  const text = cellMenuItems(s, 0, 0, { hasCapture: false });
+  const text = cellMenuItems(s, 0, 0, { mediaKind: null });
   assert.deepEqual(ids(text), ['cell-capture', 'cell-clear']);
   assert.deepEqual(text.find(i => i.id === 'cell-capture').submenu.map(i => i.id),
-    ['cell-capture-new', 'cell-capture-library']);
+    ['cell-capture-new', 'cell-capture-library', 'cell-image-library']);
 });
 
-test('cellMenuItems: capture cell → edit + remove (danger)', () => {
-  const items = cellMenuItems(st(), 0, 0, { hasCapture: true });
+test('cellMenuItems: capture cell → edit + remove (danger), kind-specific labels', () => {
+  const items = cellMenuItems(st(), 0, 0, { mediaKind: 'capture' });
   assert.deepEqual(ids(items), ['cell-edit-capture', 'cell-remove-capture']);
   assert.equal(items.find(i => i.id === 'cell-remove-capture').danger, true);
+  assert.equal(items.find(i => i.id === 'cell-edit-capture').label, 'Edit capture');
+  const img = cellMenuItems(st(), 0, 0, { mediaKind: 'image' });
+  assert.deepEqual(ids(img), ['cell-edit-capture', 'cell-remove-capture']);
+  assert.equal(img.find(i => i.id === 'cell-edit-capture').label, 'Edit image');
+  assert.equal(img.find(i => i.id === 'cell-remove-capture').label, 'Remove image');
 });
 
 // ── cellAt / setCellAt ────────────────────────────────────────────────────────

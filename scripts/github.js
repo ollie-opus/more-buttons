@@ -1,16 +1,36 @@
 import { ensureAdmonitionUUIDs, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
+import { STATUS_BLOCK_TYPE_RE, migrateStatusSections, migrateStatusCardFormat, reconcileStatusEvents } from './statusEvents.js';
 import {
   ensureSectionUUIDs, parseSections, readSectionDescription,
   writeHideSectionTitle, buildSection, replaceSectionByUUID,
 } from './sections.js';
 import { readHideTitle, writeHideTitle } from './frontmatter.js';
-import { ensureCaptureUUIDs } from './components.js';
+import { ensureCaptureUUIDs, ensureImageUUIDs } from './components.js';
 import { ensureTabUUIDs } from './contentTabs.js';
 import { ensureDataTableUUIDs } from './dataTables.js';
 import { ensureGridUUIDs } from './grid.js';
 import { contentsApiUrl, authHeader, rememberWrite, forgetWrite, reconcileRead } from './repoClient.js';
+import {
+  USAGE_INDEX_PATH, isTrackedPagePath, scanMarkdownMediaPaths,
+  applyUsageUpsert, parseUsageIndex, serializeUsageIndex,
+} from './mediaUsage.js';
 
 let _opQueue = Promise.resolve();
+
+// Media-usage index maintenance: after any committed change to a tracked page
+// (docs/pages|drafts markdown), replace that page's index entry with the media
+// set scanned from the just-committed text; [] removes it (delete/discard).
+// Fire-and-forget from INSIDE a running queued op — _enqueue schedules the
+// index write strictly after the current op settles, and not awaiting it means
+// no deadlock and no way for an index failure to surface as a save failure.
+// No recursion: the index file itself is not a tracked page path. Deterministic
+// serialization means an unchanged media set skips the PUT entirely.
+function _syncMediaUsage(filePath, markdown) {
+  if (!isTrackedPagePath(filePath)) return;
+  githubFetchAndPushFile(USAGE_INDEX_PATH, undefined, text =>
+    serializeUsageIndex(applyUsageUpsert(parseUsageIndex(text), filePath, markdown ? scanMarkdownMediaPaths(markdown) : []))
+  ).catch(err => console.warn('media-usage index update failed', err));
+}
 
 // Cache-busted read URL. repoClient.js fetches these same contents-API URLs with
 // `Accept: application/vnd.github.raw`; the browser caches/coalesces by URL alone
@@ -36,7 +56,7 @@ function _enqueue(run) {
 
 const ADMONITION_TYPE_BY_FILE = {
   'system-updates.md': /feature-release|new-addition|improvement/,
-  'system-status.md':  /status-available|status-disruption|status-outage/,
+  'system-status.md':  STATUS_BLOCK_TYPE_RE,
 };
 
 // True for guide pages/drafts (which carry sections + component admonitions +
@@ -61,7 +81,7 @@ function isGuideMarkdown(filePath) {
 //
 // Exported for unit testing the dispatch — callers use githubFetchAndPushFile /
 // fetchFileMigratingIdentity, which apply it automatically.
-export function migrateComponentIdentity(filePath, markdown) {
+export function migrateComponentIdentity(filePath, markdown, now = new Date()) {
   // ensureTabUUIDs + ensureGridUUIDs must run BEFORE ensureDataTableUUIDs and
   // ensureCaptureUUIDs: a table/capture span injected as a tab's or grid cell's
   // first body line would be misread as that container's own identity.
@@ -70,13 +90,21 @@ export function migrateComponentIdentity(filePath, markdown) {
     // System updates / status: their top-level block admonitions, plus (for
     // updates, which embed components) tab groups + captures inside update bodies.
     const withAdm = ensureAdmonitionUUIDs(markdown, blockRegex);
-    return filePath.includes('system-updates.md') ? ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(withAdm)))) : withAdm;
+    if (filePath.includes('system-status.md')) {
+      // Status page: normalize the event-section headings (one-time rename),
+      // rewrite legacy event cards into the pill/Services-Affected format, and
+      // run the time-based maintenance sweep, so every mutation commits
+      // reconciled markdown (the changed-check upstream diffs against the
+      // PRE-migration text, so a migration-only change still commits).
+      return reconcileStatusEvents(migrateStatusCardFormat(migrateStatusSections(withAdm)), now);
+    }
+    return filePath.includes('system-updates.md') ? ensureImageUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(withAdm))))) : withAdm;
   }
   if (isGuideMarkdown(filePath)) {
     // Mirror createGuideDraft: sections + component admonitions + tabs + tables + captures.
-    const withIds = ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
+    const withIds = ensureImageUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
       ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
-    ))));
+    )))));
     // Hide-page-title moved from a page-level setting to a per-section toggle:
     // fold any legacy preamble marker into the H1 section's own hide flag. Runs
     // last (after ensureSectionUUIDs has given the H1 a UUID span). Idempotent —
@@ -178,6 +206,7 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
   let newSha;
   try { newSha = (await putRes.json())?.content?.sha; } catch { /* sha is best-effort */ }
   rememberWrite(filePath, updatedMarkdown, newSha);
+  _syncMediaUsage(filePath, updatedMarkdown);
   return updatedMarkdown;
 }
 
@@ -228,6 +257,7 @@ async function _githubDeleteFile(filePath, onProgress) {
   // Read-your-deletes: a read before the replica catches up would resurrect the
   // file; remember it as empty so readers see it gone immediately.
   rememberWrite(filePath, '');
+  _syncMediaUsage(filePath, '');
 }
 
 // Replaces an existing binary file in place. base64Data — raw Base64 string

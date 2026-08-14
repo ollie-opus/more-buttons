@@ -14,6 +14,7 @@ import './mediaUpload.js';
 import './captureInsertNew.js';
 import './captureComponent.js';
 import './videoEntry.js';
+import './imageEntry.js';
 import './contentTabsEditor.js';
 import './dataTablesEditor.js';
 import './gridEditor.js';

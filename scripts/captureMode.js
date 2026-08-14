@@ -32,10 +32,10 @@
  *     path is the single recovery mechanism.
  */
 
-import { installSelector, screenshotElement, enterResizeMode } from './captureElement.js';
+import { installSelector, screenshotElement, enterResizeMode, getElementLabel, slugifyLabel } from './captureElement.js';
 import { getFormAction } from './formActions.js';
 import { captureSizeField, wireCaptureSizeField, readCaptureSizeField } from './captureCards.js';
-import { captureFlagSuffix, appendCaptureSuffix } from './captureMeta.js';
+import { captureFlagSuffix, appendCaptureSuffix, captureBaseSlug } from './captureMeta.js';
 
 const STORAGE_KEY = 'moreButtonsCaptureSettings';
 const SESSION_KEY = 'moreButtonsCaptureSession';
@@ -430,9 +430,14 @@ export async function enterCaptureMode(opts = {}) {
   // the colour popover block below swaps in the full chromatic set.
   let colourEntries = annotateColourEntries(null);
   const annotationInk = () => resolveAnnotateColour(settings.annotateColour, colourEntries);
-  const annotations = new Map(); // Element -> { outline, outlineOffset } (prior inline values)
+  const annotations = new Map(); // Element -> { outline, outlineOffset, seq } (prior inline values + creation order)
 
   const boxAnnotations = new Set(); // free-drawn <div> rings from resize-mode picks
+
+  // Global creation counter across BOTH annotation kinds — filename annotation
+  // names are emitted in the order the user annotated, and element rings and
+  // boxes can be interleaved.
+  let annotationSeq = 0;
 
   function refreshClearButton() {
     const btn = $('[data-bar-clear-annotations]');
@@ -451,6 +456,7 @@ export async function enterCaptureMode(opts = {}) {
     annotations.set(el, {
       outline: el.style.getPropertyValue('outline'),
       outlineOffset: el.style.getPropertyValue('outline-offset'),
+      seq: annotationSeq++,
     });
     el.style.setProperty('outline', `${ANNOTATION_WIDTH}px solid ${annotationInk()}`, 'important');
     el.style.setProperty('outline-offset', `${settings.capturePadding - ANNOTATION_WIDTH}px`, 'important');
@@ -478,6 +484,7 @@ export async function enterCaptureMode(opts = {}) {
       pointerEvents: 'none',
       zIndex: '2147483640', // above page content, below the capture-mode UI
     });
+    box.dataset.mbSeq = String(annotationSeq++);
     document.body.appendChild(box);
     boxAnnotations.add(box);
     refreshClearButton();
@@ -550,16 +557,38 @@ export async function enterCaptureMode(opts = {}) {
         && a.top < b.top + b.height && b.top < a.top + a.height;
   }
 
-  function annotationInShot(shot) {
+  // A free-drawn box has no element attached — recover a name by hit-testing
+  // whatever sits under its centre. Boxes are pointer-events:none so
+  // elementFromPoint sees through them; the closest() guard is defence-in-depth
+  // against the always-visible capture tab/bar. Centre offscreen (this runs
+  // before screenshotElement scrolls) or no readable label → '' → no name.
+  function boxLabelSlug(box) {
+    const r = box.getBoundingClientRect(); // viewport coords at test time
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    if (cx < 0 || cy < 0 || cx >= window.innerWidth || cy >= window.innerHeight) return '';
+    const hit = document.elementFromPoint(cx, cy);
+    if (!hit || hit.closest('.mb-annotation-box, [class^="mb-capture"], [class*=" mb-capture"]')) return '';
+    return slugifyLabel(getElementLabel(hit) || '');
+  }
+
+  function annotationsInShot(shot) {
     const P = settings.capturePadding;
     const padded = { top: shot.top - P, left: shot.left - P, width: shot.width + P * 2, height: shot.height + P * 2 };
-    for (const el of annotations.keys()) {
-      if (el.isConnected && rectsOverlap(docRect(el), padded)) return true;
+    const hits = [];
+    for (const [el, saved] of annotations) {
+      if (el.isConnected && rectsOverlap(docRect(el), padded)) {
+        hits.push({ seq: saved.seq, slug: slugifyLabel(getElementLabel(el) || '') });
+      }
     }
     for (const box of boxAnnotations) {
-      if (box.isConnected && rectsOverlap(docRect(box), padded)) return true;
+      if (box.isConnected && rectsOverlap(docRect(box), padded)) {
+        hits.push({ seq: Number(box.dataset.mbSeq), slug: boxLabelSlug(box) });
+      }
     }
-    return false;
+    hits.sort((a, b) => a.seq - b.seq);
+    // Raw ordered slugs — dedupe and the 3-name cap live in captureFlagSuffix.
+    return { annotated: hits.length > 0, names: hits.map(h => h.slug).filter(Boolean) };
   }
 
   const MODE_TAB_LABEL = { capture: 'Capture mode', annotate: 'Annotate mode', zap: 'Zapper mode' };
@@ -819,9 +848,9 @@ export async function enterCaptureMode(opts = {}) {
     selectorCleanup = null;
     bar.classList.add('--capturing');
 
-    const finishCapture = (light, dark, resized, annotated) => {
+    const finishCapture = (light, dark, resized, anno) => {
       if (!light || !dark) return;
-      handleCapture(light, dark, resized, annotated);
+      handleCapture(light, dark, resized, anno);
     };
 
     try {
@@ -834,10 +863,10 @@ export async function enterCaptureMode(opts = {}) {
             // captures the raw region (whose corner radii are unknowable).
             const customRect = untouched ? null : rect;
             // rect is doc coords (same space addBoxAnnotation positions with).
-            const annotated = annotationInShot(untouched ? docRect(target) : rect);
+            const anno = annotationsInShot(untouched ? docRect(target) : rect);
             const light = await screenshotElement(target, { theme: 'light', customRect, settings });
             const dark  = await screenshotElement(target, { theme: 'dark',  customRect, settings });
-            finishCapture(light, dark, resized, annotated);
+            finishCapture(light, dark, resized, anno);
             resolve();
           }, () => resolve());
         });
@@ -847,10 +876,10 @@ export async function enterCaptureMode(opts = {}) {
         }
         // small settle delay matches the prior implementation's 100ms blur gap
         await new Promise(r => setTimeout(r, 100));
-        const annotated = annotationInShot(docRect(target));
+        const anno = annotationsInShot(docRect(target));
         const light = await screenshotElement(target, { theme: 'light', settings });
         const dark  = await screenshotElement(target, { theme: 'dark',  settings });
-        finishCapture(light, dark, false, annotated);
+        finishCapture(light, dark, false, anno);
       }
     } finally {
       capturing = false;
@@ -860,12 +889,14 @@ export async function enterCaptureMode(opts = {}) {
     }
   }
 
-  function handleCapture(light, dark, resized, annotated) {
+  function handleCapture(light, dark, resized, anno) {
     // New captures carry the annotate/zap marker in the filename (-a / -z /
-    // -a-z); recaptures never see these names — they replace bytes at the
-    // stored path (captureEntry.js) — so names are fixed at creation.
+    // -a-z), with the annotated elements' label slugs riding after -a
+    // (-a-time-clock-z); recaptures never see these names — they replace bytes
+    // at the stored path (captureEntry.js) — so names are fixed at creation.
     const wasZapped = zapped.size > 0;
-    const suffix = captureFlagSuffix(!!annotated, wasZapped);
+    const baseSlug = captureBaseSlug(light.filename);
+    const suffix = captureFlagSuffix(anno.annotated, wasZapped, anno.names, baseSlug);
     sessionBuffer.push({
       lightDataUrl: light.dataUrl,
       lightFilename: appendCaptureSuffix(light.filename, suffix),
@@ -873,7 +904,8 @@ export async function enterCaptureMode(opts = {}) {
       darkFilename: appendCaptureSuffix(dark.filename, suffix),
       resized: !!resized,
       padding: light.appliedPadding || 0,
-      annotated: !!annotated,
+      annotated: anno.annotated,
+      annotationNames: anno.names,
       zapped: wasZapped,
       dimMode: 'height',
       dimValue: 50,

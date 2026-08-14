@@ -4,11 +4,13 @@
   <div data-fetch-path="docs/pages/system-status.md">
     <div class="more-buttons-tabs">
       <div class="more-buttons-tab-list">
-        <button type="button" class="more-buttons-tab --active" data-tab="open-incidents">Open Incidents</button>
-        <button type="button" class="more-buttons-tab" data-tab="resolved-incidents">Resolved Incidents</button>
+        <button type="button" class="more-buttons-tab" data-tab="upcoming-events">Upcoming Events</button>
+        <button type="button" class="more-buttons-tab --active" data-tab="active-events">Active Events</button>
+        <button type="button" class="more-buttons-tab" data-tab="past-events">Past Events</button>
       </div>
-      <div class="more-buttons-tab-panel" data-tab-panel="open-incidents" data-render="renderOpenIncidents"></div>
-      <div class="more-buttons-tab-panel" data-tab-panel="resolved-incidents" data-render="renderResolvedIncidents" hidden></div>
+      <div class="more-buttons-tab-panel" data-tab-panel="upcoming-events" data-render="renderUpcomingEvents" hidden></div>
+      <div class="more-buttons-tab-panel" data-tab-panel="active-events" data-render="renderActiveEvents"></div>
+      <div class="more-buttons-tab-panel" data-tab-panel="past-events" data-render="renderPastEvents" hidden></div>
     </div>
   </div>
 
@@ -16,5 +18,6 @@
     <a class="more-buttons-button" href="https://support.opus-safety.co.uk/pages/system-status/" target="_blank" rel="noopener" title="View live page"><span class="more-buttons-icon">public</span>View live</a>
     <span class="mb-dock-sep" aria-hidden="true"></span>
     <button type="button" class="more-buttons-button" data-action="openReportIncident"><span class="more-buttons-icon">report</span>Report an incident</button>
+    <button type="button" class="more-buttons-button" data-action="openReportMaintenance"><span class="more-buttons-icon">build</span>Report maintenance period</button>
   </div>
 </form>

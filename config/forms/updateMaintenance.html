@@ -1,0 +1,29 @@
+<form data-nav id="update-maintenance-form" data-storage-key="moreButtonsUpdateMaintenance" data-width="90vw" data-height="90vh">
+  <h2>Update Maintenance</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Service(s) Affected</label>
+    <input type="text" name="maintenanceTitle" disabled />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Description</label>
+    <textarea name="description" rows="2"></textarea>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Scheduled Start</label>
+    <input type="datetime-local" name="scheduledStart" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Scheduled End</label>
+    <input type="datetime-local" name="scheduledEnd" />
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitUpdateMaintenance"><span class="more-buttons-icon">verified</span>Save & Publish</button>
+    <button type="button" class="more-buttons-button" data-action="completeMaintenanceNow"><span class="more-buttons-icon">check_circle</span>Complete now</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteMaintenance"><span class="more-buttons-icon">delete</span>Cancel maintenance</button>
+  </div>
+</form>

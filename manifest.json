@@ -38,6 +38,7 @@
         "scripts/staleSuppression.js",
         "scripts/cardRenderer.js",
         "scripts/systemStatus.js",
+        "scripts/statusEvents.js",
         "scripts/systemUpdates.js",
         "scripts/guides.js",
         "scripts/markdownInline.js",
@@ -106,6 +107,7 @@
         "scripts/gridEditor.js",
         "scripts/mdButtons.js",
         "scripts/buttonEditor.js",
+        "scripts/buttonPreview.js",
         "scripts/navLinks.js",
         "scripts/navLinksEditor.js",
         "scripts/mdDiagrams.js",
@@ -120,7 +122,12 @@
         "scripts/videos.js",
         "scripts/videoEntry.js",
         "scripts/videoCards.js",
-        "scripts/mediaTree.js"
+        "scripts/images.js",
+        "scripts/imageEntry.js",
+        "scripts/mediaTree.js",
+        "scripts/mediaUsage.js",
+        "scripts/mediaUsageStore.js",
+        "scripts/usagePanel.js"
       ],
       "matches": ["https://cloud.opus-safety.co.uk/*"]
     },

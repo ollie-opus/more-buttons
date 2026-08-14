@@ -40,11 +40,27 @@ export function applyMetaUpserts(manifest, upserts) {
 
 /**
  * Filename marker for captures taken with annotate/zapper state in play:
- * '-a' (annotated), '-z' (zapped), '-a-z' (both), '' (neither). Applied to
- * NEW captures only — recaptures keep their creation-time name.
+ * '-a' (annotated), '-z' (zapped), '-a-z' (both), '' (neither). Annotated
+ * captures may also carry the annotated elements' label slugs right after the
+ * '-a' flag ('-a-time-clock-z'): first three non-empty names in annotation
+ * order, deduped against the capture's own base slug and each other (dupes and
+ * empties don't consume slots). Applied to NEW captures only — recaptures keep
+ * their creation-time name.
  */
-export function captureFlagSuffix(annotated, zapped) {
-  return (annotated ? '-a' : '') + (zapped ? '-z' : '');
+export function captureFlagSuffix(annotated, zapped, names = [], baseSlug = '') {
+  let nameStr = '';
+  if (annotated) {
+    const seen = new Set(baseSlug ? [baseSlug] : []);
+    const kept = [];
+    for (const n of names) {
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      kept.push(n);
+      if (kept.length === 3) break;
+    }
+    nameStr = kept.map(n => `-${n}`).join('');
+  }
+  return (annotated ? `-a${nameStr}` : '') + (zapped ? '-z' : '');
 }
 
 /**
@@ -58,6 +74,17 @@ export function captureFlagSuffix(annotated, zapped) {
 export function appendCaptureSuffix(filename, suffix) {
   if (!suffix) return filename;
   return filename.replace(/-(?:light|dark)-mode\.[a-z0-9]+$/, tail => `${suffix}${tail}`);
+}
+
+/**
+ * The theme-agnostic basename of a capture path — what deriveFilename produced
+ * as the label slug (fallback and 50-char slice included), used to dedupe
+ * annotation names against the capture's own name. '' for non-capture names.
+ *   'media/occ-captures/foo/system-light-mode.png' → 'system'
+ */
+export function captureBaseSlug(filename) {
+  const m = ((filename || '').split('/').pop() || '').match(/^(.*)-(?:light|dark)-mode\.[a-z0-9]+$/);
+  return m ? m[1] : '';
 }
 
 /**

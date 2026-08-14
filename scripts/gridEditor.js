@@ -45,8 +45,8 @@ import {
   makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick,
   setOpenComponentEditor, beginChildNavigation,
 } from './guides.js';
-import { syncSurfaceFromTextarea } from './richTextEditor.js';
-import { escapeHtml } from './cardRenderer.js';
+import { syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
+import { componentBodyHtml } from './cardRenderer.js';
 
 const STORAGE_KEY = 'moreButtonsEditGrid';
 
@@ -171,15 +171,12 @@ function enrichCellCounts(formEl, md) {
 
 // ── Parent: tiles + flavor rendering ────────────────────────────────────────────
 
-// A plain-text, single-line preview of the cell's content for the tile body.
+// A rich preview of the cell's content for the tile body; the tile's CSS
+// line-clamp handles overflow (no Show more — tiles are fixed-size click
+// targets for cell selection).
 function tilePreview(cell) {
-  const text = (cell.description ?? '')
-    .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
-    .replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '')
-    .replace(/\n+/g, ' ')
-    .trim();
-  if (text) return escapeHtml(text.length > 160 ? text.slice(0, 160) + '…' : text);
-  return `<span class="mb-grid-cell-tile__empty">No text</span>`;
+  const html = componentBodyHtml(cell.description);
+  return html || `<span class="mb-grid-cell-tile__empty">No text</span>`;
 }
 
 // Render the square cell tiles + sync the structure-bar enablement.
@@ -195,13 +192,14 @@ function renderTiles(formEl) {
         <div class="mb-incident-card__head">
           <strong class="mb-incident-card__title">Cell ${i + 1}</strong>
         </div>
-        <p class="mb-incident-card__body">${tilePreview(c)}</p>
+        <div class="mb-incident-card__body mb-card-rich">${tilePreview(c)}</div>
         <div class="mb-incident-card__foot${n ? '' : ' --end'}">
           ${n ? `<span class="mb-incident-card__meta">${n} component${n === 1 ? '' : 's'}</span>` : ''}
           <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>
         </div>
       </div>`;
   }).join('');
+  paintLabels(host); // colour any label pills in the rich tile previews
 
   const left = formEl.querySelector('[data-grid-move="left"]');
   const right = formEl.querySelector('[data-grid-move="right"]');

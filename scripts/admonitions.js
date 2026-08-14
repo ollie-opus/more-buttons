@@ -23,7 +23,35 @@ export function generateUUID() {
 // importing the high-level guides.js (which would create an import cycle).
 // Re-exported from guides.js for existing callers.
 export const GUIDE_ADMONITION_TYPES_RE =
-  /step|outline|note|abstract|info|tip|success|question|warning|failure|danger|bug|example|quote/;
+  /step|outline|blank|note|abstract|info|tip|success|question|warning|failure|danger|bug|example|quote/;
+
+// Card-display maps for the guide admonition types. Live here (leaf module) so
+// both guides.js and cardRenderer.js can badge admonition cards without an
+// import cycle (guides.js imports cardRenderer.js).
+export const ADMONITION_TYPE_LABELS = {
+  step: 'Step', outline: 'Outline', blank: 'Blank', note: 'Note', abstract: 'Abstract',
+  info: 'Info', tip: 'Tip', success: 'Success', question: 'Question',
+  warning: 'Warning', failure: 'Failure', danger: 'Danger', bug: 'Bug',
+  example: 'Example', quote: 'Quote',
+};
+
+export const ADMONITION_TYPE_COLOURS = {
+  step: 'step',
+  outline: 'outline',
+  blank: 'outline',
+  note: 'blue',
+  abstract: 'light-blue',
+  info: 'cyan',
+  tip: 'teal',
+  success: 'green',
+  question: 'light-green',
+  warning: 'orange',
+  failure: 'red',
+  danger: 'bright-red',
+  bug: 'pink',
+  example: 'deep-purple',
+  quote: 'grey',
+};
 
 /**
  * Scans the first non-empty line of `body` for a `data-uuid` attribute and
@@ -439,9 +467,14 @@ export function ensureAdmonitionUUIDs(markdown, typeRegex) {
     const needsOwnUUID = uuid === null;
     if (!bodyChanged && !needsOwnUUID) continue;
 
+    // parseAdmonitions captures the blank line under the header as part of the
+    // body, and buildAdmonition/injectAdmonitionUUID re-add their own gap —
+    // strip it so paste/migration round-trips don't accumulate blank lines
+    // (mirrors buildComponentBody in components.js).
+    const cleanBody = bodyWithSubUUIDs.replace(/^\n+/, '');
     const finalBody = needsOwnUUID
-      ? injectAdmonitionUUID(bodyWithSubUUIDs, generateUUID())
-      : bodyWithSubUUIDs;
+      ? injectAdmonitionUUID(cleanBody, generateUUID())
+      : cleanBody;
     const newBlock = buildAdmonition(prefix, type, title, finalBody);
 
     result = [

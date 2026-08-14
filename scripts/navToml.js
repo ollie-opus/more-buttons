@@ -411,3 +411,84 @@ export function addCreatedTag(tomlText, tag) {
   }
   return tomlText; // unclosed block — leave the file untouched
 }
+
+// ── [project.extra] status scalars — banner + maintenance window ─────────────
+// Extension-managed scalars consumed by the KB repo's overrides/main.html:
+//   mb_status_banner       "" | "disruption" | "outage" (open-incident banner)
+//   mb_maintenance_start   local ISO with UTC offset, "" when no window
+//   mb_maintenance_end     local ISO with UTC offset, "" when no window
+//   mb_maintenance_services comma-joined service names, "" when no window
+// systemStatus.js rewrites them after every event mutation; an unchanged value
+// returns the input string untouched so the GitHub push layer skips the commit.
+
+const PROJECT_EXTRA_HEADER_RE = /^\s*\[project\.extra\]\s*$/;
+
+function extraScalarLineRe(key) {
+  return new RegExp(`^(\\s*${key}\\s*=\\s*)"([^"]*)"(\\s*(?:#.*)?)$`);
+}
+
+/** The current value of a [project.extra] string scalar ('' when absent). */
+export function parseExtraScalar(tomlText, key) {
+  const re = extraScalarLineRe(key);
+  for (const line of (tomlText ?? '').split('\n')) {
+    const m = line.match(re);
+    if (m) return m[2];
+  }
+  return '';
+}
+
+/**
+ * Sets a [project.extra] string scalar. Replaces the existing line in place
+ * (preserving indent and trailing comment); otherwise inserts after the
+ * [project.extra] header (a second [project.extra] header would be a TOML
+ * table-redefinition error); only when no [project.extra] table exists is a
+ * fresh block appended at EOF. Identity-returns when the value already
+ * matches, so the push layer skips the commit on no-op syncs.
+ */
+export function writeExtraScalar(tomlText, key, value) {
+  const clean = String(value ?? '').trim().replace(/"/g, '');
+  if (parseExtraScalar(tomlText, key) === clean) return tomlText;
+
+  const re = extraScalarLineRe(key);
+  const lines = (tomlText ?? '').split('\n');
+  const lineIdx = lines.findIndex(l => re.test(l));
+  if (lineIdx !== -1) {
+    lines[lineIdx] = lines[lineIdx].replace(re, `$1"${clean}"$3`);
+    return lines.join('\n');
+  }
+  const headerIdx = lines.findIndex(l => PROJECT_EXTRA_HEADER_RE.test(l));
+  if (headerIdx !== -1) {
+    lines.splice(headerIdx + 1, 0, `${key} = "${clean}"`);
+    return lines.join('\n');
+  }
+  const base = (tomlText ?? '').endsWith('\n') ? tomlText : (tomlText ?? '') + '\n';
+  return base + [
+    '',
+    '# ----------------------------------------------------------------------------',
+    '# System-status banner — managed by the more-buttons extension',
+    '# ----------------------------------------------------------------------------',
+    '[project.extra]',
+    `${key} = "${clean}"`,
+    '',
+  ].join('\n');
+}
+
+/** The current banner value ('' when the key is absent). */
+export function parseStatusBanner(tomlText) {
+  return parseExtraScalar(tomlText, 'mb_status_banner');
+}
+
+/** Sets mb_status_banner to `value` ('' | 'disruption' | 'outage'). */
+export function writeStatusBanner(tomlText, value) {
+  return writeExtraScalar(tomlText, 'mb_status_banner', value);
+}
+
+/**
+ * Bakes the next maintenance window (or clears all three keys when `win` is
+ * null). `win` is { startIso, endIso, services } from deriveMaintenanceWindow.
+ */
+export function writeMaintenanceKeys(tomlText, win) {
+  let result = writeExtraScalar(tomlText, 'mb_maintenance_start', win?.startIso ?? '');
+  result = writeExtraScalar(result, 'mb_maintenance_end', win?.endIso ?? '');
+  return writeExtraScalar(result, 'mb_maintenance_services', win?.services ?? '');
+}

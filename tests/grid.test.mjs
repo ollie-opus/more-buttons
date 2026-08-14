@@ -329,4 +329,43 @@ test("migrateComponentIdentity: a capture as a cell's first content is not stole
   assert.equal(migrateComponentIdentity('docs/drafts/g.md', out), out);
 });
 
+// A nav-links placeholder is a SELF-CONTAINED one-line div. It must count as
+// net-zero when tracking `<div>` depth — counting it as an opener inflated the
+// depth forever, so the enclosing grid never "closed" and every edit failed
+// with "Grid not found".
+const NAV_CELL_GRID = [
+  span('GRID'),
+  '<div class="grid" markdown>',
+  '',
+  '<div markdown>',
+  '',
+  span('C1'),
+  '',
+  span('NAV'),
+  '<div class="mb-nav-links" data-nav-path="guides/contractors"></div>',
+  '',
+  '</div>',
+  '',
+  '<div markdown>',
+  '',
+  span('C2'),
+  '',
+  '</div>',
+  '',
+  '</div>',
+].join('\n');
+
+test('locateGrids: a one-line nav-links div inside a cell does not break depth tracking', () => {
+  const [g] = locateGrids(NAV_CELL_GRID);
+  assert.equal(g.endLine, 19);
+  assert.deepEqual(g.cells.map(c => c.uuid), ['C1', 'C2']);
+  assert.ok(g.cells[0].body.includes('mb-nav-links'));
+});
+
+test('getGridByUUID: a grid holding a nav-links cell is still found', () => {
+  const g = getGridByUUID(NAV_CELL_GRID, 'GRID');
+  assert.ok(g, 'grid must be found');
+  assert.equal(g.cells.length, 2);
+});
+
 console.log(`\n${passed} passed`);

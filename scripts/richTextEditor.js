@@ -1011,7 +1011,7 @@ function attachLabelPopover(rte) {
 
 // ── AI Rewrite popover ───────────────────────────────────────────────────────
 // Rewords the selection (or, with a collapsed caret, the whole field) with the
-// on-device Prompt API via aiReword.js. The scope line under the actions tells
+// Google Gemini API via aiReword.js. The scope line under the actions tells
 // the user which of the two applies before they commit; the rewrite actions
 // (one button per entry) come from config/aiPrompts.json. The rewrite replaces the text
 // immediately and keeps a
@@ -1020,7 +1020,6 @@ function attachAiPopover(rte) {
   const { toolbar } = rte;
   let saved = null;      // { value, selStart, selEnd } captured when the popover opens
   let controller = null; // AbortController for the in-flight rewrite
-  let modelReady = false; // last availability check said 'available' — session creation replays downloadprogress 0→1 even for a cached model, so ignore it then
 
   rte.aiUndo = createAiUndo();
   rte._aiSquelch = false; // true while the rewrite itself writes, so its own input event doesn't invalidate the snapshot
@@ -1105,13 +1104,12 @@ function attachAiPopover(rte) {
     setUi({ kind: 'checking' });
     const token = saved; // a re-open supersedes this check
     loadAiPrompts().then(cfg => {
-      buildActions(cfg);
+      buildActions(cfg.prompts);
       if (popover.hidden || saved !== token) return;
       if (!scope.text.trim()) { setUi({ kind: 'empty' }); return; }
       return getAvailability().then(availability => {
-        modelReady = availability === 'available';
         if (popover.hidden || saved !== token) return;
-        setUi({ kind: modelReady ? 'ready' : availability });
+        setUi({ kind: availability === 'available' ? 'ready' : 'no-key' });
       });
     }).catch(err => {
       if (popover.hidden || saved !== token) return;
@@ -1126,12 +1124,12 @@ function attachAiPopover(rte) {
     const { signal } = controller;
     setUi({ kind: 'working' });
     try {
-      const prompts = await loadAiPrompts();
+      const { model, prompts } = await loadAiPrompts();
       const out = stripInventedHeadings(scope.text, normalizeModelOutput(await rewrite({
+        model,
         system: prompts[index].system,
         text: scope.text,
         signal,
-        onProgress: loaded => { if (!signal.aborted && !modelReady) setUi({ kind: 'working', progress: loaded }); },
       })));
       if (signal.aborted) return;
       // The result belongs to the value captured at open; if the field moved on
@@ -1150,12 +1148,10 @@ function attachAiPopover(rte) {
     } catch (err) {
       if (signal.aborted || popover.hidden) return; // closed mid-flight — stay quiet
       setUi({ kind: 'error', message: err?.message || 'Rewrite failed — please try again.' });
-      // Chrome can refuse a session even after a positive availability check
-      // (model evicted, mid-update, disk pressure). Re-check and, if the model
-      // really isn't usable, show that state instead of the dead-end error.
+      // The key may have been removed (or never saved) since the open-time
+      // check — if so, show the setup hint instead of the dead-end error.
       getAvailability().then(availability => {
-        modelReady = availability === 'available';
-        if (!modelReady && !popover.hidden && controller === null) setUi({ kind: availability });
+        if (availability !== 'available' && !popover.hidden && controller === null) setUi({ kind: 'no-key' });
       });
     } finally {
       if (controller?.signal === signal) controller = null;

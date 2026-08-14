@@ -32,8 +32,8 @@ function renderValue(label, value, options) {
     const describe = options.describe || (u => ({ title: u }));
     const items = value.map(u => {
       const d = describe(u) || {};
-      const itemLabel = d.kind === 'capture'
-        ? `${d.thumbSrc ? `<img src="${esc(d.thumbSrc)}" alt="" />` : ''}Capture`
+      const itemLabel = (d.kind === 'capture' || d.kind === 'image')
+        ? `${d.thumbSrc ? `<img src="${esc(d.thumbSrc)}" alt="" />` : ''}${d.kind === 'image' ? 'Image' : 'Capture'}`
         : esc(d.title || u);
       return `<li>${itemLabel}</li>`;
     }).join('');

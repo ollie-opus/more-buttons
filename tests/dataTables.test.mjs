@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   locateDataTables, buildDataTable, splitRowCells, getDataTableByUUID,
   locateDataTableByUUID, replaceDataTableByUUID, deleteDataTableByUUID,
-  ensureDataTableUUIDs, parseCellCapture, serializeCellCapture,
+  ensureDataTableUUIDs, parseCellCapture, parseCellMedia, serializeCellCapture, serializeCellImage,
 } from '../scripts/dataTables.js';
 import { parseComponents, buildComponentBody, uuidOfComponent, parsePastedComponents, readTabComponents } from '../scripts/components.js';
 import { GUIDE_ADMONITION_TYPES_RE } from '../scripts/admonitions.js';
@@ -637,6 +637,49 @@ test('cell capture survives a full data-table build/parse round-trip', () => {
   const t = getDataTableByUUID(md, 'TBL');
   assert.deepEqual(parseCellCapture(t.rows[0][1]).capture, CAP, 'capture cell intact after pipe-table round-trip');
   assert.equal(parseCellCapture(t.rows[0][0]).capture, null, 'sibling text cell unaffected');
+});
+
+// ── Cell single images ────────────────────────────────────────────────────────
+
+const IMG = { uuid: 'IMG-9', filename: 'media/buttons/menu-icon.png', dimMode: 'width', dimValue: 120 };
+
+test('parseCellMedia round-trips serializeCellImage (width, height, none)', () => {
+  for (const mode of [{ dimMode: 'width', dimValue: 120 }, { dimMode: 'height', dimValue: 64 }, { dimMode: 'none', dimValue: null }]) {
+    const img = { ...IMG, ...mode };
+    const { text, capture, image } = parseCellMedia(serializeCellImage(img));
+    assert.equal(text, '');
+    assert.equal(capture, null);
+    assert.deepEqual(image, img);
+  }
+});
+
+test('parseCellMedia: capture cell yields capture, not image', () => {
+  const { capture, image } = parseCellMedia(serializeCellCapture(CAP));
+  assert.deepEqual(capture, CAP);
+  assert.equal(image, null);
+});
+
+test('parseCellMedia: text / non-image / theme-half cells stay text', () => {
+  for (const cell of ['`GET` fetch', '![](../assets/media/other/doc.pdf)', '![](../assets/media/x-light-mode.png)']) {
+    const { text, capture, image } = parseCellMedia(cell);
+    assert.equal(text, cell);
+    assert.equal(capture, null);
+    assert.equal(image, null);
+  }
+});
+
+test('serializeCellImage: incomplete descriptor → empty string; no span without uuid', () => {
+  assert.equal(serializeCellImage(null), '');
+  assert.equal(serializeCellImage({}), '');
+  const noSpan = serializeCellImage({ ...IMG, uuid: null });
+  assert.ok(!noSpan.includes('<span'));
+  assert.equal(parseCellMedia(noSpan).image.uuid, null);
+});
+
+test('cell image survives a full data-table build/parse round-trip', () => {
+  const md = buildDataTable('TBL', ['left', 'left'], ['Step', 'Icon'], [['Click', serializeCellImage(IMG)]]);
+  const t = getDataTableByUUID(md, 'TBL');
+  assert.deepEqual(parseCellMedia(t.rows[0][1]).image, IMG, 'image cell intact after pipe-table round-trip');
 });
 
 console.log(`\n${passed} passed`);

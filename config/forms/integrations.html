@@ -1,32 +1,26 @@
-<form id="integrations-form" data-storage-key="moreButtonsIntegrations" data-width="720px">
+<!-- Hub only — no named inputs, no save action, so the storage key is never
+     written; it exists because a form WITHOUT one routes through the formless
+     dispatcher, which tears down history before opening a child and would
+     permanently break the child forms' back arrow. -->
+<form id="integrations-hub-form" data-storage-key="moreButtonsIntegrationsHub" data-nav data-width="560px">
   <h2>Integrations</h2>
 
-  <div class="more-buttons-form-group">
-    <label class="more-buttons-label">GitHub PAT</label>
-    <input class="more-buttons-input-text" type="password" name="githubPAT" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
-  </div>
+  <p class="more-buttons-description">Connect the services More Buttons uses.</p>
 
-  <p class="more-buttons-description">
-    Generate a fine-grained token in GitHub
-    <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">here</a>
-    or by navigating to:<br />
-    <strong>Settings</strong> → <strong>Developer settings</strong> → <strong>Personal access tokens</strong> → <strong>Fine-grained tokens</strong>.<br />
-    Set repository access to <strong>opus-knowledge-base</strong> only, with <strong>Contents: Read and write</strong>.
-  </p>
-
-  <div class="mb-rate-limit" data-rate-limit hidden>
-    <div class="mb-rate-limit__head">
-      <span class="mb-rate-limit__title">GitHub API usage</span>
-      <button type="button" class="mb-rate-limit__refresh" data-rate-limit-refresh aria-label="Refresh rate limit">
-        <span class="material-symbols-outlined">refresh</span>
-      </button>
-    </div>
-    <div class="mb-rate-limit__bar"><div class="mb-rate-limit__fill" data-rate-limit-fill></div></div>
-    <div class="mb-rate-limit__meta" data-rate-limit-meta>Loading…</div>
+  <div class="mb-integration-tiles">
+    <button type="button" class="mb-adm-empty mb-integration-tile" data-action="openGithubIntegration">
+      <span class="mb-adm-empty__icon more-buttons-icon">code</span>
+      <span>GitHub</span>
+      <span class="mb-integration-status" data-integration-status="github">…</span>
+    </button>
+    <button type="button" class="mb-adm-empty mb-integration-tile" data-action="openGeminiIntegration">
+      <span class="mb-adm-empty__icon more-buttons-icon">auto_awesome</span>
+      <span>Google Gemini</span>
+      <span class="mb-integration-status" data-integration-status="gemini">…</span>
+    </button>
   </div>
 
   <div class="more-buttons-form-actions">
-    <button type="button" class="more-buttons-button success" data-action="save,close"><span class="more-buttons-icon">save</span>Save</button>
     <button type="button" class="more-buttons-button secondary" data-action="close"><span class="more-buttons-icon">close</span>Close</button>
   </div>
 </form>

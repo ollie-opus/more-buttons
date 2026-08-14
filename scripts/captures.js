@@ -83,7 +83,7 @@ export function resolveCaptures(list) {
   return list.map(c => {
     if (c.lightDataUrl && c.addToLibrary === false) {
       const id = generateUUID();
-      const suffix = captureFlagSuffix(!!c.annotated, !!c.zapped);
+      const suffix = captureFlagSuffix(!!c.annotated, !!c.zapped, c.annotationNames || []);
       return {
         ...c,
         lightFilename: `media/occ-captures/uncategorised/${id}${suffix}-light-mode.png`,
@@ -404,8 +404,10 @@ registerFormAction('reenterComponentCapture', () => {
 });
 
 // "Add from library" → pick a library capture → review form → commit at idx.
+// accept 'capture' narrows the library to theme PAIRS, so only occ-captures
+// (and any folder holding pairs) shows — singles belong to the Image insert.
 export function runComponentLibraryInsert({ container, insertAt }) {
   pendingComponentInsert = { snapshot: snapshotFormStack(), container, insertAt };
-  return getFormAction('openMediaLibrary')?.({ mode: 'insert', accept: 'image' });
+  return getFormAction('openMediaLibrary')?.({ mode: 'insert', accept: 'capture' });
 }
 

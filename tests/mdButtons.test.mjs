@@ -57,7 +57,7 @@ test('locate: secondary button', () => {
   assert.deepEqual(found[0], {
     uuid: null, label: 'Subscribe', destination: '/signup', icon: '',
     primary: false, newTab: false, colour: '', theme: 'default', border: 'default',
-    indent: '', startLine: 0, endLine: 1,
+    style: 'default', indent: '', startLine: 0, endLine: 1,
   });
 });
 
@@ -159,7 +159,7 @@ test('dimFields: maps a parsed button to scalar form fields', () => {
   const btn = { label: 'Send', destination: '/x', primary: true, icon: 'lucide/send', newTab: true };
   assert.deepEqual(buttonDimFields(btn), {
     buttonLabel: 'Send', buttonColour: '', buttonTheme: 'default', buttonBorder: 'default',
-    buttonDestination: '/x', icon: 'lucide/send', buttonNewTab: 'yes',
+    buttonStyle: 'default', buttonDestination: '/x', icon: 'lucide/send', buttonNewTab: 'yes',
   });
 });
 
@@ -306,6 +306,65 @@ test('dimFields: border maps through; absent border baselines to default', () =>
   assert.equal(buttonDimFields(plain).buttonBorder, 'default');
 });
 
+// ── style modifier classes ───────────────────────────────────────────────────
+
+test('build: colour + slim emits the style class after border, before target/rel', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: 'emerald', theme: 'inversed', border: 'bordered', style: 'slim', newTab: true, icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .custom-button-emerald .custom-button--inversed .custom-button--bordered .custom-button--slim target="_blank" rel="noopener" }']);
+});
+
+test('build: style "default" emits no modifier class', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: 'red', style: 'default', icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .custom-button-red }']);
+});
+
+test('build: style without a colour is dropped (legacy classes only)', () => {
+  const lines = buildButtonLines([{ label: 'Go', destination: '/x', colour: '', style: 'slim', primary: true, icon: null }]);
+  assert.deepEqual(lines, ['', '[Go](/x){ .md-button .md-button--primary }']);
+});
+
+test('locate: slim modifier, order-tolerant', () => {
+  const got = locateButtonLines('[Go](/x){ .custom-button--slim .custom-button-red .md-button }')[0];
+  assert.equal(got.colour, 'red');
+  assert.equal(got.style, 'slim');
+  assert.equal(got.theme, 'default');
+  assert.equal(got.border, 'default');
+});
+
+test('locate: a slim modifier alone is NOT a colour, theme, or border', () => {
+  const got = locateButtonLines('[Go](/x){ .md-button .custom-button--slim }')[0];
+  assert.equal(got.colour, '');
+  assert.equal(got.theme, 'default');
+  assert.equal(got.border, 'default');
+  assert.equal(got.style, 'slim');
+});
+
+test('locate: theme, border and style modifiers coexist', () => {
+  const got = locateButtonLines('[Go](/x){ .md-button .custom-button-teal .custom-button--force-dark .custom-button--borderless .custom-button--slim }')[0];
+  assert.equal(got.colour, 'teal');
+  assert.equal(got.theme, 'force-dark');
+  assert.equal(got.border, 'borderless');
+  assert.equal(got.style, 'slim');
+});
+
+test('round-trip: slim custom lines are byte-identical', () => {
+  for (const line of [
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--slim }',
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--inversed .custom-button--slim }',
+    '[Go](/x){ .md-button .custom-button-teal .custom-button--inversed .custom-button--bordered .custom-button--slim target="_blank" rel="noopener" }',
+  ]) {
+    const got = locateButtonLines(line)[0];
+    assert.equal(buildButtonLines([got])[1], line);
+  }
+});
+
+test('dimFields: style maps through; absent style baselines to default', () => {
+  const custom = { label: 'Go', destination: '/x', colour: 'emerald', theme: 'default', border: 'default', style: 'slim', icon: '', newTab: false };
+  assert.equal(buttonDimFields(custom).buttonStyle, 'slim');
+  const plain = locateButtonLines('[Go](/x){ .md-button .custom-button-red }')[0];
+  assert.equal(buttonDimFields(plain).buttonStyle, 'default');
+});
+
 // ── components.js integration: button as an ordered component ────────────────
 
 test('parseComponents: recognises a button interleaved with an admonition', () => {
@@ -333,7 +392,7 @@ test('parseComponents: recognises a button interleaved with an admonition', () =
 });
 
 test('buildComponentBody → parseComponents round-trips a button component', () => {
-  const comp = { kind: 'button', btn: { uuid: 'u9', label: 'Go', destination: '/go', icon: 'lucide/star', primary: false, colour: '', theme: 'default', border: 'default', newTab: true } };
+  const comp = { kind: 'button', btn: { uuid: 'u9', label: 'Go', destination: '/go', icon: 'lucide/star', primary: false, colour: '', theme: 'default', border: 'default', style: 'default', newTab: true } };
   const body = buildComponentBody(null, 'Desc', [comp]);
   const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
   assert.equal(description, 'Desc');

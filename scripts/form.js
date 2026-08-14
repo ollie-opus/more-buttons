@@ -1,8 +1,9 @@
 import { getFormAction, currentOpener, currentInvocationDescriptor } from './formActions.js';
 import { readRepoText } from './repoClient.js';
-import { renderOpenIncidents, renderResolvedIncidents } from './systemStatus.js';
+import { renderUpcomingEvents, renderActiveEvents, renderPastEvents } from './systemStatus.js';
 import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 import { upgradeTextarea } from './richTextEditor.js';
+import { applyCardClamps, toggleCardExpand } from './cardRenderer.js';
 import { formLoading, syncDockTag } from './loading.js';
 import {
   markRequiredFields,
@@ -19,8 +20,9 @@ import {
 // - When a panel owns suppressible IDs, call staleSuppression.reconcile(...) and
 //   filterSuppressed(...) using the freshly-fetched ID set.
 const renderFns = {
-  renderOpenIncidents,
-  renderResolvedIncidents,
+  renderUpcomingEvents,
+  renderActiveEvents,
+  renderPastEvents,
   renderDraftUpdates,
   renderPublishedUpdates
 };
@@ -60,9 +62,14 @@ const FORM_LABELS = {
   editGridCell: 'Edit Cell',
   reportIncident: 'Report Incident',
   updateIncident: 'Update Incident',
+  reportMaintenance: 'Report Maintenance',
+  updateMaintenance: 'Update Maintenance',
   logSystemUpdate: 'Log System Update',
   editSystemUpdate: 'Edit System Update',
   editDraftSystemUpdate: 'Edit Draft Update',
+  integrations: 'Integrations',
+  githubIntegration: 'GitHub',
+  geminiIntegration: 'Google Gemini',
 };
 
 function resetHistory() {
@@ -502,6 +509,10 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
   tabsContainer.querySelectorAll('[data-tab-panel]').forEach(panel => {
     panel.hidden = panel.dataset.tabPanel !== tabName;
   });
+
+  // Cards rendered into a hidden panel couldn't be measured (clientHeight 0);
+  // re-measure now that the panel is visible.
+  applyCardClamps(tabsContainer);
 });
 
   // Grab the form with storage key attribute
@@ -1074,6 +1085,11 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
       if (e.target.name && triggerNames.has(e.target.name)) checkAndLoad();
     });
     formEl.addEventListener('click', e => {
+      const expandBtn = e.target.closest('[data-card-expand]');
+      if (expandBtn) {
+        toggleCardExpand(expandBtn);
+        return;
+      }
       const updateBtn = e.target.closest('[data-update-incident]');
       if (updateBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
@@ -1084,6 +1100,12 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
       if (editBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
         getFormAction('openEditPastIncident')?.({ ...ctx, uuid: editBtn.dataset.editPastIncident });
+        return;
+      }
+      const maintBtn = e.target.closest('[data-update-maintenance]');
+      if (maintBtn) {
+        const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
+        getFormAction('openUpdateMaintenance')?.({ ...ctx, uuid: maintBtn.dataset.updateMaintenance });
         return;
       }
       const editUpdateBtn = e.target.closest('[data-edit-system-update]');

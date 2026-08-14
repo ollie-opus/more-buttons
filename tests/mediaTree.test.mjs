@@ -120,4 +120,42 @@ test('accept filter over a foreign-format group yields [] (drives empty-tab hidi
   assert.deepEqual(nodes, []);
 });
 
+test('shape "pair" keeps only theme pairs (capture insert)', () => {
+  const nodes = buildMediaNodes([
+    'docs/assets/media/occ-captures/a-light-mode.png',
+    'docs/assets/media/occ-captures/a-dark-mode.png',
+    'docs/assets/media/occ-captures/loose.png',
+  ], { root: 'docs/assets/media/occ-captures', exts: ['png', 'svg'], shape: 'pair' });
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].attrs['data-media-light'], 'docs/assets/media/occ-captures/a-light-mode.png');
+});
+
+test('shape "single" keeps only lone files (image insert)', () => {
+  const nodes = buildMediaNodes([
+    'docs/assets/media/buttons/menu-icon.png',
+    'docs/assets/media/buttons/x-light-mode.png',
+    'docs/assets/media/buttons/x-dark-mode.png',
+  ], { root: 'docs/assets/media/buttons', exts: ['png', 'svg'], shape: 'single' });
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].attrs['data-media-single'], 'docs/assets/media/buttons/menu-icon.png');
+});
+
+test('shape filter yields [] over a foreign-shape group (drives empty-tab hiding)', () => {
+  const pairsOnly = [
+    'docs/assets/media/occ-captures/a-light-mode.png',
+    'docs/assets/media/occ-captures/a-dark-mode.png',
+  ];
+  assert.deepEqual(buildMediaNodes(pairsOnly, { root: 'docs/assets/media/occ-captures', exts: ['png', 'svg'], shape: 'single' }), []);
+  assert.deepEqual(buildMediaNodes(['docs/assets/media/buttons/icon.png'], { root: 'docs/assets/media/buttons', exts: ['png', 'svg'], shape: 'pair' }), []);
+});
+
+test('shape filter prunes folders emptied by it', () => {
+  const nodes = buildMediaNodes([
+    'docs/assets/media/buttons/sub/pair-light-mode.png',
+    'docs/assets/media/buttons/sub/pair-dark-mode.png',
+    'docs/assets/media/buttons/icon.png',
+  ], { root: 'docs/assets/media/buttons', exts: ['png', 'svg'], shape: 'single' });
+  assert.deepEqual(nodes.map(n => n.kind), ['file'], 'the pair-only sub folder is dropped');
+});
+
 console.log(`mediaTree: ${passed} passed`);

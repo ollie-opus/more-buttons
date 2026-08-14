@@ -1,5 +1,4 @@
 import { computeCaptureClip } from './scripts/captureGeometry.js';
-import { samplingOptions } from './scripts/aiReword.js';
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extension installed');
@@ -108,57 +107,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     return true;
   }
-
-  if (msg.type === 'aiAvailability') {
-    (async () => {
-      try {
-        sendResponse(typeof LanguageModel === 'undefined' ? 'unavailable' : await LanguageModel.availability());
-      } catch {
-        sendResponse('unavailable');
-      }
-    })();
-    return true;
-  }
-});
-
-// AI Rewrite fallback host. Content-script worlds on Chrome 138–149 may lack
-// the Prompt API (web exposure was origin-trial-gated), so aiReword.js connects
-// here and the rewrite runs in the worker, which always has it. A long-lived
-// Port rather than sendMessage: every port message resets the MV3 idle timer,
-// which is what keeps the worker alive through a multi-minute model download —
-// streamed chunks provide that traffic while generating, and a slow heartbeat
-// covers the gaps between sparse downloadprogress events.
-chrome.runtime.onConnect.addListener(port => {
-  if (port.name !== 'mb-ai') return;
-  const ac = new AbortController();
-  let heartbeat = null;
-  port.onDisconnect.addListener(() => { ac.abort(); clearInterval(heartbeat); });
-  port.onMessage.addListener(async msg => {
-    if (msg.type !== 'rewrite') return;
-    const post = m => { try { port.postMessage(m); } catch { /* port closed */ } };
-    heartbeat = setInterval(() => post({ type: 'progress' }), 20000);
-    try {
-      if (typeof LanguageModel === 'undefined') throw new Error('On-device AI is not available in this browser.');
-      const session = await LanguageModel.create({
-        initialPrompts: [{ role: 'system', content: msg.system }],
-        ...samplingOptions(await LanguageModel.params().catch(() => null)),
-        monitor(m) { m.addEventListener('downloadprogress', e => post({ type: 'progress', loaded: e.loaded })); },
-        signal: ac.signal,
-      });
-      try {
-        let out = '';
-        for await (const chunk of session.promptStreaming(msg.text, { signal: ac.signal })) {
-          out += chunk;
-          post({ type: 'chunk' });
-        }
-        post({ type: 'result', text: out });
-      } finally {
-        session.destroy();
-      }
-    } catch (e) {
-      post({ type: 'error', message: (e && e.message) || String(e) });
-    } finally {
-      clearInterval(heartbeat);
-    }
-  });
 });

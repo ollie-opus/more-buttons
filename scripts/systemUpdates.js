@@ -3,11 +3,12 @@ import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js'
 import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
 import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, setButtonBusy, snapshotButton, restoreButton } from './form.js';
-import { renderCard } from './cardRenderer.js';
+import { renderCard, applyCardClamps } from './cardRenderer.js';
+import { paintLabels } from './richTextEditor.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
 import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
-import { parseComponents, buildComponentBody, uuidOfComponent, reorderComponents } from './components.js';
+import { parseComponents, buildComponentBody, uuidOfComponent, reorderComponents, cardPreviewModel } from './components.js';
 import { mergeSave } from './mergeSave.js';
 import { formLoading } from './loading.js';
 import {
@@ -193,6 +194,10 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
         labelMap[c.tbl.uuid] = { kind: 'admonition', title: 'Data table' };
       } else if (c.kind === 'grid') {
         labelMap[c.grid.uuid] = { kind: 'admonition', title: 'Grid' };
+      } else if (c.kind === 'video') {
+        labelMap[c.vid.uuid] = { kind: 'video', thumbSrc: assetCdnUrl('docs/assets/' + c.vid.lightFilename) };
+      } else if (c.kind === 'image') {
+        labelMap[c.img.uuid] = { kind: 'image', thumbSrc: assetCdnUrl('docs/assets/' + c.img.filename) };
       } else if (c.kind === 'button') {
         labelMap[c.btn.uuid] = { kind: 'admonition', title: c.btn.label || 'Button' };
       } else if (c.kind === 'navlinks') {
@@ -410,30 +415,18 @@ const TYPE_COLOURS = {
 function updateCard(update) {
   const colour = TYPE_COLOURS[update.type] ?? 'amber';
   const badge = TYPE_LABELS[update.type] ?? update.type;
-  const preview = (update.body ?? '')
-    .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
-    .replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '')
-    .replace(/\n+/g, ' ')
-    .trim();
-  const description = preview.length > 120 ? preview.slice(0, 120) + '…' : preview || null;
   const btnAttr = update.uuid ? `data-edit-system-update="${update.uuid}"` : `disabled title="This entry doesn't have a UUID configured"`;
   const btnLabel = update.uuid ? 'Edit' : 'Error';
-  return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr, btnLabel });
+  return renderCard({ colour, title: update.title, badge, bodyParsed: cardPreviewModel(update.body ?? '', GUIDE_ADMONITION_TYPES_RE), meta: update.date, btnAttr, btnLabel });
 }
 
 function draftCard(update) {
   const colour = TYPE_COLOURS[update.type] ?? 'amber';
   const typeLabel = TYPE_LABELS[update.type] ?? update.type;
   const badge = `Draft · ${typeLabel}`;
-  const preview = (update.body ?? '')
-    .replace(/<span[^>]*data-uuid[^>]*><\/span>\n?/g, '')
-    .replace(/!\[[^\]]*\]\([^)]+\)(\{[^}]+\})?/g, '')
-    .replace(/\n+/g, ' ')
-    .trim();
-  const description = preview.length > 120 ? preview.slice(0, 120) + '…' : preview || null;
   const btnAttr = update.uuid ? `data-edit-draft-system-update="${update.uuid}"` : `disabled title="This draft doesn't have a UUID"`;
   const btnLabel = update.uuid ? 'Edit' : 'Error';
-  return renderCard({ colour, title: update.title, badge, description, meta: update.date, btnAttr, btnLabel });
+  return renderCard({ colour, title: update.title, badge, bodyParsed: cardPreviewModel(update.body ?? '', GUIDE_ADMONITION_TYPES_RE), meta: update.date, btnAttr, btnLabel });
 }
 
 export async function renderDraftUpdates(_markdown, panel) {
@@ -453,6 +446,8 @@ export async function renderDraftUpdates(_markdown, panel) {
   panel.innerHTML = drafts.length === 0
     ? `<p class="more-buttons-description">No draft updates.</p>`
     : drafts.map(d => draftCard(d)).join('');
+  paintLabels(panel);
+  applyCardClamps(panel);
 }
 
 export function renderPublishedUpdates(markdown, panel) {
@@ -460,6 +455,8 @@ export function renderPublishedUpdates(markdown, panel) {
   panel.innerHTML = updates.length === 0
     ? `<p class="more-buttons-description">No published updates.</p>`
     : updates.map(u => updateCard(u)).join('');
+  paintLabels(panel);
+  applyCardClamps(panel);
 }
 
 // ── Publish functions ─────────────────────────────────────────────────────────

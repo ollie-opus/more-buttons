@@ -67,6 +67,9 @@ export function writeHideSectionTitle(body, hidden) {
 // `<div>` DEPTH and ignore any heading that lives inside such a container.
 const DIV_OPEN_RE = /^\s*<div(?:\s|>)/;
 const DIV_CLOSE_RE = /^\s*<\/div>\s*$/;
+// A div that opens AND closes on one line (e.g. the nav-links placeholder
+// `<div class="mb-nav-links" …></div>`) — net-zero for depth tracking.
+const DIV_SELFCLOSED_RE = /^\s*<div\b[^>]*>.*<\/div>\s*$/;
 
 /**
  * Flags every line that sits INSIDE a `<div … markdown>` container block (a grid
@@ -82,6 +85,7 @@ function markContainerLines(lines) {
   let depth = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (DIV_SELFCLOSED_RE.test(line)) { if (depth > 0) inside[i] = true; continue; }
     if (DIV_CLOSE_RE.test(line)) { depth = Math.max(0, depth - 1); continue; }
     if (depth > 0) inside[i] = true;
     if (DIV_OPEN_RE.test(line)) depth++;

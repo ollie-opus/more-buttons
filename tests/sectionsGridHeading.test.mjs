@@ -71,4 +71,22 @@ test('ensureSectionUUIDs does not inject a span after an in-cell heading', () =>
   assert.equal(ensureSectionUUIDs(DOC), DOC, 'a fully-identified doc is left untouched');
 });
 
+test('a heading after a top-level nav-links div is still a section', () => {
+  // The one-line nav-links placeholder must not count as an unclosed <div> —
+  // that flagged every following line as container body, dropping the heading.
+  const md = [
+    '# test-guide',
+    '<span data-uuid="sec-1" style="display:none"></span>',
+    '',
+    '<span data-uuid="nav-1" style="display:none"></span>',
+    '<div class="mb-nav-links" data-nav-path="guides/contractors"></div>',
+    '',
+    '## After the nav links',
+    '<span data-uuid="sec-2" style="display:none"></span>',
+    'Body.',
+  ].join('\n');
+  const secs = parseSections(md);
+  assert.deepEqual(secs.map(s => s.title), ['test-guide', 'After the nav links']);
+});
+
 console.log(`\n${passed} passed`);
