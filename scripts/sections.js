@@ -256,11 +256,11 @@ export function locateSectionByUUID(markdown, uuid) {
  *
  * @param {string} markdown
  * @param {string} uuid
- * @returns {{ section: Object|null, descriptionMarkdown: string }}
+ * @returns {{ section: Object|null, descriptionMarkdown: string, hideTitle: boolean }}
  */
 export function readSectionDescription(markdown, uuid) {
   const section = locateSectionByUUID(markdown, uuid);
-  if (!section) return { section: null, descriptionMarkdown: '' };
+  if (!section) return { section: null, descriptionMarkdown: '', hideTitle: false };
 
   const lines = markdown.split('\n');
   const bodyStart = section.headerLine + 1;
@@ -290,12 +290,13 @@ export function readSectionDescription(markdown, uuid) {
     body.pop();
   }
 
-  // The hide-title marker (if any) sits at the top of the owned body, right after
-  // the span. It is managed by the hide-title flag, never edited as description,
-  // so report it separately and keep it out of descriptionMarkdown.
+  // The hide-title marker (if any) sits at the top of the owned body, right
+  // after the span. It is a managed flag (hide-title toggle), never edited as
+  // description, so report it separately and keep it out of descriptionMarkdown.
   const ownedBody = body.join('\n');
   const hideTitle = readHideSectionTitle(ownedBody);
-  return { section, descriptionMarkdown: writeHideSectionTitle(ownedBody, false), hideTitle };
+  const descriptionMarkdown = writeHideSectionTitle(ownedBody, false).replace(/^\n+/, '');
+  return { section, descriptionMarkdown, hideTitle };
 }
 
 /**

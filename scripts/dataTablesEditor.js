@@ -52,7 +52,7 @@ import {
 } from './dataTableGridModel.js';
 import { spliceIntoContainer, beginChildNavigation } from './guides.js';
 import { openPopupMenu, openInsertMenu, isPopupMenuOpen } from './insertMenu.js';
-import { renderSurface, clearArmed, paintLabels, setMode } from './richTextEditor.js';
+import { renderSurface, clearArmed, paintInlineAtoms, setMode } from './richTextEditor.js';
 import { placeCaret } from './richEditorMapping.js';
 import { renderDocHtml } from './markdownInline.js';
 import { escapeHtml } from './cardRenderer.js';
@@ -204,7 +204,7 @@ function renderGrid(formEl) {
   grid.innerHTML =
     `<thead>${chromeRow}<tr>${gutter(-1)}${st.header.map((h, c) => cell(-1, c, h)).join('')}</tr></thead>` +
     `<tbody>${st.rows.map((r, ri) => `<tr>${gutter(ri)}${r.map((v, c) => cell(ri, c, v)).join('')}</tr>`).join('')}</tbody>`;
-  paintLabels(grid); // colour any label pills in the rendered cell previews
+  paintInlineAtoms(grid); // colour label pills + inline icons in the rendered cell previews
   syncWrapControls(formEl);
   // Keep the save-gate's container identity pointed at the selected cell.
   formEl.dataset.editUuid = selectedCellRef(formEl);

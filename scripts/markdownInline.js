@@ -92,6 +92,25 @@ export function matchLabel(text, i) {
   return m ? { slug: m[1], text: m[2], end: i + m[0].length } : null;
 }
 
+// Inline lucide icons. Stored as the pymdownx.emoji shortcode `:lucide-<name>:`
+// (the published Zensical site inlines the SVG for it) and treated as one atomic
+// node with NO inner text — the editor renders an empty `.mb-icon` span whose
+// SVG is painted afterwards (iconPicker.paintIcons). Lucide only, by design: a
+// bare `:word:` would false-match clock times like `10:30:`.
+const ICON_RE = /^:lucide-([a-z0-9]+(?:-[a-z0-9]+)*):/;
+
+// Build the canonical shortcode for a bare lucide `name` (e.g. 'check').
+export function iconMarkup(name) {
+  return `:lucide-${name}:`;
+}
+
+// Match an icon shortcode at `i`. Returns { name, end } (end = past the closing ':') or null.
+export function matchIcon(text, i) {
+  if (text[i] !== ':') return null;
+  const m = ICON_RE.exec(text.slice(i));
+  return m ? { name: m[1], end: i + m[0].length } : null;
+}
+
 // [text](url) — no nested brackets in v1; link text is plain.
 export function matchLink(text, i) {
   if (text[i] !== '[') return null;
@@ -135,6 +154,16 @@ export function parseInline(text) {
         flush();
         nodes.push({ type: 'link', href: link.href, children: [{ type: 'text', value: link.text }] });
         i = link.end;
+        continue;
+      }
+    }
+
+    if (text[i] === ':') {
+      const icon = matchIcon(text, i);
+      if (icon) {
+        flush();
+        nodes.push({ type: 'icon', name: icon.name });
+        i = icon.end;
         continue;
       }
     }
@@ -223,6 +252,7 @@ export function renderMarkdown(nodes) {
     if (n.type === 'text') return n.value;
     if (n.type === 'groove') return grooveMarkup(n.text);
     if (n.type === 'label') return labelMarkup(n.slug, n.text);
+    if (n.type === 'icon') return iconMarkup(n.name);
     if (n.type === 'link') return `[${renderMarkdown(n.children)}](${n.href})`;
     const d = MARK_DELIM[n.type];
     return d + renderMarkdown(n.children) + d;
@@ -256,6 +286,11 @@ export function renderHtml(nodes) {
     // Editor preview: same class-only span the source carries (the round-trip
     // marker is the `mb-label` class itself); richTextEditor paints the colour.
     if (n.type === 'label') return `<span class="mb-label mb-label-${n.slug}">${escapeHtml(n.text)}</span>`;
+    // Empty atom: the name rides in data-mb-icon (round-trip marker for
+    // domToNodes / buildSource) and paintIcons fills in the SVG afterwards.
+    // contenteditable=false makes it one indivisible unit in the surface
+    // (Backspace removes it whole, no caret inside); inert in read-only previews.
+    if (n.type === 'icon') return `<span class="mb-icon" data-mb-icon="${n.name}" contenteditable="false"></span>`;
     if (n.type === 'link') return `<a href="${escapeAttr(n.href)}">${renderHtml(n.children)}</a>`;
     return `<${TAG[n.type]}>${renderHtml(n.children)}</${TAG[n.type]}>`;
   }).join('');
@@ -387,6 +422,8 @@ export function domToNodes(root) {
     }
 
     if (tag === 'span') {
+      const iconName = child.getAttribute && child.getAttribute('data-mb-icon');
+      if (iconName) { out.push({ type: 'icon', name: iconName }); return; }
       const cls = (child.getAttribute && child.getAttribute('class')) || '';
       if (/(?:^|\s)mb-label(?:\s|$)/.test(cls)) {
         const slug = (cls.match(/mb-label-([a-z0-9-]+)/) || [])[1] || '';

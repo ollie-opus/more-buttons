@@ -6,11 +6,11 @@
 
 export function slugify(title) {
   return String(title)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .trim()
-    .replace(/[\s_]+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 }
 
@@ -353,63 +353,150 @@ export function attachUnderSegments(tree, segments, node) {
   level.push(node);
 }
 
-// ── mb_created_tags — the nav-links tag suggestion list ──────────────────────
-// Tags used by tag-mode "Nav links" components are registered append-only in a
-// [project.extra] mb_created_tags array so the edit form can suggest them.
-// Both functions are line-based and never touch other blocks; add is idempotent
-// (existing tags match case-insensitively, so a no-op transform lets the GitHub
-// push layer skip the commit).
+// ── mb_created_tags — the tag registry (names + optional colours) ────────────
+// Every tag pages may carry is registered in a [project.extra] mb_created_tags
+// array so the tag chips can offer them (pick-only) and the KB site can colour
+// its nav-links tag pills. Entries are inline tables with an optional colour
+// (a labelColours.json slug); legacy bare-string entries still parse as
+// colourless. Both functions are line-based and never touch other blocks:
+//
+//   mb_created_tags = [
+//     { name = "System", colour = "emerald" },
+//     { name = "RAMS" },
+//   ]
+//
+// The extension only ever ADDS names or changes colours (see mergeTagRegistry)
+// — there is deliberately no delete path.
 
 const CREATED_TAGS_OPEN_RE = /^\s*mb_created_tags\s*=\s*\[\s*$/;
 const ARRAY_CLOSE_RE = /^\s*\]\s*,?\s*$/;
+const TAG_ENTRY_STRING_RE = /^\s*"([^"]*)"\s*,?\s*$/;
+const TAG_ENTRY_TABLE_RE = /^\s*\{\s*name\s*=\s*"([^"]*)"\s*(?:,\s*colour\s*=\s*"([^"]*)"\s*)?\}\s*,?\s*$/;
+const PROJECT_EXTRA_HEADER_RE = /^\s*\[project\.extra\]\s*$/;
+const TABLE_HEADER_RE = /^\s*\[/;
 
-/** The registered tag list, in file order ([] when the block is absent). */
-export function parseCreatedTags(tomlText) {
+function cleanTagName(name) {
+  return String(name ?? '').trim().replace(/"/g, '');
+}
+function cleanColour(colour) {
+  return String(colour ?? '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+}
+
+/** The registered tags, in file order: [{ name, colour }] (colour omitted when
+ *  the entry has none; [] when the block is absent). */
+export function parseTagRegistry(tomlText) {
   const lines = (tomlText ?? '').split('\n');
   const start = lines.findIndex(l => CREATED_TAGS_OPEN_RE.test(l));
   if (start === -1) return [];
-  const tags = [];
+  const entries = [];
   for (let i = start + 1; i < lines.length; i++) {
     if (ARRAY_CLOSE_RE.test(lines[i])) break;
-    const m = lines[i].match(/^\s*"([^"]*)"\s*,?\s*$/);
-    if (m && m[1]) tags.push(m[1]);
+    const t = lines[i].match(TAG_ENTRY_TABLE_RE);
+    if (t) {
+      const name = cleanTagName(t[1]);
+      if (!name) continue;
+      const colour = cleanColour(t[2]);
+      entries.push(colour ? { name, colour } : { name });
+      continue;
+    }
+    const s = lines[i].match(TAG_ENTRY_STRING_RE);
+    if (s && cleanTagName(s[1])) entries.push({ name: cleanTagName(s[1]) });
   }
-  return tags;
+  return entries;
+}
+
+/** The registered tag names, in file order ([] when the block is absent). */
+export function parseCreatedTags(tomlText) {
+  return parseTagRegistry(tomlText).map(e => e.name);
+}
+
+function tagEntryLine({ name, colour }) {
+  const c = cleanColour(colour);
+  return c ? `  { name = "${name}", colour = "${c}" },` : `  { name = "${name}" },`;
 }
 
 /**
- * Registers `tag`, creating the [project.extra] block at EOF on first use
- * (TOML allows a super-table header after [project.extra.*] sub-tables).
- * Returns the input unchanged when the tag is blank or already registered.
+ * Rewrites the whole mb_created_tags block from `entries` ([{ name, colour? }];
+ * blank names dropped, quotes stripped, duplicates collapsed case-insensitively
+ * keeping the first). Always emits the inline-table shape. Replaces the block
+ * in place; when absent, adds it at the end of an existing [project.extra]
+ * table (a second header would be a TOML redefinition error) or, with no such
+ * table, appends a fresh block at EOF. Identity-returns when nothing changes so
+ * the push layer skips the commit.
  */
-export function addCreatedTag(tomlText, tag) {
-  const clean = String(tag ?? '').trim().replace(/"/g, '');
-  if (!clean) return tomlText;
-  if (parseCreatedTags(tomlText).some(t => t.toLowerCase() === clean.toLowerCase())) return tomlText;
+export function writeTagRegistry(tomlText, entries) {
+  const seen = new Set();
+  const body = [];
+  for (const e of Array.isArray(entries) ? entries : []) {
+    const name = cleanTagName(e?.name);
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    body.push(tagEntryLine({ name, colour: e.colour }));
+  }
 
-  const lines = (tomlText ?? '').split('\n');
+  const text = tomlText ?? '';
+  const lines = text.split('\n');
   const start = lines.findIndex(l => CREATED_TAGS_OPEN_RE.test(l));
-  if (start === -1) {
-    const base = tomlText.endsWith('\n') ? tomlText : tomlText + '\n';
-    return base + [
-      '',
-      '# ----------------------------------------------------------------------------',
-      '# Nav-links tags — registered by the more-buttons extension (suggestions only)',
-      '# ----------------------------------------------------------------------------',
-      '[project.extra]',
-      'mb_created_tags = [',
-      `  "${clean}",`,
-      ']',
-      '',
-    ].join('\n');
+  if (start !== -1) {
+    const close = lines.findIndex((l, i) => i > start && ARRAY_CLOSE_RE.test(l));
+    if (close === -1) return tomlText; // unclosed block — leave the file untouched
+    const current = lines.slice(start + 1, close);
+    if (current.length === body.length && current.every((l, i) => l === body[i])) return tomlText;
+    lines.splice(start + 1, close - start - 1, ...body);
+    return lines.join('\n');
   }
-  for (let i = start + 1; i < lines.length; i++) {
-    if (ARRAY_CLOSE_RE.test(lines[i])) {
-      lines.splice(i, 0, `  "${clean}",`);
-      return lines.join('\n');
-    }
+
+  const block = ['mb_created_tags = [', ...body, ']'];
+  const headerIdx = lines.findIndex(l => PROJECT_EXTRA_HEADER_RE.test(l));
+  if (headerIdx !== -1) {
+    // Insert at the end of the [project.extra] table: before the next table
+    // header (or EOF), stepping back over trailing blank lines.
+    let end = headerIdx + 1;
+    while (end < lines.length && !TABLE_HEADER_RE.test(lines[end])) end++;
+    while (end > headerIdx + 1 && lines[end - 1].trim() === '') end--;
+    lines.splice(end, 0, ...block);
+    return lines.join('\n');
   }
-  return tomlText; // unclosed block — leave the file untouched
+  const base = text.endsWith('\n') ? text : text + '\n';
+  return base + [
+    '',
+    '# ----------------------------------------------------------------------------',
+    '# Tag registry — managed by the more-buttons extension (Knowledge Base Settings)',
+    '# ----------------------------------------------------------------------------',
+    '[project.extra]',
+    ...block,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Union of the file's entries and the form's: file order first (file spelling
+ * kept), form-only names appended in form order; a name the form carries takes
+ * the form's colour (including clearing it). Names are never dropped — the
+ * registry has no delete path, so a concurrent add elsewhere survives a save.
+ */
+export function mergeTagRegistry(fileEntries, formEntries) {
+  const form = new Map();
+  for (const e of Array.isArray(formEntries) ? formEntries : []) {
+    const name = cleanTagName(e?.name);
+    if (name && !form.has(name.toLowerCase())) form.set(name.toLowerCase(), { name, colour: cleanColour(e.colour) });
+  }
+  const out = [];
+  const seen = new Set();
+  for (const e of Array.isArray(fileEntries) ? fileEntries : []) {
+    const name = cleanTagName(e?.name);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    const colour = form.has(key) ? form.get(key).colour : cleanColour(e.colour);
+    out.push(colour ? { name, colour } : { name });
+  }
+  for (const [key, e] of form) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e.colour ? { name: e.name, colour: e.colour } : { name: e.name });
+  }
+  return out;
 }
 
 // ── [project.extra] status scalars — banner + maintenance window ─────────────
@@ -420,8 +507,6 @@ export function addCreatedTag(tomlText, tag) {
 //   mb_maintenance_services comma-joined service names, "" when no window
 // systemStatus.js rewrites them after every event mutation; an unchanged value
 // returns the input string untouched so the GitHub push layer skips the commit.
-
-const PROJECT_EXTRA_HEADER_RE = /^\s*\[project\.extra\]\s*$/;
 
 function extraScalarLineRe(key) {
   return new RegExp(`^(\\s*${key}\\s*=\\s*)"([^"]*)"(\\s*(?:#.*)?)$`);

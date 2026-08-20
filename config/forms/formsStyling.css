@@ -447,6 +447,40 @@ button.more-buttons-crumb:hover {
   background: color-mix(in srgb, var(--mb-acc) 22%, transparent);
 }
 
+/* A chip whose state is driven by another control (the System Status service
+   pickers: "All Services" forces the rest on). Not yours to click: no pointer,
+   no hover response. */
+.more-buttons-radio-btn:has(:disabled) {
+  cursor: default;
+}
+
+.more-buttons-radio-btn:has(:disabled):hover {
+  background: transparent;
+  border-color: var(--mb-border);
+  color: var(--mb-text-muted);
+}
+
+/* Forced ON: still clearly selected — the scope of the choice has to stay
+   readable — but deliberately quieter than a chip the author clicked: a lighter
+   tint, a softened edge and no inset ring. Placed after the :checked rules so
+   it wins, and it keeps that look on hover. */
+.more-buttons-radio-btn:has(:checked:disabled),
+.more-buttons-radio-btn:has(:checked:disabled):hover {
+  background: color-mix(in srgb, var(--mb-acc) 7%, transparent);
+  border-color: color-mix(in srgb, var(--mb-acc) 40%, transparent);
+  box-shadow: none;
+  color: var(--mb-text-muted);
+}
+
+/* Vertical rule separating a group-wide chip from the individual ones. Sized
+   against the chip so it spans the row rather than the text. */
+.mb-chip-separator {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 4px;
+  background: var(--mb-border);
+}
+
 /* Colour accents — the same hues as the admonition cards (.mb-incident-card). */
 .more-buttons-radio-btn.--green       { --mb-acc: rgb(102,187,106); }
 .more-buttons-radio-btn.--amber       { --mb-acc: rgb(255,179,0); }
@@ -463,6 +497,11 @@ button.more-buttons-crumb:hover {
 .more-buttons-radio-btn.--deep-purple { --mb-acc: rgb(124,77,255); }
 .more-buttons-radio-btn.--grey        { --mb-acc: rgb(158,158,158); }
 .more-buttons-radio-btn.--step        { --mb-acc: rgb(14,165,233); }
+/* Label-palette accents (config/labelColours.json chromatic `border` hues) —
+   used by the "Written for" audience pills so they echo the label pills. */
+.more-buttons-radio-btn.--label-blue   { --mb-acc: rgb(43,127,255); }
+.more-buttons-radio-btn.--label-purple { --mb-acc: rgb(173,70,255); }
+.more-buttons-radio-btn.--label-pink   { --mb-acc: rgb(246,51,154); }
 
 .more-buttons-radio-btn-group-row.--invalid,
 .more-buttons-radio-btn-group-column.--invalid {
@@ -3630,6 +3669,51 @@ h2[data-edit-media-title] .mb-kb-pills {
    base 260px. */
 .mb-rte__popover--link { width: 400px; }
 
+/* ── Inline lucide icons ──────────────────────────────────────────────────────
+   `:lucide-<name>:` renders as an empty `.mb-icon` span that iconPicker's
+   paintIcons fills with the inline SVG (same shape as the site's `.twemoji`
+   emoji-extension output). Shared by every preview — rich surface, datatable
+   grid, grid tiles, component cards — and the Icon popover's preview glyph.
+   The box is sized even before the SVG lands so text doesn't reflow. */
+.mb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125em;
+  height: 1.125em;
+  vertical-align: -0.15em;
+  flex-shrink: 0;
+}
+.mb-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+}
+/* In the surface a click on the atom selects it (the edit gesture); show it. */
+.mb-rte__surface .mb-icon { cursor: pointer; border-radius: 3px; }
+.mb-rte__surface .mb-icon:hover { background: rgba(127, 127, 127, 0.18); }
+
+/* Icon popover: the search combobox + a small resolved-icon preview row. The
+   picker's result list normally floats over the page; inside the popover it
+   flows inline instead, so it never covers the preview or the actions row. */
+.mb-rte__popover--icon { width: 320px; }
+.mb-rte__popover--icon .more-buttons-icon-picker-dropdown {
+  position: static;
+  margin-top: 4px;
+  max-height: 200px;
+  box-shadow: none;
+}
+.mb-rte__icon-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--mb-text-label);
+}
+.mb-rte__icon-preview .mb-icon { font-size: 1.25rem; color: var(--mb-text); }
+.mb-rte__popover--icon input[aria-invalid="true"] { border-color: var(--mb-acc-danger); }
+
 /* ── AI Rewrite popover ───────────────────────────────────────────────────────
    Title + "Output styles" group label over one bordered button per prompt.
    The buttons stay neutral ghosts (left-aligned, no primary blue) — the same
@@ -3739,6 +3823,17 @@ h2[data-edit-media-title] .mb-kb-pills {
   outline-offset: 2px;
 }
 .mb-rte__swatch.--selected { outline-color: currentColor; }
+
+/* "No colour" swatch (colourSwatchPopover): a dashed, uncoloured pill. */
+.mb-rte__swatch.--none {
+  border-style: dashed;
+  border-color: var(--mb-border);
+  background: transparent;
+  color: var(--mb-text-muted);
+}
+/* The tag-colour popover is anchored under a chip inside a `.mb-tag-chips`
+   host (position:relative set inline); ensure it floats over neighbours. */
+.mb-swatch-popover { z-index: 40; }
 
 /* Colour swatch grid used as a radio group (button editor). Same pill visuals
    as the label popover swatches, but each pill is a real <label><input
@@ -3958,9 +4053,16 @@ h2[data-edit-media-title] .mb-kb-pills {
   color: var(--mb-text);
 }
 
-.more-buttons-icon-picker-row:hover,
+.more-buttons-icon-picker-row:not(.--empty):hover,
 .more-buttons-icon-picker-row.active {
   background: rgba(127, 127, 127, 0.14);
+}
+
+/* Non-selectable "nothing to pick" row (suggestCombobox `emptyText`). */
+.more-buttons-icon-picker-row.--empty {
+  cursor: default;
+  font-style: italic;
+  color: var(--mb-text-muted);
 }
 
 .more-buttons-icon-picker-glyph {
@@ -3976,6 +4078,157 @@ h2[data-edit-media-title] .mb-kb-pills {
   width: 18px;
   height: 18px;
   stroke: currentColor;
+}
+
+/* ── Tag chips (tagChips.js) ──────────────────────────────────────────────────
+   [System ×] [RAMS ×] [+ Add tag] — a view over a hidden named input; the pill
+   geometry mirrors .more-buttons-radio-btn so a chip row and a radio row read
+   as one family. The "+ Add tag" affordance is dashed (the insert-pill idiom)
+   and becomes the inline typing pill while a tag is being added. */
+.mb-tag-chips {
+  --mb-acc: var(--mb-acc-default);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+}
+
+.mb-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid var(--mb-acc);
+  box-shadow: inset 0 0 0 1px var(--mb-acc);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--mb-acc) 15%, transparent);
+  color: var(--mb-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.mb-tag-chip__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Chip without a remove button (removable:false) — symmetric padding. */
+.mb-tag-chip.--static { padding-right: 12px; }
+
+/* Chip that opens something on click (onChipClick). */
+.mb-tag-chip--clickable .mb-tag-chip__text { cursor: pointer; }
+
+/* Chip painted in its tag's registry colour (getColour): the same six custom
+   props the `.mb-label` rule consumes, set inline by tagChips → paintLabelVars.
+   The uncoloured chip keeps the accent-tint look above. */
+.mb-tag-chip.--coloured {
+  border-color: var(--border, transparent);
+  box-shadow: none;
+  background: var(--bg);
+  color: var(--text);
+}
+@media (prefers-color-scheme: dark) {
+  .mb-tag-chip.--coloured {
+    border-color: var(--border-dark, transparent);
+    background: var(--bg-dark);
+    color: var(--text-dark);
+  }
+}
+.mb-tag-chip.--coloured .mb-tag-chip__remove { color: inherit; opacity: 0.7; }
+
+.mb-tag-chip__remove {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--mb-text-muted);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.14s ease-out, color 0.14s ease-out;
+}
+.mb-tag-chip__remove:hover,
+.mb-tag-chip__remove:focus-visible {
+  background: color-mix(in srgb, #ef4444 16%, transparent);
+  color: #ef4444;
+  outline: none;
+}
+
+.mb-tag-chips__add,
+.mb-tag-chips__editor {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border: 1px dashed color-mix(in srgb, var(--mb-text-muted) 55%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--mb-text-muted);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.14s ease-out, border-color 0.14s ease-out, color 0.14s ease-out;
+}
+.mb-tag-chips__add:hover,
+.mb-tag-chips__add:focus-visible {
+  background: color-mix(in srgb, var(--mb-text-muted) 12%, transparent);
+  border-color: var(--mb-text-muted);
+  color: var(--mb-text);
+  outline: none;
+}
+
+.mb-tag-chips__editor {
+  cursor: text;
+  padding: 0;
+  border-style: solid;
+  border-color: var(--mb-acc);
+  box-shadow: inset 0 0 0 1px var(--mb-acc);
+}
+.mb-tag-chips__editor .more-buttons-icon-picker {
+  display: inline-block;
+}
+.mb-tag-chips__editor .more-buttons-icon-picker-dropdown {
+  right: auto;
+  min-width: 220px;
+}
+/* Beats the generic overlay text-input rule (.overlay-content input[type=text]). */
+.more-buttons-overlay-content input.mb-tag-chips__input[type="text"],
+.more-buttons-overlay-content input.mb-tag-chips__input[type="text"]:focus {
+  width: 14ch;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 12px;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--mb-text);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+/* Required-empty paint, same as a radio group. */
+.mb-tag-chips.--invalid {
+  outline: 1.5px solid #ef4444;
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 
 /* KB tree reorder controls */

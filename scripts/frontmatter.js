@@ -176,6 +176,34 @@ export function writeFrontmatterTags(md, list) {
   return writeListKey(md, 'tags', dedupeTags(list));
 }
 
+/**
+ * The Page-settings frontmatter composition shared by the page-settings save
+ * (mergeSave build) and Create guide: icon → tags → hide, in that order (the
+ * order tests/frontmatter.test.mjs locks). `hide` is rebuilt from the four
+ * managed booleans (navigation / toc / path are zensical's own; `written-for`
+ * is ours — the KB build reads it and suppresses the "Written for" audience
+ * pill line it renders under the H1 from the audience tag, see
+ * audienceTags.js) while preserving, in place, any hide
+ * value we have no checkbox for — an unrelated save must never silently drop
+ * a flag.
+ * @param {string} md
+ * @param {{icon?: string, tags?: string[], hide?: {navigation?: boolean, toc?: boolean, path?: boolean, writtenFor?: boolean}}} settings
+ * @returns {string} updated markdown
+ */
+export function applyPageSettingsFrontmatter(md, { icon = '', tags = [], hide = {} } = {}) {
+  let out = writeFrontmatterIcon(md, String(icon ?? '').trim());
+  out = writeFrontmatterTags(out, tags);
+  const managed = ['navigation', 'toc', 'path', 'written-for'];
+  const want = { navigation: !!hide.navigation, toc: !!hide.toc, path: !!hide.path, 'written-for': !!hide.writtenFor };
+  const next = [];
+  for (const v of readFrontmatterHide(out)) {
+    if (!managed.includes(v)) next.push(v);              // unmanaged → keep
+    else if (want[v] && !next.includes(v)) next.push(v); // still wanted → keep position
+  }
+  for (const k of managed) if (want[k] && !next.includes(k)) next.push(k);
+  return writeFrontmatterHide(out, next);
+}
+
 // ── Search exclusion ───────────────────────────────────────────────────────────
 // Zensical indexes every built page — including drafts under docs/drafts/ —
 // unless the page opts out with a `search:` mapping:

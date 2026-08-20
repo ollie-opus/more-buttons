@@ -183,4 +183,35 @@ test('serializeWithSelection maps a caret inside a label pill to source', () => 
   assert.equal(serializeWithSelection(root, sel).selStart, ('go ' + open).length + 1);
 });
 
+// ── Lucide icon atoms ────────────────────────────────────────────────────────
+function iconEl(name, ...children) {
+  const s = el('span', ...children);
+  s.setAttribute('class', 'mb-icon');
+  s.setAttribute('data-mb-icon', name);
+  return s;
+}
+
+test('serialize an icon span → its :lucide-name: shortcode', () => {
+  assert.equal(serialize(el('root', txt('a '), iconEl('check'), txt(' b'))), 'a :lucide-check: b');
+});
+test('serialize an icon is atomic — the painted <svg> children are never walked', () => {
+  const icon = iconEl('check', el('svg', el('path', txt('stray'))));
+  assert.equal(serialize(el('root', icon)), ':lucide-check:');
+});
+test('serializeWithSelection maps a selection wrapping an icon node to its shortcode range', () => {
+  const root = el('root', txt('go '), iconEl('x'), txt(' on'));
+  // Range.selectNode(icon): anchor/focus are the parent with child-index offsets.
+  const sel = { anchorNode: root, anchorOffset: 1, focusNode: root, focusOffset: 2 };
+  assert.deepEqual(serializeWithSelection(root, sel), { value: 'go :lucide-x: on', selStart: 3, selEnd: 3 + ':lucide-x:'.length });
+});
+test('locateOffset just past a trailing icon lands on the parent boundary after it', () => {
+  const root = el('root', txt('go '), iconEl('x'));
+  assert.deepEqual(locateOffset(root, 'go :lucide-x:'.length), { node: root, offset: 2 });
+});
+test('locateOffset just past an icon followed by text lands at the start of that text', () => {
+  const t = txt(' on');
+  const root = el('root', txt('go '), iconEl('x'), t);
+  assert.deepEqual(locateOffset(root, 'go :lucide-x:'.length), { node: t, offset: 0 });
+});
+
 console.log(`\n${passed} passed`);

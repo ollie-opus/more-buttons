@@ -3,7 +3,7 @@
 // value and the selection range to restore. No DOM, no side effects — unit
 // tested in tests/markdownToolbarActions.test.mjs.
 
-import { markSpans, matchLink, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset, LIST_ITEM_RE } from './markdownInline.js';
+import { markSpans, matchLink, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset, matchIcon, iconMarkup, LIST_ITEM_RE } from './markdownInline.js';
 
 // Every delimiter the toolbar can insert. Order matters: longer delimiters that
 // share a leading character ('**' before '*') must come first so the layer
@@ -773,6 +773,50 @@ export function labelAt(value, selStart, selEnd) {
 // the inserted snippet. Mirror of applyGroove.
 export function applyLabel(value, selStart, selEnd, text, slug) {
   const snippet = labelMarkup(slug, text);
+  const caret = selStart + snippet.length;
+  return {
+    value: value.slice(0, selStart) + snippet + value.slice(selEnd),
+    selStart: caret,
+    selEnd: caret,
+  };
+}
+
+// Every icon shortcode in `value`, left-to-right, as { start, end, name }
+// ([start, end) is the whole `:lucide-name:`). Mirror of scanLabels.
+function scanIcons(value) {
+  const out = [];
+  let i = 0;
+  while (i < value.length) {
+    if (value[i] === ':') {
+      const ic = matchIcon(value, i);
+      if (ic) { out.push({ start: i, end: ic.end, name: ic.name }); i = ic.end; continue; }
+    }
+    i++;
+  }
+  return out;
+}
+
+// Find the icon the selection touches, so the toolbar can SWAP/remove it
+// instead of inserting a second one. An icon has no inner text, so unlike
+// labelAt this matches on overlap: any non-empty selection intersecting the
+// shortcode (in rich mode a clicked icon is selected as a whole node, giving
+// exactly its range), or a collapsed caret strictly INSIDE it (markdown mode).
+// A caret merely adjacent to the shortcode is a plain insert position → null.
+// Returns { start, end, name } or null.
+export function iconAt(value, selStart, selEnd) {
+  const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
+  for (const ic of scanIcons(value)) {
+    const overlaps = lo < ic.end && hi > ic.start;
+    const inside = lo === hi && lo > ic.start && lo < ic.end;
+    if (overlaps || inside) return { start: ic.start, end: ic.end, name: ic.name };
+  }
+  return null;
+}
+
+// Splice the shortcode for `name` at the selection, replacing it. Caret after
+// the inserted snippet. Mirror of applyLabel.
+export function applyIcon(value, selStart, selEnd, name) {
+  const snippet = iconMarkup(name);
   const caret = selStart + snippet.length;
   return {
     value: value.slice(0, selStart) + snippet + value.slice(selEnd),

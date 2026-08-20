@@ -97,6 +97,8 @@ function rehydrateFields(formEl, fieldSpecs, resolved) {
       // otherwise the surface keeps the stale value and re-serializes it over the
       // merged value on the user's next keystroke (silent re-clobber).
       syncSurfaceFromTextarea(els[0]);
+      // Likewise a chips widget (tagChips.js) painting a view over the input.
+      els[0]._mbSyncView?.();
     }
   }
 }

@@ -7,6 +7,7 @@ import {
   updateMarkdownIncidents, updateMarkdownPastIncident, deleteMarkdownEvent,
   recalculateServiceStatuses, deriveMaintenanceWindow, deriveBannerStatus,
   parseEventBlocks, sectionBodies, parseServiceNames,
+  ALL_SERVICES, normalizeServiceSelection,
 } from '../scripts/statusEvents.js';
 
 let passed = 0;
@@ -72,14 +73,14 @@ function statusFile({ services, upcoming = [], active = [], past = [] } = {}) {
     '',
     '---',
     '',
-    '## Upcoming Events',
-    '',
-    ...upcoming.flatMap(b => [b, '']),
-    '---',
-    '',
     '## Active Events',
     '',
     ...active.flatMap(b => [b, '']),
+    '---',
+    '',
+    '## Upcoming Events',
+    '',
+    ...upcoming.flatMap(b => [b, '']),
     '---',
     '',
     '## Past Events',
@@ -127,10 +128,29 @@ test('migrate: renames headings, wrapper, and inserts Upcoming Events', () => {
   assert.ok(/^## Past Events$/m.test(out));
   assert.ok(out.includes('??? outline "View past events"'));
   assert.ok(!out.includes('Open Incidents') && !out.includes('Past Incidents'));
-  // Upcoming sits between Services and Active, as its own `---` part
+  // Active comes first, Upcoming after it, each its own `---` part
   const parts = out.split('\n---\n');
-  assert.ok(/^## Upcoming Events/m.test(parts[1]));
-  assert.ok(/^## Active Events/m.test(parts[2]));
+  assert.ok(/^## Active Events/m.test(parts[1]));
+  assert.ok(/^## Upcoming Events/m.test(parts[2]));
+  // The migrated Active section keeps its card — the swap moves content, not headings
+  assert.ok(parts[1].includes('data-uuid="i1"'));
+});
+
+test('migrate: moves an Upcoming-first document below Active, idempotently', () => {
+  const upcomingFirst = [
+    '# System Status', '', '## Services', '', serviceTile('Server', 'available', 's1'), '',
+    '---', '', '## Upcoming Events', '', maintenance({ uuid: 'm1' }), '',
+    '---', '', '## Active Events', '', incident('outage', 'Server', 'i1'), '',
+    '---', '', '## Past Events', '', '??? outline "View past events"', '',
+  ].join('\n');
+  const out = migrateStatusSections(upcomingFirst);
+  const parts = out.split('\n---\n');
+  assert.ok(/^## Active Events/m.test(parts[1]));
+  assert.ok(parts[1].includes('data-uuid="i1"'));
+  assert.ok(/^## Upcoming Events/m.test(parts[2]));
+  assert.ok(parts[2].includes('data-uuid="m1"'));
+  // Re-running is byte-identical, so a settled document never manufactures a diff
+  assert.equal(migrateStatusSections(out), out);
 });
 
 test('migrate: idempotent, and identity on new-format files', () => {
@@ -219,6 +239,57 @@ test('insert: in-progress prepends into Active, completed lands indented in Past
   assert.ok(done.includes('    !!! status-maintenance "<span class="mb-label mb-label-amber">MAINTENANCE</span>"'));
   const past = parseMaintenanceBlocks(sectionBodies(done).past);
   assert.deepEqual(past.map(e => e.uuid), ['m2']);
+});
+
+// ── Backfilling past maintenance ─────────────────────────────────────────────
+
+// A window that has already ended, as the Report Maintenance form builds it.
+function backfill(uuid, date, services = 'Server') {
+  return {
+    uuid, services, description: 'Planned work',
+    start: `${date} 09:00`, end: `${date} 11:00`,
+    startIso: `${date}T09:00+01:00`, endIso: `${date}T11:00+01:00`,
+    currentStatus: 'completed',
+  };
+}
+
+test('backfill: a completed window lands in Past, leaving tiles and the announced window alone', () => {
+  const live = maintenance({ uuid: 'm9', services: 'Files', start: '2026-09-01 09:00', end: '2026-09-01 10:00', startIso: '2026-09-01T09:00+01:00', endIso: '2026-09-01T10:00+01:00' });
+  const md = recalculateServiceStatuses(
+    insertMaintenanceBlock(statusFile({ upcoming: [live] }), backfill('m1', '2026-06-10')));
+  assert.deepEqual(parseMaintenanceBlocks(sectionBodies(md).past).map(e => [e.uuid, e.currentStatus]),
+    [['m1', 'completed']]);
+  assert.ok(md.includes('!!! status-available "Server"'));
+  assert.ok(md.includes('!!! status-available "Files"'));
+  assert.deepEqual(deriveMaintenanceWindow(md, T('2026-08-14T00:00Z')),
+    { startIso: '2026-09-01T09:00+01:00', endIso: '2026-09-01T10:00+01:00', services: 'Files' });
+});
+
+test('backfill: Past stays newest-first whatever order events are entered in', () => {
+  let md = statusFile();
+  ['2026-07-20', '2026-05-05', '2026-06-10'].forEach((date, i) => {
+    md = insertMaintenanceBlock(md, backfill(`m${i}`, date));
+  });
+  assert.deepEqual(parseMaintenanceBlocks(sectionBodies(md).past).map(e => e.start),
+    ['2026-07-20 09:00', '2026-06-10 09:00', '2026-05-05 09:00']);
+});
+
+test('backfill: interleaves with resolved incidents by finish instant', () => {
+  const resolved = buildIncidentBlock({
+    uuid: 'i1', impact: 'outage', services: 'Files', currentStatus: 'resolved',
+    description: 'Down', causation: '',
+    reported: '2026-06-20 09:00', reportedIso: '2026-06-20T09:00+01:00',
+    resolved: '2026-06-20 10:00', resolvedIso: '2026-06-20T10:00+01:00',
+  });
+  let md = statusFile({ past: [resolved] });
+  md = insertMaintenanceBlock(md, backfill('m1', '2026-07-01')); // finished after the incident
+  md = insertMaintenanceBlock(md, backfill('m2', '2026-05-01')); // finished before it
+  assert.deepEqual(parseEventBlocks(sectionBodies(md).past).map(e => e.uuid), ['m1', 'i1', 'm2']);
+});
+
+test('backfill: the forward-only sweep leaves a backfilled Past event untouched', () => {
+  const md = insertMaintenanceBlock(statusFile(), backfill('m1', '2026-06-10'));
+  assert.equal(reconcileStatusEvents(md, T('2026-08-14T00:00Z')), md);
 });
 
 test('update: rescheduling a completed event with a future window reopens it', () => {
@@ -315,6 +386,46 @@ test('ladder: in-progress maintenance beats available; upcoming contributes noth
   assert.ok(out.includes('!!! status-available "Files"'));
 });
 
+test('ladder: the All Services sentinel raises every tile, for incidents and maintenance', () => {
+  const maint = maintenance({ uuid: 'm1', services: ALL_SERVICES, start: '2026-08-14 09:00', end: '2026-08-14 11:00', startIso: '2026-08-14T09:00+01:00', endIso: '2026-08-14T11:00+01:00', status: 'in progress' });
+  const out = recalculateServiceStatuses(statusFile({ active: [maint] }));
+  assert.ok(out.includes('!!! status-maintenance "Server"'));
+  assert.ok(out.includes('!!! status-maintenance "Files"'));
+
+  const inc = recalculateServiceStatuses(statusFile({ active: [incident('outage', ALL_SERVICES, 'i1')] }));
+  assert.ok(inc.includes('!!! status-outage "Server"'));
+  assert.ok(inc.includes('!!! status-outage "Files"'));
+
+  // A tile added after the card was written is covered too — the point of
+  // storing the sentinel rather than an expanded list.
+  const extra = statusFile({
+    services: [serviceTile('Server', 'available', 's1'), serviceTile('Files', 'available', 's2'), serviceTile('API', 'available', 's3')],
+    active: [maint],
+  });
+  assert.ok(recalculateServiceStatuses(extra).includes('!!! status-maintenance "API"'));
+});
+
+test('ladder: the sentinel is matched case-insensitively and survives a round-trip', () => {
+  const [parsed] = parseMaintenanceBlocks(maintenance({ uuid: 'm1', services: ALL_SERVICES }));
+  assert.equal(parsed.services, ALL_SERVICES);
+  const shouty = statusFile({ active: [incident('disruption', 'ALL SERVICES', 'i1')] });
+  assert.ok(recalculateServiceStatuses(shouty).includes('!!! status-disruption "Files"'));
+});
+
+// ── normalizeServiceSelection ────────────────────────────────────────────────
+
+test('normalize: sentinel wins, every-service collapses, partial is joined', () => {
+  const all = ['Web App', 'API', 'Login'];
+  assert.equal(normalizeServiceSelection([ALL_SERVICES], all), ALL_SERVICES);
+  // The sentinel arrives alongside the forced-on chips it locked.
+  assert.equal(normalizeServiceSelection([ALL_SERVICES, ...all], all), ALL_SERVICES);
+  assert.equal(normalizeServiceSelection(all, all), ALL_SERVICES);
+  assert.equal(normalizeServiceSelection(['Web App', 'Login'], all), 'Web App, Login');
+  assert.equal(normalizeServiceSelection([], all), '');
+  // Names no longer on the page can't fake a full house.
+  assert.equal(normalizeServiceSelection(['Web App', 'Tasks'], all), 'Web App');
+});
+
 // ── deriveMaintenanceWindow / deriveBannerStatus ─────────────────────────────
 
 test('derive window: earliest-starting live window wins; completed/passed excluded', () => {
@@ -403,19 +514,46 @@ test('card titles are kind pills; values are label pills', () => {
   const out = incident('outage', 'Server', 'i1');
   assert.ok(out.startsWith('!!! status-outage "<span class="mb-label mb-label-red">OUTAGE</span>"'));
   assert.ok(out.includes('- **Services Affected:** Server'));
-  assert.ok(out.includes('- **Current Status:** <span class="mb-label mb-label-amber">Ongoing</span>'));
+  assert.ok(out.includes('- **Current Status:** <span class="mb-label mb-label-amber">:lucide-triangle-alert: Ongoing</span>'));
   assert.ok(out.includes('- **Reported:** <span class="mb-label mb-label-slate">2026-08-13 09:00</span>'));
   assert.ok(incident('disruption', 'Files', 'i2').startsWith('!!! status-disruption "<span class="mb-label mb-label-amber">DISRUPTION</span>"'));
   const maint = maintenance({ uuid: 'm1', start: '2026-08-21 09:00', end: '2026-08-21 11:00' });
   assert.ok(maint.startsWith('!!! status-maintenance "<span class="mb-label mb-label-amber">MAINTENANCE</span>"'));
   assert.ok(maint.includes('- **Scheduled Start:** <span class="mb-label mb-label-slate">2026-08-21 09:00</span>'));
-  assert.ok(maint.includes('- **Current Status:** <span class="mb-label mb-label-sky">Upcoming</span>'));
+  assert.ok(maint.includes('- **Current Status:** <span class="mb-label mb-label-orange">:lucide-fast-forward: Upcoming</span>'));
+});
+
+test('status pills carry a lucide icon per value, and the field order is fixed', () => {
+  const icons = {
+    'upcoming': ':lucide-fast-forward: Upcoming',
+    'in progress': ':lucide-refresh-cw: In progress',
+    'completed': ':lucide-check: Completed',
+  };
+  for (const [status, expected] of Object.entries(icons)) {
+    assert.ok(maintenance({ uuid: 'm1', status }).includes(`- **Current Status:** <span class="mb-label mb-label-${
+      { 'upcoming': 'orange', 'in progress': 'amber', 'completed': 'green' }[status]}">${expected}</span>`));
+  }
+  assert.ok(incident('outage', 'Server', 'i1', 'resolved').includes('<span class="mb-label mb-label-green">:lucide-check: Resolved</span>'));
+
+  const fields = maintenance({ uuid: 'm1', start: '2026-08-21 09:00', end: '2026-08-21 11:00' })
+    .split('\n').filter(l => l.includes('- **')).map(l => l.match(/- \*\*([^:]+):/)[1]);
+  assert.deepEqual(fields, ['Services Affected', 'Current Status', 'Description', 'Scheduled Start', 'Scheduled End']);
+});
+
+test('an icon shortcode in the status value parses back to the bare domain value', () => {
+  const [maint] = parseMaintenanceBlocks(maintenance({ uuid: 'm1', status: 'in progress' }));
+  assert.equal(maint.currentStatus, 'in progress');
+  const [inc] = parseIncidentBlocks(incident('outage', 'Server', 'i1', 'resolved'));
+  assert.equal(inc.currentStatus, 'resolved');
 });
 
 test('extractIncidentField strips label pills and legacy backticks', () => {
   assert.equal(extractIncidentField('- **Current Status:** <span class="mb-label mb-label-green">Resolved</span>', 'Current Status'), 'Resolved');
   assert.equal(extractIncidentField('- **Current Status:** `Resolved`', 'Current Status'), 'Resolved');
   assert.equal(extractIncidentField('- **Reported:** ', 'Reported'), '');
+  // Icon shortcodes are stripped at the status read, NOT here — a Description
+  // may legitimately contain one.
+  assert.equal(extractIncidentField('- **Description:** See :lucide-wrench: below', 'Description'), 'See :lucide-wrench: below');
 });
 
 test('incident span keeps data-uuid first with instant attrs alongside; empty values omit both pill and attr', () => {

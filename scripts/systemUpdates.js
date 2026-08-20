@@ -4,7 +4,7 @@ import { readRepoText, assetCdnUrl } from './repoClient.js';
 import { suppress, reconcile, filterSuppressed } from './staleSuppression.js';
 import { createForm, navigateBack, isFormReplay, replaceCurrentOpener, setButtonBusy, snapshotButton, restoreButton } from './form.js';
 import { renderCard, applyCardClamps } from './cardRenderer.js';
-import { paintLabels } from './richTextEditor.js';
+import { paintInlineAtoms } from './richTextEditor.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
 import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
@@ -446,7 +446,7 @@ export async function renderDraftUpdates(_markdown, panel) {
   panel.innerHTML = drafts.length === 0
     ? `<p class="more-buttons-description">No draft updates.</p>`
     : drafts.map(d => draftCard(d)).join('');
-  paintLabels(panel);
+  paintInlineAtoms(panel);
   applyCardClamps(panel);
 }
 
@@ -455,7 +455,7 @@ export function renderPublishedUpdates(markdown, panel) {
   panel.innerHTML = updates.length === 0
     ? `<p class="more-buttons-description">No published updates.</p>`
     : updates.map(u => updateCard(u)).join('');
-  paintLabels(panel);
+  paintInlineAtoms(panel);
   applyCardClamps(panel);
 }
 

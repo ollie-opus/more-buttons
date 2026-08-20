@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, stripFormatting } from '../scripts/markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, applyIcon, iconAt, stripFormatting } from '../scripts/markdownToolbarActions.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -395,6 +395,39 @@ test('strip: an unselected label pill is preserved verbatim', () => {
   const at = value.indexOf('**bold**');
   const res = stripFormatting(value, at, at + '**bold**'.length);
   assert.equal(res.value, 'keep ' + LBL('slate', 'X') + ' bold');
+});
+
+// ── Lucide icon shortcodes ───────────────────────────────────────────────────
+test('applyIcon: inserts the shortcode at a collapsed caret, caret after it', () => {
+  assert.deepEqual(applyIcon('ab', 1, 1, 'check'), { value: 'a:lucide-check:b', selStart: 15, selEnd: 15 });
+});
+test('applyIcon: replaces the selection', () => {
+  assert.deepEqual(applyIcon('hi there', 3, 8, 'x'), { value: 'hi :lucide-x:', selStart: 13, selEnd: 13 });
+});
+test('iconAt: a selection wrapping the shortcode returns its range + name', () => {
+  const value = 'go :lucide-x: on';
+  assert.deepEqual(iconAt(value, 3, 13), { start: 3, end: 13, name: 'x' });
+});
+test('iconAt: a selection overlapping part of the shortcode still hits it', () => {
+  const value = 'go :lucide-x: on';
+  assert.deepEqual(iconAt(value, 1, 6), { start: 3, end: 13, name: 'x' });
+});
+test('iconAt: a collapsed caret strictly inside the shortcode hits (markdown mode)', () => {
+  assert.deepEqual(iconAt('go :lucide-x: on', 7, 7), { start: 3, end: 13, name: 'x' });
+});
+test('iconAt: a collapsed caret adjacent to the shortcode does NOT hit', () => {
+  assert.equal(iconAt('go :lucide-x: on', 3, 3), null);
+  assert.equal(iconAt('go :lucide-x: on', 13, 13), null);
+  assert.equal(iconAt('plain', 2, 2), null);
+});
+test('applyIcon over an iconAt range swaps the icon (no nesting)', () => {
+  const value = 'go :lucide-x: on';
+  const hit = iconAt(value, 3, 13);
+  assert.equal(applyIcon(value, hit.start, hit.end, 'check').value, 'go :lucide-check: on');
+});
+test('stripFormatting keeps an icon shortcode intact when unwrapping a mark around it', () => {
+  const value = '**a :lucide-check: b**';
+  assert.equal(stripFormatting(value, 0, value.length).value, 'a :lucide-check: b');
 });
 
 console.log(`\n${passed} passed`);

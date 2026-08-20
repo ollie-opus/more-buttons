@@ -46,6 +46,7 @@ let navMode = 'root';
 // Fallback breadcrumb labels when a form's <h2> is empty or still loading.
 const FORM_LABELS = {
   knowledgeBaseManagement: 'Knowledge Base',
+  knowledgeBaseSettings: 'Knowledge Base Settings',
   mediaLibrary: 'Media Library',
   captureEntry: 'Capture',
   captureInsertNew: 'New Capture',
@@ -1143,8 +1144,15 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
         }
       } else {
         input.value = val;
+        // Widgets that paint a view over this input (tag chips) repaint here.
+        input._mbSyncView?.();
       }
     });
+
+    // Widgets whose view spans a GROUP of checkboxes (the System Status service
+    // picker, where "All Services" forces the rest on) re-sync once the whole
+    // restore has landed — a mid-loop hook would be undone by a later input.
+    formEl.querySelectorAll('input[type="checkbox"]').forEach(cb => cb._mbSyncGroup?.());
 
     // Sync disabled states for RT list checkbox pairs after load
     formEl.querySelectorAll('[data-page-radios]').forEach(c => {

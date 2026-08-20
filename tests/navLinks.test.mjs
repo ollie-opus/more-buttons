@@ -295,4 +295,23 @@ test('componentMarkdown: Copy payload strips the uuid span', () => {
   assert.equal(componentMarkdown(comp), '<div class="mb-nav-links" data-nav-path="guides"></div>');
 });
 
+// ── multi-tag (comma-separated data-nav-tag) ──────────────────────────────────
+
+test('build: several tags are authored comma+space separated, normalised + deduped', () => {
+  const lines = buildNavLinksLines([{ tag: 'System,RAMS , system,, Overview', layout: 'flat' }]);
+  assert.deepEqual(lines, ['', '<div class="mb-nav-links" data-nav-tag="System, RAMS, Overview" data-nav-layout="flat"></div>']);
+});
+
+test('locate: a multi-tag line round-trips its tag CSV verbatim', () => {
+  const [b] = locateNavLinksLines('<div class="mb-nav-links" data-nav-tag="System, RAMS" data-nav-layout="grouped"></div>');
+  assert.equal(b.tag, 'System, RAMS');
+  assert.equal(b.layout, 'grouped');
+  assert.deepEqual(navLinksDimFields(b), { navMode: 'tag', navPath: '', navTag: 'System, RAMS', navLayout: 'grouped' });
+});
+
+test('navLinksLineFrom: tag mode with a CSV keeps the list', () => {
+  assert.equal(navLinksLineFrom({ mode: 'tag', path: '', tag: 'A, B', layout: 'flat' }),
+    '<div class="mb-nav-links" data-nav-tag="A, B" data-nav-layout="flat"></div>');
+});
+
 console.log(`\n${passed} passed`);

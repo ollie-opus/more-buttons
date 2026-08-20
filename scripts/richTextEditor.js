@@ -1,9 +1,11 @@
 import { markSpans, renderDocHtml } from './markdownInline.js';
-import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, applyIcon, iconAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
+import { attachIconPicker, getLucideSvgMarkup, loadLucideNames, paintIcons } from './iconPicker.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { loadInternalNav, buildInternalTreeNodes, resolveInternalHref, isInternalHrefShape } from './internalPages.js';
 import { resolveScope, spliceReplacement, normalizeModelOutput, stripInventedHeadings, createAiUndo, deriveUi, loadAiPrompts, getAvailability, rewrite } from './aiReword.js';
+import { loadLabelPalette, paintLabelVars } from './labelPalette.js';
 
 // Toolbar marks: { marker } is the literal markdown delimiter the toolbar
 // applies (via the pure markdownToolbarActions transforms); { tags } are the
@@ -104,6 +106,7 @@ export function upgradeTextarea(textarea, opts = {}) {
   buildButtons(rte);
   attachLinkPopover(rte);
   attachLabelPopover(rte);
+  attachIconPopover(rte);
   if (!inline) attachAiPopover(rte);
   buildTabs(rte);
   attachSurfaceEvents(rte);
@@ -158,24 +161,10 @@ function makeBtn(icon, label, onClick) {
 // datatable whole-table grid (dataTablesEditor renders cells outside any surface
 // and imports paintLabels from this module), plus the button editor's colour
 // swatch radios (buttonEditor imports this loader — the KB's custom-button-*
-// palette is a hand-synced copy of the same 26 colours). Kept out of the pure
-// markdownInline module because it needs fetch/chrome; the load is lazy so
-// importing this module stays test-safe (no fetch at import time).
-let _palettePromise = null;
-export function loadLabelPalette() {
-  if (_palettePromise) return _palettePromise;
-  _palettePromise = fetch(chrome.runtime.getURL('config/labelColours.json'))
-    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-    .then(groups => {
-      const flat = {};
-      for (const presets of Object.values(groups)) {
-        for (const [name, preset] of Object.entries(presets)) flat[name.toLowerCase()] = preset;
-      }
-      return { groups, flat };
-    })
-    .catch(err => { console.error('MB Error: Failed to load labelColours.json:', err); return { groups: {}, flat: {} }; });
-  return _palettePromise;
-}
+// palette is a hand-synced copy of the same 26 colours). The loader itself
+// lives in labelPalette.js (shared with tagChips / colourSwatchPopover) and is
+// re-exported here for the existing importers.
+export { loadLabelPalette };
 
 // Paint every `.mb-label` pill under `root` from the palette by setting the CSS
 // custom props the formsStyling `.mb-label` rule consumes (light + dark, so the
@@ -190,22 +179,27 @@ export function paintLabels(root) {
       const slug = (span.className.match(/mb-label-([a-z0-9-]+)/) || [])[1];
       const p = slug && flat[slug];
       if (!p) return;
-      span.style.setProperty('--bg', p.light.bg);
-      span.style.setProperty('--text', p.light.text);
-      span.style.setProperty('--border', p.light.border);
-      span.style.setProperty('--bg-dark', p.dark.bg);
-      span.style.setProperty('--text-dark', p.dark.text);
-      span.style.setProperty('--border-dark', p.dark.border);
+      paintLabelVars(span, p);
     });
   });
 }
 
+// Post-render paint pass for every atom renderDocHtml leaves unfinished: label
+// pills (colour from the palette) and lucide icons (SVG fetched + inlined).
+// Call after any innerHTML = renderDocHtml(...) — the surface here, and the
+// datatable grid / grid tiles / component cards / system-update panels that
+// render previews outside a surface.
+export function paintInlineAtoms(root) {
+  paintLabels(root);
+  paintIcons(root);
+}
+
 // Single funnel for writing rendered markdown into the surface. Every site that
-// replaces surface.innerHTML goes through here so label pills get repainted from
-// the colour palette after each render (renderDocHtml emits class-only spans).
+// replaces surface.innerHTML goes through here so label pills and icons get
+// painted after each render (renderDocHtml emits class-only / empty spans).
 function setSurfaceHtml(rte, value) {
   rte.surface.innerHTML = renderDocHtml(value);
-  paintLabels(rte.surface);
+  paintInlineAtoms(rte.surface);
 }
 
 export function renderSurface(rte) {
@@ -424,8 +418,27 @@ function refreshActiveStates(rte) {
       btn.disabled = rich && !inLabel && (inCode || inOtherMark || inLink);
       return;
     }
+    if (btn._icon) {
+      // Icons can't go inside a code span or label pill (both are plain-text
+      // exclusive containers). Lit while a whole icon atom is selected.
+      btn.classList.toggle('--active', rich && selectionIsIcon(rte));
+      btn.disabled = rich && (inCode || inLabel);
+      return;
+    }
     // The clear button carries no state.
   });
+}
+
+// Whether the DOM selection is exactly one `.mb-icon` atom (what the surface's
+// click handler selects when an icon is clicked). Icons are contenteditable=false
+// so the caret can never sit inside one — selection-of-the-node IS "on it".
+function selectionIsIcon(rte) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const r = sel.getRangeAt(0);
+  if (r.startContainer !== r.endContainer || r.endOffset - r.startOffset !== 1) return false;
+  const node = r.startContainer.childNodes && r.startContainer.childNodes[r.startOffset];
+  return !!(node && node.nodeType === 1 && node.classList.contains('mb-icon') && rte.surface.contains(node));
 }
 
 // Tag names of every element between the selection anchor and the surface.
@@ -513,6 +526,15 @@ function buildButtons(rte) {
     labelBtn._label = true;
     rte.btnGroup.appendChild(labelBtn);
     rte.buttons.push(labelBtn);
+  }
+
+  // Inline lucide icon — always added too (the KB uses `:lucide-check:` in
+  // datatable cells).
+  if (want('icon')) {
+    const iconBtn = makeBtn('emoji_symbols', 'Icon', () => rte.openIconPopover?.());
+    iconBtn._icon = true;
+    rte.btnGroup.appendChild(iconBtn);
+    rte.buttons.push(iconBtn);
   }
 
   if (want('clear')) {
@@ -649,6 +671,18 @@ function attachSurfaceEvents(rte) {
   surface.addEventListener('click', e => {
     const a = e.target.closest && e.target.closest('a');
     if (a) e.preventDefault();
+    // Clicking an icon atom is its edit gesture: the caret can't enter a
+    // contenteditable=false node, so select the node itself (which maps to
+    // exactly the shortcode's source range) and open the picker on it.
+    const icon = e.target.closest && e.target.closest('.mb-icon');
+    if (icon && surface.contains(icon)) {
+      const range = document.createRange();
+      range.selectNode(icon);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      rte.openIconPopover?.();
+    }
   });
 }
 
@@ -938,12 +972,7 @@ function attachLabelPopover(rte) {
         btn.className = 'mb-label mb-rte__swatch mb-label-' + slug;
         btn.dataset.slug = slug;
         btn.textContent = name;
-        btn.style.setProperty('--bg', preset.light.bg);
-        btn.style.setProperty('--text', preset.light.text);
-        btn.style.setProperty('--border', preset.light.border);
-        btn.style.setProperty('--bg-dark', preset.dark.bg);
-        btn.style.setProperty('--text-dark', preset.dark.text);
-        btn.style.setProperty('--border-dark', preset.dark.border);
+        paintLabelVars(btn, preset);
         btn.addEventListener('mousedown', e => e.preventDefault()); // keep selection
         btn.addEventListener('click', () => selectSwatch(slug));
         swatchBtns.push(btn);
@@ -1007,6 +1036,134 @@ function attachLabelPopover(rte) {
   });
 
   popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+}
+
+// ── Icon popover ─────────────────────────────────────────────────────────────
+// Inline lucide icon (`:lucide-<name>:`). Mirrors attachLabelPopover: one field
+// — the page-settings icon search combobox (iconPicker.attachIconPicker: typed
+// prefix/substring search over the bundled lucide name list, glyph rows, arrow
+// keys) — plus a live preview of the resolved icon, and Remove/Cancel/Insert.
+// Inserts via applyIcon; swaps/removes an existing icon when the selection is
+// on one (iconAt — the surface click handler selects a clicked icon node, so
+// clicking an icon reopens this popover for it). Available in inline cells too.
+function attachIconPopover(rte) {
+  const { toolbar } = rte;
+  let saved = null; // { value, selStart, selEnd } captured when the popover opens
+
+  const popover = document.createElement('div');
+  popover.className = 'mb-rte__popover mb-rte__popover--icon';
+  popover.hidden = true;
+  popover.innerHTML = `
+    <div class="mb-rte__panel" data-panel="icon">
+      <label class="mb-rte__field"><span>Icon</span><input type="text" data-icon-search placeholder="Search lucide icons…" autocomplete="off"></label>
+      <div class="mb-rte__icon-preview" data-icon-preview hidden><span class="mb-icon" data-icon-glyph></span><span data-icon-name></span></div>
+    </div>
+    <div class="mb-rte__popover-actions">
+      <button type="button" class="mb-rte__popover-btn" data-icon-remove hidden>Remove</button>
+      <button type="button" class="mb-rte__popover-btn" data-icon-cancel>Cancel</button>
+      <button type="button" class="mb-rte__popover-btn --primary" data-icon-insert>Insert</button>
+    </div>`;
+  toolbar.parentNode.insertBefore(popover, toolbar.nextSibling);
+
+  const input = popover.querySelector('[data-icon-search]');
+  const preview = popover.querySelector('[data-icon-preview]');
+  const glyph = popover.querySelector('[data-icon-glyph]');
+  const nameOut = popover.querySelector('[data-icon-name]');
+  const removeBtn = popover.querySelector('[data-icon-remove]');
+  const insertBtn = popover.querySelector('[data-icon-insert]');
+
+  // The picker writes `lucide/<name>` on pick; a hand-typed bare name or a
+  // pasted `:lucide-name:` shortcode are accepted too. Returns the bare name.
+  const typedName = () => {
+    const v = input.value.trim().toLowerCase();
+    const m = v.match(/^(?:lucide\/|:lucide-)?([a-z0-9]+(?:-[a-z0-9]+)*):?$/);
+    return m ? m[1] : '';
+  };
+
+  attachIconPicker(input); // async; degrades to a plain input if the list fails
+
+  // Live preview of the currently typed/picked icon: debounced so keystrokes
+  // stay instant, sequence-guarded so a slow fetch never paints a stale glyph.
+  let seq = 0, timer = null, shown = null;
+  const refreshPreview = () => {
+    const name = typedName();
+    if (name === shown) return;
+    shown = name;
+    input.removeAttribute('aria-invalid');
+    if (!name) { preview.hidden = true; glyph.innerHTML = ''; return; }
+    const mySeq = ++seq;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      getLucideSvgMarkup(name).then(svg => {
+        if (mySeq !== seq) return;
+        glyph.innerHTML = svg;
+        nameOut.textContent = name;
+        preview.hidden = !svg;
+      });
+    }, 200);
+  };
+  input.addEventListener('input', refreshPreview);
+  input.addEventListener('change', refreshPreview);
+
+  const onDocMouseDown = e => {
+    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
+  };
+  const close = () => { popover.hidden = true; document.removeEventListener('mousedown', onDocMouseDown); };
+
+  rte.openIconPopover = () => {
+    saved = currentSelection(rte);
+    for (const p of toolbar.parentNode.querySelectorAll('.mb-rte__popover')) if (p !== popover) p.hidden = true;
+    popover.hidden = false;
+    document.addEventListener('mousedown', onDocMouseDown);
+    const existing = iconAt(saved.value, saved.selStart, saved.selEnd);
+    if (existing) {
+      // On an icon: widen to its whole shortcode so Insert SWAPS it, prefill
+      // the picker with it, and offer Remove.
+      saved.selStart = existing.start;
+      saved.selEnd = existing.end;
+      input.value = `lucide/${existing.name}`;
+      removeBtn.hidden = false;
+    } else {
+      input.value = '';
+      removeBtn.hidden = true;
+    }
+    shown = null;
+    refreshPreview();
+    input.focus(); // the picker lists matches on focus, so the search opens ready
+  };
+
+  popover.querySelector('[data-icon-cancel]').addEventListener('click', close);
+
+  const insert = async () => {
+    const name = typedName();
+    if (!name) { close(); return; } // nothing to insert → no-op
+    // Only names the site can render: an unknown shortcode would publish as
+    // literal text. (List unavailable → trust the user, as the picker degrades.)
+    const names = await loadLucideNames();
+    if (Array.isArray(names) && names.length && !names.includes(name)) {
+      input.setAttribute('aria-invalid', 'true');
+      input.focus();
+      return;
+    }
+    close();
+    clearArmed(rte);
+    applyResult(rte, applyIcon(saved.value, saved.selStart, saved.selEnd, name));
+  };
+  insertBtn.addEventListener('click', insert);
+
+  removeBtn.addEventListener('click', () => {
+    const caret = saved.selStart;
+    close();
+    clearArmed(rte);
+    applyResult(rte, { value: saved.value.slice(0, saved.selStart) + saved.value.slice(saved.selEnd), selStart: caret, selEnd: caret });
+  });
+
+  popover.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { close(); return; }
+    // Enter commits — unless the picker already consumed it to pick a row from
+    // its open dropdown (it preventDefaults in that case).
+    if (e.key === 'Enter' && e.target === input && !e.defaultPrevented) { e.preventDefault(); insert(); }
+  });
 }
 
 // ── AI Rewrite popover ───────────────────────────────────────────────────────

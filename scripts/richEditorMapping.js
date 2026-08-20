@@ -5,7 +5,7 @@
 // re-render). DOM-free except placeCaret, so the rest is unit tested with a
 // fake DOM in tests/richEditorMapping.test.mjs.
 
-import { grooveMarkup, grooveTextOffset, labelMarkup, labelTextOffset } from './markdownInline.js';
+import { grooveMarkup, grooveTextOffset, labelMarkup, labelTextOffset, iconMarkup } from './markdownInline.js';
 
 const TEXT_NODE = 3, ELEMENT_NODE = 1;
 
@@ -88,6 +88,12 @@ export function buildSource(root, onText, onBoundary) {
             const txt = child.textContent;
             if (onText && child.firstChild && child.firstChild.nodeType === TEXT_NODE) onText(child.firstChild, out.length + labelTextOffset(slug));
             out += labelMarkup(slug, txt);
+          }
+          else if (tag === 'span' && child.getAttribute('data-mb-icon')) {
+            // An icon atom has no text of its own: emit the shortcode from its
+            // name and never walk inside — the painted <svg> must not serialize.
+            // Caret mapping goes through onBoundary (there is no text node).
+            out += iconMarkup(child.getAttribute('data-mb-icon'));
           }
           else if (tag === 'a') { out += '['; walk(child, inListItem, depth); out += '](' + (child.getAttribute('href') || '') + ')'; }
           else if (tag === 'ul' || tag === 'ol') {

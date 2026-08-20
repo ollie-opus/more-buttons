@@ -3,17 +3,17 @@
  *
  * A form-authored component listing pages by one of two modes (a radio pill):
  * a nav path (e.g. `guides/employees`, nested list of everything under that nav
- * section) or a frontmatter tag (e.g. `System`, every page carrying the tag,
- * with a flat/grouped Layout option). The page stores only the path/tag; the
- * published site renders the live list (see navLinks.js for the markdown
- * round-trip and the KB repo's nav-links.js for the runtime injection).
+ * section) or frontmatter tags (e.g. `System, RAMS` — every page carrying ANY
+ * of them, with a flat/grouped Layout option). The page stores only the
+ * path/tags; the published site renders the live list (see navLinks.js for the
+ * markdown round-trip and the KB repo's nav-links.js for the runtime injection).
  *
  * As a path is typed it is validated against the live nav tree from
  * zensical.toml (the same slugify-and-walk convention guide creation uses — see
  * navToml.js insertPath): a tick if it resolves to a section, a warning if not.
  * Saving is allowed regardless (a path may be pre-authored ahead of a toml
- * edit). Tags are deliberately free-text: there is no cheap source of
- * tags-in-use in the source repo (they live in per-page frontmatter).
+ * edit). Tags are chips (tagChips.js) with suggestions from the created-tags
+ * register plus the three audience tags; free text is still allowed.
  *
  * Mirrors buttonEditor.js: create splices one line into the parent container then
  * flips to edit in place; edit rewrites that one line through the merge engine;
@@ -32,8 +32,10 @@ import { mergeSave } from './mergeSave.js';
 import { spliceIntoContainer } from './guides.js';
 import { readRepoText } from './repoClient.js';
 import { parseNavBlock, slugify } from './navToml.js';
-import { loadCreatedTags, registerCreatedTag } from './tagRegistry.js';
-import { attachSuggestCombobox } from './suggestCombobox.js';
+import { loadCreatedTags, getTagColour } from './tagRegistry.js';
+import { attachTagChips } from './tagChips.js';
+import { splitTagList } from './frontmatter.js';
+import { AUDIENCE_TAG_NAMES } from './audienceTags.js';
 import {
   locateNavLinksByUUID, replaceNavLinksByUUID, deleteNavLinksByUUID,
   navLinksLineFrom, navLinksDimFields,
@@ -51,7 +53,8 @@ function readNavLinksFields(formEl) {
   return {
     mode: formEl.querySelector('[name="navMode"]:checked')?.value === 'tag' ? 'tag' : 'path',
     path: formEl.querySelector('[name="navPath"]')?.value.trim() ?? '',
-    tag: formEl.querySelector('[name="navTag"]')?.value.trim() ?? '',
+    // Canonical CSV of the chips (the widget already keeps it canonical).
+    tag: splitTagList(formEl.querySelector('[name="navTag"]')?.value ?? '').join(', '),
     layout: formEl.querySelector('[name="navLayout"]:checked')?.value === 'grouped' ? 'grouped' : 'flat',
   };
 }
@@ -88,10 +91,17 @@ async function loadNavSections() {
   return _navCache;
 }
 
-// Tag suggestions come from the shared mb_created_tags register (tagRegistry.js)
-// through the shared combobox (suggestCombobox.js) — whole-value mode, one tag.
+// Tag chips over the hidden navTag input — pick-only from the tag registry
+// (tagRegistry.js: audience tags first, then the created tags; new tags are
+// created in Knowledge Base Settings). This is the consumer side, so the three
+// "Written for" audience tags ARE offered ("list every page written for
+// users" is a natural block). Chips paint in their registry colour.
 function attachTagSuggest(formEl) {
-  attachSuggestCombobox(formEl.querySelector('[name="navTag"]'), { getItems: loadCreatedTags });
+  attachTagChips(formEl.querySelector('[name="navTag"]'), {
+    getItems: () => loadCreatedTags().then(list => splitTagList([...AUDIENCE_TAG_NAMES, ...list].join(','))),
+    restrict: true,
+    getColour: getTagColour,
+  });
 }
 
 /** Walks the nav tree to the SECTION node named by a `/`-delimited slug path, or
@@ -206,7 +216,7 @@ registerFormAction('openEditNavLinks', async ({ uuid, file } = {}) => {
 async function persistNewNavLinks(formEl, onProgress = () => {}) {
   const f = readNavLinksFields(formEl);
   if (f.mode === 'tag' ? !f.tag : !f.path) {
-    alert(f.mode === 'tag' ? 'Tag is required.' : 'Path is required.');
+    alert(f.mode === 'tag' ? 'At least one tag is required.' : 'Path is required.');
     return null;
   }
   const newUuid = generateUUID();
@@ -221,7 +231,6 @@ async function persistNewNavLinks(formEl, onProgress = () => {}) {
     ? { uuid: newUuid, tag: f.tag, layout: f.layout }
     : { uuid: newUuid, path: f.path };
   await spliceIntoContainer(parent, insertAt, [{ kind: 'navlinks', nav }], onProgress);
-  if (f.mode === 'tag') await registerCreatedTag(f.tag, onProgress);
   return { newUuid, file: parent.file };
 }
 
@@ -244,15 +253,12 @@ async function transitionNavLinksCreateToEdit(formEl, newUuid, file) {
 async function persistNavLinksEdit(formEl, onProgress = () => {}) {
   const f = readNavLinksFields(formEl);
   if (f.mode === 'tag' ? !f.tag : !f.path) {
-    alert(f.mode === 'tag' ? 'Tag is required.' : 'Path is required.');
+    alert(f.mode === 'tag' ? 'At least one tag is required.' : 'Path is required.');
     return null;
   }
   const editUuid = formEl.dataset.editUuid;
   const file = formEl.dataset.containerFile;
 
-  // Conflict resolution may land on the other side's tag — register what was
-  // actually saved, not what the form held.
-  let savedTag = null;
   await mergeSave({
     formEl,
     file,
@@ -260,13 +266,12 @@ async function persistNavLinksEdit(formEl, onProgress = () => {}) {
     fieldSpecs: [
       { name: 'navMode', type: 'scalar', label: 'List by' },
       { name: 'navPath', type: 'scalar', label: 'Path' },
-      { name: 'navTag', type: 'scalar', label: 'Tag' },
+      { name: 'navTag', type: 'scalar', label: 'Tags' },
       { name: 'navLayout', type: 'scalar', label: 'Layout' },
     ],
     readFresh: md => navLinksDimFields(locateNavLinksByUUID(md, editUuid) ?? {}),
     build: (md, resolved) => {
       if (!locateNavLinksByUUID(md, editUuid)) throw new Error('Nav links block no longer exists.');
-      savedTag = resolved.navMode === 'tag' ? resolved.navTag : null;
       const line = navLinksLineFrom({
         mode: resolved.navMode, path: resolved.navPath,
         tag: resolved.navTag, layout: resolved.navLayout,
@@ -274,7 +279,6 @@ async function persistNavLinksEdit(formEl, onProgress = () => {}) {
       return replaceNavLinksByUUID(md, editUuid, line);
     },
   });
-  await registerCreatedTag(savedTag, onProgress);
   return { editUuid, file };
 }
 

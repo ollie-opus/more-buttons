@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { slugify, titleCaseSegment, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue, parseCreatedTags, addCreatedTag } from '../scripts/navToml.js';
+import { slugify, titleCaseSegment, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue, parseCreatedTags, parseTagRegistry, writeTagRegistry, mergeTagRegistry } from '../scripts/navToml.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -12,6 +12,16 @@ test('slugify strips punctuation and collapses hyphens', () => {
 });
 test('slugify returns empty for symbol-only input', () => {
   assert.equal(slugify('!!!'), '');
+});
+test('slugify converts ampersand to "and"', () => {
+  assert.equal(slugify('Access & Authorisations'), 'access-and-authorisations');
+  assert.equal(slugify('A&B'), 'a-and-b');
+});
+test('slugify hyphenates punctuation instead of deleting it', () => {
+  assert.equal(slugify('A/B Testing'), 'a-b-testing');
+});
+test('slugify transliterates accented characters', () => {
+  assert.equal(slugify('Résumé Café'), 'resume-cafe');
 });
 test('titleCaseSegment title-cases hyphenated segment', () => {
   assert.equal(titleCaseSegment('annual-reports'), 'Annual Reports');
@@ -153,46 +163,71 @@ test('parseCreatedTags: empty list when the block is absent', () => {
   assert.deepEqual(parseCreatedTags(TOML_NO_TAGS), []);
 });
 
-test('addCreatedTag: first tag appends a [project.extra] block at EOF', () => {
-  const out = addCreatedTag(TOML_NO_TAGS, 'System');
-  assert.ok(out.startsWith(TOML_NO_TAGS), 'existing content untouched');
-  assert.ok(out.includes('[project.extra]'));
-  assert.ok(out.includes('mb_created_tags = ['));
-  assert.deepEqual(parseCreatedTags(out), ['System']);
-});
-
-test('addCreatedTag: second tag lands in the existing block', () => {
-  const out = addCreatedTag(addCreatedTag(TOML_NO_TAGS, 'System'), 'Contractors');
-  assert.deepEqual(parseCreatedTags(out), ['System', 'Contractors']);
-  assert.equal((out.match(/mb_created_tags/g) ?? []).length, 1, 'one block only');
-  assert.equal((out.match(/\[project\.extra\]/g) ?? []).length, 1, 'one header only');
-});
-
-test('addCreatedTag: an existing tag is skipped (case-insensitively), input returned as-is', () => {
-  const one = addCreatedTag(TOML_NO_TAGS, 'System');
-  assert.equal(addCreatedTag(one, 'System'), one);
-  assert.equal(addCreatedTag(one, '  system '), one);
-});
-
-test('addCreatedTag: blank / quote-only tags are a no-op', () => {
-  assert.equal(addCreatedTag(TOML_NO_TAGS, ''), TOML_NO_TAGS);
-  assert.equal(addCreatedTag(TOML_NO_TAGS, '  '), TOML_NO_TAGS);
-});
-
-test('addCreatedTag: double-quotes are stripped so the toml string cannot break', () => {
-  const out = addCreatedTag(TOML_NO_TAGS, 'Sys"tem');
-  assert.deepEqual(parseCreatedTags(out), ['System']);
-});
-
-test('parseCreatedTags/addCreatedTag: tolerate a pre-existing hand-written block', () => {
+test('parseTagRegistry: legacy bare strings parse as colourless entries', () => {
   const toml = TOML_NO_TAGS + '\n\n[project.extra]\nmb_created_tags = [\n  "Alpha",\n  "Beta",\n]\n';
+  assert.deepEqual(parseTagRegistry(toml), [{ name: 'Alpha' }, { name: 'Beta' }]);
   assert.deepEqual(parseCreatedTags(toml), ['Alpha', 'Beta']);
-  assert.deepEqual(parseCreatedTags(addCreatedTag(toml, 'Gamma')), ['Alpha', 'Beta', 'Gamma']);
 });
 
-test('addCreatedTag: nav blocks are untouched', () => {
-  const out = addCreatedTag(TOML_NO_TAGS, 'System');
-  assert.deepEqual(parseNavBlock(out, 'nav').items, parseNavBlock(TOML_NO_TAGS, 'nav').items);
+test('parseTagRegistry: inline tables with and without colour, mixed with strings', () => {
+  const toml = TOML_NO_TAGS + '\n\n[project.extra]\nmb_created_tags = [\n  { name = "System", colour = "emerald" },\n  {name="RAMS"},\n  "Legacy",\n  { name = "Odd", colour = "Sky Blue!" },\n]\n';
+  assert.deepEqual(parseTagRegistry(toml), [
+    { name: 'System', colour: 'emerald' }, { name: 'RAMS' }, { name: 'Legacy' }, { name: 'Odd', colour: 'skyblue' },
+  ]);
+  assert.deepEqual(parseCreatedTags(toml), ['System', 'RAMS', 'Legacy', 'Odd']);
+});
+
+test('parseTagRegistry: [] when the block is absent', () => {
+  assert.deepEqual(parseTagRegistry(TOML_NO_TAGS), []);
+});
+
+test('writeTagRegistry: no [project.extra] table → fresh block at EOF, round-trips', () => {
+  const out = writeTagRegistry(TOML_NO_TAGS, [{ name: 'System', colour: 'emerald' }, { name: 'RAMS' }]);
+  assert.ok(out.startsWith(TOML_NO_TAGS), 'existing content untouched');
+  assert.equal((out.match(/\[project\.extra\]/g) ?? []).length, 1);
+  assert.equal((out.match(/mb_created_tags/g) ?? []).length, 1);
+  assert.deepEqual(parseTagRegistry(out), [{ name: 'System', colour: 'emerald' }, { name: 'RAMS' }]);
+  assert.deepEqual(parseNavBlock(out, 'nav').items, parseNavBlock(TOML_NO_TAGS, 'nav').items, 'nav untouched');
+});
+
+test('writeTagRegistry: existing [project.extra] table gets the array appended, no second header', () => {
+  const toml = TOML_NO_TAGS + '\n\n[project.extra]\nmb_status_banner = ""\n\n[project.other]\nx = 1\n';
+  const out = writeTagRegistry(toml, [{ name: 'System' }]);
+  assert.equal((out.match(/\[project\.extra\]/g) ?? []).length, 1, 'one header only');
+  assert.deepEqual(parseTagRegistry(out), [{ name: 'System' }]);
+  const lines = out.split('\n');
+  const arr = lines.indexOf('mb_created_tags = [');
+  assert.ok(arr > lines.indexOf('mb_status_banner = ""'), 'lands after the scalars');
+  assert.ok(arr < lines.indexOf('[project.other]'), 'lands before the next table');
+  assert.ok(out.includes('[project.other]\nx = 1'), 'next table untouched');
+});
+
+test('writeTagRegistry: rewrites the block in place, re-emitting legacy strings as tables', () => {
+  const toml = TOML_NO_TAGS + '\n\n[project.extra]\nmb_created_tags = [\n  "Alpha",\n  "Beta",\n]\nmb_status_banner = ""\n';
+  const out = writeTagRegistry(toml, [{ name: 'Alpha', colour: 'red' }, { name: 'Beta' }, { name: 'Gamma' }]);
+  assert.ok(out.includes('  { name = "Alpha", colour = "red" },\n  { name = "Beta" },\n  { name = "Gamma" },\n]'));
+  assert.ok(!out.includes('  "Alpha",'), 'legacy string line replaced');
+  assert.ok(out.endsWith('mb_status_banner = ""\n'), 'trailing scalar preserved');
+  assert.equal((out.match(/mb_created_tags/g) ?? []).length, 1);
+});
+
+test('writeTagRegistry: identity when nothing changes; blanks/dupes/quotes cleaned', () => {
+  const toml = writeTagRegistry(TOML_NO_TAGS, [{ name: 'System', colour: 'emerald' }]);
+  assert.equal(writeTagRegistry(toml, [{ name: 'System', colour: 'emerald' }]), toml);
+  const out = writeTagRegistry(TOML_NO_TAGS, [{ name: '  Sys"tem ' }, { name: '' }, { name: 'system' }]);
+  assert.deepEqual(parseTagRegistry(out), [{ name: 'System' }]);
+});
+
+test('mergeTagRegistry: union keeps file order + spelling, form colours win, nothing dropped', () => {
+  const file = [{ name: 'Alpha', colour: 'red' }, { name: 'Beta' }, { name: 'Elsewhere', colour: 'sky' }];
+  const form = [{ name: 'beta', colour: 'blue' }, { name: 'Alpha' }, { name: 'New', colour: 'lime' }];
+  assert.deepEqual(mergeTagRegistry(file, form), [
+    { name: 'Alpha' },                    // form cleared the colour
+    { name: 'Beta', colour: 'blue' },     // file spelling, form colour
+    { name: 'Elsewhere', colour: 'sky' }, // not in form → kept as-is
+    { name: 'New', colour: 'lime' },      // form-only appended
+  ]);
+  assert.deepEqual(mergeTagRegistry([], form), [{ name: 'beta', colour: 'blue' }, { name: 'Alpha' }, { name: 'New', colour: 'lime' }]);
 });
 
 console.log(`\n${passed} passed`);

@@ -22,9 +22,11 @@ import './buttonEditor.js';
 import './navLinksEditor.js';
 import './diagramEditor.js';
 import './integrations.js';
+import './knowledgeBaseSettings.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';
 export { openMediaLibrary } from './mediaLibrary.js';
+export { openKnowledgeBaseSettings } from './knowledgeBaseSettings.js';
 export { openCaptureEntry } from './captureEntry.js';
 export { openIntegrations } from './integrations.js';
 

@@ -134,7 +134,8 @@ export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
 }
 
 // Read a component-bearing file, backfilling + persisting any missing identity
-// UUIDs once (idempotent: a fully-migrated file reads through with no write), and
+// UUIDs — once (idempotent:
+// a fully-migrated, synced file reads through with no write), and
 // return the up-to-date markdown. Used by the editor-open paths so existing
 // content with UUID-less captures becomes reorderable/editable immediately,
 // without waiting for an unrelated save to trigger the migration.

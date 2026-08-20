@@ -2,18 +2,20 @@
  * navLinks.js — "Nav links" component markdown round-trip.
  *
  * A nav-links component is an empty placeholder block whose only content is a
- * nav path OR a frontmatter tag; the published page fills it with a live list of
- * links (derived from zensical.toml / page frontmatter at build time and
- * injected by the KB repo's docs/assets/javascripts/nav-links.js):
+ * nav path OR a list of frontmatter tags; the published page fills it with a
+ * live list of links (derived from zensical.toml / page frontmatter at build
+ * time and injected by the KB repo's docs/assets/javascripts/nav-links.js):
  *
  *   <div class="mb-nav-links" data-nav-path="guides/employees"></div>
- *   <div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat"></div>
+ *   <div class="mb-nav-links" data-nav-tag="System, RAMS" data-nav-layout="flat"></div>
  *
  * Path mode lists every page under that part of the site nav, nested. Tag mode
- * lists every page whose frontmatter carries the tag — `flat` as one plain list,
- * `grouped` spliced into the surviving nav-section hierarchy.
+ * lists every page whose frontmatter carries ANY of the comma-separated tags —
+ * `flat` as one plain list, `grouped` spliced into the surviving nav-section
+ * hierarchy. (Tags never contain commas — splitTagList is the one list rule —
+ * so a comma-joined attribute is unambiguous and a single tag is unchanged.)
  *
- * Because the page stores only the PATH/TAG (never the list), editing
+ * Because the page stores only the PATH/TAGS (never the list), editing
  * zensical.toml or page frontmatter + rebuilding the site updates every
  * nav-links list without re-touching any page.
  *
@@ -27,6 +29,7 @@
  */
 
 import { generateUUID } from './admonitions.js';
+import { splitTagList } from './frontmatter.js';
 
 // A path-mode nav-links div line. Group 1 indent, group 2 the path. Attribute
 // spacing is tolerated, but class + data-nav-path are required (an arbitrary
@@ -34,7 +37,7 @@ import { generateUUID } from './admonitions.js';
 const NAVLINKS_LINE_RE =
   /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-path="([^"]*)"\s*>\s*<\/div>\s*$/;
 
-// A tag-mode nav-links div line. Group 2 the tag, group 3 the layout (the
+// A tag-mode nav-links div line. Group 2 the tag CSV, group 3 the layout (the
 // attribute is tolerated-absent → flat, but we always author it explicitly).
 const NAVLINKS_TAG_LINE_RE =
   /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-tag="([^"]*)"(?:\s+data-nav-layout="([^"]*)")?\s*>\s*<\/div>\s*$/;
@@ -56,9 +59,15 @@ function navLinksLine(path) {
   return `<div class="mb-nav-links" data-nav-path="${cleanAttr(path)}"></div>`;
 }
 
-/** The canonical div line for a tag-mode nav-links block. */
+/** The canonical tag CSV: trimmed, empties dropped, case-insensitive dedupe,
+ *  joined with ', '. Same rule as page frontmatter tags. */
+function cleanTagList(tag) {
+  return splitTagList(cleanAttr(tag)).join(', ');
+}
+
+/** The canonical div line for a tag-mode nav-links block (one or more tags). */
 function navLinksTagLine(tag, layout) {
-  return `<div class="mb-nav-links" data-nav-tag="${cleanAttr(tag)}" data-nav-layout="${cleanLayout(layout)}"></div>`;
+  return `<div class="mb-nav-links" data-nav-tag="${cleanTagList(tag)}" data-nav-layout="${cleanLayout(layout)}"></div>`;
 }
 
 /** One nav object → its canonical div line. Tag mode iff `tag` is present. */

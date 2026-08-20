@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { splitLastSegment, completeLastSegment } from '../scripts/suggestCombobox.js';
+import { splitLastSegment, completeLastSegment, rankSuggestions } from '../scripts/suggestCombobox.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -51,6 +51,28 @@ test('complete: earlier segments preserved verbatim', () => {
 test('complete: works from a trailing comma (empty query)', () => {
   assert.equal(completeLastSegment('System, ', 'Contractors'), 'System, Contractors');
   assert.equal(completeLastSegment('System,', 'Contractors'), 'System, Contractors');
+});
+
+// ── rankSuggestions ────────────────────────────────────────────────────────────
+
+test('rank: prefix matches outrank substring matches, item order kept within each tier', () => {
+  assert.deepEqual(rankSuggestions(['Systems', 'RAMS', 'System', 'Overview'], 'sys'), ['Systems', 'System']);
+  assert.deepEqual(rankSuggestions(['RAMS', 'Systems', 'Access'], 's'), ['Systems', 'RAMS', 'Access']);
+});
+
+test('rank: empty query lists everything', () => {
+  assert.deepEqual(rankSuggestions(['B', 'A'], ''), ['B', 'A']);
+  assert.deepEqual(rankSuggestions(['B', 'A'], '   '), ['B', 'A']);
+});
+
+test('rank: taken items are excluded case-insensitively', () => {
+  assert.deepEqual(rankSuggestions(['System', 'RAMS', 'Overview'], '', ['system', ' rams ']), ['Overview']);
+  assert.deepEqual(rankSuggestions(['System'], 'sys', ['SYSTEM']), []);
+});
+
+test('rank: no items → empty', () => {
+  assert.deepEqual(rankSuggestions([], 'x'), []);
+  assert.deepEqual(rankSuggestions(null, 'x'), []);
 });
 
 console.log(`\n${passed} passed`);

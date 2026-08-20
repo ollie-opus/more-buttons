@@ -45,7 +45,7 @@ import {
   makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick,
   setOpenComponentEditor, beginChildNavigation,
 } from './guides.js';
-import { syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
+import { syncSurfaceFromTextarea, paintInlineAtoms } from './richTextEditor.js';
 import { componentBodyHtml } from './cardRenderer.js';
 
 const STORAGE_KEY = 'moreButtonsEditGrid';
@@ -199,7 +199,7 @@ function renderTiles(formEl) {
         </div>
       </div>`;
   }).join('');
-  paintLabels(host); // colour any label pills in the rich tile previews
+  paintInlineAtoms(host); // colour label pills + inline icons in the rich tile previews
 
   const left = formEl.querySelector('[data-grid-move="left"]');
   const right = formEl.querySelector('[data-grid-move="right"]');

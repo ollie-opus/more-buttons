@@ -34,7 +34,7 @@ import {
   GUIDE_ADMONITION_TYPES_RE,
   ADMONITION_TYPE_LABELS, ADMONITION_TYPE_COLOURS,
 } from './admonitions.js';
-import { setRteDisabled, syncSurfaceFromTextarea, paintLabels } from './richTextEditor.js';
+import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './richTextEditor.js';
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
@@ -42,10 +42,11 @@ import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCa
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
-import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readFrontmatterTags, writeFrontmatterTags, splitTagList, writeFrontmatterSearchExclude } from './frontmatter.js';
+import { readFrontmatterIcon, readFrontmatterHide, readFrontmatterTags, splitTagList, writeFrontmatterSearchExclude, applyPageSettingsFrontmatter } from './frontmatter.js';
 import { attachIconPicker } from './iconPicker.js';
-import { attachSuggestCombobox } from './suggestCombobox.js';
-import { loadCreatedTags, registerCreatedTags } from './tagRegistry.js';
+import { attachTagChips } from './tagChips.js';
+import { loadCreatedTags, getTagColour } from './tagRegistry.js';
+import { splitAudience, composeTags, withoutAudienceTags } from './audienceTags.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -288,21 +289,20 @@ function viewLinksHtml({ draft } = {}) {
 // A macOS-dock-style vertical divider between logical button groups in the bar.
 const dockSep = '<span class="mb-dock-sep" aria-hidden="true"></span>';
 
-// Dock groups, left→right: [reorder toggle] | [view live, view draft] |
-// [add section] | [publish, discard]. Dividers mark the group boundaries.
+// Dock groups, left→right: [add section, reorder toggle] | [view live, view draft]
+// | [publish, discard]. Create leads its group (same convention as the KB bar).
 function normalActionsHtml(title) {
   return `
+    <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
     ${reorderToggleHtml()}
     ${dockSep}
     ${viewLinksHtml({ draft: true })}
-    ${dockSep}
-    <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
     ${dockSep}
     <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
     <button type="button" class="more-buttons-button danger" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
 }
 
-// Reorder-mode groups mirror the normal bar: [reorder toggle] |
+// Reorder-mode groups mirror the normal bar (minus create): [reorder toggle] |
 // [view live, view draft] | [discard, save].
 export function reorderActionsHtml(dirty = reorderDirty) {
   const { dis, saveClass } = reorderButtonGating(dirty);
@@ -533,9 +533,12 @@ async function saveSectionOrder(formEl) {
   setButtonBusy(saveBtn, 'Saving order…');
   if (discardBtn) discardBtn.disabled = true;
   try {
-    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(saveBtn, s), () => reorderWorkingMd);
-    reorderBaseMd = reorderWorkingMd;
-    formEl._draftMd = reorderWorkingMd;
+    // Keep the COMMITTED text (github.js may have migrated identity into it)
+    // so the pane's local copy never drifts from GitHub.
+    const committed = await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(saveBtn, s), () => reorderWorkingMd);
+    reorderWorkingMd = committed;
+    reorderBaseMd = committed;
+    formEl._draftMd = committed;
     reorderDirty = false;
     rerenderReorder(formEl);
   } catch (e) {
@@ -751,12 +754,20 @@ async function deleteGuide(formEl) {
 
 registerFormAction('openCreateGuide', async () => {
   if (!isFormReplay()) {
+    // Page-settings fields start blank; Written for + Page visibility are
+    // deliberately unseeded (both required) so the author must choose.
     await chrome.storage.local.set({
-      moreButtonsCreateGuide: { guideTitle: '', guidePath: '' },
+      moreButtonsCreateGuide: {
+        guideTitle: '', guidePath: '',
+        icon: '', writtenFor: '', tags: '',
+        hideNavigation: false, hideToc: false, hidePath: false, hideWrittenFor: false,
+        visibility: '',
+      },
     });
   }
   const { formEl } = await createForm('createGuide');
   if (!formEl) return;
+  attachPageSettingsWidgets(formEl);
 
   const suffix = formEl.querySelector('[data-path-suffix]');
   const titleInput = formEl.querySelector('[name="guideTitle"]');
@@ -774,6 +785,7 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-action="submitCreateGuide"]');
   const title = formEl.querySelector('[name="guideTitle"]')?.value.trim() ?? '';
   const pathRaw = formEl.querySelector('[name="guidePath"]')?.value ?? '';
+  const settings = readPageSettingsFields(formEl);
   const slug = slugify(title);
   if (!slug) { alert('Please enter a title.'); return; }
 
@@ -807,18 +819,38 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
 
     // Write the draft file (H1 = title, UUID span injected so the tree renders).
     // Born search-excluded so unfinished drafts never surface in the site
-    // search bar; publishGuideDraft strips the flag on promotion to live.
+    // search bar; publishGuideDraft strips the flag on promotion to live. The
+    // page-settings frontmatter (icon / tags incl. the audience tag / hide) is
+    // composed by the same helper the Page settings save uses.
     setButtonBusy(btn, 'Creating draft…');
+    const freeTags = settings.tags;
     await githubFetchAndPushFile(draftPath, s => setButtonBusy(btn, s),
-      () => writeFrontmatterSearchExclude(ensureSectionUUIDs(`# ${title}\n`), true));
+      () => applyPageSettingsFrontmatter(
+        writeFrontmatterSearchExclude(ensureSectionUUIDs(`# ${title}\n`), true),
+        {
+          icon: settings.icon,
+          tags: composeTags(settings.writtenFor, freeTags),
+          hide: settings.hide,
+        },
+      ));
     draftWritten = true;
 
-    // Add to draft_nav.
+    // Add to draft_nav — and, for an Unlisted page, mirror the placement into
+    // unlisted_nav in the same commit (what applyPageVisibility does for a
+    // never-published page; publishGuideDraft consults unlisted_nav on first
+    // publish and page settings seeds Unlisted from it).
     setButtonBusy(btn, 'Updating navigation…');
+    const unlisted = settings.visibility === 'unlisted';
     await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
       const items = parseNavBlock(md, 'draft_nav').items;
       insertPath(items, segments, title, draftValue);
-      return replaceNavBlock(md, 'draft_nav', items);
+      let out = replaceNavBlock(md, 'draft_nav', items);
+      if (unlisted) {
+        const unlistedItems = parseNavBlock(out, 'unlisted_nav').items;
+        setPathByValueSlug(unlistedItems, slug, segments, { value, fallbackName: title });
+        out = replaceNavBlock(out, 'unlisted_nav', unlistedItems);
+      }
+      return out;
     });
 
     await chrome.storage.local.remove('moreButtonsCreateGuide');
@@ -1209,7 +1241,7 @@ function buttonComponentCardFor(btn) {
 
 function navLinksComponentCardFor(nav) {
   return navLinksComponentCard({
-    path: nav.tag != null ? `Tag: ${nav.tag}` : nav.path,
+    path: nav.tag != null ? `${nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${nav.tag}` : nav.path,
     btnAttr: `data-edit-nav-links-component="${escapeHtml(nav.uuid ?? '')}"`,
     copyAttr: nav.uuid ? `data-copy-component-md="${escapeHtml(nav.uuid)}"` : '',
   });
@@ -1268,7 +1300,7 @@ export function renderComponents(listEl, components, numberSteps = true) {
   });
   parts.push(insertComponentTrigger(components.length));
   listEl.innerHTML = parts.join('');
-  paintLabels(listEl); // colour any label pills in admonition card titles/bodies
+  paintInlineAtoms(listEl); // colour label pills + inline icons in admonition card titles/bodies
   applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp
 }
 
@@ -1876,20 +1908,27 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
   const draftMarkdown = await readRepoText(currentGuide.draftPath);
 
   if (!isFormReplay()) {
-    // Reflect the current `hide:` frontmatter list onto the three checkboxes.
+    // Reflect the current `hide:` frontmatter list onto the four checkboxes
+    // (navigation / toc / path are zensical's; written-for tells the KB build
+    // not to render the "Written for" pill line under the H1).
     // (Hiding a title is now a per-section toggle, not a page setting.)
     const hide = readFrontmatterHide(draftMarkdown);
     // Visibility lives in zensical.toml, not the draft file: unlisted iff the
     // page has an unlisted_nav entry. Pages in neither array (never-published
     // new guides) seed as public.
     const tomlText = await readRepoText('zensical.toml');
+    // The three audience tags ride in the same frontmatter list but are driven
+    // by the "Written for" radios; the Tags chips only ever see the rest.
+    const { audience, rest } = splitAudience(readFrontmatterTags(draftMarkdown));
     await chrome.storage.local.set({
       moreButtonsEditPageSettings: {
         icon: readFrontmatterIcon(draftMarkdown),
-        tags: readFrontmatterTags(draftMarkdown).join(', '),
+        writtenFor: audience,
+        tags: rest.join(', '),
         hideNavigation: hide.includes('navigation'),
         hideToc: hide.includes('toc'),
         hidePath: hide.includes('path'),
+        hideWrittenFor: hide.includes('written-for'),
         visibility: isUnlistedInToml(tomlText, currentGuide.livePath) ? 'unlisted' : 'public',
       },
     });
@@ -1899,14 +1938,42 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
   if (!formEl) return;
   formEl.dataset.containerFile = currentGuide.draftPath;
   setCrumbLabel('Page settings');
-  attachIconPicker(formEl.querySelector('[name="icon"]')); // fire-and-forget; degrades to plain input
-  attachSuggestCombobox(formEl.querySelector('[name="tags"]'), { getItems: loadCreatedTags, segmented: true });
+  attachPageSettingsWidgets(formEl);
 });
+
+// The page-settings widgets shared with Create guide: lucide icon combobox +
+// tag chips (pick-only from the tag registry minus the three audience tags,
+// which the "Written for" radios own; new tags are created in Knowledge Base
+// Settings). Both attach synchronously after createForm; the chips repaint on
+// storage hydration via `_mbSyncView` and paint in their registry colour.
+function attachPageSettingsWidgets(formEl) {
+  attachIconPicker(formEl.querySelector('[name="icon"]')); // fire-and-forget; degrades to plain input
+  attachTagChips(formEl.querySelector('[name="tags"]'), {
+    getItems: () => loadCreatedTags().then(withoutAudienceTags),
+    restrict: true,
+    getColour: getTagColour,
+  });
+}
+
+/** Read the page-settings-shaped fields off a form (Create guide uses this;
+ *  page settings goes through mergeSave's resolved values instead). */
+function readPageSettingsFields(formEl) {
+  const v = name => formEl.querySelector(`[name="${name}"]`)?.value ?? '';
+  const checked = name => !!formEl.querySelector(`[name="${name}"]`)?.checked;
+  const radio = name => formEl.querySelector(`[name="${name}"]:checked`)?.value ?? '';
+  return {
+    icon: v('icon').trim(),
+    writtenFor: radio('writtenFor'),
+    tags: splitTagList(v('tags')),
+    hide: { navigation: checked('hideNavigation'), toc: checked('hideToc'), path: checked('hidePath'), writtenFor: checked('hideWrittenFor') },
+    visibility: radio('visibility'),
+  };
+}
 
 // Apply the Page visibility choice. Unlike the rest of Page settings this
 // touches the LIVE page and zensical.toml, not the draft — mergeSave can't
 // carry it (single-file, draft-only), so it runs as a follow-up step after the
-// draft save resolves, same pattern as registerCreatedTags. Unlisted moves the
+// draft save resolves. Unlisted moves the
 // page's entry nav → unlisted_nav (section + display name preserved) and adds
 // `search: exclude` to the live md; Public reverses both. No-op when the toml
 // already matches, so an ordinary settings save spawns no extra commits.
@@ -1954,9 +2021,6 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
   try {
-    // Conflict resolution may land on the other side's tags — register what was
-    // actually committed (captured in build, which re-runs on conflict retry).
-    let savedTags = [];
     const resolved = await mergeSave({
       formEl,
       file: currentGuide.draftPath,
@@ -1966,48 +2030,38 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
       // session merge cleanly without ever raising a conflict.
       fieldSpecs: [
         { name: 'icon', type: 'scalar', label: 'Icon' },
+        { name: 'writtenFor', type: 'scalar', label: 'Written for' },
         { name: 'tags', type: 'scalar', label: 'Tags' },
         { name: 'hideNavigation', type: 'scalar', label: 'Hide navigation' },
         { name: 'hideToc', type: 'scalar', label: 'Hide table of contents' },
         { name: 'hidePath', type: 'scalar', label: 'Hide path' },
+        { name: 'hideWrittenFor', type: 'scalar', label: 'Hide written for' },
       ],
       readFresh: md => {
         const hide = readFrontmatterHide(md);
+        const { audience, rest } = splitAudience(readFrontmatterTags(md));
         return {
           icon: readFrontmatterIcon(md),
+          writtenFor: audience,
           // Joined with ', ' identically to the open-time seed, so an untouched
           // field is textually equal across the 3-way merge.
-          tags: readFrontmatterTags(md).join(', '),
+          tags: rest.join(', '),
           hideNavigation: hide.includes('navigation'),
           hideToc: hide.includes('toc'),
           hidePath: hide.includes('path'),
+          hideWrittenFor: hide.includes('written-for'),
         };
       },
       build: (md, resolved) => {
-        let out = writeFrontmatterIcon(md, (resolved.icon ?? '').trim());
-        savedTags = splitTagList(resolved.tags ?? '');
-        out = writeFrontmatterTags(out, savedTags);
-        const want = {
-          navigation: !!resolved.hideNavigation,
-          toc: !!resolved.hideToc,
-          path: !!resolved.hidePath,
-        };
-        // Rebuild the list from the checkboxes, but preserve (in place) any hide
-        // values we don't own — an unrelated save must never silently drop a
-        // flag we have no checkbox for.
-        const managed = ['navigation', 'toc', 'path'];
-        const next = [];
-        for (const v of readFrontmatterHide(out)) {
-          if (!managed.includes(v)) next.push(v);            // unmanaged → keep
-          else if (want[v] && !next.includes(v)) next.push(v); // still wanted → keep position
-        }
-        for (const k of managed) if (want[k] && !next.includes(k)) next.push(k);
-        return writeFrontmatterHide(out, next);
+        return applyPageSettingsFrontmatter(md, {
+          icon: resolved.icon,
+          tags: composeTags(resolved.writtenFor, splitTagList(resolved.tags ?? '')),
+          hide: { navigation: resolved.hideNavigation, toc: resolved.hideToc, path: resolved.hidePath, writtenFor: resolved.hideWrittenFor },
+        });
       },
     });
     if (!resolved) { formEl._refreshSaveState?.(); return; }
 
-    await registerCreatedTags(savedTags, s => setButtonBusy(btn, s));
     await applyPageVisibility(
       formEl.querySelector('[name="visibility"]:checked')?.value ?? 'public',
       s => setButtonBusy(btn, s),

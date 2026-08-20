@@ -1,0 +1,17 @@
+<form data-nav data-dirty-guard id="knowledge-base-settings-form" data-storage-key="moreButtonsKnowledgeBaseSettings" data-width="90vw" data-height="90vh">
+  <h2>Knowledge Base Settings</h2>
+
+  <div class="more-buttons-form-group">
+    <div>
+      <label class="more-buttons-label">Tags</label>
+      <div class="more-buttons-label-hint">Every tag pages can carry. Create new tags here (they can't be removed). Click a tag to give it a colour — coloured tags show as pills on nav-links buttons.</div>
+    </div>
+    <!-- tagColours (JSON {tag: colour}) precedes tags so hydration has the colours before the chips repaint. -->
+    <input type="hidden" name="tagColours" autocomplete="off" />
+    <input type="text" name="tags" data-tag-chips autocomplete="off" />
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="saveKnowledgeBaseSettings" data-save-state data-saved-label="Settings saved" data-unsaved-label="Save settings"><span class="more-buttons-icon">save</span>Save settings</button>
+  </div>
+</form>

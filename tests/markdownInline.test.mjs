@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseInline, renderMarkdown, renderHtml, markSpans, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset } from '../scripts/markdownInline.js';
+import { parseInline, renderMarkdown, renderHtml, markSpans, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset, matchIcon, iconMarkup } from '../scripts/markdownInline.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -231,6 +231,43 @@ test('matchLabel reads slug + text; labelMarkup/labelTextOffset are consistent',
 });
 test('markSpans skips a label span (no phantom marks from inner * or ==)', () => {
   assert.deepEqual(markSpans(L('blue', 'a *b* ==c==')), []);
+});
+
+// ── Lucide icon shortcodes ───────────────────────────────────────────────────
+test('matchIcon reads the bare lucide name; iconMarkup is its inverse', () => {
+  assert.deepEqual(matchIcon(':lucide-check:', 0), { name: 'check', end: ':lucide-check:'.length });
+  assert.deepEqual(matchIcon('x :lucide-a-arrow-down: y', 2), { name: 'a-arrow-down', end: 2 + ':lucide-a-arrow-down:'.length });
+  assert.equal(iconMarkup('check'), ':lucide-check:');
+});
+test('matchIcon rejects non-lucide / malformed shortcodes', () => {
+  assert.equal(matchIcon(':30:', 0), null);           // clock times are not icons
+  assert.equal(matchIcon(':lucide-:', 0), null);
+  assert.equal(matchIcon(':Lucide-Check:', 0), null); // names are lower-case
+  assert.equal(matchIcon(':material-check:', 0), null);
+  assert.equal(matchIcon('lucide-check', 0), null);
+});
+test('parseInline: icon shortcode among text → atomic icon node', () => {
+  assert.deepEqual(parseInline('a :lucide-check: b'), [
+    { type: 'text', value: 'a ' },
+    { type: 'icon', name: 'check' },
+    { type: 'text', value: ' b' },
+  ]);
+});
+test('parseInline: icon inside a mark', () => {
+  assert.deepEqual(parseInline('**:lucide-check: ok**'), [
+    { type: 'strong', children: [{ type: 'icon', name: 'check' }, { type: 'text', value: ' ok' }] },
+  ]);
+});
+test('parseInline: a stray colon stays literal text', () => {
+  assert.deepEqual(parseInline('at 10:30: go'), [{ type: 'text', value: 'at 10:30: go' }]);
+});
+test('renderMarkdown round-trips an icon shortcode exactly', () => {
+  const src = 'a :lucide-check: b **:lucide-x:**';
+  assert.equal(renderMarkdown(parseInline(src)), src);
+});
+test('renderHtml: icon → empty atomic span carrying the name (SVG painted later)', () => {
+  assert.equal(renderHtml([{ type: 'icon', name: 'check' }]),
+    '<span class="mb-icon" data-mb-icon="check" contenteditable="false"></span>');
 });
 
 console.log(`\n${passed} passed`);

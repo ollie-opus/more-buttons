@@ -140,15 +140,15 @@ export function validateFields(formEl) {
     if (!err) return;
 
     valid = false;
-    const target = group || input;
+    // A chips widget hides its backing input — paint its visible host instead.
+    const target = group || input._tagChips?.host || input;
     target.classList.add('--invalid');
     target.setAttribute('aria-invalid', 'true');
 
     // The maxlength counter already shows "N/M" in red beneath the field, so
     // only the required-empty case needs a worded reason to avoid doubling up.
     if (err.reason === 'required') {
-      const anchor = group || input;
-      ensureMessage(formEl, anchor, err.message);
+      ensureMessage(formEl, target, err.message);
     }
 
     if (!firstInvalid) firstInvalid = target;
@@ -169,7 +169,7 @@ export function wireErrorClearing(formEl) {
     const field = e.target;
     if (!field || !field.classList) return;
     const isRadio = field.type === 'radio' || field.type === 'checkbox';
-    const target = isRadio ? field.closest(RADIO_GROUP) || field : field;
+    const target = isRadio ? field.closest(RADIO_GROUP) || field : field._tagChips?.host || field;
     if (!target.classList.contains('--invalid')) return;
 
     // Still failing? Leave it (counter / submit state stands).

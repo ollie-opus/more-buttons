@@ -488,7 +488,7 @@ function subViewModel(c, typeRegex) {
     case 'table':    return { kind: 'table', cols: c.tbl.align?.length ?? (c.tbl.header ?? []).length, rows: c.tbl.rows.length };
     case 'grid':     return { kind: 'grid', cells: (c.grid.cells ?? []).length, flavor: c.grid.flavor };
     case 'button':   return { kind: 'button', label: c.btn.label, destination: c.btn.destination };
-    case 'navlinks': return { kind: 'navlinks', text: c.nav.tag != null ? `Tag: ${c.nav.tag}` : c.nav.path };
+    case 'navlinks': return { kind: 'navlinks', text: c.nav.tag != null ? `${c.nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${c.nav.tag}` : c.nav.path };
     case 'diagram':  return { kind: 'diagram' };
     case 'video':    return { kind: 'video', filename: c.vid.lightFilename };
     case 'image':    return { kind: 'image', filename: c.img.filename };

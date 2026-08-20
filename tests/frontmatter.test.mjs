@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readFrontmatterTags, writeFrontmatterTags, splitTagList, readHideTitle, writeHideTitle } from '../scripts/frontmatter.js';
+import { readFrontmatterIcon, writeFrontmatterIcon, readFrontmatterHide, writeFrontmatterHide, readFrontmatterTags, writeFrontmatterTags, splitTagList, readHideTitle, writeHideTitle, applyPageSettingsFrontmatter } from '../scripts/frontmatter.js';
 import { buildSection, replaceSectionByUUID } from '../scripts/sections.js';
 
 let passed = 0;
@@ -276,6 +276,60 @@ test('tags compose with icon + hide in build() order', () => {
   assert.equal(readFrontmatterIcon(out), 'lucide/users');
   assert.deepEqual(readFrontmatterTags(out), ['System']);
   assert.deepEqual(readFrontmatterHide(out), ['toc']);
+});
+
+// ── applyPageSettingsFrontmatter (shared by Page settings save + Create guide) ──
+
+test('applyPageSettingsFrontmatter: writes icon, tags, hide from scratch in build() order', () => {
+  const out = applyPageSettingsFrontmatter(NO_FM, {
+    icon: 'lucide/users', tags: ['Using OCC', 'System'], hide: { navigation: false, toc: true, path: true },
+  });
+  assert.equal(readFrontmatterIcon(out), 'lucide/users');
+  assert.deepEqual(readFrontmatterTags(out), ['Using OCC', 'System']);
+  assert.deepEqual(readFrontmatterHide(out), ['toc', 'path']);
+  // Same bytes as the hand-composed sequence the page-settings build() used to run.
+  let manual = writeFrontmatterIcon(NO_FM, 'lucide/users');
+  manual = writeFrontmatterTags(manual, ['Using OCC', 'System']);
+  manual = writeFrontmatterHide(manual, ['toc', 'path']);
+  assert.equal(out, manual);
+});
+
+test('applyPageSettingsFrontmatter: preserves unmanaged hide values in place, drops unticked managed ones', () => {
+  const md = `---
+hide:
+  - footer
+  - toc
+  - navigation
+---
+
+${NO_FM}`;
+  const out = applyPageSettingsFrontmatter(md, { icon: '', tags: [], hide: { navigation: false, toc: true, path: true } });
+  assert.deepEqual(readFrontmatterHide(out), ['footer', 'toc', 'path']);
+  assert.equal(readFrontmatterIcon(out), '');
+  assert.deepEqual(readFrontmatterTags(out), []);
+});
+
+test('applyPageSettingsFrontmatter: written-for is a managed hide value (written when ticked, dropped when not, position kept)', () => {
+  const on = applyPageSettingsFrontmatter(NO_FM, { icon: '', tags: [], hide: { writtenFor: true } });
+  assert.deepEqual(readFrontmatterHide(on), ['written-for']);
+  const off = applyPageSettingsFrontmatter(on, { icon: '', tags: [], hide: { writtenFor: false } });
+  assert.deepEqual(readFrontmatterHide(off), []);
+  const md = `---
+hide:
+  - written-for
+  - footer
+  - toc
+---
+
+${NO_FM}`;
+  const kept = applyPageSettingsFrontmatter(md, { icon: '', tags: [], hide: { toc: true, writtenFor: true, path: true } });
+  assert.deepEqual(readFrontmatterHide(kept), ['written-for', 'footer', 'toc', 'path']);
+  const dropped = applyPageSettingsFrontmatter(md, { icon: '', tags: [], hide: { toc: true } });
+  assert.deepEqual(readFrontmatterHide(dropped), ['footer', 'toc']);
+});
+
+test('applyPageSettingsFrontmatter: empty settings on a bare file leave it untouched', () => {
+  assert.equal(applyPageSettingsFrontmatter(NO_FM, { icon: '', tags: [], hide: {} }), NO_FM);
 });
 
 // ── splitTagList ───────────────────────────────────────────────────────────────

@@ -255,9 +255,9 @@ async function renderKnowledgeBaseManagement() {
     const updateReorderUi = () => {
       const actions = formEl.parentElement;
       if (!actions) return;
-      const normal = actions.querySelector('[data-kb-actions="normal"]');
+      // Normal-mode buttons sit in two groups flanking the persistent toggle.
+      actions.querySelectorAll('[data-kb-actions="normal"]').forEach(el => { el.hidden = reorderMode; });
       const reo = actions.querySelector('[data-kb-actions="reorder"]');
-      if (normal) normal.hidden = reorderMode;
       if (reo) reo.hidden = !reorderMode;
       // The persistent toggle mirrors the popup's master switch: state shown by
       // colour (magenta on / neutral off), icon, and label — kept as a form button.
@@ -367,6 +367,10 @@ async function renderKnowledgeBaseManagement() {
     formEl.parentElement?.addEventListener('click', async e => {
       if (e.target.closest('[data-kb-open-media-library]')) {
         await getFormAction('openMediaLibrary')?.();
+        return;
+      }
+      if (e.target.closest('[data-kb-open-settings]')) {
+        await getFormAction('openKnowledgeBaseSettings')?.();
         return;
       }
       if (e.target.closest('[data-kb-create-guide]')) {

@@ -8,10 +8,23 @@
 
   <div class="more-buttons-form-group">
     <div>
-      <label class="more-buttons-label">Tags</label>
-      <div class="more-buttons-label-hint">Comma-separated, e.g. System, Contractors</div>
+      <label class="more-buttons-label">Written for</label>
+      <div class="more-buttons-label-hint">Which OCC users this page is written for</div>
     </div>
-    <input type="text" name="tags" placeholder="e.g. System, Contractors" autocomplete="off" />
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --label-blue"><input type="radio" name="writtenFor" value="users" required /> Users and above</label>
+      <label class="more-buttons-radio-btn --label-purple"><input type="radio" name="writtenFor" value="managers" /> Managers and above</label>
+      <label class="more-buttons-radio-btn --label-pink"><input type="radio" name="writtenFor" value="admins" /> Administrators only</label>
+      <label class="more-buttons-radio-btn --grey"><input type="radio" name="writtenFor" value="none" /> N/A</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <div>
+      <label class="more-buttons-label">Tags</label>
+      <div class="more-buttons-label-hint">Group related pages, e.g. System, Contractors</div>
+    </div>
+    <input type="text" name="tags" data-tag-chips autocomplete="off" />
   </div>
 
   <div class="more-buttons-form-group">
@@ -28,6 +41,10 @@
       <label class="more-buttons-sub-label">
         <input type="checkbox" name="hidePath" value="path" />
         Path
+      </label>
+      <label class="more-buttons-sub-label">
+        <input type="checkbox" name="hideWrittenFor" value="written-for" />
+        Written for
       </label>
     </div>
   </div>

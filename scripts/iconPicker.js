@@ -18,6 +18,9 @@ function loadNames() {
   return namesPromise;
 }
 
+/** The bundled lucide name list (string[]), or null if it failed to load. */
+export function loadLucideNames() { return loadNames(); }
+
 // name → Promise<string> ('' = fetch failed; that row just shows no preview)
 const svgCache = new Map();
 function fetchSvg(name) {
@@ -41,6 +44,24 @@ export function getLucideSvgMarkup(name) {
   return fetchSvg(name).then(svg => {
     const body = svg.replace(/^(\s*<!--[\s\S]*?-->)*\s*/, '');
     return body.startsWith('<svg') && !/<script|\bon\w+\s*=/i.test(body) ? body : '';
+  });
+}
+
+// Fill every empty `.mb-icon[data-mb-icon]` under `root` with its lucide SVG.
+// renderHtml (markdownInline) emits the span empty because it's synchronous and
+// pure; this is the async paint pass — the icon twin of richTextEditor's
+// paintLabels, and fanned out to the same preview sites via paintInlineAtoms.
+// Idempotent (already-painted spans are skipped), so re-running after a
+// re-render is cheap. Serialization ignores the injected SVG (buildSource emits
+// the shortcode from data-mb-icon and never walks inside).
+export function paintIcons(root) {
+  if (!root) return;
+  root.querySelectorAll('.mb-icon[data-mb-icon]').forEach(span => {
+    if (span.querySelector('svg')) return;
+    const name = span.getAttribute('data-mb-icon');
+    getLucideSvgMarkup(name).then(body => {
+      if (body && !span.querySelector('svg')) span.innerHTML = body;
+    });
   });
 }
 

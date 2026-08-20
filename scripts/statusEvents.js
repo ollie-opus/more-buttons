@@ -5,8 +5,8 @@
 //
 // Page grammar (docs/pages/system-status.md), sections split on `\n---\n`:
 //   ## Services          — status-* tiles, body = uuid span + `**Status:** X`
-//   ## Upcoming Events   — maintenance only, sorted ascending by start
 //   ## Active Events     — ongoing incidents + in-progress maintenance
+//   ## Upcoming Events   — maintenance only, sorted ascending by start
 //   ## Past Events       — `??? outline "View past events"` collapsible,
 //                          blocks indented 4 spaces
 //
@@ -36,6 +36,15 @@ export const INCIDENT_TYPE_RE = /status-available|status-disruption|status-outag
 export const STATUS_BLOCK_TYPE_RE = /status-available|status-disruption|status-outage|status-maintenance/;
 export const MAINTENANCE_TYPE_RE = /status-maintenance/;
 
+/**
+ * Sentinel `Services Affected` value meaning every service tile, whatever the
+ * tiles happen to be. Stored instead of the expanded name list deliberately: a
+ * service added later is covered with no data migration, and the card keeps
+ * saying what the author meant. Compared case-insensitively on read.
+ */
+export const ALL_SERVICES = 'All Services';
+const isAllServices = services => (services ?? '').trim().toLowerCase() === ALL_SERVICES.toLowerCase();
+
 const UPCOMING_SECTION_RE = /^## Upcoming Events\s*\n([\s\S]*?)(?=\n---|\n##)/m;
 const ACTIVE_SECTION_RE   = /^## Active Events\s*\n([\s\S]*?)(?=\n---|\n##)/m;
 const PAST_SECTION_RE     = /^## Past Events[^\n]*\n([\s\S]*)$/m;
@@ -48,17 +57,57 @@ const MAINTENANCE_STATUS_RANK  = { 'upcoming': 0, 'in progress': 1, 'completed':
 // model stays plain strings: builders wrap, extractIncidentField strips.
 const IMPACT_PILL_SLUG        = { outage: 'red', disruption: 'amber' };
 const INCIDENT_STATUS_PILL    = { ongoing: ['Ongoing', 'amber'], resolved: ['Resolved', 'green'] };
-const MAINTENANCE_STATUS_SLUG = { 'upcoming': 'sky', 'in progress': 'amber', 'completed': 'green' };
+const MAINTENANCE_STATUS_SLUG = { 'upcoming': 'orange', 'in progress': 'amber', 'completed': 'green' };
 const slatePill = v => (v ? labelMarkup('slate', v) : '');
+
+// Every Current Status pill leads with a lucide icon shortcode, which the KB's
+// emoji extension renders to an inline SVG inside the pill (labels.css sizes and
+// aligns `.mb-label .twemoji`). Keyed by the domain value, incidents included.
+const STATUS_ICON = {
+  'upcoming':    'fast-forward',
+  'in progress': 'refresh-cw',
+  'completed':   'check',
+  'ongoing':     'triangle-alert',
+  'resolved':    'check',
+};
+
+/** A Current Status pill: icon shortcode + label, wrapped in the colour slug. */
+const statusPill = (status, slug, label) =>
+  labelMarkup(slug, `:lucide-${STATUS_ICON[status]}: ${label}`);
+
+/**
+ * Drops icon shortcodes from a pill's text. Applied ONLY to Current Status
+ * reads — running it inside extractIncidentField would silently mangle a
+ * Description that legitimately contains a `:lucide-…:` shortcode.
+ */
+const stripIconShortcodes = value => value.replace(/:lucide-[a-z0-9-]+:/gi, '').trim();
+
+/**
+ * The `Services Affected` string for a set of picked service names. Selecting
+ * every service means the same thing as picking the sentinel, so it collapses
+ * to `All Services` — the card records the intent, not a list that would go
+ * stale the moment a service is added.
+ *
+ * @param {string[]} selected - Picked names (may already include the sentinel).
+ * @param {string[]} allNames - Every service tile name, in page order.
+ * @returns {string} Comma-joined names, the sentinel, or '' when none picked.
+ */
+export function normalizeServiceSelection(selected, allNames) {
+  const picked = (selected ?? []).map(s => s.trim()).filter(Boolean);
+  if (picked.some(isAllServices)) return ALL_SERVICES;
+  const real = picked.filter(name => allNames.includes(name));
+  if (!real.length) return '';
+  return real.length === allNames.length ? ALL_SERVICES : real.join(', ');
+}
 
 // ── Section-name migration ────────────────────────────────────────────────────
 
 /**
  * One-time terminology migration (idempotent): Open/Past Incidents → Active/
- * Past Events, plus a new empty Upcoming Events section between Services and
- * Active. Every mutation entry point runs this first, so old-format documents
- * are tolerated at any boundary while the persistent regexes only ever need to
- * know the new headings.
+ * Past Events, plus a new empty Upcoming Events section, plus the section order
+ * normalisation below. Every mutation entry point runs this first, so old-format
+ * documents are tolerated at any boundary while the persistent regexes only ever
+ * need to know the new headings.
  */
 export function migrateStatusSections(markdown) {
   let result = markdown
@@ -67,9 +116,35 @@ export function migrateStatusSections(markdown) {
     .replace(/^(\s*)\?\?\? outline "View past incidents"/m, '$1??? outline "View past events"');
   if (!/^## Upcoming Events/m.test(result) && /^## Active Events/m.test(result)) {
     // The inserted `\n---\n` is a valid part boundary for every split() caller.
+    // Inserted BEFORE Active; the swap below then moves it into place.
     result = result.replace(/^## Active Events/m, '## Upcoming Events\n\n---\n\n## Active Events');
   }
-  return result;
+  return orderEventSections(result);
+}
+
+/**
+ * Puts Active Events ahead of Upcoming Events (the reading order the page wants:
+ * what's happening now, then what's scheduled). Idempotent — a document already
+ * in that order is returned untouched, so this never manufactures a diff.
+ *
+ * Swaps the two `\n---\n` parts' CONTENT while leaving each part's leading
+ * whitespace where it is, so the blank-line padding around the rulers survives a
+ * swap unchanged and repeated runs are byte-identical.
+ */
+function orderEventSections(markdown) {
+  const parts = markdown.split('\n---\n');
+  const upcoming = parts.findIndex(p => /^## Upcoming Events/m.test(p));
+  const active   = parts.findIndex(p => /^## Active Events/m.test(p));
+  if (upcoming === -1 || active === -1 || active < upcoming) return markdown;
+  const split = part => {
+    const lead = part.match(/^\s*/)[0];
+    return [lead, part.slice(lead.length)];
+  };
+  const [upLead, upBody] = split(parts[upcoming]);
+  const [acLead, acBody] = split(parts[active]);
+  parts[upcoming] = upLead + acBody;
+  parts[active]   = acLead + upBody;
+  return parts.join('\n---\n');
 }
 
 // ── Shared field helpers ──────────────────────────────────────────────────────
@@ -172,12 +247,13 @@ export function buildIncidentBlock(inc) {
   const attrs = [`data-uuid="${uuid}"`];
   if (inc.reportedIso) attrs.push(`data-mb-reported="${inc.reportedIso}"`);
   if (inc.resolvedIso) attrs.push(`data-mb-resolved="${inc.resolvedIso}"`);
-  const [statusText, statusSlug] = INCIDENT_STATUS_PILL[inc.currentStatus === 'resolved' ? 'resolved' : 'ongoing'];
+  const status = inc.currentStatus === 'resolved' ? 'resolved' : 'ongoing';
+  const [statusText, statusSlug] = INCIDENT_STATUS_PILL[status];
   const body = [
     `<span ${attrs.join(' ')} style="display:none"></span>`,
     '',
     `- **Services Affected:** ${inc.services || ''}`,
-    `- **Current Status:** ${labelMarkup(statusSlug, statusText)}`,
+    `- **Current Status:** ${statusPill(status, statusSlug, statusText)}`,
     `- **Description:** ${inc.description || ''}`,
     `- **Reported:** ${slatePill(inc.reported)}`,
     `- **Resolved:** ${slatePill(inc.resolved)}`,
@@ -194,7 +270,7 @@ function incidentFromBlock(block) {
     description:   extractIncidentField(block.body, 'Description'),
     reported:      extractIncidentField(block.body, 'Reported'),
     resolved:      extractIncidentField(block.body, 'Resolved'),
-    currentStatus: extractIncidentField(block.body, 'Current Status').toLowerCase() || 'ongoing',
+    currentStatus: stripIconShortcodes(extractIncidentField(block.body, 'Current Status')).toLowerCase() || 'ongoing',
     causation:     extractIncidentField(block.body, 'Causation'),
     reportedIso:   (block.body.match(/data-mb-reported="([^"]*)"/) || [])[1] || '',
     resolvedIso:   (block.body.match(/data-mb-resolved="([^"]*)"/) || [])[1] || '',
@@ -238,10 +314,10 @@ export function buildMaintenanceBlock(evt) {
     `<span ${attrs.join(' ')} style="display:none"></span>`,
     '',
     `- **Services Affected:** ${evt.services || ''}`,
+    `- **Current Status:** ${statusPill(status, MAINTENANCE_STATUS_SLUG[status], MAINTENANCE_STATUS_LABEL[status])}`,
+    `- **Description:** ${evt.description || ''}`,
     `- **Scheduled Start:** ${slatePill(evt.start)}`,
     `- **Scheduled End:** ${slatePill(evt.end)}`,
-    `- **Current Status:** ${labelMarkup(MAINTENANCE_STATUS_SLUG[status], MAINTENANCE_STATUS_LABEL[status])}`,
-    `- **Description:** ${evt.description || ''}`,
   ].join('\n');
   return buildAdmonition('!!!', 'status-maintenance', labelMarkup('amber', 'MAINTENANCE'), body);
 }
@@ -252,7 +328,7 @@ function maintenanceFromBlock(block) {
     description:   extractIncidentField(block.body, 'Description'),
     start:         extractIncidentField(block.body, 'Scheduled Start'),
     end:           extractIncidentField(block.body, 'Scheduled End'),
-    currentStatus: extractIncidentField(block.body, 'Current Status').toLowerCase() || 'upcoming',
+    currentStatus: stripIconShortcodes(extractIncidentField(block.body, 'Current Status')).toLowerCase() || 'upcoming',
     startIso:      (block.body.match(/data-mb-start="([^"]*)"/) || [])[1] || '',
     endIso:        (block.body.match(/data-mb-end="([^"]*)"/) || [])[1] || '',
     uuid:          block.uuid,
@@ -353,12 +429,54 @@ function spliceUnderHeading(markdown, headingRe, block) {
   return parts.join('\n---\n');
 }
 
-/** Prepends `block` (indented) into the Past Events collapsible. */
+/**
+ * The instant a Past-section block finished, used for ordering: maintenance
+ * ends at its Scheduled End, an incident at its Resolved time. NaN when neither
+ * the machine-readable attr nor the visible line parses.
+ */
+function pastKey(block) {
+  return block.type === 'status-maintenance'
+    ? parseInstant((block.body.match(/data-mb-end="([^"]*)"/) || [])[1] || '',
+                   extractIncidentField(block.body, 'Scheduled End'))
+    : parseInstant((block.body.match(/data-mb-resolved="([^"]*)"/) || [])[1] || '',
+                   extractIncidentField(block.body, 'Resolved'));
+}
+
+/**
+ * Inserts `block` (indented) into the Past Events collapsible, keeping the
+ * section newest-first by finish instant. The live flow is unchanged in
+ * practice — whatever just finished IS the newest — but a backfilled event
+ * lands in its proper place instead of always on top. Positioning is a line
+ * splice on the existing blocks (never a section rebuild), so incident blocks
+ * are not round-tripped through their builder. Blocks whose own instant doesn't
+ * parse are never used as an anchor and so keep their relative position; if the
+ * NEW block's instant doesn't parse it falls back to a prepend.
+ */
 function spliceIntoPast(markdown, block) {
   const parts = markdown.split('\n---\n');
   const idx = parts.findIndex(p => /^## Past Events/m.test(p));
   if (idx === -1) return markdown;
   const indented = indentBlock(block, '    ');
+
+  const existing = parseAdmonitions(parts[idx], STATUS_BLOCK_TYPE_RE);
+  const parsedNew = parseAdmonitions(block, STATUS_BLOCK_TYPE_RE)[0];
+  const newKey = parsedNew ? pastKey(parsedNew) : NaN;
+  if (existing.length && !Number.isNaN(newKey)) {
+    const before = existing.find(b => {
+      const k = pastKey(b);
+      return !Number.isNaN(k) && k < newKey;
+    });
+    const lines = parts[idx].split('\n');
+    const at = before ? before.headerLine : existing[existing.length - 1].endLine;
+    const insert = indented.split('\n');
+    // Keep exactly one blank line on each side of the inserted block.
+    if (at > 0 && lines[at - 1] !== '') insert.unshift('');
+    if (at < lines.length && lines[at] !== '') insert.push('');
+    lines.splice(at, 0, ...insert);
+    parts[idx] = lines.join('\n');
+    return parts.join('\n---\n');
+  }
+
   // Consume any newlines after the wrapper line so an empty collapsible (no
   // blank line yet, possibly at EOF) accepts the insert too.
   const wrapperRe = /^(\?\?\? outline "[^"]+" *)\n*/m;
@@ -586,7 +704,10 @@ export function recalculateServiceStatuses(markdown) {
   const derived = {};
   serviceNames.forEach(name => { derived[name] = 'available'; });
   const raise = (services, level) => {
-    services.split(',').map(s => s.trim()).forEach(name => {
+    // The sentinel covers every tile — including any added after the card was
+    // written, which is the point of storing it instead of an expanded list.
+    const names = isAllServices(services) ? serviceNames : services.split(',').map(s => s.trim());
+    names.forEach(name => {
       if (!(name in derived)) return;
       if ((SEVERITY[level] ?? 0) > (SEVERITY[derived[name]] ?? 0)) derived[name] = level;
     });

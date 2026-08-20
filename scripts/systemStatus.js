@@ -11,6 +11,7 @@ import {
   insertMaintenanceBlock, deleteMarkdownEvent,
   recalculateServiceStatuses, updateMarkdownServices,
   deriveBannerStatus, deriveMaintenanceWindow, maintenancePhase, toIsoWithOffset,
+  ALL_SERVICES, normalizeServiceSelection,
 } from './statusEvents.js';
 
 // All the markdown grammar/mutation logic lives in statusEvents.js (a pure
@@ -195,20 +196,82 @@ export async function publishDeleteMaintenance(uuid, onProgress) {
 
 // ── Form action registrations ─────────────────────────────────────────────────
 
+function serviceChip(value) {
+  const label = document.createElement('label');
+  label.className = 'more-buttons-radio-btn';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.name = 'services';
+  cb.value = value;
+  label.appendChild(cb);
+  label.append(' ' + value);
+  return { label, cb };
+}
+
+/**
+ * Builds the service picker: an `All Services` chip, a separator, then one chip
+ * per tile. The sentinel and "every tile ticked" are the SAME state — picking
+ * all of them turns the sentinel on, and turning it off leaves the state
+ * entirely (a partial selection made before is restored; an all-ticked one is
+ * cleared, since restoring it would immediately re-trigger the sentinel).
+ * Forced-on chips stay checked but disabled: the scope stays visible, the
+ * clicks don't land. Reading the values back goes through
+ * normalizeServiceSelection, so what the chips show is what the card records.
+ */
 function injectServiceCheckboxes(formEl, containerSelector, names) {
   const container = formEl.querySelector(containerSelector);
   if (!container) return;
-  names.forEach(name => {
-    const label = document.createElement('label');
-    label.className = 'more-buttons-radio-btn';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.name = 'services';
-    cb.value = name;
-    label.appendChild(cb);
-    label.append(' ' + name);
+
+  const { cb: allBox } = serviceChip(ALL_SERVICES);
+  container.appendChild(allBox.parentElement);
+  const separator = document.createElement('span');
+  separator.className = 'mb-chip-separator';
+  separator.setAttribute('aria-hidden', 'true');
+  container.appendChild(separator);
+
+  const boxes = names.map(name => {
+    const { label, cb } = serviceChip(name);
     container.appendChild(label);
+    return cb;
   });
+  if (!boxes.length) { allBox.parentElement.remove(); separator.remove(); return; }
+
+  let remembered = [];
+  const lock = on => boxes.forEach(cb => { cb.disabled = on; if (on) cb.checked = true; });
+
+  allBox.addEventListener('change', () => {
+    if (allBox.checked) {
+      // All-ticked is the same state, so there is nothing to come back to.
+      remembered = boxes.every(cb => cb.checked) ? [] : boxes.filter(cb => cb.checked).map(cb => cb.value);
+      lock(true);
+    } else {
+      lock(false);
+      boxes.forEach(cb => { cb.checked = remembered.includes(cb.value); });
+    }
+  });
+
+  boxes.forEach(cb => cb.addEventListener('change', () => {
+    if (!boxes.every(b => b.checked)) return;
+    allBox.checked = true;
+    remembered = [];
+    lock(true);
+  }));
+
+  // A restored preset (form.js) sets these boxes directly, with no change
+  // event; this brings the lock back in step once the whole restore has landed.
+  allBox._mbSyncGroup = () => {
+    if (boxes.every(cb => cb.checked)) allBox.checked = true;
+    lock(allBox.checked);
+  };
+  allBox._mbSyncGroup();
+}
+
+/** The `Services Affected` string the picker in `formEl` currently describes. */
+function selectedServices(formEl) {
+  const boxes = [...formEl.querySelectorAll('[name="services"]')];
+  const picked = boxes.filter(cb => cb.checked).map(cb => cb.value);
+  const allNames = boxes.map(cb => cb.value).filter(v => v !== ALL_SERVICES);
+  return normalizeServiceSelection(picked, allNames);
 }
 
 registerFormAction('openReportIncident', async () => {
@@ -228,8 +291,7 @@ registerFormAction('openReportIncident', async () => {
 registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) => {
   const btn = content.querySelector('[data-action="submitReportIncident"]');
   // Validate before going busy so a missing field doesn't flash the amber state.
-  const checkedServices = [...formEl.querySelectorAll('[name="services"]:checked')].map(cb => cb.value);
-  const services = checkedServices.join(', ');
+  const services = selectedServices(formEl);
   if (!services) { alert('Please select at least one service.'); return; }
   const impact = formEl.querySelector('[name="impact"]:checked')?.value;
   if (!impact) { alert('Please select a service impact.'); return; }
@@ -376,9 +438,10 @@ registerFormAction('openReportMaintenance', async () => {
 
 registerFormAction('submitReportMaintenance', async ({ formEl, content, cleanup }) => {
   const btn = content.querySelector('[data-action="submitReportMaintenance"]');
-  // Validate before going busy so a missing field doesn't flash the amber state.
-  const checkedServices = [...formEl.querySelectorAll('[name="services"]:checked')].map(cb => cb.value);
-  const services = checkedServices.join(', ');
+  // Field validation happens before going busy so a missing field doesn't flash
+  // the amber state; the already-ended confirm below is the one exception, since
+  // the phase can only be derived once the event object exists.
+  const services = selectedServices(formEl);
   if (!services) { alert('Please select at least one service.'); return; }
   const startRaw = formEl.querySelector('[name="scheduledStart"]')?.value ?? '';
   const endRaw = formEl.querySelector('[name="scheduledEnd"]')?.value ?? '';
@@ -396,7 +459,14 @@ registerFormAction('submitReportMaintenance', async ({ formEl, content, cleanup 
       endIso:      toIsoWithOffset(endRaw),
     };
     evt.currentStatus = maintenancePhase(evt, new Date());
-    if (evt.currentStatus === 'completed') { restoreButton(btn, snap); alert('The scheduled window is already over — choose a future end time.'); return; }
+    // A window that has already ended is a legitimate backfill of maintenance
+    // that really happened, so confirm rather than block — it still catches a
+    // mistyped year. insertMaintenanceBlock files 'completed' straight into Past.
+    if (evt.currentStatus === 'completed'
+        && !confirm('This window has already ended.\n\nPublish it as a completed past event?')) {
+      restoreButton(btn, snap);
+      return;
+    }
     await publishNewMaintenance(evt, status => setButtonBusy(btn, status));
     await navigateBack();
   } catch (e) {
