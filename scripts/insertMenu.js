@@ -228,7 +228,7 @@ export function isPopupMenuOpen() { return !!openEl; }
 /**
  * @param {HTMLElement} triggerEl - the clicked "+ Insert Component" button.
  * @param {number} insertAtIndex - component index to insert at.
- * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, grid:Function, image:Function, video:Function, button:Function, navLinks:Function, diagram:Function, pasteMarkdown:Function}} handlers
+ * @param {{admonition:Function, captureNew:Function, captureLibrary:Function, contentTabs:Function, dataTable:Function, grid:Function, image:Function, video:Function, button:Function, navLinks:Function, diagram:Function, codeBlock:Function, pasteMarkdown:Function}} handlers
  *   Each receives `insertAtIndex`.
  * @param {{capturesOnly?: boolean}} [opts] - capturesOnly renders just the
  *   media choices flat (no submenu / other kinds), for hosts where a cell can
@@ -256,6 +256,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
     { id: 'button', label: 'Button' },
     { id: 'nav-links', label: 'Nav links' },
     { id: 'diagram', label: 'Diagram' },
+    { id: 'code-block', label: 'Code block' },
     { divider: true },
     { id: 'paste-markdown', label: 'Paste copied markdown' },
   ];
@@ -272,6 +273,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
     'button': handlers.button,
     'nav-links': handlers.navLinks,
     'diagram': handlers.diagram,
+    'code-block': handlers.codeBlock,
     'paste-markdown': handlers.pasteMarkdown,
   };
   openPopupMenu(triggerEl, items, id => byId[id]?.(insertAtIndex));

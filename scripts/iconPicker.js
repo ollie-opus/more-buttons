@@ -1,14 +1,15 @@
 // scripts/iconPicker.js
 // Type-to-search combobox for lucide icon names on a plain text input.
-// Names come from the bundled config/lucideIcons.json (generated from the
-// zensical install — see tools/regen-lucide-icons.sh). Previews are lucide
-// SVGs fetched lazily from jsdelivr and INLINED (inline SVG is exempt from
-// the page's img-src CSP; jsdelivr serves CORS *). Selecting a row writes
-// `lucide/<name>` into the input. If the name list fails to load, the input
-// simply stays a plain text input — saving still works.
+// Names AND art come from the bundled config/lucideIcons.json +
+// config/lucideIconBodies.json, both generated in one pass from the zensical
+// install the knowledge base builds with (tools/regen-lucide-icons.sh), so the
+// picker offers exactly the icons the site renders and previews them with the
+// site's own artwork. Previews are INLINED SVG (exempt from the page's img-src
+// CSP; no network, no version drift). Selecting a row writes `lucide/<name>`
+// into the input. If the name list fails to load, the input simply stays a
+// plain text input — saving still works.
 
 const MAX_RESULTS = 30;
-const CDN = 'https://cdn.jsdelivr.net/npm/lucide-static/icons/';
 
 let namesPromise = null;
 function loadNames() {
@@ -21,29 +22,35 @@ function loadNames() {
 /** The bundled lucide name list (string[]), or null if it failed to load. */
 export function loadLucideNames() { return loadNames(); }
 
-// name → Promise<string> ('' = fetch failed; that row just shows no preview)
-const svgCache = new Map();
-function fetchSvg(name) {
-  if (!svgCache.has(name)) {
-    svgCache.set(name, fetch(`${CDN}${encodeURIComponent(name)}.svg`)
-      .then(r => (r.ok ? r.text() : ''))
-      .catch(() => ''));
-  }
-  return svgCache.get(name);
+// Lazily-loaded {name: innerSVG} map (~340 KB) — kept separate from the eager
+// names list (29 KB) so a form open never pays for art it doesn't preview.
+let bodiesPromise = null;
+function loadBodies() {
+  bodiesPromise ??= fetch(chrome.runtime.getURL('config/lucideIconBodies.json'))
+    .then(r => r.json())
+    .catch(() => null);
+  return bodiesPromise;
+}
+
+// The one envelope every zensical lucide SVG shares (asserted by the regen
+// script); bodies are stored without it and re-wrapped here.
+function wrapBody(name, body) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-${name}" viewBox="0 0 24 24">${body}</svg>`;
 }
 
 /**
- * Fetches a lucide icon and returns markup safe to assign to innerHTML, or ''
- * when unavailable. lucide-static SVGs open with an HTML license comment —
- * strip leading comments before checking the root element. Defense-in-depth:
- * the CDN is trusted-ish but unpinned — never inject markup that could carry
- * handlers or scripts into the host page. Shared by the picker dropdown and
- * the button preview tiles.
+ * Resolves a lucide icon to markup safe to assign to innerHTML, or '' when
+ * the name isn't in the bundled set (or the map failed to load). Bodies come
+ * from the repo's own generated file, but the markup lands in the host page
+ * via innerHTML, so the no-script/no-handler check stays as belt-and-braces.
+ * Shared by the picker dropdown, the RTE icon popover and the button preview
+ * tiles. Promise-returning so callers needn't care that the map is lazy.
  */
 export function getLucideSvgMarkup(name) {
-  return fetchSvg(name).then(svg => {
-    const body = svg.replace(/^(\s*<!--[\s\S]*?-->)*\s*/, '');
-    return body.startsWith('<svg') && !/<script|\bon\w+\s*=/i.test(body) ? body : '';
+  return loadBodies().then(bodies => {
+    const body = bodies && typeof bodies[name] === 'string' ? bodies[name] : '';
+    if (!body || /<script|\bon\w+\s*=/i.test(body)) return '';
+    return wrapBody(name, body);
   });
 }
 

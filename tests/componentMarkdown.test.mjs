@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseComponents, stripUUIDSpans, componentMarkdown, parsePastedComponents, uuidOfComponent, buildComponentBody } from '../scripts/components.js';
+import { parseComponents, stripUUIDSpans, componentMarkdown, componentsMarkdown, parsePastedComponents, uuidOfComponent, buildComponentBody } from '../scripts/components.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -185,6 +185,41 @@ test('copy→paste→copy is byte-stable across round trips (incl. nested admoni
   assert.equal(copy2, copy1);
   const copy3 = roundTrip(copy2);
   assert.equal(copy3, copy1);
+});
+
+// ── componentsMarkdown (multi-select Copy payload) ─────────────────────────────
+
+const TWO_ADM_FIXTURE = [
+  '!!! note "A"',
+  '',
+  '    <span data-uuid="ADM-A" style="display:none"></span>',
+  '    Alpha.',
+  '',
+  '!!! tip "B"',
+  '',
+  '    <span data-uuid="ADM-B" style="display:none"></span>',
+  '    Beta.',
+].join('\n');
+
+test('componentsMarkdown: a single component equals componentMarkdown', () => {
+  const { components } = parseComponents(ADM_FIXTURE, ADM_RE);
+  assert.equal(componentsMarkdown(components), componentMarkdown(components[0]));
+});
+
+test('componentsMarkdown: joins components with one blank line in the given order, no spans', () => {
+  const { components } = parseComponents(TWO_ADM_FIXTURE, ADM_RE);
+  const [a, b] = components;
+  const md = componentsMarkdown([a, b]);
+  assert.equal(md, componentMarkdown(a) + '\n\n' + componentMarkdown(b));
+  assert.ok(!md.includes('data-uuid'));
+  assert.ok(componentsMarkdown([b, a]).startsWith('!!! tip "B"'));
+});
+
+test('componentsMarkdown: round-trips through parsePastedComponents in order', () => {
+  const { components } = parseComponents(TWO_ADM_FIXTURE, ADM_RE);
+  const pasted = parsePastedComponents(componentsMarkdown(components));
+  assert.equal(pasted.error, null);
+  assert.deepEqual(pasted.components.map(c => c.adm.type), ['note', 'tip']);
 });
 
 console.log(`\n${passed} passed`);

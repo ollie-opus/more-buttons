@@ -98,20 +98,29 @@ export function searchMatches(labelPath, query) {
   return path.startsWith(wanted);
 }
 
-export function applySearch(tree, query) {
+// Narrow the tree to leaves that match `query` (see searchMatches) AND, when
+// one is given, `predicate(leafButton)`. Matching leaves and their ancestors
+// stay; everything else is hidden, so folders with no surviving leaves vanish
+// and collapsed folders auto-expand (data-search-active) for either kind of
+// narrowing. Returns leaf counts so a caller can report "shown of total";
+// search-only callers pass no predicate and ignore the return.
+export function applySearch(tree, query, { predicate = null } = {}) {
   const q = query.trim().toLowerCase();
   tree.querySelectorAll('.mb-kb-node').forEach(n => n.classList.remove('--search-hidden', '--search-match'));
-  if (!q) {
+  const leaves = tree.querySelectorAll('[data-kb-leaf]');
+  const total = leaves.length;
+  if (!q && !predicate) {
     tree.removeAttribute('data-search-active');
-    return;
+    return { shown: total, total };
   }
   tree.setAttribute('data-search-active', '');
+  let shown = 0;
   // Own-row lookup: a folder's .mb-kb-node contains its descendants' rows too,
   // and reorder mode wraps the row button in .mb-kb-row-line.
   const ownRow = (node) => node.querySelector(
     ':scope > .mb-kb-node-row, :scope > .mb-kb-row-line > .mb-kb-node-row'
   );
-  tree.querySelectorAll('[data-kb-leaf]').forEach(btn => {
+  leaves.forEach(btn => {
     // Match labels only — decorations (e.g. pills) live in the row too but
     // must not count toward search hits. Synthetic grouping folders
     // (data-kb-group, e.g. "Live pages" in the internal-page picker) are UI
@@ -125,7 +134,8 @@ export function applySearch(tree, query) {
       }
       node = node.parentElement?.closest('.mb-kb-node');
     }
-    if (searchMatches(labelPath, query)) {
+    if (searchMatches(labelPath, query) && (!predicate || predicate(btn))) {
+      shown++;
       let hit = btn.closest('.mb-kb-node');
       while (hit && tree.contains(hit)) {
         hit.classList.add('--search-match');
@@ -134,4 +144,5 @@ export function applySearch(tree, query) {
     }
   });
   tree.querySelectorAll('.mb-kb-node:not(.--search-match)').forEach(n => n.classList.add('--search-hidden'));
+  return { shown, total };
 }

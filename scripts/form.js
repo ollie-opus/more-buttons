@@ -61,6 +61,7 @@ const FORM_LABELS = {
   editDataTable: 'Edit Data Table',
   editGrid: 'Edit Grid',
   editGridCell: 'Edit Cell',
+  pasteGridCell: 'Paste Cell',
   reportIncident: 'Report Incident',
   updateIncident: 'Update Incident',
   reportMaintenance: 'Report Maintenance',
@@ -1154,6 +1155,13 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // restore has landed — a mid-loop hook would be undone by a later input.
     formEl.querySelectorAll('input[type="checkbox"]').forEach(cb => cb._mbSyncGroup?.());
 
+    // Likewise widgets whose paint depends on OTHER fields (the button editor's
+    // destination picker reads the hidden onclick input, which hydrates after
+    // its own): repaint once every value has landed. View-only by contract —
+    // a _mbSyncPost hook must never write field values (it runs before the
+    // dirty-guard snapshot below, so a write would go unnoticed as clean).
+    formEl.querySelectorAll('input, select, textarea').forEach(i => i._mbSyncPost?.());
+
     // Sync disabled states for RT list checkbox pairs after load
     formEl.querySelectorAll('[data-page-radios]').forEach(c => {
       c._rtSyncs?.forEach(fn => fn());
@@ -1178,7 +1186,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // the snapshot still sees the original markdown (no false-dirty).
     formEl.querySelectorAll('textarea[data-richtext]').forEach(ta => upgradeTextarea(ta, {
       inline: ta.dataset.richtext === 'inline',
-      // data-richtext-buttons="label,clear" restricts the toolbar to those keys.
+      // data-richtext-buttons="label,icon,clear" restricts the toolbar to those keys.
       buttons: ta.dataset.richtextButtons
         ? ta.dataset.richtextButtons.split(',').map(s => s.trim()).filter(Boolean)
         : undefined,

@@ -140,8 +140,9 @@ export function validateFields(formEl) {
     if (!err) return;
 
     valid = false;
-    // A chips widget hides its backing input — paint its visible host instead.
-    const target = group || input._tagChips?.host || input;
+    // A chips widget (or any widget that hides its backing input, e.g. the
+    // button editor's destination tree) paints its visible host instead.
+    const target = group || input._tagChips?.host || input._validationHost || input;
     target.classList.add('--invalid');
     target.setAttribute('aria-invalid', 'true');
 
@@ -158,6 +159,24 @@ export function validateFields(formEl) {
 }
 
 /**
+ * Paint a single cross-field error (e.g. "scheduled end before start") with the
+ * same `--invalid` + inline-reason chrome validateFields uses, resolving the
+ * visible target the same way (radio/checkbox group, chips host, hidden-input
+ * host). wireErrorClearing clears it the moment the user edits the field.
+ */
+export function showFieldError(formEl, control, message) {
+  if (!control) return;
+  const isRadio = control.type === 'radio' || control.type === 'checkbox';
+  const target = (isRadio && control.closest(RADIO_GROUP))
+    || control._tagChips?.host || control._validationHost || control;
+  target.classList.add('--invalid');
+  target.setAttribute('aria-invalid', 'true');
+  ensureMessage(formEl, target, message);
+  target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  if (!isRadio) control.focus?.({ preventScroll: true });
+}
+
+/**
  * Wire a delegated `input`/`change` listener that clears a field's error state
  * the moment the user has actually fixed it (errors should not outlive the
  * typo). It re-checks the edited field and only clears once it passes, so it
@@ -169,7 +188,7 @@ export function wireErrorClearing(formEl) {
     const field = e.target;
     if (!field || !field.classList) return;
     const isRadio = field.type === 'radio' || field.type === 'checkbox';
-    const target = isRadio ? field.closest(RADIO_GROUP) || field : field._tagChips?.host || field;
+    const target = isRadio ? field.closest(RADIO_GROUP) || field : field._tagChips?.host || field._validationHost || field;
     if (!target.classList.contains('--invalid')) return;
 
     // Still failing? Leave it (counter / submit state stands).

@@ -88,6 +88,21 @@ test('appendCaptureSuffix splices a named suffix before the terminal tail only',
   );
 });
 
+// ── captureMetaPills: System update pill ──────────────────────────────────────
+test('captureMetaPills leads with the System update pill when asked', () => {
+  const html = captureMetaPills({ resized: true }, 'png', { systemUpdate: true });
+  const su = html.indexOf('--system-update');
+  assert.ok(su >= 0);
+  assert.ok(su < html.indexOf('--resized'));
+  assert.ok(su < html.indexOf('--format'));
+  assert.match(html, />System update</);
+});
+test('captureMetaPills omits the System update pill by default', () => {
+  assert.doesNotMatch(captureMetaPills({ resized: true }, 'png'), /--system-update/);
+  assert.equal(captureMetaPills(null, 'gif', { systemUpdate: true }),
+    '<span class="mb-kb-pills"><span class="mb-kb-pill --system-update">System update</span><span class="mb-kb-pill --format">.gif</span></span>');
+});
+
 // ── captureFlagSuffix with annotation names ───────────────────────────────────
 test('captureFlagSuffix appends annotation names after -a', () => {
   assert.equal(captureFlagSuffix(true, false, ['time', 'clock']), '-a-time-clock');
@@ -128,7 +143,11 @@ test('captureBaseSlug returns empty for a non-capture name', () => {
 // ── slugifyLabel ──────────────────────────────────────────────────────────────
 test('slugifyLabel lowercases and collapses punctuation runs to single hyphens', () => {
   assert.equal(slugifyLabel('System Status!'), 'system-status');
-  assert.equal(slugifyLabel('Time  &  Date'), 'time-date');
+});
+test('slugifyLabel matches the KB-wide slugifier: & becomes "and", accents fold', () => {
+  assert.equal(slugifyLabel('Time  &  Date'), 'time-and-date');
+  assert.equal(slugifyLabel('Training & Gaps'), 'training-and-gaps');
+  assert.equal(slugifyLabel('Café menu'), 'cafe-menu');
 });
 test('slugifyLabel trims edge hyphens', () => {
   assert.equal(slugifyLabel('  (Time) '), 'time');
@@ -138,6 +157,11 @@ test('slugifyLabel slices to 50 chars and tolerates null/empty', () => {
   assert.equal(slugifyLabel('x'.repeat(80)).length, 50);
   assert.equal(slugifyLabel(null), '');
   assert.equal(slugifyLabel(''), '');
+});
+test('slugifyLabel cap never leaves a trailing hyphen', () => {
+  // 50th char lands on the hyphen between words — must be trimmed, not kept.
+  const label = 'x'.repeat(49) + ' word';
+  assert.equal(slugifyLabel(label), 'x'.repeat(49));
 });
 
 // ── captureMetaPills ──────────────────────────────────────────────────────────

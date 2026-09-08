@@ -30,7 +30,7 @@ import {
   ensureAdmonitionUUIDs, parseAdmonitions, buildAdmonition,
   generateUUID, replaceAdmonitionByUUID,
   deleteAdmonitionByUUID,
-  splitTitleMeta, joinTitleMeta, stripLabelSpans,
+  splitTitleMeta, joinTitleMeta, stripInlineAtoms,
   GUIDE_ADMONITION_TYPES_RE,
   ADMONITION_TYPE_LABELS, ADMONITION_TYPE_COLOURS,
 } from './admonitions.js';
@@ -38,8 +38,9 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand } from './cardRenderer.js';
-import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml } from './cardRenderer.js';
+import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
+import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 import { readFrontmatterIcon, readFrontmatterHide, readFrontmatterTags, splitTagList, writeFrontmatterSearchExclude, applyPageSettingsFrontmatter } from './frontmatter.js';
@@ -1196,7 +1197,7 @@ function sectionStepNumber(markdown, uuid) {
 // ── Component list rendering ─────────────────────────────────────────────────
 
 function insertComponentTrigger(idx) {
-  return `<div class="mb-insert-component" data-insert-component-at="${idx}"><button type="button" class="mb-insert-component__btn">+ Insert Component</button></div>`;
+  return insertTriggerHtml(idx, { attr: 'data-insert-component-at', label: '+ Insert Component' });
 }
 
 function captureComponentCardFor(cap) {
@@ -1234,6 +1235,7 @@ function buttonComponentCardFor(btn) {
     colour: btn.colour,
     theme: btn.theme,
     border: btn.border,
+    onclick: btn.onclick,
     btnAttr: `data-edit-button-component="${escapeHtml(btn.uuid ?? '')}"`,
     copyAttr: btn.uuid ? `data-copy-component-md="${escapeHtml(btn.uuid)}"` : '',
   });
@@ -1251,6 +1253,15 @@ function diagramComponentCardFor(dia) {
   return diagramComponentCard({
     btnAttr: `data-edit-diagram-component="${escapeHtml(dia.uuid ?? '')}"`,
     copyAttr: dia.uuid ? `data-copy-component-md="${escapeHtml(dia.uuid)}"` : '',
+  });
+}
+
+function codeBlockComponentCardFor(cb) {
+  return codeBlockComponentCard({
+    title: cb.title,
+    language: cb.language,
+    btnAttr: `data-edit-codeblock-component="${escapeHtml(cb.uuid ?? '')}"`,
+    copyAttr: cb.uuid ? `data-copy-component-md="${escapeHtml(cb.uuid)}"` : '',
   });
 }
 
@@ -1293,6 +1304,8 @@ export function renderComponents(listEl, components, numberSteps = true) {
       card = navLinksComponentCardFor(c.nav);
     } else if (c.kind === 'diagram') {
       card = diagramComponentCardFor(c.dia);
+    } else if (c.kind === 'codeblock') {
+      card = codeBlockComponentCardFor(c.cb);
     } else {
       card = captureComponentCardFor(c.cap);
     }
@@ -1302,18 +1315,14 @@ export function renderComponents(listEl, components, numberSteps = true) {
   listEl.innerHTML = parts.join('');
   paintInlineAtoms(listEl); // colour label pills + inline icons in admonition card titles/bodies
   applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp
+  // Re-mark any Shift+click Copy selection (uuid-keyed, so it survives rail
+  // moves and child-form round trips) and the Copy buttons' Shift labels.
+  paintCopySelection(listEl, components.map(uuidOfComponent));
 }
 
 // Wraps a component card with a vertical up/down reorder rail on its left edge.
 function componentRow(uuid, isFirst, isLast, cardHtml) {
-  return `
-    <div class="mb-component-row" data-component-uuid="${escapeHtml(uuid)}">
-      <div class="mb-component-rail">
-        <button type="button" class="mb-component-rail__btn" data-move-component="up" ${isFirst ? 'disabled' : ''} aria-label="Move up">↑</button>
-        <button type="button" class="mb-component-rail__btn" data-move-component="down" ${isLast ? 'disabled' : ''} aria-label="Move down">↓</button>
-      </div>
-      ${cardHtml}
-    </div>`;
+  return railRowHtml({ rowAttrs: `data-component-uuid="${escapeHtml(uuid)}"`, isFirst, isLast, moveAttr: 'data-move-component', cardHtml });
 }
 
 // ── The component save-gate ──────────────────────────────────────────────────
@@ -1389,6 +1398,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'button') await getFormAction('openCreateButton')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'navlinks') await getFormAction('openCreateNavLinks')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'diagram') await getFormAction('openCreateDiagram')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'codeblock') await getFormAction('openCreateCodeBlock')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'table') await getFormAction('openCreateDataTable')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'grid') await getFormAction('openCreateGrid')?.({ container, insertAtIndex: action.insertAt });
@@ -1407,6 +1417,8 @@ async function runChildAction(container, formEl, action) {
     await getFormAction('openEditNavLinks')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-diagram') {
     await getFormAction('openEditDiagram')?.({ uuid: action.uuid, file: container.file });
+  } else if (action.type === 'edit-codeblock') {
+    await getFormAction('openEditCodeBlock')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-tabs') {
     await getFormAction('openEditContentTabs')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-table') {
@@ -1418,6 +1430,10 @@ async function runChildAction(container, formEl, action) {
     // grid's uuid/file live on its dataset (set by the opener or the create→edit
     // transition).
     await getFormAction('openEditGridCell')?.({ uuid: formEl.dataset.gridUuid, file: formEl.dataset.containerFile, index: action.index });
+  } else if (action.type === 'grid-cell-add') {
+    await getFormAction('addGridCell')?.({ uuid: formEl.dataset.gridUuid, file: formEl.dataset.containerFile, insertAt: action.insertAt });
+  } else if (action.type === 'grid-cell-paste') {
+    await getFormAction('openPasteGridCell')?.({ uuid: formEl.dataset.gridUuid, file: formEl.dataset.containerFile, insertAt: action.insertAt });
   }
 }
 
@@ -1442,7 +1458,7 @@ export function onComponentEditorClick(e) {
 
   const copyBtn = e.target.closest('[data-copy-component-md]');
   if (copyBtn) {
-    copyComponentMarkdown(formEl, copyBtn.dataset.copyComponentMd, copyBtn);
+    copyComponentMarkdown(formEl, copyBtn.dataset.copyComponentMd, copyBtn, e.shiftKey);
     return;
   }
 
@@ -1488,6 +1504,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editCodeBlock = e.target.closest('[data-edit-codeblock-component]');
+  if (editCodeBlock) {
+    beginChildNavigation(formEl, { type: 'edit-codeblock', uuid: editCodeBlock.dataset.editCodeblockComponent });
+    return;
+  }
+
   const editTabs = e.target.closest('[data-edit-content-tabs]');
   if (editTabs) {
     beginChildNavigation(formEl, { type: 'edit-tabs', uuid: editTabs.dataset.editContentTabs });
@@ -1522,6 +1544,7 @@ export function onComponentEditorClick(e) {
       button: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'button', insertAt: i }),
       navLinks: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'navlinks', insertAt: i }),
       diagram: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'diagram', insertAt: i }),
+      codeBlock: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'codeblock', insertAt: i }),
       pasteMarkdown: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'paste-markdown', insertAt: i }),
     });
     return;
@@ -1555,6 +1578,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditNavLinks')?.({ uuid: component.nav.uuid, file: container.file });
   } else if (component.kind === 'diagram') {
     await getFormAction('openEditDiagram')?.({ uuid: component.dia.uuid, file: container.file });
+  } else if (component.kind === 'codeblock') {
+    await getFormAction('openEditCodeBlock')?.({ uuid: component.cb.uuid, file: container.file });
   }
 }
 // Exposed for the insert flows (e.g. captures.js) to land in the new editor.
@@ -1585,30 +1610,48 @@ async function openImageComponentEditor(container, uuid) {
 }
 
 // Briefly swap a button's label as click feedback ("Copied ✓" / "Copy failed").
-function flashButtonLabel(btn, label) {
+// Restores to `data-rest-label` when a painter owns the resting label (the
+// multi-copy Shift labels, see copySelection.js), else to the pre-flash text.
+export function flashButtonLabel(btn, label) {
   if (!btn || btn.dataset.flashing) return;
   btn.dataset.flashing = '1';
   const original = btn.textContent;
   btn.textContent = label;
-  setTimeout(() => { btn.textContent = original; delete btn.dataset.flashing; }, 1500);
+  setTimeout(() => { delete btn.dataset.flashing; btn.textContent = btn.dataset.restLabel ?? original; }, 1500);
 }
 
-// Copy one component's full markdown (uuid spans stripped) to the clipboard.
-// Reads from the open editor's in-memory list; falls back to a fresh repo read
-// when the click arrives outside the tracked editor (defensive — shouldn't happen).
-async function copyComponentMarkdown(formEl, uuid, btn) {
+// Copy component markdown (uuid spans stripped) to the clipboard. A plain click
+// copies the clicked card alone and clears any multi-selection; a Shift+click
+// (`multi`) toggles the card in the list's selection and copies the WHOLE
+// selection in current document order (see copySelection.js). Toggling the last
+// card off falls back to the clicked card so the clipboard never goes empty.
+// Multi copies don't flash: the painted "Copied ✓" label persists on every
+// selected card until it is unselected or Shift is released.
+// Reads from the open editor's in-memory list (which already reflects unsaved
+// rail reorders); falls back to a fresh single-component repo read when the
+// click arrives outside the tracked editor (defensive — shouldn't happen).
+async function copyComponentMarkdown(formEl, uuid, btn, multi = false) {
   try {
-    let comp = openComponentEditor?.formEl === formEl
-      ? openComponentEditor.components?.find(c => uuidOfComponent(c) === uuid)
-      : null;
-    if (!comp) {
+    const ed = (openComponentEditor?.formEl === formEl && Array.isArray(openComponentEditor.components))
+      ? openComponentEditor : null;
+    setShiftHeld(multi); // resync the label tracker from the click itself
+    let comps;
+    if (ed) {
+      const sel = copySelectionOf(ed.listEl);
+      const order = ed.components.map(uuidOfComponent);
+      if (multi) sel.toggle(uuid); else sel.clear();
+      let uuids = multi ? sel.ordered(order) : [uuid];
+      if (!uuids.length) uuids = [uuid];
+      sel.paint(ed.listEl, order); // before the await: instant feedback
+      comps = uuids.map(u => ed.components.find(c => uuidOfComponent(c) === u));
+    } else {
       const container = containerFromForm(formEl);
       const md = await readRepoText(container.file);
-      comp = readContainerComponents(md, container).components.find(c => uuidOfComponent(c) === uuid);
+      comps = [readContainerComponents(md, container).components.find(c => uuidOfComponent(c) === uuid)];
     }
-    if (!comp) throw new Error('component not found');
-    await navigator.clipboard.writeText(componentMarkdown(comp));
-    flashButtonLabel(btn, 'Copied ✓');
+    if (!comps.length || comps.some(c => !c)) throw new Error('component not found');
+    await navigator.clipboard.writeText(componentsMarkdown(comps));
+    if (!multi) flashButtonLabel(btn, 'Copied ✓');
   } catch (err) {
     console.warn('[MB] copy component markdown failed:', err);
     flashButtonLabel(btn, 'Copy failed');
@@ -1783,7 +1826,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     for (const c of comps) {
       if (c.kind === 'admonition') {
         const { title } = splitTitleMeta(c.adm.title || '');
-        labelMap[c.adm.uuid] = { kind: 'admonition', title: stripLabelSpans(title) || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+        labelMap[c.adm.uuid] = { kind: 'admonition', title: stripInlineAtoms(title) || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
       } else if (c.kind === 'tabs') {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else if (c.kind === 'table') {
@@ -1800,6 +1843,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
+      } else if (c.kind === 'codeblock') {
+        labelMap[c.cb.uuid] = { kind: 'admonition', title: c.cb.title || c.cb.language || 'Code block' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }
@@ -2264,7 +2309,7 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
     if (admMeta) crumb += ` ${admMeta}`;
   } else {
     const typeLabel = ADMONITION_TYPE_LABELS[adm.type] ?? adm.type;
-    crumb = admTitle ? `${typeLabel}: ${stripLabelSpans(admTitle)}` : typeLabel;
+    crumb = admTitle ? `${typeLabel}: ${stripInlineAtoms(admTitle)}` : typeLabel;
   }
   setCrumbLabel(crumb);
 
@@ -2346,7 +2391,7 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
     for (const c of comps) {
       if (c.kind === 'admonition') {
         const { title: t } = splitTitleMeta(c.adm.title || '');
-        labelMap[c.adm.uuid] = { kind: 'admonition', title: stripLabelSpans(t) || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
+        labelMap[c.adm.uuid] = { kind: 'admonition', title: stripInlineAtoms(t) || (ADMONITION_TYPE_LABELS[c.adm.type] ?? c.adm.type) };
       } else if (c.kind === 'tabs') {
         labelMap[c.grp.uuid] = { kind: 'admonition', title: 'Content tabs' };
       } else if (c.kind === 'table') {
@@ -2363,6 +2408,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
+      } else if (c.kind === 'codeblock') {
+        labelMap[c.cb.uuid] = { kind: 'admonition', title: c.cb.title || c.cb.language || 'Code block' };
       } else {
         labelMap[c.cap.uuid] = { kind: 'capture', thumbSrc: assetCdnUrl('docs/assets/' + c.cap.lightFilename) };
       }

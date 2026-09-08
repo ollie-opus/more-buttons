@@ -28,6 +28,7 @@
  */
 
 import { generateUUID } from './admonitions.js';
+import { isInternalHrefShape } from './internalPages.js';
 
 // A button line. Group 1 indent, 2 label (may carry a trailing ` :icon:`),
 // 3 destination, 4 the attr block inside `{ … }`. The link text and destination
@@ -96,12 +97,29 @@ function attrsOpenNewTab(attrs) {
   return /\btarget\s*=\s*["']?_blank["']?/.test(attrs ?? '');
 }
 
+// Raw `onclick="…"` attr value. Kept verbatim (never normalised) so the two
+// hand-written groove variants already live in the KB round-trip byte-identical:
+//   onclick="event.preventDefault(); window.groove.widget.open();"    (system-updates)
+//   onclick="window.groove.widget.toggle(); return false;"            (index.md)
+const ONCLICK_RE = /\bonclick\s*=\s*"([^"]*)"/;
+function attrsOnclick(attrs) {
+  return (attrs ?? '').match(ONCLICK_RE)?.[1] ?? '';
+}
+
+/** Canonical onclick for a NEW groove button (mirrors markdownInline.js's anchor). */
+export const GROOVE_ONCLICK = 'event.preventDefault(); window.groove.widget.open();';
+
+/** True when an onclick value opens the Groove support widget (any variant). */
+export function isGrooveOnclick(v) {
+  return /\bwindow\.groove\.widget\./.test(v ?? '');
+}
+
 /**
  * Emits the markdown lines for each button. Mirrors buildVideoLines: a leading
  * '' separator, then an optional uuid span, then the link line. buildComponentBody
  * slices off the leading ''.
  *
- * @param {Array<{uuid?,label,destination,icon,colour?,theme?,border?,style?,primary?}>} list
+ * @param {Array<{uuid?,label,destination,icon,colour?,theme?,border?,style?,primary?,newTab?,onclick?}>} list
  * @returns {string[]}
  */
 export function buildButtonLines(list = []) {
@@ -121,8 +139,12 @@ export function buildButtonLines(list = []) {
     } else if (b.primary) {
       classList.push('.md-button--primary');
     }
-    const classes = classList.join(' ');
-    const attrs = b.newTab ? `${classes} target="_blank" rel="noopener"` : classes;
+    // onclick (groove) and target/rel are mutually exclusive: opening a new tab
+    // on an href of `#` is meaningless, so onclick wins.
+    const parts = [classList.join(' ')];
+    if (b.onclick) parts.push(`onclick="${b.onclick}"`);
+    else if (b.newTab) parts.push('target="_blank" rel="noopener"');
+    const attrs = parts.join(' ');
     const line = `[${text}](${b.destination ?? ''}){ ${attrs} }`;
     const spanLines = b.uuid ? [`<span data-uuid="${b.uuid}" style="display:none"></span>`] : [];
     return ['', ...spanLines, line];
@@ -134,7 +156,7 @@ export function buildButtonLines(list = []) {
  * A preceding own-line uuid span is swallowed into startLine (its identity).
  *
  * @param {string} body
- * @returns {Array<{uuid,label,destination,icon,primary,colour,theme,border,style,indent,startLine,endLine}>}
+ * @returns {Array<{uuid,label,destination,icon,primary,colour,theme,border,style,onclick,indent,startLine,endLine}>}
  */
 export function locateButtonLines(body) {
   const lines = (body ?? '').split('\n');
@@ -163,6 +185,7 @@ export function locateButtonLines(body) {
       primary: attrsArePrimary(attrs), newTab: attrsOpenNewTab(attrs),
       colour: attrsCustomColour(attrs), theme: attrsCustomTheme(attrs),
       border: attrsCustomBorder(attrs), style: attrsCustomStyle(attrs),
+      onclick: attrsOnclick(attrs),
       indent, startLine, endLine: i + 1,
     });
   }
@@ -247,5 +270,12 @@ export function buttonDimFields(btn) {
     buttonDestination: btn?.destination ?? '',
     icon: btn?.icon ?? '',
     buttonNewTab: btn?.newTab ? 'yes' : 'no',
+    buttonOnclick: btn?.onclick ?? '',
+    // Link kind is derived, never stored in the markdown: groove wins (a groove
+    // button's `#` destination must not read as a url), then href shape decides
+    // internal vs url. A non-groove onclick classifies by destination but its
+    // raw text still round-trips via buttonOnclick.
+    buttonDestKind: isGrooveOnclick(btn?.onclick) ? 'groove'
+      : isInternalHrefShape(btn?.destination) ? 'internal' : 'url',
   };
 }

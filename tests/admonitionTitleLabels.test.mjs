@@ -5,6 +5,7 @@ import {
   splitTitleMeta,
   joinTitleMeta,
   stripLabelSpans,
+  stripInlineAtoms,
 } from '../scripts/admonitions.js';
 import { titleWithLabelsHtml } from '../scripts/cardRenderer.js';
 
@@ -57,6 +58,18 @@ test('titleWithLabelsHtml fully escapes a malformed span (no live HTML)', () => 
 test('titleWithLabelsHtml rejects slugs outside [a-z0-9-]', () => {
   const bad = '<span class="mb-label mb-label-Red!">text</span>';
   assert.ok(!titleWithLabelsHtml(bad).includes('<span'));
+});
+test('titleWithLabelsHtml renders icon shortcodes inside AND outside pills as icon atoms', () => {
+  const ic = name => `<span class="mb-icon" data-mb-icon="${name}" contenteditable="false"></span>`;
+  assert.equal(
+    titleWithLabelsHtml(`:lucide-info: Note ${pill('green', ':lucide-check: Done')}`),
+    `${ic('info')} Note <span class="mb-label mb-label-green">${ic('check')} Done</span>`);
+});
+test('stripInlineAtoms drops pills AND icon shortcodes (crumbs are plain text)', () => {
+  assert.equal(stripInlineAtoms(`:lucide-info: Note ${pill('green', ':lucide-check: Done')}`), 'Note Done');
+  assert.equal(stripInlineAtoms('Meeting 10:30: start'), 'Meeting 10:30: start'); // clock times survive
+  // stripLabelSpans stays label-only: statusEvents reads Description fields with it.
+  assert.equal(stripLabelSpans('See :lucide-wrench: below'), 'See :lucide-wrench: below');
 });
 test('titleWithLabelsHtml handles empty / nullish input', () => {
   assert.equal(titleWithLabelsHtml(''), '');

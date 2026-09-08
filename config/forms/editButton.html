@@ -5,38 +5,10 @@
   <div class="mb-capture-entry-grid" data-button-preview hidden></div>
 
   <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Label</label>
-    <input type="text" name="buttonLabel" placeholder="Visible button text, e.g. Subscribe" />
-  </div>
-
-  <div class="more-buttons-form-group">
     <label class="more-buttons-label">Colour</label>
     <!-- Swatch radios are injected by buttonEditor.js from labelColours.json
          (same 26 slugs as the KB's custom-button-* palette). -->
     <div class="mb-swatch-radio-group" data-button-colour-swatches></div>
-  </div>
-
-  <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Theme</label>
-    <div class="more-buttons-radio-btn-group-row">
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="default" checked /> Default</label>
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="inversed" /> Inversed</label>
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="force-light" /> Force light</label>
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="force-dark" /> Force dark</label>
-    </div>
-  </div>
-
-  <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Border</label>
-    <!-- "Light/dark only" follows the colour trio the button is showing (so a
-         Force light button keeps its border state in both page schemes). -->
-    <div class="more-buttons-radio-btn-group-row">
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="default" checked /> Default</label>
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="bordered" /> Always</label>
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="border-light" /> Light only</label>
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="border-dark" /> Dark only</label>
-      <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="borderless" /> None</label>
-    </div>
   </div>
 
   <div class="more-buttons-form-group">
@@ -48,15 +20,31 @@
   </div>
 
   <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Destination</label>
-    <input type="text" name="buttonDestination" placeholder="Where the button links to, e.g. /signup or https://…" required />
+    <label class="more-buttons-label">Label</label>
+    <input type="text" name="buttonLabel" placeholder="Visible button text, e.g. Subscribe" />
   </div>
 
   <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Open in new tab?</label>
-    <div class="more-buttons-radio-btn-group-row">
-      <label class="more-buttons-radio-btn --blue"><input type="radio" name="buttonNewTab" value="yes" /> Yes</label>
-      <label class="more-buttons-radio-btn --grey"><input type="radio" name="buttonNewTab" value="no" /> No</label>
+    <label class="more-buttons-label">Destination</label>
+    <div class="mb-dest-picker">
+      <!-- Kind pills carry no checked default: storage is always seeded by the
+           opener, and buttonEditor's syncKindUI self-heals a legacy stored dict. -->
+      <div class="more-buttons-radio-btn-group-row">
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonDestKind" value="internal" /> Internal page</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonDestKind" value="url" /> URL</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonDestKind" value="groove" /> Groove support</label>
+      </div>
+      <!-- Single backing field for all three kinds. Deliberately NOT inside a
+           data-show-when container: required must run for the internal kind too
+           (error painted on the tree via _validationHost). buttonEditor toggles
+           .hidden per kind; groove holds '#'. -->
+      <input type="text" name="buttonDestination" placeholder="Where the button links to, e.g. /signup or https://…" required />
+      <div class="mb-dest-tree" data-dest-tree data-show-when="buttonDestKind=internal" style="display:none">
+        <p class="mb-dest-tree__loading">Loading pages…</p>
+      </div>
+      <p class="mb-dest-groove-hint" data-show-when="buttonDestKind=groove" style="display:none">Opens the Groove support popup widget instead of navigating.</p>
+      <!-- Raw onclick attr text, round-tripped verbatim (mdButtons.js). -->
+      <input type="hidden" name="buttonOnclick" />
     </div>
   </div>
 
@@ -67,6 +55,41 @@
     </div>
     <input type="text" name="icon" placeholder="Search lucide icons…" autocomplete="off" />
   </div>
+
+  <div class="more-buttons-form-group" data-show-when="buttonDestKind!=groove">
+    <label class="more-buttons-label">Open in new tab?</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --blue"><input type="radio" name="buttonNewTab" value="yes" /> Yes</label>
+      <label class="more-buttons-radio-btn --grey"><input type="radio" name="buttonNewTab" value="no" /> No</label>
+    </div>
+  </div>
+
+  <details class="more-buttons-advanced-section" data-button-advanced>
+    <summary class="more-buttons-advanced-toggle">Advanced</summary>
+
+    <div class="more-buttons-form-group">
+      <label class="more-buttons-label">Theme</label>
+      <div class="more-buttons-radio-btn-group-row">
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="default" checked /> Default</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="inversed" /> Inversed</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="force-light" /> Force light</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonTheme" value="force-dark" /> Force dark</label>
+      </div>
+    </div>
+
+    <div class="more-buttons-form-group">
+      <label class="more-buttons-label">Border</label>
+      <!-- "Light/dark only" follows the colour trio the button is showing (so a
+           Force light button keeps its border state in both page schemes). -->
+      <div class="more-buttons-radio-btn-group-row">
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="default" checked /> Default</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="bordered" /> Always</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="border-light" /> Light only</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="border-dark" /> Dark only</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonBorder" value="borderless" /> None</label>
+      </div>
+    </div>
+  </details>
 
   <div class="more-buttons-form-actions">
     <button type="button" class="more-buttons-button success" data-action="submitEditButton" data-validate data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">save</span>Save to draft</button>

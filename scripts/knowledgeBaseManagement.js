@@ -80,13 +80,37 @@ function movedDraftBases(nav, draftNav) {
   return moved;
 }
 
-// Build the merged Guides tree shown in the KB form: live nav unioned with
-// draft_nav. A page drafted in place keeps its live position; a page moved in the
-// draft is pruned from its (stale) live spot so draft_nav owns its placement.
-export function buildGuideTree(nav, draftNav) {
+// Build the merged Guides tree shown in the KB form: live pages (nav unioned
+// with unlisted_nav — the two are disjoint, an unlisted page is simply parked in
+// the other array at the same section path) unioned with draft_nav. A page
+// drafted in place keeps its live position; a page moved in the draft is pruned
+// from its (stale) live spot so draft_nav owns its placement. Unlisted pages are
+// filtered, not tabbed: they live in this one tree and carry the Unlisted pill.
+export function buildGuideTree(nav, draftNav, unlistedNav = []) {
   const guides = nav.filter(n => !EXCLUDED_SECTIONS.has(n.name));
-  const guideNav = pruneLeavesByBase(guides, movedDraftBases(nav, draftNav));
-  return mergeNavNodes(guideNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
+  const unlisted = unlistedNav.filter(n => !EXCLUDED_SECTIONS.has(n.name));
+  const live = mergeNavNodes(guides, unlisted);
+  const liveNav = pruneLeavesByBase(live, movedDraftBases(live, draftNav));
+  return mergeNavNodes(liveNav, draftNav).filter(n => !EXCLUDED_SECTIONS.has(n.name));
+}
+
+// Filter-row state (draft: all|drafting|none, vis: all|public|unlisted).
+// Module-level rather than per-render so it survives the full form rebuild
+// openKnowledgeBaseManagement does after a reorder save.
+const kbFilter = { draft: 'all', vis: 'all' };
+
+// Leaf predicate for the current filter state, reading the data-kb-drafting /
+// data-kb-unlisted attributes decorateKbPills stamps — so the filters can never
+// disagree with the pills. null when nothing narrows (All / All), which lets
+// applySearch treat the tree as plain search.
+function kbFilterPredicate() {
+  const { draft, vis } = kbFilter;
+  if (draft === 'all' && vis === 'all') return null;
+  return (leaf) => {
+    if (draft !== 'all' && leaf.hasAttribute('data-kb-drafting') !== (draft === 'drafting')) return false;
+    if (vis !== 'all' && leaf.hasAttribute('data-kb-unlisted') !== (vis === 'unlisted')) return false;
+    return true;
+  };
 }
 
 // Collect every leaf's filename (baseOf its value) into `set`.
@@ -101,20 +125,26 @@ function collectValues(nodes, set) {
 // Tag each tree leaf with Live / Drafting / Unlisted pills. navFiles/draftFiles/
 // unlistedFiles are sets of leaf *filenames* (e.g. "foo.md") — keyed on basename
 // so a node merged from a pages/ nav entry and a drafts/ draft_nav entry matches
-// all the sets.
+// all the sets. The same verdicts are stamped as data-kb-drafting /
+// data-kb-unlisted boolean attributes, which the filter row's predicate reads —
+// one source of truth for what the pills say and what the filters match.
 function decorateKbPills(panel, draftFiles, navFiles, unlistedFiles = new Set()) {
   panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
     const file = leaf.dataset.kbFile || '';
     const base = baseOf(file);
     if (!file) return;
+    const drafting = !DRAFT_PILL_EXEMPT.has(base) && draftFiles.has(base);
+    const unlisted = unlistedFiles.has(base);
+    leaf.toggleAttribute('data-kb-drafting', drafting);
+    leaf.toggleAttribute('data-kb-unlisted', unlisted);
     const pills = [];
-    if (!DRAFT_PILL_EXEMPT.has(base) && draftFiles.has(base)) {
+    if (drafting) {
       pills.push('<span class="mb-kb-pill --drafting">Drafting</span>');
     }
     if (navFiles.has(base)) {
       pills.push('<span class="mb-kb-pill --live">Live</span>');
     }
-    if (unlistedFiles.has(base)) {
+    if (unlisted) {
       pills.push('<span class="mb-kb-pill --unlisted">Unlisted</span>');
     }
     if (pills.length) {
@@ -199,9 +229,9 @@ function openMoveToPicker(anchorBtn, reorder, rerender) {
   }), 0);
 }
 
-// Commit both nav and draft_nav in a single zensical.toml push, behind the veil.
+// Commit nav, draft_nav and unlisted_nav in a single zensical.toml push.
 async function saveReorder(reorder, formEl) {
-  const { nav, draftNav } = reorder.buildPayload();
+  const { nav, draftNav, unlistedNav } = reorder.buildPayload();
   // Progress rides the amber dock tag, matching every other GitHub-commit button.
   // The push queue serialises writes, so leaving the rest of the form live during
   // the commit is safe; we just disable the sibling Discard so it can't fire mid-
@@ -213,8 +243,15 @@ async function saveReorder(reorder, formEl) {
   if (discardBtn) discardBtn.disabled = true;
   try {
     await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(saveBtn, s), md => {
-      const out1 = replaceNavBlock(md, 'nav', nav);
-      return replaceNavBlock(out1, 'draft_nav', draftNav);
+      let out = replaceNavBlock(md, 'nav', nav);
+      out = replaceNavBlock(out, 'draft_nav', draftNav);
+      // Only touch unlisted_nav when the toml already has the block or there is
+      // something to write: replaceNavBlock auto-creates a missing block at EOF,
+      // which would land it inside [project.extra] (see applyPageVisibility).
+      if (parseNavBlock(out, 'unlisted_nav').start !== -1 || unlistedNav.length) {
+        out = replaceNavBlock(out, 'unlisted_nav', unlistedNav);
+      }
+      return out;
     });
     await getFormAction('openKnowledgeBaseManagement')();  // reload fresh tree
   } catch (e) {
@@ -232,7 +269,48 @@ async function renderKnowledgeBaseManagement() {
 
     const livePanel = formEl.querySelector('[data-kb-panel="guides"]');
     const systemPanel = formEl.querySelector('[data-kb-panel="system"]');
-    const unlistedPanel = formEl.querySelector('[data-kb-panel="unlisted"]');
+    const filtersEl = formEl.querySelector('.more-buttons-tab-list.--with-filters');
+
+    // Filter dropdowns ↔ module state. The selects are the view; kbFilter is
+    // the truth (it outlives this render, see its declaration). A select that
+    // narrows carries --active so an applied filter is visible at a glance.
+    const syncFilterControls = () => {
+      const draft = filtersEl?.querySelector('select[name="kbFilterDraft"]');
+      const vis = filtersEl?.querySelector('select[name="kbFilterVis"]');
+      if (draft) { draft.value = kbFilter.draft; draft.classList.toggle('--active', kbFilter.draft !== 'all'); }
+      if (vis) { vis.value = kbFilter.vis; vis.classList.toggle('--active', kbFilter.vis !== 'all'); }
+    };
+    const activeTab = () => formEl.querySelector('.more-buttons-tab.--active')?.dataset.tab ?? 'guides';
+    // Narrow one panel's tree by its search box AND the filter row. `summary`
+    // decides whether this panel drives the "n of N" / Clear / empty state —
+    // only the showing (or about-to-show) tab should.
+    const applyKbFilters = (panel, { summary = panel?.dataset.kbPanel === activeTab() } = {}) => {
+      if (!panel) return;
+      const tree = panel.querySelector('.mb-kb-tree');
+      const query = panel.querySelector('.mb-kb-search')?.value ?? '';
+      const predicate = kbFilterPredicate();
+      const narrowed = predicate !== null || query.trim() !== '';
+      let empty = panel.querySelector('[data-kb-filter-empty]');
+      const counts = tree ? applySearch(tree, query, { predicate }) : { shown: 0, total: 0 };
+      if (tree && narrowed && counts.shown === 0) {
+        if (!empty) {
+          empty = document.createElement('p');
+          empty.className = 'more-buttons-description';
+          empty.setAttribute('data-kb-filter-empty', '');
+          empty.textContent = 'No pages match.';
+          tree.after(empty);
+        }
+      } else {
+        empty?.remove();
+      }
+      if (!summary || !filtersEl) return;
+      const sum = filtersEl.querySelector('[data-kb-filter-summary]');
+      if (sum) sum.textContent = tree && narrowed ? `${counts.shown} of ${counts.total}` : '';
+      const clear = filtersEl.querySelector('[data-kb-filter-clear]');
+      if (clear) clear.hidden = predicate === null;
+    };
+    const applyAllKbFilters = () => formEl.querySelectorAll('[data-kb-panel]').forEach(p => applyKbFilters(p));
+    syncFilterControls();
 
     let reorder = null;
     let reorderMode = false;
@@ -306,20 +384,26 @@ async function renderKnowledgeBaseManagement() {
         // Strip only live leaves whose draft MOVED them to another section, so
         // draft_nav owns the placement of a moved page without double-rendering;
         // a page drafted in place keeps its live position (see buildGuideTree).
-        const merged = buildGuideTree(nav, draftNav);
+        // Unlisted pages sit in this same tree at their unlisted_nav placement
+        // (they carry the Unlisted pill and are filterable, not tabbed).
+        const merged = buildGuideTree(nav, draftNav, unlistedNav);
         // `merged` is the pristine saved order; seed each reorder controller from a
         // fresh clone so Discard can revert in place by re-seeding (move ops mutate
         // the tree they're given, never `merged`).
-        const seedReorder = () => createReorderState({ tree: structuredClone(merged), navItems: nav, draftItems: draftNav });
+        const seedReorder = () => createReorderState({
+          tree: structuredClone(merged), navItems: nav, draftItems: draftNav, unlistedItems: unlistedNav,
+        });
         reorder = seedReorder();
         resetReorder = () => { reorder = seedReorder(); };
         livePanel.innerHTML =
           renderTree(merged.map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
         decorateKbPills(livePanel, draftFiles, navFiles, unlistedFiles);
+        applyKbFilters(livePanel);
         rerenderGuides = () => {
           livePanel.innerHTML =
             renderTree(reorder.getTree().map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
           decorateKbPills(livePanel, draftFiles, navFiles, unlistedFiles);
+          applyKbFilters(livePanel);   // the rebuild drops the search/filter classes
           updateReorderUi();
           applySelection();   // re-pin selection by stable id after the rebuild
         };
@@ -330,41 +414,52 @@ async function renderKnowledgeBaseManagement() {
         if (systemEntry) {
           systemPanel.innerHTML = renderKbHierarchy([systemEntry]);
           decorateKbPills(systemPanel, draftFiles, navFiles, unlistedFiles);
+          applyKbFilters(systemPanel);
         } else {
           systemPanel.innerHTML = '<p class="more-buttons-description">No system pages found.</p>';
         }
       }
 
-      // Unlisted pages: parked in unlisted_nav (built + linkable, but out of the
-      // site nav and search index). Not reorderable — unlisted_nav ordering is
-      // only placement memory for re-listing, and kbReorder never touches it.
-      if (unlistedPanel) {
-        if (unlistedNav.length) {
-          unlistedPanel.innerHTML = renderKbHierarchy(unlistedNav);
-          decorateKbPills(unlistedPanel, draftFiles, navFiles, unlistedFiles);
-        } else {
-          unlistedPanel.innerHTML = '<p class="more-buttons-description">No unlisted pages.</p>';
-        }
-      }
     } catch {
       if (livePanel) livePanel.innerHTML = '<p class="more-buttons-description">Failed to load articles.</p>';
       if (systemPanel) systemPanel.innerHTML = '<p class="more-buttons-description">Failed to load system pages.</p>';
-      if (unlistedPanel) unlistedPanel.innerHTML = '<p class="more-buttons-description">Failed to load unlisted pages.</p>';
     } finally {
       formLoading.dismiss();
     }
 
+    // Search composes with the filter row: both narrow the same tree.
     formEl.addEventListener('input', e => {
       const searchEl = e.target.closest('.mb-kb-search');
       if (!searchEl) return;
-      const tree = searchEl.closest('[data-kb-panel]')?.querySelector('.mb-kb-tree');
-      if (tree) applySearch(tree, searchEl.value);
+      applyKbFilters(searchEl.closest('[data-kb-panel]'));
+    });
+    formEl.addEventListener('change', e => {
+      const sel = e.target.closest('select[name="kbFilterDraft"], select[name="kbFilterVis"]');
+      if (!sel) return;
+      kbFilter[sel.name === 'kbFilterDraft' ? 'draft' : 'vis'] = sel.value;
+      syncFilterControls();   // keeps the --active tint in step
+      applyAllKbFilters();
     });
 
     // .more-buttons-form-actions gets moved out of <form> by form.js, so
     // listen on the parent overlay-content to catch both form-internal clicks
     // and the moved-out mode-toggle / reorder action-group clicks.
     formEl.parentElement?.addEventListener('click', async e => {
+      if (e.target.closest('[data-kb-filter-clear]')) {
+        kbFilter.draft = 'all';
+        kbFilter.vis = 'all';
+        syncFilterControls();
+        applyAllKbFilters();
+        return;
+      }
+      // Tab switch: the generic form.js handler flips the panels; the filter
+      // row is shared, so re-point its summary at the tab being opened. Resolve
+      // the panel by name — listener order makes `hidden` unreliable here.
+      const tab = e.target.closest('[data-tab]');
+      if (tab && filtersEl && tab.closest('.more-buttons-tabs') === filtersEl.parentElement) {
+        applyKbFilters(formEl.querySelector(`[data-kb-panel="${tab.dataset.tab}"]`), { summary: true });
+        return;
+      }
       if (e.target.closest('[data-kb-open-media-library]')) {
         await getFormAction('openMediaLibrary')?.();
         return;

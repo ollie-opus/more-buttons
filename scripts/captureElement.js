@@ -15,6 +15,7 @@
  */
 
 import { cropBoxPx, resolveCornerRadii, transformIsNearIdentity } from './captureGeometry.js';
+import { slugify } from './navToml.js';
 
 // A "motion signature" of the element's ancestor chain: every ancestor's
 // transform + opacity. JS-driven (rAF) popover animations never appear in
@@ -145,7 +146,7 @@ function neutralizeLayers(el) {
 
 // ── Hover + Shift-arm selector ────────────────────────────────────────────────
 
-export function installSelector({ onPick, onArmedChange, getPadding }) {
+export function installSelector({ onPick, onArmedChange, getPadding, resolveTarget }) {
   const overlay = document.createElement('div');
   overlay.className = 'mb-capture-selector';
   Object.assign(overlay.style, {
@@ -207,15 +208,30 @@ export function installSelector({ onPick, onArmedChange, getPadding }) {
     setArmed(e.shiftKey);
     // Skip the bar/tab + their descendants, plus our own overlay.
     if (e.target.closest('.mb-capture-bar, .mb-capture-tab, .mb-capture-selector')) return;
-    highlight(e.target);
+    // Mode-aware remap of the hovered element (Extract mode maps to the
+    // nearest <svg>); null = nothing pickable here, so no highlight while
+    // the arm state stays live for the next hover.
+    const target = resolveTarget ? resolveTarget(e.target) : e.target;
+    if (!target) {
+      overlay.style.display = 'none';
+      ring.style.display = 'none';
+      return;
+    }
+    // Re-show after a null spell — setArmed only flips display on arm-state
+    // CHANGES, so a hidden overlay would otherwise stay hidden.
+    if (armed) overlay.style.display = 'block';
+    highlight(target);
   }
 
   function onClick(e) {
     if (!e.shiftKey) return;
     if (e.target.closest('.mb-capture-bar, .mb-capture-tab')) return;
+    // Swallow the armed click even over a non-target: an armed shift-click
+    // must never fall through to the page.
     e.preventDefault();
     e.stopPropagation();
-    onPick?.(e.target);
+    const target = resolveTarget ? resolveTarget(e.target) : e.target;
+    if (target) onPick?.(target);
   }
 
   // Swallow pointer/mouse events with Shift held so frameworks (Stimulus,
@@ -257,7 +273,47 @@ export function installSelector({ onPick, onArmedChange, getPadding }) {
   };
 }
 
-// ── Background sampling, masking, padding (unchanged from prior implementation) ─
+// ── Background sampling, masking, padding ────────────────────────────────────
+
+// Lazily-created 1x1 canvas that normalizes ANY computed colour string
+// (rgb/rgba, but also oklch()/color() which modern Chrome serializes for
+// Tailwind-v4-style tokens) into [r, g, b, alpha0to1] without hand-parsing.
+let colorParseCtx = null;
+function parseCssColor(str) {
+  if (!colorParseCtx) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    colorParseCtx = c.getContext('2d', { willReadFrequently: true });
+  }
+  colorParseCtx.clearRect(0, 0, 1, 1);
+  colorParseCtx.fillStyle = str;
+  colorParseCtx.fillRect(0, 0, 1, 1);
+  const d = colorParseCtx.getImageData(0, 0, 1, 1).data;
+  return [d[0], d[1], d[2], d[3] / 255];
+}
+
+/**
+ * Flatten a stack of background colours (nearest layer FIRST) into the opaque
+ * colour the eye actually sees, compositing each layer over what lies beneath,
+ * with an opaque-white base fallback (matching the old sampler's fallback).
+ *
+ * Why: a page's background at a point is often layered — e.g. a dark theme
+ * painting rgba(30,40,56,.5) over an opaque page colour. Filling capture
+ * padding with the raw semi-transparent veil left the padding band 50%
+ * transparent in the exported PNG, so it composited over the viewing page
+ * instead and read as a lighter border in dark mode. Exported for tests.
+ */
+export function compositeColorStack(stack) {
+  let r = 255, g = 255, b = 255;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const [cr, cg, cb, ca] = stack[i];
+    const a = Math.min(1, Math.max(0, ca));
+    r = cr * a + r * (1 - a);
+    g = cg * a + g * (1 - a);
+    b = cb * a + b * (1 - a);
+  }
+  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+}
 
 function sampleBackgroundColor(el) {
   const r = el.getBoundingClientRect();
@@ -278,13 +334,22 @@ function sampleBackgroundColor(el) {
   const prevDisplay = [];
   overlays.forEach((o, i) => { prevDisplay[i] = o.style.display; o.style.display = 'none'; });
   const colors = points.map(([x, y]) => {
-    let node = document.elementFromPoint(x, y);
-    while (node && node !== document.documentElement) {
+    // Collect every painted layer from the hit node up to <html> (inclusive)
+    // and flatten to the opaque colour actually seen. Stopping at the first
+    // painted layer — the old behaviour — returned semi-transparent veils
+    // verbatim, which made the padding band itself transparent in the PNG.
+    let node = document.elementFromPoint(x, y) || document.documentElement;
+    const stack = [];
+    while (node) {
       const bg = getComputedStyle(node).backgroundColor;
-      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
-      node = node.parentElement;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+        const parsed = parseCssColor(bg);
+        stack.push(parsed);
+        if (parsed[3] >= 1) break; // opaque — nothing beneath shows through
+      }
+      node = node === document.documentElement ? null : (node.parentElement ?? document.documentElement);
     }
-    return getComputedStyle(document.documentElement).backgroundColor || 'rgb(255,255,255)';
+    return compositeColorStack(stack);
   });
   overlays.forEach((o, i) => { o.style.display = prevDisplay[i] ?? ''; });
 
@@ -478,30 +543,39 @@ const LIBRARY_PREFIX = 'media/occ-captures';
 
 // Slug treatment shared by the capture's own base name and (via captureMode)
 // the annotated-element names spliced into the flag suffix — the two must
-// never drift apart.
+// never drift apart. Delegates to the KB-wide slugifier so capture names
+// agree with guide/nav slugs ("Training & Gaps" → "training-and-gaps"),
+// then caps length for filename sanity.
 export function slugifyLabel(raw) {
-  return (raw || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+  return slugify(raw || '').slice(0, 50).replace(/-+$/, '');
 }
 
-function deriveFilename(el, forcedTheme) {
+// Normalize a page pathname into library folder segments: UUIDs fold to
+// "uuid", opaque tokens to "id", everything else slugifies. Shared by capture
+// filename derivation (below) and the media library's "Filter to current
+// page" toggle — the filter can only find captures if both use one rule.
+export function normalizedPagePathSegments(pathname = window.location.pathname) {
+  return pathname
+    .split('/')
+    .filter(Boolean)
+    .map(s => {
+      if (UUID_RE.test(s)) return 'uuid';
+      if (looksLikeOpaqueId(s)) return 'id';
+      return slugify(s);
+    })
+    .filter(Boolean);
+}
+
+export function deriveFilename(el, forcedTheme, ext = 'png') {
   const rawLabel = getElementLabel(el);
   const slug = slugifyLabel(rawLabel);
   const theme = forcedTheme
     ? `${forcedTheme}-mode`
     : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark-mode' : 'light-mode');
   const baseName = slug || `element-${el.tagName.toLowerCase()}`;
-  const fileName = `${baseName}-${theme}.png`;
+  const fileName = `${baseName}-${theme}.${ext}`;
 
-  const pathSegments = window.location.pathname
-    .split('/')
-    .filter(Boolean)
-    .map(s => {
-      if (UUID_RE.test(s)) return 'uuid';
-      if (looksLikeOpaqueId(s)) return 'id';
-      return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    })
-    .filter(Boolean);
-  return [LIBRARY_PREFIX, ...pathSegments, fileName].join('/');
+  return [LIBRARY_PREFIX, ...normalizedPagePathSegments(), fileName].join('/');
 }
 
 /**
@@ -514,7 +588,10 @@ function deriveFilename(el, forcedTheme) {
  * (neutralizeLayers) so they re-raster inline at full device resolution. That
  * re-raster is async, so the service worker waits its themeDelay AFTER reading the
  * rect — i.e. after de-promotion — to let it commit before Page.captureScreenshot
- * (see background.js). Layers are restored once the screenshot returns.
+ * (see scripts/captureFlow.js). After that wait — once the forced theme has
+ * settled — the SW requests the padding background sample (sampleBgForCapture),
+ * then takes the shot: rect/de-promote → delay → sample → screenshot. Layers
+ * are restored once the screenshot returns.
  *
  * @returns {Promise<{ dataUrl, filename, appliedPadding } | null>} null on hard
  *   failure (e.g. CDP attach refused).
@@ -530,7 +607,6 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     if (msg.type !== 'getRectForCapture') return false;
     chrome.runtime.onMessage.removeListener(rectListener);
     if (customRect) {
-      if (padding > 0) sampledBgColor = sampleBackgroundColor(el);
       requestAnimationFrame(() => requestAnimationFrame(() => {
         sendResponse({
           x:      customRect.left,
@@ -541,7 +617,6 @@ export async function screenshotElement(el, { theme, customRect = null, settings
       }));
     } else {
       el.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
-      if (padding > 0) sampledBgColor = sampleBackgroundColor(el);
       (async () => {
         // Settle popover/ancestor enter-exit animations (scale+fade) so we don't
         // screenshot a layer mid-resample → soft + offset capture.
@@ -560,6 +635,22 @@ export async function screenshotElement(el, { theme, customRect = null, settings
     return true;
   };
   chrome.runtime.onMessage.addListener(rectListener);
+
+  // Padding background sample, requested by the SW AFTER its themeDelay sleep —
+  // i.e. once the forced theme (and the de-promotion re-raster) has settled.
+  // Sampling used to happen inside the rect handler above, which runs at the
+  // instant the SW flips prefers-color-scheme: a JS-driven theme swap is still
+  // painting the OLD theme at that moment, so every dark-mode capture got a
+  // white padding band. Sampling here reads the same settled colours the
+  // screenshot is about to capture.
+  const bgListener = (msg, _sender, sendResponse) => {
+    if (msg.type !== 'sampleBgForCapture') return false;
+    chrome.runtime.onMessage.removeListener(bgListener);
+    sampledBgColor = padding > 0 ? sampleBackgroundColor(el) : null;
+    sendResponse({ bgColor: sampledBgColor });
+    return false;
+  };
+  chrome.runtime.onMessage.addListener(bgListener);
 
   // Hide our own capture-mode overlays for the duration of the screenshot so
   // the inset edge glow, bar, tab, and selector box don't bleed into the PNG
@@ -582,6 +673,9 @@ export async function screenshotElement(el, { theme, customRect = null, settings
       devicePixelRatio: window.devicePixelRatio,
       forcedTheme: theme,
       themeDelay: theme ? (settings.themeDelay ?? 500) : 0,
+      // Ask the SW for the post-settle sampleBgForCapture round-trip only when
+      // padding will actually be painted; padding-0 captures skip it entirely.
+      wantBgSample: padding > 0,
       // Element captures take a 4-device-px margin (cropped off afterwards);
       // resize-mode captures add no extra margin beyond the whole-DIP snap.
       // Both crop back to cropDip afterwards.
@@ -594,6 +688,11 @@ export async function screenshotElement(el, { theme, customRect = null, settings
   hiddenOverlays.forEach((o, i) => { o.style.display = prevOverlayDisplay[i] ?? ''; });
 
   chrome.runtime.onMessage.removeListener(rectListener);
+  // The bgListener normally removes itself on receipt; this covers the paths
+  // where the SW never sends sampleBgForCapture (error before the sample leg,
+  // wantBgSample:false), so a stale listener can't answer a later pass's
+  // sample with this element's colours.
+  chrome.runtime.onMessage.removeListener(bgListener);
 
   if (!response || response.error) {
     console.error('[captureElement] Screenshot failed:', response?.error);
@@ -647,9 +746,10 @@ export function boxUnchanged(a, b) {
 
 // ── Resize mode (draggable box) ───────────────────────────────────────────────
 
+const MIN = 10; // smallest box edge, px — shared by handle drags and nudges
+
 function applyDelta(handle, startBox, dx, dy) {
   let { top, left, width, height } = startBox;
-  const MIN = 10;
   if (handle.includes('t')) {
     const h2 = height - dy;
     if (h2 >= MIN) { top += dy; height = h2; } else { top += (height - MIN); height = MIN; }
@@ -661,6 +761,29 @@ function applyDelta(handle, startBox, dx, dy) {
   }
   if (handle.includes('r')) { width = Math.max(MIN, width + dx); }
   return { top, left, width, height };
+}
+
+/**
+ * Symmetric 1px-per-edge nudge: delta > 0 moves every edge outward, delta < 0
+ * inward (width/height change by 2×delta, centre stays put). Shrinking clamps
+ * each axis at MIN while preserving the centre.
+ */
+export function nudgeBox(box, delta) {
+  let width = box.width + delta * 2;
+  let height = box.height + delta * 2;
+  let left = box.left - delta;
+  let top = box.top - delta;
+  if (width < MIN)  { left += (width - MIN) / 2;  width = MIN; }
+  if (height < MIN) { top  += (height - MIN) / 2; height = MIN; }
+  return { top, left, width, height };
+}
+
+// Set while a resize box is up (enterResizeMode), null otherwise — lets the
+// capture bar's Grow/Shrink buttons reach the box's closure state.
+let activeResizeNudge = null;
+
+export function nudgeActiveResize(delta) {
+  activeResizeNudge?.(delta);
 }
 
 /**
@@ -714,6 +837,10 @@ export function enterResizeMode(el, settings, onConfirm, onCancel) {
     hint.style.left = box.left + 'px';
   }
   updateOverlay();
+  activeResizeNudge = (delta) => {
+    box = nudgeBox(box, delta);
+    updateOverlay();
+  };
 
   const HANDLE_DEFS = {
     tl: { top: '-5px',              left: '-5px',              cursor: 'nwse-resize' },
@@ -753,6 +880,7 @@ export function enterResizeMode(el, settings, onConfirm, onCancel) {
   }
 
   function teardown() {
+    activeResizeNudge = null;
     document.removeEventListener('keydown', onKey, true);
     resizeOverlay.remove();
     hint.remove();

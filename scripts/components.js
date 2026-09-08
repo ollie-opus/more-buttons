@@ -26,9 +26,10 @@ import { buildVideoLines } from './videos.js';
 import { buildImageLines } from './images.js';
 import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
-import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID } from './grid.js';
-import { locateButtonLines, buildButtonLines, ensureButtonUUIDs } from './mdButtons.js';
+import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID, parseGridCellBlocks, cellOpenTag } from './grid.js';
+import { locateButtonLines, buildButtonLines, ensureButtonUUIDs, isGrooveOnclick } from './mdButtons.js';
 import { locateDiagramLines, buildDiagramLines, ensureDiagramUUIDs } from './mdDiagrams.js';
+import { locateCodeBlockLines, buildCodeBlockLines, ensureCodeBlockUUIDs } from './mdCodeBlocks.js';
 import { locateNavLinksLines, buildNavLinksLines, ensureNavLinksUUIDs } from './navLinks.js';
 
 // Per-line capture matchers (mirror captures.js' parseExistingCaptures, but
@@ -316,19 +317,28 @@ export function ensureCaptureUUIDs(markdown) {
 export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) {
   const src = body ?? '';
 
+  // ALL code blocks (any indent) first: fence content can contain lines that
+  // look like any other component (a `!!!` header, a `|` table row, a button
+  // link inside a markdown example), so every other locator is masked by
+  // these ranges. Top-level code-block COMPONENTS are the indent '' subset,
+  // filtered against containers like every other leaf below.
+  const codeBlocks = locateCodeBlockLines(src);
+  const codeRanges = codeBlocks.map(cb => [cb.startLine, cb.endLine]);
+  const inCode = (line) => inAnyRange(line, codeRanges);
+
   // Immediate-child admonitions (indent 0 within this dedented body).
   // skipTabBlocks keeps admonitions buried inside tab groups out of this list.
   const adms = parseAdmonitions(src, typeRegex, { skipTabBlocks })
-    .filter(a => a.indent === '');
+    .filter(a => a.indent === '' && !inCode(a.headerLine));
   const admRanges = adms.map(a => [a.headerLine, a.endLine]);
 
   // Immediate-child grids (indent 0). Grid cells hold their own components at
   // indent 0 (md_in_html does not indent), so grids must be located first and
   // their ranges used to exclude grid-internal admonitions/tabs/tables/captures.
   const grids = locateGrids(src)
-    .filter(g => g.indent === '' && !inAnyRange(g.startLine, admRanges));
+    .filter(g => g.indent === '' && !inAnyRange(g.startLine, admRanges) && !inCode(g.startLine));
   const gridRanges = grids.map(g => [g.startLine, g.endLine]);
-  const inContainer = (line) => inAnyRange(line, admRanges) || inAnyRange(line, gridRanges);
+  const inContainer = (line) => inAnyRange(line, admRanges) || inAnyRange(line, gridRanges) || inCode(line);
 
   // Immediate-child tab groups (indent 0; groups nested inside admonitions/grids
   // are excluded by range).
@@ -362,6 +372,12 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
   // Top-level diagrams: indent 0 and not buried inside an admonition or grid.
   const topDiagrams = locateDiagramLines(src)
     .filter(d => d.indent === '' && !inContainer(d.startLine));
+
+  // Top-level code blocks: indent 0 and not buried inside an admonition or
+  // grid. Checked against those ranges only — inContainer would mask a code
+  // block with its OWN fence range.
+  const topCodeBlocks = codeBlocks
+    .filter(cb => cb.indent === '' && !inAnyRange(cb.startLine, admRanges) && !inAnyRange(cb.startLine, gridRanges));
 
   const items = [
     ...adms
@@ -405,15 +421,15 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     })),
     ...topButtons.map(b => ({
       kind: 'button',
-      btn: { uuid: b.uuid ?? null, label: b.label, destination: b.destination, icon: b.icon, primary: b.primary, colour: b.colour, theme: b.theme, border: b.border, style: b.style, newTab: b.newTab },
+      btn: { uuid: b.uuid ?? null, label: b.label, destination: b.destination, icon: b.icon, primary: b.primary, colour: b.colour, theme: b.theme, border: b.border, style: b.style, newTab: b.newTab, onclick: b.onclick },
       startLine: b.startLine,
       endLine: b.endLine,
     })),
     ...topNavLinks.map(n => ({
       kind: 'navlinks',
       nav: n.tag != null
-        ? { uuid: n.uuid ?? null, tag: n.tag, layout: n.layout }
-        : { uuid: n.uuid ?? null, path: n.path },
+        ? { uuid: n.uuid ?? null, tag: n.tag, layout: n.layout, newTab: n.newTab }
+        : { uuid: n.uuid ?? null, path: n.path, newTab: n.newTab },
       startLine: n.startLine,
       endLine: n.endLine,
     })),
@@ -422,6 +438,12 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
       dia: { uuid: d.uuid ?? null, code: d.code },
       startLine: d.startLine,
       endLine: d.endLine,
+    })),
+    ...topCodeBlocks.map(cb => ({
+      kind: 'codeblock',
+      cb: { uuid: cb.uuid ?? null, language: cb.language, title: cb.title, linenums: cb.linenums, hlLines: cb.hlLines, extra: cb.extra, code: cb.code, annotations: cb.annotations },
+      startLine: cb.startLine,
+      endLine: cb.endLine,
     })),
   ].sort((a, b) => a.startLine - b.startLine);
 
@@ -438,6 +460,7 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     if (it.kind === 'button') return { kind: 'button', btn: it.btn };
     if (it.kind === 'navlinks') return { kind: 'navlinks', nav: it.nav };
     if (it.kind === 'diagram') return { kind: 'diagram', dia: it.dia };
+    if (it.kind === 'codeblock') return { kind: 'codeblock', cb: it.cb };
     return { kind: 'capture', cap: it.cap };
   });
 
@@ -487,9 +510,10 @@ function subViewModel(c, typeRegex) {
     case 'tabs':     return { kind: 'tabs', titles: (c.grp.tabs ?? []).map(t => t.title).filter(Boolean) };
     case 'table':    return { kind: 'table', cols: c.tbl.align?.length ?? (c.tbl.header ?? []).length, rows: c.tbl.rows.length };
     case 'grid':     return { kind: 'grid', cells: (c.grid.cells ?? []).length, flavor: c.grid.flavor };
-    case 'button':   return { kind: 'button', label: c.btn.label, destination: c.btn.destination };
+    case 'button':   return { kind: 'button', label: c.btn.label, destination: c.btn.destination, groove: isGrooveOnclick(c.btn.onclick) };
     case 'navlinks': return { kind: 'navlinks', text: c.nav.tag != null ? `${c.nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${c.nav.tag}` : c.nav.path };
     case 'diagram':  return { kind: 'diagram' };
+    case 'codeblock': return { kind: 'codeblock', title: c.cb.title, language: c.cb.language };
     case 'video':    return { kind: 'video', filename: c.vid.lightFilename };
     case 'image':    return { kind: 'image', filename: c.img.filename };
     default:         return { kind: 'capture', filename: c.cap.lightFilename };
@@ -554,6 +578,9 @@ export function buildComponentBody(uuid, description, components) {
     } else if (c.kind === 'diagram') {
       // buildDiagramLines emits a leading '' we don't want (we add our own).
       lines.push(...buildDiagramLines([c.dia]).slice(1));
+    } else if (c.kind === 'codeblock') {
+      // buildCodeBlockLines emits a leading '' we don't want (we add our own).
+      lines.push(...buildCodeBlockLines([c.cb]).slice(1));
     } else {
       // buildCaptureLines emits a leading '' we don't want (we add our own).
       lines.push(...buildCaptureLines([c.cap]).slice(1));
@@ -645,6 +672,7 @@ export function uuidOfComponent(c) {
   if (c.kind === 'button') return c.btn.uuid;
   if (c.kind === 'navlinks') return c.nav.uuid;
   if (c.kind === 'diagram') return c.dia.uuid;
+  if (c.kind === 'codeblock') return c.cb.uuid;
   return c.cap.uuid;
 }
 
@@ -664,7 +692,16 @@ export function stripUUIDSpans(markdown) {
  * with every identity span stripped — the Copy-to-clipboard payload.
  */
 export function componentMarkdown(component) {
-  return stripUUIDSpans(buildComponentBody(null, '', [component]))
+  return componentsMarkdown([component]);
+}
+
+/**
+ * The markdown of several components in the given order, one blank line apart
+ * (buildComponentBody's own separator), identity spans stripped — the Shift+click
+ * multi-select Copy payload. parsePastedComponents accepts it as-is.
+ */
+export function componentsMarkdown(components) {
+  return stripUUIDSpans(buildComponentBody(null, '', components))
     .replace(/^\n+/, '')
     .trimEnd();
 }
@@ -681,17 +718,70 @@ export function componentMarkdown(component) {
  * @returns {{ components: Array|null, error: string|null }}
  */
 export function parsePastedComponents(text) {
-  const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
+  const { stripped, description, components } = mintPastedMarkdown(text);
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  const withUuids = ensureDiagramUUIDs(ensureNavLinksUUIDs(ensureButtonUUIDs(ensureImageUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE))))))))));
-  const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
   if (components.length === 0) {
-    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video, image, button, nav links or diagram).' };
+    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video, image, button, nav links, diagram or code block).' };
   }
   if (description.trim() !== '') {
     return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };
   }
   return { components, error: null };
+}
+
+// Shared mint step for the paste flows: strip any spans the paste carried,
+// normalise line endings, backfill fresh uuids (same chain order as
+// migrateComponentIdentity) and parse. `stripped` is '' for blank input (the
+// chain is skipped; description/components are then empty).
+function mintPastedMarkdown(text) {
+  const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!stripped) return { stripped, description: '', components: [] };
+  const withUuids = ensureCodeBlockUUIDs(ensureDiagramUUIDs(ensureNavLinksUUIDs(ensureButtonUUIDs(ensureImageUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)))))))))));
+  const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
+  return { stripped, description, components };
+}
+
+/**
+ * The clipboard payload for one grid cell: its `<div … markdown>` block (class
+ * from the grid's flavor + the cell's spill flag, inline align-self from valign)
+ * around the cell body with every identity span stripped.
+ *
+ * @param {'card'|'generic'} flavor
+ * @param {{ body: string, spill?: boolean, valign?: string }} cell
+ */
+export function gridCellMarkdown(flavor, cell) {
+  const body = stripUUIDSpans(cell.body ?? '').replace(/^\n+/, '').trimEnd();
+  return [cellOpenTag(flavor, !!cell.spill, cell.valign ?? 'default'), '', ...(body ? [body, ''] : []), '</div>'].join('\n');
+}
+
+/**
+ * Several cells' payloads in the given order, one blank line apart — the same
+ * layout buildGrid emits between cells, so parsePastedGridCells accepts it as-is.
+ */
+export function gridCellsMarkdown(flavor, cells) {
+  return cells.map(c => gridCellMarkdown(flavor, c)).join('\n\n');
+}
+
+/**
+ * Validates pasted markdown for the grid form's "Paste cell markdown" flow.
+ * Strict: the text must be one or more cell blocks or one whole grid (see
+ * parseGridCellBlocks). Each cell body is minted like a component paste (spans
+ * stripped, fresh uuids) — prose inside a cell is its description, so it is fine.
+ *
+ * @returns {{ cells: Array<{uuid, description, components, spill, valign}>|null, error: string|null }}
+ */
+export function parsePastedGridCells(text) {
+  const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!stripped) return { cells: null, error: 'Nothing to insert — paste cell markdown first.' };
+  const blocks = parseGridCellBlocks(stripped);
+  if (!blocks) {
+    return { cells: null, error: 'No grid cells recognised. Paste markdown copied with a cell’s Copy button, or a whole grid.' };
+  }
+  const cells = blocks.map(b => {
+    const { description, components } = mintPastedMarkdown(b.body);
+    return { uuid: generateUUID(), description, components, spill: !!b.spill, valign: b.valign ?? 'default' };
+  });
+  return { cells, error: null };
 }
 
 // ── Tab containers (a single tab's body holds an ordered component list) ──────

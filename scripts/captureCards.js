@@ -3,6 +3,8 @@
  * Used by captureEntry.js (override existing) and captureNew.js (new capture).
  */
 
+import { PAIR_DIRS } from './captureDest.js';
+
 /**
  * One theme card. Returns '' when src is falsy so callers can spread an array
  * and let missing variants drop out.
@@ -25,18 +27,18 @@ export function captureGrid(cards) {
   return `<div class="mb-capture-entry-grid">${cards.join('')}</div>`;
 }
 
-// Storage root for all captures (mirrors the capture write root; the media library (mediaLibrary.js) derives its tabs from the repo).
-const CAPTURE_ROOT = 'docs/assets/media/occ-captures';
-
 /**
- * Reduce a stored capture path to its theme-agnostic, root-relative base.
+ * Reduce a stored capture path to its theme-agnostic, folder-relative base.
  * Accepts either a full repo path (captureEntry's `lightPath`) or a
- * library-relative `media/occ-captures/…` filename (captureNew's
- * `lightFilename`), and strips the trailing -light-mode.<ext> /
- * -dark-mode.<ext> so the same string represents the light+dark pair.
+ * library-relative `media/<dir>/…` filename (the review forms'
+ * `lightFilename`) for any pair folder (captureDest.js PAIR_DIRS), and strips
+ * the trailing -light-mode.<ext> / -dark-mode.<ext> so the same string
+ * represents the light+dark pair. The result is relative to the pair folder,
+ * so the review forms re-prefix it with pairFilenames(dir, base, ext).
  *
- *   "docs/assets/media/occ-captures/sites/uuid/foo-light-mode.png" -> "sites/uuid/foo"
- *   "media/occ-captures/sites/uuid/foo-dark-mode.svg"              -> "sites/uuid/foo"
+ *   "docs/assets/media/occ-captures/sites/uuid/foo-light-mode.png"         -> "sites/uuid/foo"
+ *   "media/occ-captures/sites/uuid/foo-dark-mode.svg"                      -> "sites/uuid/foo"
+ *   "media/system-update-captures/foo-ab12cd34-light-mode.png"             -> "foo-ab12cd34"
  *
  * @param {string} path
  * @returns {string}
@@ -44,9 +46,12 @@ const CAPTURE_ROOT = 'docs/assets/media/occ-captures';
 export function captureBasePath(path) {
   if (!path) return '';
   let p = path;
-  if (p.startsWith(CAPTURE_ROOT + '/')) p = p.slice(CAPTURE_ROOT.length + 1);
-  else if (p.startsWith('media/occ-captures/')) p = p.slice('media/occ-captures/'.length);
-  return p.replace(/-(light|dark)-mode\.(png|svg)$/, '');
+  outer: for (const dir of PAIR_DIRS) {
+    for (const prefix of [`docs/assets/media/${dir}/`, `media/${dir}/`]) {
+      if (p.startsWith(prefix)) { p = p.slice(prefix.length); break outer; }
+    }
+  }
+  return p.replace(/-(light|dark)-mode\.[a-z0-9]+$/i, '');
 }
 
 /**

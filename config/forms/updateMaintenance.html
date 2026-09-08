@@ -3,7 +3,9 @@
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Service(s) Affected</label>
-    <input type="text" name="maintenanceTitle" disabled />
+    <div id="update-maintenance-services" class="more-buttons-radio-btn-group-row">
+      <!-- dynamically injected by openUpdateMaintenance -->
+    </div>
   </div>
 
   <div class="more-buttons-form-group">
@@ -13,16 +15,16 @@
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Scheduled Start</label>
-    <input type="datetime-local" name="scheduledStart" />
+    <input type="datetime-local" name="scheduledStart" required />
   </div>
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Scheduled End</label>
-    <input type="datetime-local" name="scheduledEnd" />
+    <input type="datetime-local" name="scheduledEnd" required />
   </div>
 
   <div class="more-buttons-form-actions">
-    <button type="button" class="more-buttons-button success" data-action="submitUpdateMaintenance"><span class="more-buttons-icon">verified</span>Save & Publish</button>
+    <button type="button" class="more-buttons-button success" data-validate data-action="submitUpdateMaintenance"><span class="more-buttons-icon">verified</span>Save & Publish</button>
     <button type="button" class="more-buttons-button" data-action="completeMaintenanceNow"><span class="more-buttons-icon">check_circle</span>Complete now</button>
     <button type="button" class="more-buttons-button danger" data-action="deleteMaintenance"><span class="more-buttons-icon">delete</span>Cancel maintenance</button>
   </div>

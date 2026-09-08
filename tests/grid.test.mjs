@@ -14,9 +14,12 @@ function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
 
 const span = (uuid, indent = '') => `${indent}<span data-uuid="${uuid}" style="display:none"></span>`;
 
-// A canonical two-cell CARD grid, fully migrated.
+// A canonical two-cell CARD grid, fully migrated. The blank line between the
+// identity span and the wrapper is part of the canonical format (see buildGrid);
+// legacy documents with the span glued to the wrapper are covered below.
 const GRID_MD = [
   span('GRID'),
+  '',
   '<div class="grid" markdown>',
   '',
   '<div class="card" markdown>',
@@ -44,7 +47,7 @@ test('locateGrids: grid span, flavor, per-cell spans + dedented bodies', () => {
   assert.equal(g.flavor, 'card');
   assert.equal(g.indent, '');
   assert.equal(g.startLine, 0);
-  assert.equal(g.endLine, 18);
+  assert.equal(g.endLine, 19);
   assert.deepEqual(g.cells.map(c => c.uuid), ['C1', 'C2']);
   assert.equal(g.cells[0].body, `${span('C1')}\nFirst cell text.`);
   assert.equal(g.cells[1].body, `${span('C2')}\nSecond cell text.`);
@@ -118,6 +121,24 @@ test('buildGrid: generic flavor omits the card class', () => {
   assert.ok(!out.includes('class="card"'));
 });
 
+test('buildGrid: blank line between identity span and wrapper', () => {
+  // Without it, Python-Markdown glues the wrapper into the span's paragraph
+  // inside admonitions/tabs (md_in_html inert there) and the browser's
+  // recovery from the stray </p> renders a phantom empty first grid cell.
+  const out = buildGrid('G', 'card', [{ body: span('X') }]);
+  assert.ok(out.startsWith(`${span('G')}\n\n<div class="grid" markdown>`));
+});
+
+test('legacy glued span (no blank line before wrapper) still parses + locates', () => {
+  const glued = GRID_MD.split('\n').filter((l, i) => i !== 1).join('\n');
+  const [g] = locateGrids(glued);
+  assert.equal(g.uuid, 'GRID');
+  assert.equal(g.startLine, 0);
+  assert.deepEqual(g.cells.map(c => c.uuid), ['C1', 'C2']);
+  assert.ok(getGridByUUID(glued, 'GRID'), 'getGridByUUID must find a glued grid');
+  assert.equal(deleteGridByUUID(['Before.', '', glued].join('\n'), 'GRID'), 'Before.\n');
+});
+
 // ── getGridByUUID / locateGridCellByUUID ──────────────────────────────────────
 
 test('getGridByUUID: parses a nested grid out of the raw document', () => {
@@ -135,8 +156,8 @@ test('getGridByUUID: a CELL uuid is not mistaken for a grid', () => {
 test('locateGridCellByUUID: finds a cell (open line, close line, indent)', () => {
   const lines = GRID_MD.split('\n');
   const loc = locateGridCellByUUID(lines, 'C1');
-  assert.equal(loc.openLine, 3);
-  assert.equal(loc.closeLine, 8);
+  assert.equal(loc.openLine, 4);
+  assert.equal(loc.closeLine, 9);
   assert.equal(loc.indent, '');
 });
 

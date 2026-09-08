@@ -1,18 +1,20 @@
 /**
  * gridEditor.js — the "Grid" overlay for a grid component.
  *
- * Two forms (the data-table editor used to share this shape; it is now a
- * single spreadsheet form):
+ * Two forms:
  *
- *   • editGrid (PARENT) — a flavor toggle (Card / Plain), a structure bar
- *     (add / move / delete cell) and a clickable strip of SQUARE cell TILES.
- *     Clicking a tile selects it (drives the structure bar); its Edit button
- *     drills into the per-cell child form. The parent owns no cell content.
+ *   • editGrid (PARENT) — a flavor toggle (Card / Plain) and a VERTICAL list of
+ *     cell cards laid out like the component list: a "+ Insert cell" bar between
+ *     every pair (Add cell / Paste cell markdown), an up/down rail per row, and
+ *     Copy / Edit on each card. Rail reorder is a batch edit saved with the grid;
+ *     Add / Paste commit immediately through the save-gate (Add then drills into
+ *     the new cell's editor). The parent owns no cell content.
  *
- *   • editGridCell (CHILD) — edits ONE cell: rich content + that cell's
- *     Components list. Each cell is a component container ('grid-cell', uuid =
- *     the CELL's uuid), so admonitions, captures, content tabs, data tables and
- *     nested grids insert into it through the standard save-gate in guides.js.
+ *   • editGridCell (CHILD) — edits ONE cell: rich content, spill, vertical
+ *     alignment, that cell's Components list, and an immediate-commit Delete
+ *     cell. Each cell is a component container ('grid-cell', uuid = the CELL's
+ *     uuid), so admonitions, captures, content tabs, data tables and nested grids
+ *     insert into it through the standard save-gate in guides.js.
  *
  * Save model (mirrors the data table): the whole grid is last-write-wins on
  * flavor + cell list. Both forms persist via persistGridEdit, which re-reads each
@@ -21,13 +23,13 @@
  * (`moreButtonsEditGrid`) → a hidden named input (`gridState`, JSON) for dirty
  * tracking; the child reads it on open, and on save seeds it back so the parent's
  * back-navigation re-render is correct. Visible per-cell inputs are UNNAMED, and
- * `nComponents` is a render-only tile annotation kept out of `gridState`.
+ * `nComponents` is a render-only card annotation kept out of `gridState`.
  *
  * Cell bodies live in `<div markdown>` (md_in_html, no +4 indent) so the
  * container read/write needs no dedent.
  */
 
-import { registerFormAction } from './formActions.js';
+import { registerFormAction, getFormAction } from './formActions.js';
 import {
   createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack,
   resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton,
@@ -38,15 +40,21 @@ import { generateUUID, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
 import {
   parseComponents, buildComponentBody, uuidOfComponent, reorderComponents,
   readGridCellComponents, writeGridCellBody, gridCellExists,
+  gridCellsMarkdown, parsePastedGridCells,
 } from './components.js';
+import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { getGridByUUID, buildGrid, replaceGridByUUID, deleteGridByUUID } from './grid.js';
 import {
   makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick,
-  setOpenComponentEditor, beginChildNavigation,
+  setOpenComponentEditor, beginChildNavigation, flashButtonLabel,
 } from './guides.js';
 import { syncSurfaceFromTextarea, paintInlineAtoms } from './richTextEditor.js';
-import { componentBodyHtml } from './cardRenderer.js';
+import {
+  cardBodyBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml,
+} from './cardRenderer.js';
+import { openPopupMenu } from './insertMenu.js';
+import { showFieldError } from './formValidation.js';
 
 const STORAGE_KEY = 'moreButtonsEditGrid';
 
@@ -57,11 +65,12 @@ registerComponentContainer('grid-cell', makeContainerHandler(readGridCellCompone
 // ── Editor state ──────────────────────────────────────────────────────────────
 //
 // formEl._grid = { gridUuid, file, active, flavor, cells: [{ uuid, description, order, spill, valign, nComponents }] }
-//   - `active` is the SELECTED tile in the parent, and the EDITED cell in the child.
+//   - `active` is the EDITED cell in the child; always 0 in the parent (which has
+//     no per-cell fields, so stashActiveCell / the content re-read are no-ops there).
 //   - `spill` is the per-cell "allow spill" flag (→ class="spill" on the cell div).
 //   - `valign` is the per-cell vertical alignment ('default'|'top'|'middle'|'bottom';
 //     non-default → inline style="align-self: …" on the cell div).
-//   - `nComponents` is a render-only tile annotation; it is NOT persisted in gridState.
+//   - `nComponents` is a render-only card annotation; it is NOT persisted in gridState.
 
 function newCell() {
   return { uuid: generateUUID(), description: '', order: null, spill: false, valign: 'default', nComponents: 0 };
@@ -158,8 +167,8 @@ function setCellValign(formEl, valign) {
 }
 
 // Refresh each cell's render-only component count from fresh markdown (parent
-// only — the child never renders tiles). Cells absent from `md` (added but not
-// yet saved) keep a 0 count.
+// only — the child never renders the cell list). Cells absent from `md` keep a
+// 0 count.
 function enrichCellCounts(formEl, md) {
   const st = formEl._grid;
   if (!st) return;
@@ -169,44 +178,58 @@ function enrichCellCounts(formEl, md) {
   }
 }
 
-// ── Parent: tiles + flavor rendering ────────────────────────────────────────────
+// ── Parent: cell list + flavor rendering ────────────────────────────────────────
 
-// A rich preview of the cell's content for the tile body; the tile's CSS
-// line-clamp handles overflow (no Show more — tiles are fixed-size click
-// targets for cell selection).
-function tilePreview(cell) {
-  const html = componentBodyHtml(cell.description);
-  return html || `<span class="mb-grid-cell-tile__empty">No text</span>`;
+const CELL_INSERT_ATTR = 'data-insert-cell-at';
+
+// One cell card: rich description preview (clamp + Show more), a component-count
+// meta, and Copy / Edit. Copy reads the cell from the file, so it is omitted in
+// create mode (the grid isn't in the file yet and its cells are empty anyway).
+function cellCard(formEl, c, i) {
+  const n = c.nComponents ?? 0;
+  const canCopy = formEl.dataset.mode !== 'create';
+  return `
+    <div class="mb-incident-card --teal">
+      <div class="mb-incident-card__head">
+        <strong class="mb-incident-card__title">Cell ${i + 1}</strong>
+      </div>
+      ${cardBodyBlock(c.description) || '<p class="mb-incident-card__body mb-grid-cell-empty">No text</p>'}
+      <div class="mb-incident-card__foot${n ? '' : ' --end'}">
+        ${n ? `<span class="mb-incident-card__meta">${n} component${n === 1 ? '' : 's'}</span>` : ''}
+        <span class="mb-incident-card__foot-actions">
+          ${canCopy ? `<button type="button" class="mb-incident-card__edit" data-copy-grid-cell="${i}">Copy</button>` : ''}
+          <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>
+        </span>
+      </div>
+    </div>`;
 }
 
-// Render the square cell tiles + sync the structure-bar enablement.
-function renderTiles(formEl) {
-  const host = formEl.querySelector('[data-grid-tiles]');
+// Render the vertical cell list: an insert bar before every card and after the
+// last, each card wrapped in the shared up/down rail. Same chrome as the
+// component list (renderComponents in guides.js).
+function renderCellList(formEl) {
+  const host = formEl.querySelector('[data-grid-cells]');
   const st = formEl._grid;
   if (!host || !st) return;
-  host.innerHTML = st.cells.map((c, i) => {
-    const sel = i === st.active ? ' --selected' : '';
-    const n = c.nComponents ?? 0;
-    return `
-      <div class="mb-incident-card --grey mb-grid-cell-tile${sel}" data-grid-cell="${i}">
-        <div class="mb-incident-card__head">
-          <strong class="mb-incident-card__title">Cell ${i + 1}</strong>
-        </div>
-        <div class="mb-incident-card__body mb-card-rich">${tilePreview(c)}</div>
-        <div class="mb-incident-card__foot${n ? '' : ' --end'}">
-          ${n ? `<span class="mb-incident-card__meta">${n} component${n === 1 ? '' : 's'}</span>` : ''}
-          <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>
-        </div>
-      </div>`;
-  }).join('');
-  paintInlineAtoms(host); // colour label pills + inline icons in the rich tile previews
-
-  const left = formEl.querySelector('[data-grid-move="left"]');
-  const right = formEl.querySelector('[data-grid-move="right"]');
-  const del = formEl.querySelector('[data-grid-delete-cell]');
-  if (left) left.disabled = st.active <= 0;
-  if (right) right.disabled = st.active >= st.cells.length - 1;
-  if (del) del.disabled = st.cells.length <= 1;
+  const parts = [];
+  const last = st.cells.length - 1;
+  st.cells.forEach((c, i) => {
+    parts.push(insertTriggerHtml(i, { attr: CELL_INSERT_ATTR, label: '+ Insert cell' }));
+    parts.push(railRowHtml({
+      rowAttrs: `data-grid-cell="${i}"`,
+      isFirst: i === 0,
+      isLast: i === last,
+      moveAttr: 'data-grid-move-cell',
+      cardHtml: cellCard(formEl, c, i),
+    }));
+  });
+  parts.push(insertTriggerHtml(st.cells.length, { attr: CELL_INSERT_ATTR, label: '+ Insert cell' }));
+  host.innerHTML = parts.join('');
+  paintInlineAtoms(host); // colour label pills + inline icons in the rich previews
+  applyCardClamps(host);  // reveal Show more on previews that overflow the clamp
+  // Re-mark any Shift+click Copy selection (uuid-keyed, so it follows rail
+  // moves) and the Copy buttons' Shift labels.
+  paintCopySelection(host, st.cells.map(c => c.uuid));
 }
 
 function renderFlavor(formEl) {
@@ -263,50 +286,49 @@ function installRefreshHook(formEl) {
 
 // ── Parent: cell + flavor management ─────────────────────────────────────────────
 
-// Select a tile (drives the structure bar + which cell the Edit button opens).
-function activateCell(formEl, index) {
+// Batch reorder (rail arrows): swap with the neighbour, re-render, mark dirty.
+// Not committed here — it rides the grid's next save, like the component rail.
+function moveCell(formEl, i, dir) {
   const st = formEl._grid;
-  st.active = Math.max(0, Math.min(index, st.cells.length - 1));
-  formEl.dataset.editUuid = st.cells[st.active]?.uuid ?? '';
-  renderTiles(formEl);
-}
-
-function addCell(formEl) {
-  const st = formEl._grid;
-  st.cells.push(newCell());
-  st.active = st.cells.length - 1;
-  formEl.dataset.editUuid = st.cells[st.active].uuid;
-  renderTiles(formEl);
-  syncGridState(formEl);
-  formEl._refreshSaveState?.();
-}
-
-function moveActiveCell(formEl, dir) {
-  const st = formEl._grid;
-  const i = st.active;
   const j = i + dir;
-  if (j < 0 || j >= st.cells.length) return;
+  if (i < 0 || i >= st.cells.length || j < 0 || j >= st.cells.length) return;
   [st.cells[i], st.cells[j]] = [st.cells[j], st.cells[i]];
-  st.active = j; // the active cell travels with the move
-  formEl.dataset.editUuid = st.cells[st.active].uuid;
-  renderTiles(formEl);
+  renderCellList(formEl);
   syncGridState(formEl);
   formEl._refreshSaveState?.();
 }
 
-function deleteActiveCell(formEl) {
-  const st = formEl._grid;
-  if (st.cells.length <= 1) {
-    alert('A grid needs at least one cell — use Delete below to remove the whole grid.');
-    return;
+// Copy cell markdown (`<div … markdown>` blocks, spans stripped). A plain click
+// copies the clicked cell alone and clears any multi-selection; a Shift+click
+// (`multi`) toggles the cell in the list's selection and copies the WHOLE
+// selection in current on-screen order (see copySelection.js), falling back to
+// the clicked cell when the toggle empties it. Bodies are read from the file:
+// the parent never edits cell content, only flavor and order, and an unsaved
+// flavor only changes the `card` class, which paste ignores. Order comes from
+// state so an unsaved reorder still copies the cards you see.
+async function copyGridCell(formEl, i, btn, multi = false) {
+  try {
+    const st = formEl._grid;
+    const host = formEl.querySelector('[data-grid-cells]');
+    const order = st.cells.map(c => c.uuid);
+    const uuid = order[i];
+    if (!uuid) throw new Error('cell not found');
+    setShiftHeld(multi); // resync the label tracker from the click itself
+    const sel = copySelectionOf(host);
+    if (multi) sel.toggle(uuid); else sel.clear();
+    let uuids = multi ? sel.ordered(order) : [uuid];
+    if (!uuids.length) uuids = [uuid];
+    sel.paint(host, order); // before the await: instant feedback
+    const md = await readRepoText(formEl.dataset.containerFile);
+    const grid = getGridByUUID(md, formEl.dataset.gridUuid);
+    const cells = uuids.map(u => grid?.cells.find(c => c.uuid === u));
+    if (cells.some(c => !c)) throw new Error('cell not found');
+    await navigator.clipboard.writeText(gridCellsMarkdown(st.flavor, cells));
+    if (!multi) flashButtonLabel(btn, 'Copied ✓'); // multi: the painted label persists
+  } catch (err) {
+    console.warn('[MB] copy grid cell failed:', err);
+    flashButtonLabel(btn, 'Copy failed');
   }
-  if (!confirm(`Delete cell ${st.active + 1}? Its contents are removed when you save.`)) return;
-  st.cells.splice(st.active, 1);
-  st.active = Math.min(st.active, st.cells.length - 1);
-  formEl.dataset.editUuid = st.cells[st.active]?.uuid ?? '';
-  renderTiles(formEl);
-  syncGridState(formEl);
-  formEl._refreshSaveState?.();
 }
 
 function setFlavor(formEl, flavor) {
@@ -320,27 +342,50 @@ function setFlavor(formEl, flavor) {
 
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
-// Parent: flavor toggle, tile selection, drill-in to a cell, structure bar.
+// Parent: flavor toggle, rail reorder, Copy / Edit on a card, and the insert bar
+// (a two-item menu: Add cell / Paste cell markdown — both via the save-gate).
 function wireGridEditor(formEl) {
   formEl.addEventListener('change', e => {
     if (e.target.name === 'gridFlavor') setFlavor(formEl, e.target.value);
   });
 
   formEl.addEventListener('click', e => {
+    const expandBtn = e.target.closest('[data-card-expand]');
+    if (expandBtn) { toggleCardExpand(expandBtn); return; }
+
+    const move = e.target.closest('[data-grid-move-cell]');
+    if (move) {
+      if (move.disabled) return;
+      const row = move.closest('[data-grid-cell]');
+      moveCell(formEl, parseInt(row?.dataset.gridCell ?? '-1', 10), move.dataset.gridMoveCell === 'up' ? -1 : 1);
+      return;
+    }
+
+    const copyBtn = e.target.closest('[data-copy-grid-cell]');
+    if (copyBtn) { copyGridCell(formEl, parseInt(copyBtn.dataset.copyGridCell, 10), copyBtn, e.shiftKey); return; }
+
     const editBtn = e.target.closest('[data-grid-edit-cell]');
     if (editBtn) {
       const i = parseInt(editBtn.dataset.gridEditCell, 10);
-      activateCell(formEl, i);
+      // The save-gate returns "the active cell" as the child container; point it
+      // at the clicked cell before navigating.
+      formEl.dataset.editUuid = formEl._grid.cells[i]?.uuid ?? '';
       beginChildNavigation(formEl, { type: 'edit-grid-cell', index: i });
       return;
     }
-    const tile = e.target.closest('[data-grid-cell]');
-    if (tile) { activateCell(formEl, parseInt(tile.dataset.gridCell, 10)); return; }
-    if (e.target.closest('[data-grid-add]')) { addCell(formEl); return; }
-    const move = e.target.closest('[data-grid-move]');
-    if (move) { if (!move.disabled) moveActiveCell(formEl, move.dataset.gridMove === 'left' ? -1 : 1); return; }
-    const del = e.target.closest('[data-grid-delete-cell]');
-    if (del) { if (!del.disabled) deleteActiveCell(formEl); return; }
+
+    const insert = e.target.closest(`[${CELL_INSERT_ATTR}]`);
+    if (insert) {
+      const idx = parseInt(insert.getAttribute(CELL_INSERT_ATTR), 10);
+      const anchor = insert.querySelector('.mb-insert-component__btn') || insert;
+      openPopupMenu(anchor, [
+        { id: 'add-cell', label: 'Add cell' },
+        { id: 'paste-cell', label: 'Paste cell markdown' },
+      ], id => {
+        if (id === 'add-cell') beginChildNavigation(formEl, { type: 'grid-cell-add', insertAt: idx });
+        else if (id === 'paste-cell') beginChildNavigation(formEl, { type: 'grid-cell-paste', insertAt: idx });
+      });
+    }
   });
 }
 
@@ -411,7 +456,7 @@ registerFormAction('openCreateGrid', async ({ container, insertAtIndex } = {}) =
   formEl._componentSaver = () => saveGridForComponent(formEl);
   wireGridEditor(formEl);
   formEl.dataset.editUuid = formEl._grid.cells[0]?.uuid ?? '';
-  renderTiles(formEl);
+  renderCellList(formEl);
   renderFlavor(formEl);
   syncGridState(formEl);
   resetDirtyBaseline(formEl);
@@ -447,7 +492,7 @@ registerFormAction('openEditGrid', async ({ uuid, file } = {}) => {
   formEl._componentSaver = () => saveGridForComponent(formEl);
   wireGridEditor(formEl);
   formEl.dataset.editUuid = formEl._grid.cells[formEl._grid.active]?.uuid ?? '';
-  renderTiles(formEl);
+  renderCellList(formEl);
   renderFlavor(formEl);
   syncGridState(formEl);
   resetDirtyBaseline(formEl);
@@ -610,6 +655,135 @@ async function saveGridCellForComponent(formEl, onProgress = () => {}) {
   };
 }
 
+// ── Immediate-commit cell mutations (add / paste / delete) ─────────────────────
+//
+// Unlike a rail reorder these write the file straight away (through the parent's
+// save-gate, which flushes any in-flight grid edits first). `isFormReplay()` is
+// only true during a form-stack restore, NOT on back-navigation, so when a child
+// navigates back the parent's opener re-fetches the file and re-seeds storage —
+// the parent is always file-authoritative afterwards. The seedStorage calls here
+// are belt-and-braces for stack restores.
+
+// Rebuilds the grid from the file's own cells (bodies already carry their
+// identity spans) — the same faithful rewrite persistGridEdit does.
+function gridWithCells(grid, cells) {
+  return buildGrid(grid.uuid, grid.flavor, cells.map(c => ({ uuid: c.uuid, body: c.body, spill: c.spill, valign: c.valign })));
+}
+
+// Splice `newCells` ({ uuid, description, components, spill, valign }) into the
+// grid at `insertAt` (clamped) as one commit. Returns the landing index.
+async function spliceGridCells(file, gridUuid, insertAt, newCells, onProgress = () => {}) {
+  let landed = 0;
+  let after = null;
+  await githubFetchAndPushFile(file, onProgress, md => {
+    const grid = getGridByUUID(md, gridUuid);
+    if (!grid) throw new Error('This grid no longer exists.');
+    const idx = (insertAt != null && insertAt >= 0 && insertAt <= grid.cells.length) ? insertAt : grid.cells.length;
+    const built = newCells.map(c => ({
+      uuid: c.uuid,
+      body: buildComponentBody(c.uuid, c.description ?? '', c.components ?? []),
+      spill: !!c.spill,
+      valign: c.valign ?? 'default',
+    }));
+    const cells = grid.cells.slice();
+    cells.splice(idx, 0, ...built);
+    landed = idx;
+    after = { flavor: grid.flavor, cells };
+    return replaceGridByUUID(md, gridUuid, gridWithCells(grid, cells));
+  });
+  if (after) await seedStorage(after.flavor, cellsFromGrid(after));
+  return landed;
+}
+
+// Insert bar → "Add cell": commit one empty cell at the index, then drill into
+// its editor (mirrors component inserts landing in their editor). In create
+// mode this follows the save-gate's own commit of the new grid — two commits
+// back to back, by design.
+registerFormAction('addGridCell', async ({ uuid, file, insertAt } = {}) => {
+  if (!uuid || !file) return;
+  try {
+    const index = await spliceGridCells(file, uuid, insertAt, [newCell()]);
+    await getFormAction('openEditGridCell')?.({ uuid, file, index });
+  } catch (e) {
+    alert('Failed to add cell: ' + e.message);
+  }
+});
+
+// Insert bar → "Paste cell markdown": the paste form (mirrors openPasteMarkdown).
+registerFormAction('openPasteGridCell', async ({ uuid, file, insertAt } = {}) => {
+  if (!uuid || !file) return;
+  if (!isFormReplay()) {
+    await chrome.storage.local.set({ moreButtonsPasteGridCell: { pasteMarkdownText: '' } });
+  }
+  const { formEl } = await createForm('pasteGridCell');
+  if (!formEl) return;
+  formEl.dataset.gridUuid = uuid;
+  formEl.dataset.containerFile = file;
+  formEl.dataset.insertAtIndex = insertAt == null ? '' : String(insertAt);
+  setCrumbLabel('Paste cell markdown');
+});
+
+registerFormAction('insertPastedGridCells', async ({ formEl, content }) => {
+  const textarea = formEl.querySelector('[name="pasteMarkdownText"]');
+  // showFieldError doesn't dedupe: clear a prior inline error before re-checking.
+  textarea?.classList.remove('--invalid');
+  textarea?.parentElement?.querySelectorAll('.more-buttons-field-error').forEach(el => el.remove());
+  const { cells, error } = parsePastedGridCells(textarea?.value ?? '');
+  if (error) {
+    showFieldError(formEl, textarea, error);
+    return;
+  }
+  const insertAtRaw = formEl.dataset.insertAtIndex;
+  const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
+  const btn = content.querySelector('[data-action="insertPastedGridCells"]');
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Inserting…');
+  try {
+    await spliceGridCells(formEl.dataset.containerFile, formEl.dataset.gridUuid, insertAt, cells, s => setButtonBusy(btn, s));
+    await chrome.storage.local.remove('moreButtonsPasteGridCell');
+    await navigateBack();
+  } catch (e) {
+    restoreButton(btn, snap);
+    alert('Failed to insert cell: ' + e.message);
+  }
+});
+
+// Child form → "Delete cell": confirm (native dialog, like every other component
+// delete), remove this cell from the grid as one commit, and return to the grid.
+// A grid keeps at least one cell.
+registerFormAction('deleteGridCell', async ({ formEl, content }) => {
+  const st = formEl._grid;
+  const gridUuid = formEl.dataset.gridUuid;
+  const file = formEl.dataset.containerFile;
+  const cell = st?.cells[st.active];
+  if (!cell || !gridUuid || !file) return;
+  if (st.cells.length <= 1) {
+    alert('A grid needs at least one cell — delete the whole grid instead.');
+    return;
+  }
+  if (!confirm(`Delete cell ${st.active + 1}? Its text and components are removed from the grid.`)) return;
+
+  const btn = content?.querySelector('[data-action="deleteGridCell"]');
+  const snap = snapshotButton(btn);
+  setButtonBusy(btn, 'Deleting…');
+  try {
+    let after = null;
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => {
+      const grid = getGridByUUID(md, gridUuid);
+      if (!grid) throw new Error('This grid no longer exists.');
+      const cells = grid.cells.filter(c => c.uuid !== cell.uuid);
+      if (cells.length === grid.cells.length) throw new Error('This cell no longer exists.');
+      after = { flavor: grid.flavor, cells };
+      return replaceGridByUUID(md, gridUuid, gridWithCells(grid, cells));
+    });
+    if (after) await seedStorage(after.flavor, cellsFromGrid(after));
+    await navigateBack();
+  } catch (e) {
+    restoreButton(btn, snap);
+    alert('Failed to delete cell: ' + e.message);
+  }
+});
+
 // ── Form actions ──────────────────────────────────────────────────────────────
 
 registerFormAction('submitEditGrid', async ({ formEl, content }) => {
@@ -628,8 +802,9 @@ registerFormAction('submitEditGridCell', async ({ formEl, content }) => {
   const btn = content.querySelector('[data-save-state]');
   setButtonBusy(btn, 'Saving…');
   try {
-    const res = await persistGridEdit(formEl, s => setButtonBusy(btn, s));
-    if (res) { await navigateBack(); return; } // back to the grid, which re-renders from storage
+    // Stay on the cell (like every component editor); the dock flips to "Draft
+    // saved" and the grid re-renders from the file on back-navigation.
+    await persistGridEdit(formEl, s => setButtonBusy(btn, s));
     formEl._refreshSaveState?.();
   } catch (e) {
     formEl._refreshSaveState?.();

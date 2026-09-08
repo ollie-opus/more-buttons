@@ -61,10 +61,15 @@ export function upgradeTextarea(textarea, opts = {}) {
   const toolbar = document.createElement('div');
   toolbar.className = 'mb-rte__toolbar';
 
-  // Format buttons (left).
+  // Format buttons (left) — a horizontal scroller inside a shadow-painting
+  // wrap, so a narrow host (e.g. the code block's annotation popover) never
+  // pushes the strip past the toolbar edge; the tabs stay visible.
   const btnGroup = document.createElement('div');
   btnGroup.className = 'mb-rte__btns';
-  toolbar.appendChild(btnGroup);
+  const btnWrap = document.createElement('div');
+  btnWrap.className = 'mb-rte__btnwrap';
+  btnWrap.appendChild(btnGroup);
+  toolbar.appendChild(btnWrap);
 
   // Segmented Rich | Markdown tabs (right). Rich is the default editing view.
   const tabs = document.createElement('div');
@@ -104,6 +109,7 @@ export function upgradeTextarea(textarea, opts = {}) {
   };
 
   buildButtons(rte);
+  wireToolbarScroll(btnWrap, btnGroup);
   attachLinkPopover(rte);
   attachLabelPopover(rte);
   attachIconPopover(rte);
@@ -140,6 +146,23 @@ function makeTab(text, active) {
   b.setAttribute('aria-pressed', String(active));
   b.textContent = text;
   return b;
+}
+
+// Keep a toolbar button strip usable at any width: the strip scrolls
+// horizontally and its wrap paints edge shadows (--can-left / --can-right)
+// while buttons sit off-screen. ResizeObserver covers relocation into a
+// narrower host (the datatable cell editor, the code block's annotation
+// popover) and late layout. Shared with codeRichEditor's toolbar.
+export function wireToolbarScroll(btnWrap, btns) {
+  const update = () => {
+    const canScroll = btns.scrollWidth > btns.clientWidth + 1;
+    btnWrap.classList.toggle('--can-left', canScroll && btns.scrollLeft > 1);
+    btnWrap.classList.toggle('--can-right',
+      canScroll && btns.scrollLeft + btns.clientWidth < btns.scrollWidth - 1);
+  };
+  btns.addEventListener('scroll', update, { passive: true });
+  new ResizeObserver(update).observe(btns);
+  update();
 }
 
 function makeBtn(icon, label, onClick) {
@@ -419,8 +442,9 @@ function refreshActiveStates(rte) {
       return;
     }
     if (btn._icon) {
-      // Icons can't go inside a code span or label pill (both are plain-text
-      // exclusive containers). Lit while a whole icon atom is selected.
+      // The Icon button can't insert into a code span or a label pill (a pill
+      // is atomic — an icon inside one is typed as its shortcode in the label
+      // popover's text field instead). Lit while a whole icon atom is selected.
       btn.classList.toggle('--active', rich && selectionIsIcon(rte));
       btn.disabled = rich && (inCode || inLabel);
       return;
@@ -455,12 +479,21 @@ function selectionMarkTags(rte) {
   return tags;
 }
 
-// Whether the caret/anchor sits inside a label pill (a `.mb-label` span). Labels
-// are spans, so they can't be told apart by tag name in selectionMarkTags — this
-// walks the ancestor chain checking the class.
+// Whether the selection is "on" a label pill (a `.mb-label` span). Pills are
+// contenteditable=false atoms, so the caret can't sit inside one — the click
+// gesture selects the whole node instead (like icons), and that node-selection
+// counts as "in the label": the popover edits it, conflicting marks stay
+// disabled. The ancestor walk is kept as a fallback for any selection the
+// browser still anchors within the span (e.g. select-all extending over it).
 function selectionInLabel(rte) {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return false;
+  const r = sel.getRangeAt(0);
+  if (r.startContainer === r.endContainer && r.endOffset - r.startOffset === 1) {
+    const picked = r.startContainer.childNodes && r.startContainer.childNodes[r.startOffset];
+    if (picked && picked.nodeType === 1 && picked.classList && picked.classList.contains('mb-label')
+      && rte.surface.contains(picked)) return true;
+  }
   let node = sel.anchorNode;
   if (!node || !rte.surface.contains(node)) return false;
   while (node && node !== rte.surface) {
@@ -674,14 +707,28 @@ function attachSurfaceEvents(rte) {
     // Clicking an icon atom is its edit gesture: the caret can't enter a
     // contenteditable=false node, so select the node itself (which maps to
     // exactly the shortcode's source range) and open the picker on it.
+    // An icon INSIDE a label pill is part of the pill's text (edited via the
+    // label popover), so let the pill gesture below own that click.
     const icon = e.target.closest && e.target.closest('.mb-icon');
-    if (icon && surface.contains(icon)) {
+    if (icon && surface.contains(icon) && !icon.closest('.mb-label')) {
       const range = document.createRange();
       range.selectNode(icon);
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
       rte.openIconPopover?.();
+    }
+    // Same gesture for a label pill: atomic (contenteditable=false), so select
+    // the node — which maps to exactly the pill's source range — and open the
+    // label popover in edit mode (text/colour/remove).
+    const label = e.target.closest && e.target.closest('.mb-label');
+    if (label && surface.contains(label)) {
+      const range = document.createRange();
+      range.selectNode(label);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      rte.openLabelPopover?.();
     }
   });
 }

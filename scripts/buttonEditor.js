@@ -6,8 +6,11 @@
  * time from labelColours.json), Theme (Default/Inversed/Force light/Force dark —
  * which colour trio paints the button, mirroring the capture Theme field),
  * Border (Default/Always/Light only/Dark only/None — per-trio border override),
- * Style (Default/Slim — the full-width flex row), Destination, and an optional
- * Icon (the lucide picker reused from page settings). Live light/dark preview
+ * Style (Default/Slim — the full-width flex row), Destination (a link-type
+ * picker: Internal page via the kbTree nav picker, URL via the text input, or
+ * Groove support — an onclick that opens the Groove widget), and an optional
+ * Icon (the lucide picker reused from page settings). Theme and Border live in
+ * a collapsed Advanced <details> that auto-opens when non-default. Live light/dark preview
  * tiles above the fields repaint on every edit (buttonPreview.js). Legacy Primary/Secondary buttons still parse, but editing one
  * requires picking a colour (nothing pre-selected). Because a button holds no
  * sub-components, it needs neither a component container registration nor a
@@ -37,7 +40,10 @@ import { loadLabelPalette } from './richTextEditor.js';
 import { markRequiredFields } from './formValidation.js';
 import {
   buildButtonLines, locateButtonByUUID, replaceButtonByUUID, deleteButtonByUUID, buttonDimFields,
+  GROOVE_ONCLICK, isGrooveOnclick,
 } from './mdButtons.js';
+import { loadInternalNav, buildInternalTreeNodes, resolveInternalHref, isInternalHrefShape } from './internalPages.js';
+import { renderTree, applySearch } from './kbTree.js';
 
 const STORAGE_KEY = 'moreButtonsEditButton';
 
@@ -46,7 +52,7 @@ const STORAGE_KEY = 'moreButtonsEditButton';
 function emptyFields() {
   // Colour deliberately unseeded: create starts with no swatch selected and the
   // required marker blocks save until one is picked.
-  return { buttonLabel: '', buttonColour: '', buttonTheme: 'default', buttonBorder: 'default', buttonStyle: 'default', buttonDestination: '', icon: '', buttonNewTab: 'no' };
+  return { buttonLabel: '', buttonColour: '', buttonTheme: 'default', buttonBorder: 'default', buttonStyle: 'default', buttonDestination: '', icon: '', buttonNewTab: 'no', buttonOnclick: '', buttonDestKind: 'url' };
 }
 
 function readButtonFields(formEl) {
@@ -59,14 +65,16 @@ function readButtonFields(formEl) {
     destination: formEl.querySelector('[name="buttonDestination"]')?.value.trim() ?? '',
     icon: formEl.querySelector('[name="icon"]')?.value.trim() ?? '',
     newTab: formEl.querySelector('[name="buttonNewTab"]:checked')?.value === 'yes',
+    destKind: formEl.querySelector('[name="buttonDestKind"]:checked')?.value ?? 'url',
+    onclick: formEl.querySelector('[name="buttonOnclick"]')?.value ?? '', // verbatim — never trimmed
   };
 }
 
 // The single link line (no identity span — replaceButtonByUUID keeps the span).
 // `primary` only matters when colour is '' (a legacy button the merge engine
 // resolved without a colour) — buildButtonLines gives colour precedence.
-function buttonLineFrom({ label, destination, icon, colour, theme, border, style, primary, newTab }) {
-  return buildButtonLines([{ label, destination, icon, colour, theme, border, style, primary, newTab }])[1];
+function buttonLineFrom({ label, destination, icon, colour, theme, border, style, primary, newTab, onclick }) {
+  return buildButtonLines([{ label, destination, icon, colour, theme, border, style, primary, newTab, onclick }])[1];
 }
 
 // Build the 26 colour swatches as real radio inputs so form.js hydration,
@@ -109,9 +117,9 @@ function buildColourSwatches(formEl, groups) {
 
 // Live light/dark preview tiles above the fields. Repaints on every input/
 // change (radio groups, Label/Icon typing — Destination/newTab repaints are
-// harmless no-ops). The lucide icon resolves through the picker's sanitized
-// CDN fetch: debounced so Label keystrokes stay instant, sequence-guarded so
-// a slow fetch never paints over a newer pick.
+// harmless no-ops). The lucide icon resolves through the picker's bundled
+// bodies map: debounced so Label keystrokes stay instant, sequence-guarded so
+// a slow first load never paints over a newer pick.
 function attachButtonPreview(formEl, flat) {
   const host = formEl.querySelector('[data-button-preview]');
   if (!host) return;
@@ -152,6 +160,155 @@ function attachButtonPreview(formEl, flat) {
   chrome.storage.local.get(STORAGE_KEY, () => repaint());
 }
 
+// The Destination link-type picker: buttonDestKind pills (Internal page / URL /
+// Groove support) over one always-required backing input. `data-show-when` in
+// the markup swaps the tree panel / groove hint / newTab group declaratively;
+// this handler owns everything value-shaped: hiding the text input, the tree's
+// selection ↔ input sync, the groove '#'+onclick stash, and pointing required-
+// error painting at the tree while the input is hidden.
+function attachDestinationPicker(formEl, seeded) {
+  const destInput = formEl.querySelector('[name="buttonDestination"]');
+  const onclickInput = formEl.querySelector('[name="buttonOnclick"]');
+  const treeHost = formEl.querySelector('[data-dest-tree]');
+  if (!destInput || !onclickInput || !treeHost) return;
+
+  let treePromise = null;
+  let navData = null;
+  let grooveStash = null; // {d, o} captured when entering groove, restored on leave
+
+  // Real input/change events so the dirty guard, save-state button and the live
+  // preview react (the tagChips contract). No-op guarded: the async tree render
+  // and repeated syncs must never false-dirty the form.
+  const setField = (input, v) => {
+    if (input.value === v) return;
+    input.value = v;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  // Mark the leaf for the current input value selected, expand its ancestors and
+  // scroll it into view. Read-only over the input: legacy `pages/foo.md`
+  // spellings resolve (and stay untouched — no diff churn on an unedited save).
+  const selectCurrent = () => {
+    if (!navData) return;
+    for (const n of treeHost.querySelectorAll('.mb-kb-node.--selected')) n.classList.remove('--selected');
+    const hit = resolveInternalHref(destInput.value, navData.listed, navData.unlisted);
+    if (!hit) return;
+    const leaf = treeHost.querySelector(`[data-kb-file="${CSS.escape(hit.href)}"]`);
+    if (!leaf) return;
+    const node = leaf.closest('.mb-kb-node');
+    node.classList.add('--selected');
+    let anc = node.parentElement?.closest('.mb-kb-node');
+    while (anc) { anc.classList.remove('--collapsed'); anc = anc.parentElement?.closest('.mb-kb-node'); }
+    leaf.scrollIntoView({ block: 'nearest' });
+  };
+
+  const ensureTree = () => {
+    treePromise ??= loadInternalNav().then(({ listed, unlisted }) => {
+      navData = { listed, unlisted };
+      treeHost.innerHTML = renderTree(buildInternalTreeNodes(listed, unlisted), { emptyMessage: 'No pages found.' });
+      selectCurrent();
+    });
+    return treePromise;
+  };
+
+  // Scoped to treeHost — the KB-management/media-library pages delegate
+  // .mb-kb-search/.mb-kb-node handlers on their own form roots, so nothing
+  // here may listen wider than this picker's tree.
+  treeHost.addEventListener('input', e => {
+    if (e.target.classList.contains('mb-kb-search')) {
+      applySearch(treeHost.querySelector('.mb-kb-tree'), e.target.value);
+    }
+  });
+  treeHost.addEventListener('click', e => {
+    const section = e.target.closest('[data-kb-section]');
+    if (section) { section.closest('.mb-kb-node').classList.toggle('--collapsed'); return; }
+    const leaf = e.target.closest('[data-kb-leaf]');
+    if (leaf) {
+      for (const n of treeHost.querySelectorAll('.mb-kb-node.--selected')) n.classList.remove('--selected');
+      leaf.closest('.mb-kb-node').classList.add('--selected');
+      setField(destInput, leaf.dataset.kbFile); // also clears a painted required error
+    }
+  });
+
+  const currentKind = () => {
+    const checked = formEl.querySelector('[name="buttonDestKind"]:checked')?.value;
+    if (checked) return checked;
+    // Legacy stored dict without the key (or pre-hydration): seeded value, then
+    // derive from the values themselves; check the radio silently (no events —
+    // this is repair, not an edit).
+    const kind = seeded?.buttonDestKind
+      ?? (isGrooveOnclick(onclickInput.value) ? 'groove'
+        : isInternalHrefShape(destInput.value) ? 'internal' : 'url');
+    const radio = formEl.querySelector(`[name="buttonDestKind"][value="${kind}"]`);
+    if (radio) radio.checked = true;
+    return kind;
+  };
+
+  // View-only repaint: hide/show the URL input, point required-error painting
+  // at the tree, render/select the tree. Never writes a field value — it runs
+  // mid-hydration (form.js calls _mbSyncView while later inputs in DOM order,
+  // including the hidden onclick, are still unhydrated) and again after the
+  // whole restore has landed via the _mbSyncPost sweep.
+  const paintKindUI = () => {
+    const kind = currentKind();
+    destInput.hidden = kind !== 'url';
+    if (kind === 'internal') destInput._validationHost = treeHost;
+    else delete destInput._validationHost;
+    if (kind === 'internal') { ensureTree(); selectCurrent(); }
+  };
+
+  // User intent only — the kind-radio change handler. Entering groove leaves
+  // an onclick that is already a groove variant (canonical or the legacy
+  // hand-written ones, see mdButtons isGrooveOnclick) byte-identical; leaving
+  // it restores what the user had before, or empty fields on a hydrated
+  // groove button (never a bare '#').
+  const applyKindChange = () => {
+    const kind = currentKind();
+    if (kind === 'groove') {
+      if (!isGrooveOnclick(onclickInput.value)) {
+        grooveStash = { d: destInput.value, o: onclickInput.value };
+        setField(destInput, '#');
+        setField(onclickInput, GROOVE_ONCLICK);
+      }
+    } else if (isGrooveOnclick(onclickInput.value)) {
+      const stash = grooveStash ?? { d: '', o: '' };
+      grooveStash = null;
+      setField(destInput, stash.d);
+      setField(onclickInput, stash.o);
+    }
+    paintKindUI();
+  };
+
+  formEl.addEventListener('change', e => {
+    if (e.target.name === 'buttonDestKind') applyKindChange();
+  });
+  // Repaint at the async moments that rewrite values underneath us: mid-loop
+  // during storage hydration / post-merge rehydration (_mbSyncView), and once
+  // more after the whole restore has landed (_mbSyncPost) — the hidden onclick
+  // hydrates after this input, so only the post sweep sees the final kind.
+  // Both are paints, never writes: the old combined sync stashed {d:'#', o:''}
+  // mid-hydration and leaked '#' into the URL box on a later kind switch.
+  destInput._mbSyncView = paintKindUI;
+  destInput._mbSyncPost = paintKindUI;
+  paintKindUI();
+}
+
+// Theme + Border live in the collapsed Advanced <details>; open it (never
+// close it) when the seeded values are non-default so active settings are
+// visible immediately. Decided from the seeded dict, not the DOM — hydration
+// is a later macrotask. The deferred storage read covers create-replay dicts
+// that may hold newer values than the seed.
+function autoOpenAdvanced(formEl, seeded) {
+  const adv = formEl.querySelector('[data-button-advanced]');
+  if (!adv) return;
+  const maybe = d => {
+    if (d && ((d.buttonTheme ?? 'default') !== 'default' || (d.buttonBorder ?? 'default') !== 'default')) adv.open = true;
+  };
+  maybe(seeded);
+  chrome.storage.local.get(STORAGE_KEY, r => maybe(r[STORAGE_KEY]));
+}
+
 function seedStorage(fields) {
   return chrome.storage.local.set({ [STORAGE_KEY]: fields });
 }
@@ -160,7 +317,8 @@ function seedStorage(fields) {
 
 registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {}) => {
   if (!container?.file) return;
-  if (!isFormReplay()) await seedStorage(emptyFields());
+  const seeded = emptyFields();
+  if (!isFormReplay()) await seedStorage(seeded);
 
   const { groups, flat } = await loadLabelPalette(); // before createForm — injection below must not await
   const { formEl } = await createForm('editButton');
@@ -179,6 +337,8 @@ registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {})
 
   buildColourSwatches(formEl, groups);
   attachIconPicker(formEl.querySelector('[name="icon"]'));
+  attachDestinationPicker(formEl, seeded);
+  autoOpenAdvanced(formEl, seeded);
   attachButtonPreview(formEl, flat);
   resetDirtyBaseline(formEl);
 });
@@ -195,7 +355,8 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
   const btn = locateButtonByUUID(md, uuid);
   if (!btn) { alert('Button not found.'); return; }
 
-  if (!isFormReplay()) await seedStorage(buttonDimFields(btn));
+  const seeded = buttonDimFields(btn);
+  if (!isFormReplay()) await seedStorage(seeded);
 
   const { groups, flat } = await loadLabelPalette(); // before createForm — injection below must not await
   const { formEl } = await createForm('editButton');
@@ -210,6 +371,8 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
 
   buildColourSwatches(formEl, groups);
   attachIconPicker(formEl.querySelector('[name="icon"]'));
+  attachDestinationPicker(formEl, seeded);
+  autoOpenAdvanced(formEl, seeded);
   attachButtonPreview(formEl, flat);
   resetDirtyBaseline(formEl);
 });
@@ -217,7 +380,7 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 async function persistNewButton(formEl, onProgress = () => {}) {
-  const { label, colour, theme, border, style, destination, icon, newTab } = readButtonFields(formEl);
+  const { label, colour, theme, border, style, destination, icon, newTab, onclick } = readButtonFields(formEl);
   if (!colour) { alert('Colour is required.'); return null; }
   if (!destination) { alert('Destination is required.'); return null; }
   const newUuid = generateUUID();
@@ -228,7 +391,7 @@ async function persistNewButton(formEl, onProgress = () => {}) {
   };
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
-  const btn = { uuid: newUuid, label, destination, icon, colour, theme, border, style, primary: false, newTab };
+  const btn = { uuid: newUuid, label, destination, icon, colour, theme, border, style, primary: false, newTab, onclick };
   await spliceIntoContainer(parent, insertAt, [{ kind: 'button', btn }], onProgress);
   return { newUuid, file: parent.file };
 }
@@ -250,6 +413,7 @@ async function transitionButtonCreateToEdit(formEl, newUuid, file) {
     buttonBorder: f.border || 'default', buttonStyle: f.style || 'default',
     buttonDestination: f.destination, icon: f.icon,
     buttonNewTab: f.newTab ? 'yes' : 'no',
+    buttonOnclick: f.onclick, buttonDestKind: f.destKind,
   });
   resetDirtyBaseline(formEl);
 }
@@ -274,6 +438,8 @@ async function persistButtonEdit(formEl, onProgress = () => {}) {
       { name: 'buttonDestination', type: 'scalar', label: 'Destination' },
       { name: 'icon', type: 'scalar', label: 'Icon' },
       { name: 'buttonNewTab', type: 'scalar', label: 'Open in new tab' },
+      { name: 'buttonDestKind', type: 'scalar', label: 'Link type' },
+      { name: 'buttonOnclick', type: 'scalar', label: 'Groove link' },
     ],
     readFresh: md => buttonDimFields(locateButtonByUUID(md, editUuid) ?? {}),
     build: (md, resolved) => {
@@ -289,6 +455,7 @@ async function persistButtonEdit(formEl, onProgress = () => {}) {
         style: resolved.buttonStyle,
         primary: fresh.primary, // legacy fallback if merge resolves colour to ''
         newTab: resolved.buttonNewTab === 'yes',
+        onclick: resolved.buttonOnclick,
       });
       return replaceButtonByUUID(md, editUuid, line);
     },

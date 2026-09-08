@@ -39,6 +39,10 @@ export function mergeFields(snap = {}, cur = {}, fresh = {}, fieldSpecs = [], re
       mergeOrderedUuidList(spec, snap, cur, fresh, resolutions, resolved, conflicts);
       continue;
     }
+    if (spec.type === 'sepList') {
+      mergeSepList(spec, snap, cur, fresh, resolutions, resolved, conflicts);
+      continue;
+    }
     mergeScalar(spec, snap, cur, fresh, resolutions, resolved, conflicts);
   }
 
@@ -62,6 +66,35 @@ function mergeScalar(spec, snap, cur, fresh, resolutions, resolved, conflicts) {
     return;
   }
   conflicts.push({ field: name, label, mine: c, theirs: f });
+}
+
+/**
+ * A scalar joined from a list of items with `spec.sep` (the code block's
+ * `codeAnnotations`, ANNOTATION_SEP-joined). Merge semantics are identical to
+ * mergeScalar — the joined string is the unit of change (items have no
+ * identity, so a positional per-item merge would silently pair wrong items) —
+ * but a conflict carries `mine`/`theirs` as the SPLIT arrays so the resolver
+ * renders a readable numbered list instead of text glued with an invisible
+ * separator. `resolved` values stay joined originals; build() is unchanged.
+ */
+function mergeSepList(spec, snap, cur, fresh, resolutions, resolved, conflicts) {
+  const { name, label, sep } = spec;
+  const s = snap[name];
+  const c = cur[name];
+  const f = fresh[name];
+  const split = v => String(v ?? '').split(sep).filter(Boolean);
+
+  if (scalarEqual(c, s)) { resolved[name] = f; return; }   // untouched → theirs
+  if (scalarEqual(f, s)) { resolved[name] = c; return; }   // only you → yours
+  if (scalarEqual(f, c)) { resolved[name] = c; return; }   // same edit → fine
+
+  // true collision — honour a recorded choice only if theirs hasn't moved since.
+  const r = resolutions[name];
+  if (r && arraysEqual(split(f), r.theirsShown ?? [])) {
+    resolved[name] = r.choice === 'mine' ? c : f;
+    return;
+  }
+  conflicts.push({ field: name, label, mine: split(c), theirs: split(f) });
 }
 
 const splitUuids = v => String(v ?? '').split(',').filter(Boolean);

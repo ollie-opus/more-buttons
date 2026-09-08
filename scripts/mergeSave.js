@@ -81,7 +81,7 @@ function rehydrateFields(formEl, fieldSpecs, resolved) {
       formEl._reorderRehydrate?.(String(val).split(',').filter(Boolean));
       continue;
     }
-    if (spec.type !== 'scalar') continue;
+    if (spec.type !== 'scalar' && spec.type !== 'sepList') continue; // sepList rehydrates like a scalar (joined value)
     const val = resolved[spec.name];
     if (val === undefined) continue;
     const els = formEl.querySelectorAll(`[name="${spec.name}"]`);
@@ -101,4 +101,8 @@ function rehydrateFields(formEl, fieldSpecs, resolved) {
       els[0]._mbSyncView?.();
     }
   }
+  // Post-pass for widgets whose paint reads OTHER fields (mirrors form.js's
+  // post-hydration _mbSyncPost sweep): the mid-loop _mbSyncView calls above may
+  // have run before every merged value had landed. View-only by contract.
+  formEl.querySelectorAll('input, select, textarea').forEach(i => i._mbSyncPost?.());
 }

@@ -99,9 +99,13 @@ export function formatPill(ext) {
  * Build the pills HTML for one capture's metadata, plus an optional trailing
  * grey file-format pill. Returns '' when there is nothing to show. Matches
  * the KB pill structure (.mb-kb-pills > .mb-kb-pill).
+ *
+ * `systemUpdate` marks a frozen system-update capture (derived from its path
+ * by the caller, not stored in the manifest) — it leads the row.
  */
-export function captureMetaPills(meta, ext) {
+export function captureMetaPills(meta, ext, { systemUpdate = false } = {}) {
   const pills = [];
+  if (systemUpdate) pills.push('<span class="mb-kb-pill --system-update">System update</span>');
   if (meta?.resized) pills.push('<span class="mb-kb-pill --resized">Resized</span>');
   if (meta?.padding > 0) pills.push(`<span class="mb-kb-pill --padded">Padded: ${meta.padding}px</span>`);
   if (meta?.annotated) pills.push('<span class="mb-kb-pill --annotated">Annotated</span>');

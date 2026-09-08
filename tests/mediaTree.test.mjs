@@ -97,6 +97,24 @@ test('groupMediaPaths groups by top-level folder, sorted with "other" last, root
   assert.deepEqual(groups[2].paths, ['docs/assets/media/other/report.pdf']);
 });
 
+test('system-update-captures folder becomes its own tab and mixes pairs with legacy singles', () => {
+  const groups = groupMediaPaths([
+    'docs/assets/media/occ-captures/x-light-mode.png',
+    'docs/assets/media/system-update-captures/sidebar-ab12cd34-light-mode.png',
+    'docs/assets/media/system-update-captures/sidebar-ab12cd34-dark-mode.png',
+    'docs/assets/media/system-update-captures/legacy-0f0f0f0f.gif',
+  ], 'docs/assets/media');
+  assert.deepEqual(groups.map(g => g.key), ['occ-captures', 'system-update-captures']);
+  assert.equal(groups[1].label, 'System Update Captures');
+  const su = groups[1];
+  const browse = buildMediaNodes(su.paths, { root: su.root, exts: null, shape: null });
+  assert.equal(browse.length, 2);
+  assert.equal(browse.find(n => n.attrs['data-media-single']).attrs['data-media-single'], 'docs/assets/media/system-update-captures/legacy-0f0f0f0f.gif');
+  assert.equal(browse.find(n => n.attrs['data-media-light']).attrs['data-media-base'], 'sidebar-ab12cd34');
+  const pairs = buildMediaNodes(su.paths, { root: su.root, exts: null, shape: 'pair' });
+  assert.equal(pairs.length, 1);
+});
+
 test('no exts: every extension renders, pairing preserved, extension-less skipped', () => {
   const nodes = buildMediaNodes([
     'docs/assets/media/other/report.pdf',

@@ -3,7 +3,17 @@
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Service(s) Affected</label>
-    <input type="text" name="incidentTitle" disabled />
+    <div id="update-incident-services" class="more-buttons-radio-btn-group-row">
+      <!-- dynamically injected by openUpdateIncident / openEditPastIncident -->
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Service Impact</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn --amber"><input type="radio" name="impact" value="disruption" required /> Disruption</label>
+      <label class="more-buttons-radio-btn --red"><input type="radio" name="impact" value="outage" required /> Outage</label>
+    </div>
   </div>
 
   <div class="more-buttons-form-group">
@@ -35,7 +45,7 @@
   </div>
 
   <div class="more-buttons-form-actions">
-    <button type="button" class="more-buttons-button success" data-action="submitUpdateIncident"><span class="more-buttons-icon">verified</span>Save & Publish</button>
+    <button type="button" class="more-buttons-button success" data-validate data-action="submitUpdateIncident"><span class="more-buttons-icon">verified</span>Save & Publish</button>
     <button type="button" class="more-buttons-button danger" data-action="deleteIncident"><span class="more-buttons-icon">delete</span>Delete</button>
   </div>
 </form>

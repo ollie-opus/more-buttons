@@ -2,7 +2,7 @@ import { createForm, navigateBack, snapshotFormStack, replayFormStack, setButton
 import { readRepoBlob } from './repoClient.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubReplaceImage } from './github.js';
-import { writeCaptureMeta } from './captureMeta.js';
+import { writeCaptureMeta, readCaptureMeta, captureMetaPills, applyMetaUpserts } from './captureMeta.js';
 import {
   captureCard, captureGrid, capturePathField, captureBasePath,
   captureSizeField, wireCaptureSizeField, readCaptureSizeField,
@@ -11,7 +11,8 @@ import {
 } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 import { formLoading } from './loading.js';
-import { buildUsagePanelHtml, wireUsagePanel } from './usagePanel.js';
+import { buildUsagePanelHtml, wireUsagePanel, deleteMediaEntry } from './usagePanel.js';
+import { isSystemUpdateCapturePath } from './captureDest.js';
 
 // Cold-DOM hand-off for the recapture round-trip. While the user hunts for an
 // element in Capture Mode they can navigate to other pages; a Turbo navigation
@@ -60,12 +61,26 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
   // Stored file format of the pair. Drives which buttons render (Recapture is
   // PNG-only), what Replace via upload accepts, and the title's format pill.
   const storedExt = (/\.(png|svg)$/i.exec(lightPath)?.[1] ?? 'png').toLowerCase();
+  // Frozen system-update capture: a point-in-time snapshot. No Recapture, no
+  // Replace via upload — only Delete (usage-gated) remains available.
+  const frozen = isSystemUpdateCapturePath(lightPath);
+
+  // Manifest entry for this capture ({ resized?, padding?, annotated?,
+  // zapped? } | null). Loaded with the images below; refreshed on save.
+  let entryMeta = null;
+
+  // Same pills as the capture's library-tree row (Resized / Padded /
+  // Annotated / Zapped + grey format pill), pushed to the title row's right
+  // edge (see the h2 flex rules in formsStyling.css).
+  function renderTitlePills() {
+    if (!titleEl) return;
+    titleEl.querySelector('.mb-kb-pills')?.remove();
+    titleEl.insertAdjacentHTML('beforeend', captureMetaPills(entryMeta, storedExt, { systemUpdate: frozen }));
+  }
 
   if (titleEl) {
     if (label) titleEl.textContent = label;
-    // Same grey format pill as the library tree, pushed to the row's right
-    // edge (see the h2 flex rules in formsStyling.css).
-    titleEl.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills"><span class="mb-kb-pill --format">.${storedExt}</span></span>`);
+    renderTitlePills();
   }
 
   // We fetch each image via the contents API (readRepoBlob) instead of using
@@ -88,7 +103,8 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
   }
 
   let pendingCapture = null; // { lightDataUrl, darkDataUrl }
-  let usageHtml = ''; // "Used on pages" block, loaded once per open (browse only)
+  // "Used on pages" block + delete gate, loaded once per open (browse only).
+  let usage = { html: '', unused: false };
 
   function renderPreview() {
     bodyEl.innerHTML =
@@ -101,7 +117,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         ? captureSizeField({ dimMode: 'height', dimValue: 50 })
           + (darkPath ? captureThemeField() : '')
           + captureCornerField()
-        : usageHtml);
+        : usage.html);
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
       ? `<button type="button" class="more-buttons-button secondary" data-capture-entry-insert-cancel><span class="more-buttons-icon">close</span>Cancel</button>
@@ -109,10 +125,18 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
       : // Recapture pushes PNG screenshot bytes onto the stored paths, so it
         // only renders for .png pairs — an .svg pair can only be replaced by
         // uploading fresh SVGs.
-        (storedExt === 'png'
+        // Frozen system-update captures offer neither.
+        (storedExt === 'png' && !frozen
           ? `<button type="button" class="more-buttons-button" data-capture-entry-override><span class="more-buttons-icon">swap_vertical_circle</span>Recapture</button>`
           : '') +
-        `<button type="button" class="more-buttons-button" data-capture-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>`;
+        (frozen
+          ? ''
+          : `<button type="button" class="more-buttons-button" data-capture-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>`) +
+        // Only offered when the usage index confirms zero pages/drafts
+        // reference the pair (fails closed on a usage-load error).
+        (usage.unused
+          ? `<button type="button" class="more-buttons-button danger" data-capture-entry-delete><span class="more-buttons-icon">delete</span>Delete capture</button>`
+          : '');
   }
 
   // Insert mode: reference the existing library asset (no upload). Strip the
@@ -250,21 +274,22 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         await githubReplaceImage(darkPath, pendingCapture.darkDataUrl.split(',')[1], s => setButtonBusy(saveBtn, s));
       }
       // The path is never renamed on recapture, but the metadata is the NEW
-      // shot's — so Annotated/Zapped pills follow the recapture's own state.
-      await writeCaptureMeta(
-        [{
-          lightPath,
-          resized: !!pendingCapture.resized,
-          padding: pendingCapture.padding || 0,
-          annotated: !!pendingCapture.annotated,
-          zapped: !!pendingCapture.zapped,
-        }],
-        s => setButtonBusy(saveBtn, s),
-      );
+      // shot's — so Annotated/Zapped pills follow the recapture's own state
+      // (an upload-replace carries no flags, clearing the entry).
+      const upsert = {
+        lightPath,
+        resized: !!pendingCapture.resized,
+        padding: pendingCapture.padding || 0,
+        annotated: !!pendingCapture.annotated,
+        zapped: !!pendingCapture.zapped,
+      };
+      await writeCaptureMeta([upsert], s => setButtonBusy(saveBtn, s));
+      entryMeta = applyMetaUpserts({}, [upsert])[lightPath] ?? null;
       setButtonBusy(saveBtn, 'Refreshing…');
       pendingCapture = null;
       await loadRepoImages();
       renderPreview(); // rebuilds the dock, clearing the busy tile
+      renderTitlePills();
     } catch (e) {
       restoreButton(saveBtn, snap);
       if (cancelBtn) cancelBtn.disabled = false;
@@ -285,6 +310,16 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
       renderUploadPicker();
     } else if (e.target.closest('[data-capture-entry-save]')) {
       saveChanges();
+    } else if (e.target.closest('[data-capture-entry-delete]')) {
+      deleteMediaEntry({
+        button: e.target.closest('[data-capture-entry-delete]'),
+        noun: 'capture', label: displayPath,
+        paths: [lightPath, darkPath], // darkPath may be null (half pair) — helper filters
+        // All-false upsert deletes the pair's .captures-meta.json key (see
+        // applyMetaUpserts).
+        cleanup: (onProgress) => writeCaptureMeta(
+          [{ lightPath, resized: false, padding: 0, annotated: false, zapped: false }], onProgress),
+      });
     } else if (e.target.closest('[data-capture-entry-cancel]')) {
       pendingCapture = null;
       renderPreview();
@@ -321,11 +356,15 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
   try {
     await Promise.all([
       loadRepoImages(),
-      (async () => { if (!insertMode) usageHtml = await buildUsagePanelHtml([lightPath, darkPath]); })(),
+      (async () => { if (!insertMode) usage = await buildUsagePanelHtml([lightPath, darkPath]); })(),
+      // Never throws (returns {} on failure) — a metadata miss just leaves
+      // the title with the format pill alone.
+      (async () => { entryMeta = (await readCaptureMeta())[lightPath] ?? null; })(),
     ]);
   } finally {
     formLoading.dismiss();
   }
+  renderTitlePills();
 
   // If a recapture round-trip detached this form and we just replayed it to get
   // back here, resume straight into the compare view with the buffered capture.

@@ -370,6 +370,28 @@ test('labelAt: caret inside a pill returns its full span range + slug', () => {
 test('labelAt: caret outside any pill returns null', () => {
   assert.equal(labelAt('plain text', 2, 2), null);
 });
+test('labelAt: whole-pill node selection (start..end) returns the pill', () => {
+  // The rich surface's click gesture selects the atomic pill as one node,
+  // which maps to exactly its [start, end) source range.
+  const value = 'go ' + LBL('amber', 'WIP') + ' now';
+  const start = 'go '.length, end = start + LBL('amber', 'WIP').length;
+  const hit = labelAt(value, start, end);
+  assert.equal(hit.slug, 'amber');
+  assert.equal(hit.text, 'WIP');
+  assert.deepEqual([hit.start, hit.end], [start, end]);
+});
+test('labelAt: selection overlapping into a pill widens to the pill', () => {
+  const value = 'go ' + LBL('amber', 'WIP') + ' now';
+  const open = 'go <span class="mb-label mb-label-amber">';
+  const hit = labelAt(value, 1, open.length + 1); // from "o" into "W"
+  assert.equal(hit.slug, 'amber');
+});
+test('labelAt: collapsed caret adjacent to a pill is a plain insert position → null', () => {
+  const value = 'go ' + LBL('amber', 'WIP') + ' now';
+  const start = 'go '.length, end = start + LBL('amber', 'WIP').length;
+  assert.equal(labelAt(value, start, start), null);
+  assert.equal(labelAt(value, end, end), null);
+});
 test('applyLabel over a labelAt range recolours the pill (no nesting)', () => {
   const value = LBL('red', 'Beta');
   const caret = '<span class="mb-label mb-label-red">'.length + 1; // inside "Beta"

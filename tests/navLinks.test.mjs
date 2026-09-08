@@ -37,7 +37,7 @@ test('locate: bare nav-links block', () => {
   const found = locateNavLinksLines('<div class="mb-nav-links" data-nav-path="guides/employees"></div>');
   assert.equal(found.length, 1);
   assert.deepEqual(found[0], {
-    uuid: null, path: 'guides/employees', tag: null, layout: null, indent: '', startLine: 0, endLine: 1,
+    uuid: null, path: 'guides/employees', tag: null, layout: null, newTab: false, indent: '', startLine: 0, endLine: 1,
   });
 });
 
@@ -124,16 +124,16 @@ test('delete: removes the addressed block (span + line + trailing blank), keeps 
 
 test('dimFields: maps a parsed path block to its scalar form fields', () => {
   assert.deepEqual(navLinksDimFields({ path: 'guides/employees' }), {
-    navMode: 'path', navPath: 'guides/employees', navTag: '', navLayout: 'flat',
+    navMode: 'path', navPath: 'guides/employees', navTag: '', navLayout: 'flat', navNewTab: 'no',
   });
   assert.deepEqual(navLinksDimFields({}), {
-    navMode: 'path', navPath: '', navTag: '', navLayout: 'flat',
+    navMode: 'path', navPath: '', navTag: '', navLayout: 'flat', navNewTab: 'no',
   });
 });
 
 test('dimFields: maps a parsed tag block to its scalar form fields', () => {
   assert.deepEqual(navLinksDimFields({ tag: 'System', layout: 'grouped' }), {
-    navMode: 'tag', navPath: '', navTag: 'System', navLayout: 'grouped',
+    navMode: 'tag', navPath: '', navTag: 'System', navLayout: 'grouped', navNewTab: 'no',
   });
 });
 
@@ -279,7 +279,7 @@ test('buildComponentBody → parseComponents round-trips a nav-links component',
   const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
   assert.equal(description, 'Desc');
   assert.equal(components.length, 1);
-  assert.deepEqual(components[0].nav, comp.nav);
+  assert.deepEqual(components[0].nav, { uuid: 'u9', path: 'guides/employees', newTab: false });
 });
 
 test('parsePastedComponents: accepts a pasted nav-links block (mints a fresh uuid)', () => {
@@ -306,12 +306,87 @@ test('locate: a multi-tag line round-trips its tag CSV verbatim', () => {
   const [b] = locateNavLinksLines('<div class="mb-nav-links" data-nav-tag="System, RAMS" data-nav-layout="grouped"></div>');
   assert.equal(b.tag, 'System, RAMS');
   assert.equal(b.layout, 'grouped');
-  assert.deepEqual(navLinksDimFields(b), { navMode: 'tag', navPath: '', navTag: 'System, RAMS', navLayout: 'grouped' });
+  assert.deepEqual(navLinksDimFields(b), { navMode: 'tag', navPath: '', navTag: 'System, RAMS', navLayout: 'grouped', navNewTab: 'no' });
 });
 
 test('navLinksLineFrom: tag mode with a CSV keeps the list', () => {
   assert.equal(navLinksLineFrom({ mode: 'tag', path: '', tag: 'A, B', layout: 'flat' }),
     '<div class="mb-nav-links" data-nav-tag="A, B" data-nav-layout="flat"></div>');
+});
+
+// ── open-in-new-tab (data-nav-new-tab) ────────────────────────────────────────
+
+test('build: newTab path block emits data-nav-new-tab last', () => {
+  const lines = buildNavLinksLines([{ path: 'guides', newTab: true }]);
+  assert.deepEqual(lines, ['', '<div class="mb-nav-links" data-nav-path="guides" data-nav-new-tab="true"></div>']);
+});
+
+test('build: newTab tag block emits data-nav-new-tab after layout', () => {
+  const lines = buildNavLinksLines([{ tag: 'System', layout: 'grouped', newTab: true }]);
+  assert.deepEqual(lines, ['', '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="grouped" data-nav-new-tab="true"></div>']);
+});
+
+test('locate: data-nav-new-tab="true" → newTab true (both modes)', () => {
+  assert.equal(locateNavLinksLines('<div class="mb-nav-links" data-nav-path="guides" data-nav-new-tab="true"></div>')[0].newTab, true);
+  assert.equal(locateNavLinksLines('<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat" data-nav-new-tab="true"></div>')[0].newTab, true);
+});
+
+test('locate: absent attribute → newTab false (backward compatible)', () => {
+  assert.equal(locateNavLinksLines('<div class="mb-nav-links" data-nav-path="guides"></div>')[0].newTab, false);
+  assert.equal(locateNavLinksLines('<div class="mb-nav-links" data-nav-tag="System"></div>')[0].newTab, false);
+});
+
+test('round-trip: newTab survives build → locate (both modes)', () => {
+  for (const n of [
+    { uuid: 'n1', path: 'guides', newTab: true },
+    { uuid: 'n2', tag: 'System', layout: 'flat', newTab: true },
+  ]) {
+    const got = locateNavLinksLines(buildNavLinksLines([n]).join('\n'))[0];
+    assert.equal(got.uuid, n.uuid);
+    assert.equal(got.newTab, true);
+  }
+});
+
+test('navLinksLineFrom: newTab toggles the attribute on and off', () => {
+  assert.equal(
+    navLinksLineFrom({ mode: 'path', path: 'guides', newTab: true }),
+    '<div class="mb-nav-links" data-nav-path="guides" data-nav-new-tab="true"></div>');
+  // Off restores the exact pre-feature canonical line.
+  assert.equal(
+    navLinksLineFrom({ mode: 'path', path: 'guides', newTab: false }),
+    '<div class="mb-nav-links" data-nav-path="guides"></div>');
+  assert.equal(
+    navLinksLineFrom({ mode: 'tag', tag: 'System', layout: 'flat', newTab: true }),
+    '<div class="mb-nav-links" data-nav-tag="System" data-nav-layout="flat" data-nav-new-tab="true"></div>');
+});
+
+test('replace: toggling newTab on then off keeps the span and drops the attribute', () => {
+  const md = [
+    '<span data-uuid="u1" style="display:none"></span>',
+    '<div class="mb-nav-links" data-nav-path="guides"></div>',
+  ].join('\n');
+  const on = replaceNavLinksByUUID(md, 'u1', navLinksLineFrom({ mode: 'path', path: 'guides', newTab: true }));
+  assert.equal(locateNavLinksLines(on)[0].newTab, true);
+  assert.ok(on.includes('data-uuid="u1"'));
+  const off = replaceNavLinksByUUID(on, 'u1', navLinksLineFrom({ mode: 'path', path: 'guides', newTab: false }));
+  assert.equal(off, md);
+});
+
+test('dimFields: newTab maps to navNewTab yes', () => {
+  assert.deepEqual(navLinksDimFields({ path: 'guides', newTab: true }), {
+    navMode: 'path', navPath: 'guides', navTag: '', navLayout: 'flat', navNewTab: 'yes',
+  });
+});
+
+test('parseComponents carries newTab and componentMarkdown re-emits it', () => {
+  const body = [
+    '<span data-uuid="n1" style="display:none"></span>',
+    '<div class="mb-nav-links" data-nav-path="guides" data-nav-new-tab="true"></div>',
+  ].join('\n');
+  const { components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+  assert.equal(components.length, 1);
+  assert.equal(components[0].nav.newTab, true);
+  assert.equal(componentMarkdown(components[0]), '<div class="mb-nav-links" data-nav-path="guides" data-nav-new-tab="true"></div>');
 });
 
 console.log(`\n${passed} passed`);

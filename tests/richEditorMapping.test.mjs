@@ -182,6 +182,21 @@ test('serializeWithSelection maps a caret inside a label pill to source', () => 
   const open = '<span class="mb-label mb-label-amber">';
   assert.equal(serializeWithSelection(root, sel).selStart, ('go ' + open).length + 1);
 });
+test('serialize a surface pill: the contenteditable=false attr never leaks into source', () => {
+  // The rich surface renders pills atomic (contenteditable=false); the source
+  // must stay the canonical class-only span.
+  const pill = labelEl('red', txt('Beta'));
+  pill.setAttribute('contenteditable', 'false');
+  assert.equal(serialize(el('root', pill)), LABEL('red', 'Beta'));
+});
+test('serializeWithSelection maps a selection wrapping a pill node to its full span range', () => {
+  // Range.selectNode(pill) — the surface's click gesture: anchor/focus are the
+  // parent with child-index offsets, mapping to exactly [start, end).
+  const root = el('root', txt('go '), labelEl('amber', txt('WIP')), txt(' on'));
+  const sel = { anchorNode: root, anchorOffset: 1, focusNode: root, focusOffset: 2 };
+  const { selStart, selEnd } = serializeWithSelection(root, sel);
+  assert.deepEqual([selStart, selEnd], ['go '.length, ('go ' + LABEL('amber', 'WIP')).length]);
+});
 
 // ── Lucide icon atoms ────────────────────────────────────────────────────────
 function iconEl(name, ...children) {
@@ -191,6 +206,11 @@ function iconEl(name, ...children) {
   return s;
 }
 
+test('serialize a label pill containing a painted icon atom → shortcode inside the span', () => {
+  const pill = labelEl('green', iconEl('check', el('svg', el('path', txt('stray')))), txt(' Done'));
+  pill.setAttribute('contenteditable', 'false');
+  assert.equal(serialize(el('root', pill)), LABEL('green', ':lucide-check: Done'));
+});
 test('serialize an icon span → its :lucide-name: shortcode', () => {
   assert.equal(serialize(el('root', txt('a '), iconEl('check'), txt(' b'))), 'a :lucide-check: b');
 });

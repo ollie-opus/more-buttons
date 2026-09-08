@@ -17,7 +17,7 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { captureGrid, captureSizeField, wireCaptureSizeField, readCaptureSizeField, captureRadioField, captureThemeField, captureCornerField, capturePathField, captureUploadField, readMediaFile, mediaFileExt } from './captureCards.js';
 import { videoCard, videoBasePath } from './videoCards.js';
 import { formLoading } from './loading.js';
-import { buildUsagePanelHtml, wireUsagePanel } from './usagePanel.js';
+import { buildUsagePanelHtml, wireUsagePanel, deleteMediaEntry } from './usagePanel.js';
 
 const STRIP = 'docs/assets/';
 const stripPrefix = (p) => (p && p.startsWith(STRIP) ? p.slice(STRIP.length) : p);
@@ -53,7 +53,8 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
   if (titleEl) titleEl.textContent = insertMode ? `Insert video — ${base}` : base;
 
   let lightUrl = '', darkUrl = '';
-  let usageHtml = ''; // "Used on pages" block, loaded once per open (browse only)
+  // "Used on pages" block + delete gate, loaded once per open (browse only).
+  let usage = { html: '', unused: false };
   const revoke = (u) => { if (u?.startsWith('blob:')) URL.revokeObjectURL(u); };
 
   async function loadBlobs() {
@@ -85,12 +86,17 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
           + captureRadioField('videoPlayback', 'Playback', [['animation', 'Animation', true], ['clip', 'Clip', false]])
           + (isSingle ? '' : captureThemeField())
           + captureCornerField()
-        : usageHtml);
+        : usage.html);
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
       ? `<button type="button" class="more-buttons-button secondary" data-video-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
          <button type="button" class="more-buttons-button" data-video-entry-insert><span class="more-buttons-icon">add</span>Insert this video</button>`
-      : `<button type="button" class="more-buttons-button" data-video-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>`;
+      : `<button type="button" class="more-buttons-button" data-video-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>` +
+        // Only offered when the usage index confirms zero pages/drafts
+        // reference the file(s) (fails closed on a usage-load error).
+        (usage.unused
+          ? `<button type="button" class="more-buttons-button danger" data-video-entry-delete><span class="more-buttons-icon">delete</span>Delete video</button>`
+          : '');
   }
 
   // ── Replace via upload — the browse flavour's two extra views, mirroring
@@ -214,6 +220,13 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
     else if (e.target.closest('[data-video-entry-cancel]')) navigateBack();
     else if (e.target.closest('[data-video-entry-upload]')) renderUploadPicker();
     else if (e.target.closest('[data-video-entry-save]')) saveChanges();
+    else if (e.target.closest('[data-video-entry-delete]')) {
+      deleteMediaEntry({
+        button: e.target.closest('[data-video-entry-delete]'),
+        noun: 'video', label: base,
+        paths: isSingle ? [primaryPath] : [primaryPath, pairDarkPath],
+      });
+    }
     else if (e.target.closest('[data-video-entry-cancel-replace]')) {
       if (busy) return;
       pendingReplace = null;
@@ -225,7 +238,7 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
     wireUsagePanel(formEl);
     formLoading.show();
     try {
-      usageHtml = await buildUsagePanelHtml(isSingle ? [primaryPath] : [primaryPath, pairDarkPath]);
+      usage = await buildUsagePanelHtml(isSingle ? [primaryPath] : [primaryPath, pairDarkPath]);
     } finally {
       formLoading.dismiss();
     }

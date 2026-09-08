@@ -17,8 +17,9 @@ import { formLoading } from './loading.js';
 import { enterCaptureMode } from './captureMode.js';
 import { githubPushImageIfNotExists, githubReplaceImage, githubPathExists } from './github.js';
 import { captureBasePath } from './captureCards.js';
-import { writeCaptureMeta, captureFlagSuffix } from './captureMeta.js';
-import { readRepoBlob } from './repoClient.js';
+import { writeCaptureMeta, readCaptureMeta, captureFlagSuffix } from './captureMeta.js';
+import { readRepoBlob, readRepoDataUrl } from './repoClient.js';
+import { OCC_DIR, SU_DIR, isSystemUpdateContainer, isSystemUpdateCapturePath, shortId, toSystemUpdateFilename } from './captureDest.js';
 import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { generateUUID } from './admonitions.js';
 import { getComponentContainer } from './componentContainers.js';
@@ -84,10 +85,12 @@ export function resolveCaptures(list) {
     if (c.lightDataUrl && c.addToLibrary === false) {
       const id = generateUUID();
       const suffix = captureFlagSuffix(!!c.annotated, !!c.zapped, c.annotationNames || []);
+      // Keep the pair's extension (.png screenshots, .svg extracts).
+      const ext = c.lightFilename?.match(/\.([a-z0-9]+)$/)?.[1] ?? 'png';
       return {
         ...c,
-        lightFilename: `media/occ-captures/uncategorised/${id}${suffix}-light-mode.png`,
-        darkFilename:  `media/occ-captures/uncategorised/${id}${suffix}-dark-mode.png`,
+        lightFilename: `media/occ-captures/uncategorised/${id}${suffix}-light-mode.${ext}`,
+        darkFilename:  `media/occ-captures/uncategorised/${id}${suffix}-dark-mode.${ext}`,
       };
     }
     return c;
@@ -189,10 +192,40 @@ export async function overwriteCapturePair({ lightPath, darkPath, lightExists, d
 // ask the container (via the componentContainers registry) to splice a capture
 // component into its ordered list at `insertAt`. The open editor then re-renders.
 
+// System updates are frozen snapshots: a library pair picked into one is
+// duplicated into media/system-update-captures/ under a fresh short id (bytes
+// + manifest entry) so a later recapture of the guide original never rewrites
+// the update. Pairs already in the frozen folder are referenced as-is.
+async function duplicateCaptureForSystemUpdate(c) {
+  const srcLight = `docs/assets/${c.lightFilename}`;
+  const srcDark = `docs/assets/${c.darkFilename}`;
+  const [lightDataUrl, darkDataUrl, manifest] = await Promise.all([
+    readRepoDataUrl(srcLight),
+    readRepoDataUrl(srcDark),
+    readCaptureMeta(),
+  ]);
+  const meta = manifest[srcLight] ?? {};
+  const id8 = shortId();
+  return {
+    ...c,
+    lightDataUrl,
+    darkDataUrl,
+    lightFilename: toSystemUpdateFilename(c.lightFilename, id8),
+    darkFilename: toSystemUpdateFilename(c.darkFilename, id8),
+    resized: !!meta.resized,
+    padding: meta.padding || 0,
+    annotated: !!meta.annotated,
+    zapped: !!meta.zapped,
+  };
+}
+
 async function commitCapturesIntoContainer(container, insertAt, capList) {
   const handler = getComponentContainer(container.kind);
   if (!handler) return [];
-  const resolved = resolveCaptures(capList);
+  const toPush = isSystemUpdateContainer(container)
+    ? await Promise.all(capList.map(c => (isSystemUpdateCapturePath(c.lightFilename) ? c : duplicateCaptureForSystemUpdate(c))))
+    : capList;
+  const resolved = resolveCaptures(toPush);
   await pushCaptures(resolved);
   const caps = resolved.map(c => ({
     uuid: generateUUID(),
@@ -258,6 +291,17 @@ registerFormAction('completeComponentInsert', async ({ capture } = {}) => {
 // failure, fail loudly and land back on the origin form.
 async function finishComponentCapture({ container, insertAt, snapshot, sessionBuffer }) {
   const capture = sessionBuffer[0];
+  // System updates: rename the derived occ-captures path into the frozen flat
+  // folder under a fresh short id. The name cannot pre-exist, so there is no
+  // library branch to probe for — straight to the new-capture review form.
+  if (isSystemUpdateContainer(container)) {
+    const id8 = shortId();
+    capture.lightFilename = toSystemUpdateFilename(capture.lightFilename, id8);
+    capture.darkFilename = toSystemUpdateFilename(capture.darkFilename, id8);
+    pendingComponentInsert = { snapshot, container, insertAt };
+    await getFormAction('openCaptureInsertNew')?.({ capture, dir: SU_DIR });
+    return;
+  }
   const lightPath = `docs/assets/${capture.lightFilename}`;
   const darkPath = `docs/assets/${capture.darkFilename}`;
   formLoading.show();
@@ -276,7 +320,7 @@ async function finishComponentCapture({ container, insertAt, snapshot, sessionBu
         origin: 'captureMode',
       });
     } else {
-      await getFormAction('openCaptureInsertNew')?.({ capture });
+      await getFormAction('openCaptureInsertNew')?.({ capture, dir: OCC_DIR });
     }
   } catch (e) {
     alert('Failed to check the capture library: ' + e.message);
@@ -406,8 +450,19 @@ registerFormAction('reenterComponentCapture', () => {
 // "Add from library" → pick a library capture → review form → commit at idx.
 // accept 'capture' narrows the library to theme PAIRS, so only occ-captures
 // (and any folder holding pairs) shows — singles belong to the Image insert.
+// Guides never reference the frozen system-update folder, so its tab is
+// hidden for them; a system update sees both (an occ pick is duplicated on
+// commit, see commitCapturesIntoContainer).
 export function runComponentLibraryInsert({ container, insertAt }) {
   pendingComponentInsert = { snapshot: snapshotFormStack(), container, insertAt };
-  return getFormAction('openMediaLibrary')?.({ mode: 'insert', accept: 'capture' });
+  const frozen = isSystemUpdateContainer(container);
+  return getFormAction('openMediaLibrary')?.({
+    mode: 'insert',
+    accept: 'capture',
+    excludeTabs: frozen ? [] : [SU_DIR],
+    // Tells the library to explain, on every other tab, that the pick will be
+    // copied into the frozen folder rather than referenced.
+    duplicateTo: frozen ? SU_DIR : null,
+  });
 }
 

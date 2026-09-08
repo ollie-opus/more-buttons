@@ -1,4 +1,5 @@
 import { registerFormAction } from './formActions.js';
+import { markRequiredFields, showFieldError } from './formValidation.js';
 import { githubFetchAndPush, githubFetchAndPushFile } from './github.js';
 import { writeStatusBanner, writeMaintenanceKeys } from './navToml.js';
 import { readRepoText } from './repoClient.js';
@@ -11,7 +12,7 @@ import {
   insertMaintenanceBlock, deleteMarkdownEvent,
   recalculateServiceStatuses, updateMarkdownServices,
   deriveBannerStatus, deriveMaintenanceWindow, maintenancePhase, toIsoWithOffset,
-  ALL_SERVICES, normalizeServiceSelection,
+  ALL_SERVICES, normalizeServiceSelection, servicesToSelectionArray,
 } from './statusEvents.js';
 
 // All the markdown grammar/mutation logic lives in statusEvents.js (a pure
@@ -203,6 +204,7 @@ function serviceChip(value) {
   cb.type = 'checkbox';
   cb.name = 'services';
   cb.value = value;
+  cb.required = true; // group-validated by formValidation (once per name)
   label.appendChild(cb);
   label.append(' ' + value);
   return { label, cb };
@@ -235,6 +237,10 @@ function injectServiceCheckboxes(formEl, containerSelector, names) {
     return cb;
   });
   if (!boxes.length) { allBox.parentElement.remove(); separator.remove(); return; }
+
+  // Second pass for the auto-star: form.js ran markRequiredFields before these
+  // chips existed, so the services label needs marking now (idempotent).
+  markRequiredFields(formEl);
 
   let remembered = [];
   const lock = on => boxes.forEach(cb => { cb.disabled = on; if (on) cb.checked = true; });
@@ -292,9 +298,9 @@ registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) 
   const btn = content.querySelector('[data-action="submitReportIncident"]');
   // Validate before going busy so a missing field doesn't flash the amber state.
   const services = selectedServices(formEl);
-  if (!services) { alert('Please select at least one service.'); return; }
+  if (!services) { showFieldError(formEl, formEl.querySelector('[name="services"]'), 'Select at least one service.'); return; }
   const impact = formEl.querySelector('[name="impact"]:checked')?.value;
-  if (!impact) { alert('Please select a service impact.'); return; }
+  if (!impact) { showFieldError(formEl, formEl.querySelector('[name="impact"]'), 'Select a service impact.'); return; }
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Publishing…');
   try {
@@ -329,7 +335,8 @@ registerFormAction('openUpdateIncident', async ({ uuid }) => {
 
   await chrome.storage.local.set({
     moreButtonsUpdateIncident: {
-      incidentTitle: inc.services,
+      services:      servicesToSelectionArray(inc.services),
+      impact:        inc.impact,
       description:   inc.description,
       currentStatus: inc.currentStatus,
       reported:      (inc.reported || '').replace(' ', 'T'),
@@ -339,7 +346,9 @@ registerFormAction('openUpdateIncident', async ({ uuid }) => {
   });
 
   const { formEl: updateFormEl } = await createForm('updateIncident');
-  if (updateFormEl) updateFormEl.dataset.editUuid = uuid;
+  if (!updateFormEl) return;
+  updateFormEl.dataset.editUuid = uuid;
+  injectServiceCheckboxes(updateFormEl, '#update-incident-services', markdown ? parseServiceNames(markdown) : []);
 });
 
 registerFormAction('openEditPastIncident', async ({ uuid }) => {
@@ -350,7 +359,8 @@ registerFormAction('openEditPastIncident', async ({ uuid }) => {
 
   await chrome.storage.local.set({
     moreButtonsUpdateIncident: {
-      incidentTitle:   inc.services,
+      services:        servicesToSelectionArray(inc.services),
+      impact:          inc.impact,
       description:     inc.description,
       currentStatus:   inc.currentStatus || 'resolved',
       reported:        (inc.reported || '').replace(' ', 'T'),
@@ -360,11 +370,18 @@ registerFormAction('openEditPastIncident', async ({ uuid }) => {
   });
 
   const { formEl: updateFormEl } = await createForm('updateIncident');
-  if (updateFormEl) updateFormEl.dataset.editUuid = uuid;
+  if (!updateFormEl) return;
+  updateFormEl.dataset.editUuid = uuid;
+  injectServiceCheckboxes(updateFormEl, '#update-incident-services', markdown ? parseServiceNames(markdown) : []);
 });
 
 registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) => {
   const btn = content.querySelector('[data-action="submitUpdateIncident"]');
+  // Validate before going busy so a missing field doesn't flash the amber state.
+  const services = selectedServices(formEl);
+  if (!services) { showFieldError(formEl, formEl.querySelector('[name="services"]'), 'Select at least one service.'); return; }
+  const impact = formEl.querySelector('[name="impact"]:checked')?.value;
+  if (!impact) { showFieldError(formEl, formEl.querySelector('[name="impact"]'), 'Select a service impact.'); return; }
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Saving…');
   try {
@@ -375,6 +392,8 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
     const resolvedRaw = formEl.querySelector('[name="resolved"]')?.value ?? '';
     const resolvedValue = currentStatus === 'resolved' && !resolvedRaw ? nowLocalStamp() : resolvedRaw;
     const update = {
+      services,
+      impact,
       description:   formEl.querySelector('[name="description"]')?.value.trim() ?? '',
       currentStatus,
       reported:      reportedRaw.replace('T', ' '),
@@ -442,11 +461,13 @@ registerFormAction('submitReportMaintenance', async ({ formEl, content, cleanup 
   // the amber state; the already-ended confirm below is the one exception, since
   // the phase can only be derived once the event object exists.
   const services = selectedServices(formEl);
-  if (!services) { alert('Please select at least one service.'); return; }
-  const startRaw = formEl.querySelector('[name="scheduledStart"]')?.value ?? '';
-  const endRaw = formEl.querySelector('[name="scheduledEnd"]')?.value ?? '';
-  if (!startRaw || !endRaw) { alert('Please set both a scheduled start and end.'); return; }
-  if (endRaw <= startRaw) { alert('Scheduled end must be after the scheduled start.'); return; }
+  if (!services) { showFieldError(formEl, formEl.querySelector('[name="services"]'), 'Select at least one service.'); return; }
+  const startInput = formEl.querySelector('[name="scheduledStart"]');
+  const endInput = formEl.querySelector('[name="scheduledEnd"]');
+  const startRaw = startInput?.value ?? '';
+  const endRaw = endInput?.value ?? '';
+  if (!startRaw || !endRaw) { showFieldError(formEl, startRaw ? endInput : startInput, 'Set both a scheduled start and end.'); return; }
+  if (endRaw <= startRaw) { showFieldError(formEl, endInput, 'Scheduled end must be after the scheduled start.'); return; }
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Publishing…');
   try {
@@ -482,16 +503,17 @@ registerFormAction('openUpdateMaintenance', async ({ uuid }) => {
 
   await chrome.storage.local.set({
     moreButtonsUpdateMaintenance: {
-      maintenanceTitle: evt.services,
-      description:      evt.description,
-      scheduledStart:   (evt.start || '').replace(' ', 'T'),
-      scheduledEnd:     (evt.end || '').replace(' ', 'T'),
+      services:       servicesToSelectionArray(evt.services),
+      description:    evt.description,
+      scheduledStart: (evt.start || '').replace(' ', 'T'),
+      scheduledEnd:   (evt.end || '').replace(' ', 'T'),
     }
   });
 
   const { formEl: updateFormEl } = await createForm('updateMaintenance');
   if (!updateFormEl) return;
   updateFormEl.dataset.editUuid = uuid;
+  injectServiceCheckboxes(updateFormEl, '#update-maintenance-services', markdown ? parseServiceNames(markdown) : []);
   // Completing early only makes sense mid-window: an early end for an upcoming
   // event would land before its start, and past events are already done.
   if (maintenancePhase(evt, new Date()) !== 'in progress') {
@@ -507,16 +529,21 @@ registerFormAction('openUpdateMaintenance', async ({ uuid }) => {
  */
 async function saveMaintenanceUpdate(formEl, btn) {
   // Validate before going busy so a bad window doesn't flash the amber state.
-  const startRaw = formEl.querySelector('[name="scheduledStart"]')?.value ?? '';
-  const endRaw = formEl.querySelector('[name="scheduledEnd"]')?.value ?? '';
-  if (!startRaw || !endRaw) { alert('Please set both a scheduled start and end.'); return; }
-  if (endRaw <= startRaw) { alert('Scheduled end must be after the scheduled start.'); return; }
+  const services = selectedServices(formEl);
+  if (!services) { showFieldError(formEl, formEl.querySelector('[name="services"]'), 'Select at least one service.'); return; }
+  const startInput = formEl.querySelector('[name="scheduledStart"]');
+  const endInput = formEl.querySelector('[name="scheduledEnd"]');
+  const startRaw = startInput?.value ?? '';
+  const endRaw = endInput?.value ?? '';
+  if (!startRaw || !endRaw) { showFieldError(formEl, startRaw ? endInput : startInput, 'Set both a scheduled start and end.'); return; }
+  if (endRaw <= startRaw) { showFieldError(formEl, endInput, 'Scheduled end must be after the scheduled start.'); return; }
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Saving…');
   try {
     const _uuid = formEl.dataset.editUuid;
     if (!_uuid) throw new Error('No maintenance UUID found');
     const update = {
+      services,
       description:   formEl.querySelector('[name="description"]')?.value.trim() ?? '',
       start:         startRaw.replace('T', ' '),
       end:           endRaw.replace('T', ' '),

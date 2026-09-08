@@ -11,8 +11,8 @@
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Service Impact</label>
     <div class="more-buttons-radio-btn-group-row">
-      <label class="more-buttons-radio-btn --amber"><input type="radio" name="impact" value="disruption" /> Disruption</label>
-      <label class="more-buttons-radio-btn --red"><input type="radio" name="impact" value="outage" /> Outage</label>
+      <label class="more-buttons-radio-btn --amber"><input type="radio" name="impact" value="disruption" required /> Disruption</label>
+      <label class="more-buttons-radio-btn --red"><input type="radio" name="impact" value="outage" required /> Outage</label>
     </div>
   </div>
 
@@ -45,6 +45,6 @@
   </div>
 
   <div class="more-buttons-form-actions">
-    <button type="button" class="more-buttons-button publish" data-action="submitReportIncident"><span class="more-buttons-icon">verified</span>Publish Incident</button>
+    <button type="button" class="more-buttons-button publish" data-validate data-action="submitReportIncident"><span class="more-buttons-icon">verified</span>Publish Incident</button>
   </div>
 </form>

@@ -99,4 +99,15 @@ test('strips theme suffixes for both png and svg', () => {
   assert.equal(captureBasePath('media/occ-captures/sites/foo-dark-mode.svg'), 'sites/foo');
 });
 
+test('strips the frozen system-update folder prefix to a flat base', () => {
+  assert.equal(captureBasePath('docs/assets/media/system-update-captures/foo-ab12cd34-light-mode.png'), 'foo-ab12cd34');
+  assert.equal(captureBasePath('media/system-update-captures/foo-ab12cd34-dark-mode.svg'), 'foo-ab12cd34');
+});
+
+test('theme tail strip is extension-agnostic; unknown folders are left intact', () => {
+  assert.equal(captureBasePath('media/occ-captures/sites/foo-light-mode.gif'), 'sites/foo');
+  assert.equal(captureBasePath('docs/assets/media/other/foo-light-mode.png'), 'docs/assets/media/other/foo');
+  assert.equal(captureBasePath(''), '');
+});
+
 console.log(`\n${passed} passed`);

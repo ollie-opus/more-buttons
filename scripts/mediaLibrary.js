@@ -1,12 +1,14 @@
 import { createForm, snapshotFormStack } from './form.js';
 import { enterCaptureMode } from './captureMode.js';
+import { normalizedPagePathSegments } from './captureElement.js';
 import { REPO, authHeader, assetCdnUrl } from './repoClient.js';
 import { renderTree, applySearch } from './kbTree.js';
-import { buildMediaNodes, groupMediaPaths } from './mediaTree.js';
+import { buildMediaNodes, groupMediaPaths, humanizeSegment as humanizeKey } from './mediaTree.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { MANIFEST_PATH, readCaptureMeta, captureMetaPills } from './captureMeta.js';
 import { USAGE_INDEX_PATH } from './mediaUsage.js';
 import { formLoading } from './loading.js';
+import { PAIR_DIRS, isSystemUpdateCapturePath } from './captureDest.js';
 
 // The library mirrors this repo folder: every top-level subfolder becomes a
 // tab, so adding a folder in the repo adds a tab here with no code change.
@@ -42,22 +44,31 @@ async function listMediaPaths() {
 }
 
 
-// Append RESIZED / PADDED pills (captures with manifest metadata) and the grey
-// file-format pill (every leaf, videos included) to the media tree. Mirrors
-// decorateKbPills in knowledgeBaseManagement.js. Meta is keyed by the leaf's
-// light path; pass {} for tabs outside occ-captures, which have no manifest.
+// Append RESIZED / PADDED pills (captures with manifest metadata), the purple
+// System update pill (anything inside the frozen folder, singles included) and
+// the grey file-format pill (every leaf, videos included) to the media tree.
+// Mirrors decorateKbPills in knowledgeBaseManagement.js. Meta is keyed by the
+// leaf's light path; pass {} for tabs outside the pair folders, which have no
+// manifest.
 function decorateCapturePills(panel, meta) {
   panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
     const lightPath = leaf.dataset.mediaLight;
-    const html = captureMetaPills(lightPath ? meta[lightPath] : null, leaf.dataset.mediaExt);
+    const anyPath = lightPath || leaf.dataset.mediaSingle;
+    const html = captureMetaPills(lightPath ? meta[lightPath] : null, leaf.dataset.mediaExt,
+      { systemUpdate: isSystemUpdateCapturePath(anyPath) });
     if (html) leaf.insertAdjacentHTML('beforeend', html);
   });
 }
 
-export async function openMediaLibrary({ mode, accept } = {}) {
+// `excludeTabs`: folder keys to hide for this open (e.g. the frozen
+// system-update folder when a guide inserts from the library). `duplicateTo`:
+// the folder key a pick will be COPIED into (a system update inserting from
+// the library) — every other tab then carries a notice saying so. Both are
+// plain data so the opener replays.
+export async function openMediaLibrary({ mode, accept, excludeTabs = [], duplicateTo = null } = {}) {
   const insertMode = mode === 'insert';
   const filter = ACCEPT[accept] ?? null; // null = browse: every file shows
-  const opener = () => openMediaLibrary({ mode, accept });
+  const opener = () => openMediaLibrary({ mode, accept, excludeTabs, duplicateTo });
   const { formEl } = await createForm('mediaLibrary', opener);
   if (!formEl) return;
 
@@ -66,6 +77,8 @@ export async function openMediaLibrary({ mode, accept } = {}) {
   // route away from this form, so hide them in insert mode and on other tabs.
   const createBtn = contentEl.querySelector('[data-action="startLibraryCapture"]');
   const uploadBtn = contentEl.querySelector('[data-action="startLibraryUpload"]');
+  const filterBtn = contentEl.querySelector('[data-media-filter-page]');
+  const dockSep = contentEl.querySelector('.mb-dock-sep');
   const tabList = formEl.querySelector('[data-media-library-tabs]');
   const panel = formEl.querySelector('[data-media-library-panel]');
   if (!panel || !tabList) return;
@@ -84,7 +97,8 @@ export async function openMediaLibrary({ mode, accept } = {}) {
     captureMeta = meta;
     tabs = groupMediaPaths(paths, MEDIA_ROOT)
       .map(group => ({ ...group, nodes: buildMediaNodes(group.paths, { root: group.root, exts: filter?.exts ?? null, shape: filter?.shape ?? null }) }))
-      .filter(tab => tab.nodes.length);
+      .filter(tab => tab.nodes.length)
+      .filter(tab => !excludeTabs.includes(tab.key));
   } catch (e) {
     panel.innerHTML = `<p class="more-buttons-description">Failed to load media: ${e.message}</p>`;
     return;
@@ -107,21 +121,65 @@ export async function openMediaLibrary({ mode, accept } = {}) {
     // folder (its form has a destination dropdown), so it shows on every tab.
     createBtn?.style.setProperty('display', (insertMode || current !== CAPTURE_TAB_KEY) ? 'none' : '');
     uploadBtn?.style.setProperty('display', insertMode ? 'none' : '');
+    // Insert mode hides both buttons left of the divider — hide it too so the
+    // Filter button (which survives every mode) never trails a lone hairline.
+    dockSep?.style.setProperty('display', insertMode ? 'none' : '');
+  }
+
+  // "Filter to current page": the page's normalized path (same rule that names
+  // capture folders — normalizedPagePathSegments) applied as a root-anchored
+  // path query via the tree's own search box, so the filter is visible,
+  // hand-editable, and reuses applySearch's path mode wholesale. The leading
+  // '/' forces path mode even for a single-segment page.
+  const pageFilterQuery = '/' + normalizedPagePathSegments().join('/');
+  let pageFilterOn = false;
+
+  function syncPageFilter() {
+    filterBtn?.classList.toggle('magenta', pageFilterOn);
+    const searchEl = formEl.querySelector('.mb-kb-search');
+    const tree = panel.querySelector('.mb-kb-tree');
+    if (!searchEl || !tree) return;
+    searchEl.value = pageFilterOn ? pageFilterQuery : '';
+    applySearch(tree, searchEl.value);
+  }
+
+  // Shown above the tree on any tab whose picks get copied into `duplicateTo`
+  // (system updates keep frozen snapshots, never live references).
+  function duplicateNotice() {
+    if (!insertMode || !duplicateTo || current === duplicateTo) return '';
+    const target = tabs.find(t => t.key === duplicateTo)?.label ?? humanizeKey(duplicateTo);
+    return `<p class="more-buttons-info mb-media-notice">Captures used in system updates are intended to be a snapshot in time. When a capture is selected from this tab, it is duplicated into <strong>${target}</strong>. This ensures that any subsequent recaptures of the original do not propagate through to the system update.</p>`;
   }
 
   function renderPanel() {
     syncChrome();
     const tab = tabs.find(t => t.key === current);
-    panel.innerHTML = renderTree(tab?.nodes ?? [], { emptyMessage: 'No media found.' });
+    panel.innerHTML = duplicateNotice() + renderTree(tab?.nodes ?? [], { emptyMessage: 'No media found.' });
     if (!tab) return;
-    decorateCapturePills(panel, current === CAPTURE_TAB_KEY ? captureMeta : {});
+    decorateCapturePills(panel, PAIR_DIRS.includes(current) ? captureMeta : {});
+    // Tab switches rebuild the tree and its search box; carry the filter over.
+    syncPageFilter();
   }
 
   formEl.addEventListener('input', e => {
     const searchEl = e.target.closest('.mb-kb-search');
     if (!searchEl) return;
+    // Hand-editing away from the filter query means the user took over the
+    // search — drop the toggle highlight rather than fight them for the box.
+    if (pageFilterOn && searchEl.value !== pageFilterQuery) {
+      pageFilterOn = false;
+      filterBtn?.classList.remove('magenta');
+    }
     const tree = panel.querySelector('.mb-kb-tree');
     if (tree) applySearch(tree, searchEl.value);
+  });
+
+  // The dock lives on the overlay-content wrapper (form.js relocates
+  // .more-buttons-form-actions out of the form), so delegate on contentEl.
+  contentEl.addEventListener('click', e => {
+    if (!e.target.closest('[data-media-filter-page]')) return;
+    pageFilterOn = !pageFilterOn;
+    syncPageFilter();
   });
 
   formEl.addEventListener('click', e => {

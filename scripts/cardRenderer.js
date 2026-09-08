@@ -1,6 +1,7 @@
-import { renderDocHtml } from './markdownInline.js';
+import { renderDocHtml, iconTextHtml } from './markdownInline.js';
 import { assetCdnUrl } from './repoClient.js';
 import { ADMONITION_TYPE_LABELS, ADMONITION_TYPE_COLOURS } from './admonitions.js';
+import { isGrooveOnclick } from './mdButtons.js';
 
 export function escapeHtml(str) {
   return (str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -11,18 +12,19 @@ export function escapeHtml(str) {
 const LABEL_SPAN_RE = /<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/span>/g;
 
 // Escapes a title for card HTML while re-emitting its label pills as real
-// spans (colours painted afterwards via paintLabels). Anything that isn't a
+// spans and its `:lucide-*:` shortcodes (inside or outside a pill) as icon
+// atoms — both painted afterwards via paintInlineAtoms. Anything that isn't a
 // canonical pill — including malformed/partial spans — is escaped to text.
 export function titleWithLabelsHtml(title) {
   const src = title ?? '';
   let out = '';
   let last = 0;
   for (const m of src.matchAll(LABEL_SPAN_RE)) {
-    out += escapeHtml(src.slice(last, m.index));
-    out += `<span class="mb-label mb-label-${m[1]}">${escapeHtml(m[2])}</span>`;
+    out += iconTextHtml(src.slice(last, m.index), escapeHtml);
+    out += `<span class="mb-label mb-label-${m[1]}">${iconTextHtml(m[2], escapeHtml)}</span>`;
     last = m.index + m[0].length;
   }
-  return out + escapeHtml(src.slice(last));
+  return out + iconTextHtml(src.slice(last), escapeHtml);
 }
 
 // Whole-line uuid spans first (eats the leading indent of nested-in-nested
@@ -84,11 +86,13 @@ function subPreviewHtml(sub) {
     case 'grid':
       return subCard('teal', escapeHtml('Grid'), 'Grid', escapeHtml(`${sub.cells} cell${sub.cells === 1 ? '' : 's'} — ${sub.flavor === 'card' ? 'Cards' : 'Plain'}`));
     case 'button':
-      return subCard('grey', escapeHtml((sub.label ?? '').trim() || (sub.destination ?? '').trim() || '(no label)'), 'Button');
+      return subCard('grey', escapeHtml((sub.label ?? '').trim() || (sub.groove ? 'Groove support' : (sub.destination ?? '').trim()) || '(no label)'), 'Button');
     case 'navlinks':
       return subCard('grey', escapeHtml((sub.text ?? '').trim() || '(no path)'), 'Nav links');
     case 'diagram':
       return subCard('grey', escapeHtml('Diagram'), 'Diagram');
+    case 'codeblock':
+      return subCard('grey', escapeHtml((sub.title ?? '').trim() || (sub.language ?? '').trim() || 'Code block'), 'Code');
     default:
       return '';
   }
@@ -206,15 +210,18 @@ export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyA
 // " · Force dark" / " · Border light only"-style suffixes for non-default theme
 // and border), and an Edit button. Legacy colourless buttons fall back to the
 // old Primary/Secondary tag.
-export function buttonComponentCard({ label, destination, primary, colour, theme, border, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
-  const text = (label ?? '').trim() || (destination ?? '').trim() || '(no label)';
+export function buttonComponentCard({ label, destination, primary, colour, theme, border, onclick, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+  const groove = isGrooveOnclick(onclick);
+  // A groove button's destination is a meaningless `#` — name it instead.
+  const text = (label ?? '').trim() || (groove ? 'Groove support' : (destination ?? '').trim()) || '(no label)';
   const themeLabels = { inversed: 'Inversed', 'force-light': 'Force light', 'force-dark': 'Force dark' };
   const borderLabels = { bordered: 'Bordered', 'border-light': 'Border light only', 'border-dark': 'Border dark only', borderless: 'Borderless' };
-  const tag = colour
+  const tag = (colour
     ? colour.charAt(0).toUpperCase() + colour.slice(1)
       + (themeLabels[theme] ? ` · ${themeLabels[theme]}` : '')
       + (borderLabels[border] ? ` · ${borderLabels[border]}` : '')
-    : (primary ? 'Primary' : 'Secondary');
+    : (primary ? 'Primary' : 'Secondary'))
+    + (groove ? ' · Groove' : '');
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
@@ -266,6 +273,32 @@ export function diagramComponentCard({ btnAttr, btnLabel = 'Edit', copyAttr = ''
   </div>`;
 }
 
+// A "Code block" component card: grey chrome, a "Code" badge, the block's
+// title (or language, or a static "Code block") as the card title, and the
+// language rendered in the grey format-pill slot. The highlighted block itself
+// renders on the published site, so the card is a labelled placeholder like
+// the diagram's.
+export function codeBlockComponentCard({ title = '', language = '', btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+  const t = (title ?? '').trim();
+  const lang = (language ?? '').trim();
+  const heading = t || lang || 'Code block';
+  // The language pill (no leading dot — it's a language id, not a file ext)
+  // only earns its place when a title occupies the heading.
+  const langPill = (t && lang)
+    ? `<span class="mb-kb-pills"><span class="mb-kb-pill --format">${escapeHtml(lang)}</span></span>` : '';
+  return `
+  <div class="mb-incident-card --grey mb-component-card--capture">
+    <div class="mb-incident-card__head">
+      <strong class="mb-incident-card__title">${escapeHtml(heading)}</strong>
+      <span class="mb-incident-card__head-tags"><span class="mb-incident-card__badge">Code</span>${langPill}</span>
+    </div>
+    <div class="mb-incident-card__foot --end">
+      ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+    </div>
+  </div>`;
+}
+
 // A capture rendered as a card matching the admonition cards: neutral/grey,
 // "CAPTURE" badge top-right, a thumbnail preview, and an Edit button. Used in the
 // unified Components list. `thumbSrc` is the light-mode image (CDN url for an
@@ -307,6 +340,34 @@ export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', cop
 
 // Lowercased file extension of a media filename/path, or '' when there isn't
 // one (e.g. a data: url). For the component cards' format pill.
+// ── Vertical list chrome (shared by the component list and the grid cell list) ──
+
+/**
+ * The hover-revealed "+ Insert" bar rendered between list items. `attr` is the
+ * data attribute carrying the insert index (delegated by the host form's click
+ * handler); `label` is the bar's button text.
+ */
+export function insertTriggerHtml(idx, { attr, label }) {
+  return `<div class="mb-insert-component" ${attr}="${idx}"><button type="button" class="mb-insert-component__btn">${label}</button></div>`;
+}
+
+/**
+ * Wraps a card with the vertical up/down reorder rail on its left edge.
+ * `rowAttrs` is the raw attribute string identifying the row (e.g.
+ * `data-component-uuid="…"`); `moveAttr` is the data attribute the rail buttons
+ * carry ("up" / "down"), delegated by the host form.
+ */
+export function railRowHtml({ rowAttrs, isFirst, isLast, moveAttr, cardHtml }) {
+  return `
+    <div class="mb-component-row" ${rowAttrs}>
+      <div class="mb-component-rail">
+        <button type="button" class="mb-component-rail__btn" ${moveAttr}="up" ${isFirst ? 'disabled' : ''} aria-label="Move up">↑</button>
+        <button type="button" class="mb-component-rail__btn" ${moveAttr}="down" ${isLast ? 'disabled' : ''} aria-label="Move down">↓</button>
+      </div>
+      ${cardHtml}
+    </div>`;
+}
+
 export function fileExtOf(path) {
   return /\.([a-z0-9]+)$/i.exec(path || '')?.[1]?.toLowerCase() ?? '';
 }

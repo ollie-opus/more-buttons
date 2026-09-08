@@ -32,7 +32,8 @@
  *     path is the single recovery mechanism.
  */
 
-import { installSelector, screenshotElement, enterResizeMode, getElementLabel, slugifyLabel } from './captureElement.js';
+import { installSelector, screenshotElement, enterResizeMode, nudgeActiveResize, getElementLabel, slugifyLabel } from './captureElement.js';
+import { extractSvgForTheme } from './svgExtract.js';
 import { getFormAction } from './formActions.js';
 import { captureSizeField, wireCaptureSizeField, readCaptureSizeField } from './captureCards.js';
 import { captureFlagSuffix, appendCaptureSuffix, captureBaseSlug } from './captureMeta.js';
@@ -126,7 +127,7 @@ async function loadSettings() {
   const s = stored[STORAGE_KEY] ?? {};
   return {
     resizeMode:       false, // ephemeral — never restored from storage
-    pickMode:         'capture', // 'capture' | 'annotate' | 'zap'; ephemeral — never restored
+    pickMode:         'capture', // 'capture' | 'annotate' | 'zap' | 'extract'; ephemeral — never restored
     annotateColour:   ANNOTATE_DEFAULT_SLUG, // session-scoped — restored from sessionStorage only, so fresh sessions start green
     capturePadding:   0,
     forceResizeMode:  'none', // ephemeral; bar "Force Resize" advanced setting
@@ -170,6 +171,10 @@ function buildBar({ settings }) {
         title="Shift + click deletes the element from the page" aria-pressed="false">
         <span class="more-buttons-icon" aria-hidden="true">bolt</span>Zapper
       </button>
+      <button type="button" class="mb-capture-bar__mode-btn" data-mode-extract
+        title="Shift + click extracts the SVG icon as light/dark files" aria-pressed="false">
+        <span class="more-buttons-icon" aria-hidden="true">shapes</span>Extract
+      </button>
     </div>
 
     <div class="mb-capture-bar__divider" aria-hidden="true"></div>
@@ -182,6 +187,18 @@ function buildBar({ settings }) {
         aria-pressed="${settings.resizeMode ? 'true' : 'false'}">
         <span class="more-buttons-icon" aria-hidden="true">crop_free</span>
         <span class="mb-capture-bar__toggle-label">Resize</span>
+      </button>
+
+      <button type="button" class="mb-capture-bar__toggle" data-bar-resize-grow disabled
+        title="Grow resize box 1px" aria-label="Grow resize box">
+        <span class="more-buttons-icon" aria-hidden="true">open_in_full</span>
+        <span class="mb-capture-bar__toggle-label">Grow</span>
+      </button>
+
+      <button type="button" class="mb-capture-bar__toggle" data-bar-resize-shrink disabled
+        title="Shrink resize box 1px" aria-label="Shrink resize box">
+        <span class="more-buttons-icon" aria-hidden="true">close_fullscreen</span>
+        <span class="mb-capture-bar__toggle-label">Shrink</span>
       </button>
 
       <button type="button" class="mb-capture-bar__toggle mb-capture-bar__swatch"
@@ -268,6 +285,14 @@ export async function enterCaptureMode(opts = {}) {
   const restored = opts.__restored ?? null;
   if (restored?.settings) Object.assign(settings, restored.settings);
   const hasReturnTo = !!opts.returnTo;
+
+  // Hold prefers-reduced-motion for the whole armed session, not just the
+  // shot window: hover-lift rules gated behind it never fire while the user
+  // is picking, so elements sit at rest at pick time. Shows Chrome's
+  // "is debugging" infobar until exit. Best-effort — every shot re-applies
+  // the emulation itself, so a failed hold only costs the picking-time calm.
+  // Idempotent, so the session-restore path re-arms it after a hard nav.
+  chrome.runtime.sendMessage({ type: 'captureMotionFreeze' }, () => void chrome.runtime.lastError);
 
   ensureStylesheet();
   const bar = buildBar({ settings });
@@ -591,13 +616,14 @@ export async function enterCaptureMode(opts = {}) {
     return { annotated: hits.length > 0, names: hits.map(h => h.slug).filter(Boolean) };
   }
 
-  const MODE_TAB_LABEL = { capture: 'Capture mode', annotate: 'Annotate mode', zap: 'Zapper mode' };
+  const MODE_TAB_LABEL = { capture: 'Capture mode', annotate: 'Annotate mode', zap: 'Zapper mode', extract: 'Extract mode' };
 
   function setPickMode(mode) {
     settings.pickMode = mode;
     document.documentElement.classList.toggle('mb-annotate-mode', mode === 'annotate');
     document.documentElement.classList.toggle('mb-zap-mode', mode === 'zap');
-    for (const name of ['capture', 'annotate', 'zap']) {
+    document.documentElement.classList.toggle('mb-extract-mode', mode === 'extract');
+    for (const name of ['capture', 'annotate', 'zap', 'extract']) {
       const btn = $(`[data-mode-${name}]`);
       btn.classList.toggle('--on', mode === name);
       btn.setAttribute('aria-pressed', mode === name ? 'true' : 'false');
@@ -613,8 +639,20 @@ export async function enterCaptureMode(opts = {}) {
   $('[data-mode-capture]').addEventListener('click', () => setPickMode('capture'));
   $('[data-mode-annotate]').addEventListener('click', () => setPickMode('annotate'));
   $('[data-mode-zap]').addEventListener('click', () => setPickMode('zap'));
+  $('[data-mode-extract]').addEventListener('click', () => setPickMode('extract'));
   $('[data-bar-clear-annotations]').addEventListener('click', clearAllAnnotations);
   $('[data-bar-restore-zapped]').addEventListener('click', restoreAllZapped);
+
+  // Grow/Shrink nudge the active resize box (1px per edge); they sit disabled
+  // until enterResizeMode puts a box up (see setNudgeEnabled at the call sites).
+  $('[data-bar-resize-grow]').addEventListener('click', () => nudgeActiveResize(1));
+  $('[data-bar-resize-shrink]').addEventListener('click', () => nudgeActiveResize(-1));
+  function setNudgeEnabled(on) {
+    for (const sel of ['[data-bar-resize-grow]', '[data-bar-resize-shrink]']) {
+      const btn = $(sel);
+      if (btn) btn.disabled = !on;
+    }
+  }
 
   $('[data-bar-resize]').addEventListener('click', () => {
     settings.resizeMode = !settings.resizeMode;
@@ -790,8 +828,14 @@ export async function enterCaptureMode(opts = {}) {
   function installPickSelector() {
     return installSelector({
       onPick,
-      // Zapper has no padding concept (the stepper is hidden); 0 kills the ring.
-      getPadding: () => (settings.pickMode === 'zap' ? 0 : settings.capturePadding),
+      // Zapper and Extract have no padding concept (the stepper is hidden);
+      // 0 kills the ring.
+      getPadding: () => ((settings.pickMode === 'zap' || settings.pickMode === 'extract') ? 0 : settings.capturePadding),
+      // Extract mode only picks SVGs: remap the hovered element to its
+      // nearest <svg> (closest is self-inclusive); null suppresses the
+      // highlight and the pick. Read dynamically — the selector is not
+      // reinstalled on mode flips.
+      resolveTarget: el => (settings.pickMode === 'extract' ? el.closest('svg') : el),
       onArmedChange: isArmed => {
         bar.classList.toggle('--armed', isArmed);
         tab.classList.toggle('--armed', isArmed);
@@ -814,6 +858,7 @@ export async function enterCaptureMode(opts = {}) {
       capturing = true;
       selectorCleanup?.();
       selectorCleanup = null;
+      setNudgeEnabled(true);
       try {
         await new Promise(resolve => {
           enterResizeMode(target, settings, (rect, resized, untouched) => {
@@ -827,12 +872,33 @@ export async function enterCaptureMode(opts = {}) {
         });
       } finally {
         capturing = false;
+        setNudgeEnabled(false);
         if (active === ctx) selectorCleanup = installPickSelector();
       }
       return;
     }
     if (settings.pickMode === 'zap') {
       zapElement(target);
+      return;
+    }
+    if (settings.pickMode === 'extract') {
+      if (capturing) return;
+      if (ctx.maxCaptures && sessionBuffer.length >= ctx.maxCaptures) return;
+      capturing = true;
+      // Same teardown reasoning as the screenshot path: the selector's
+      // listeners must not run concurrently with the themed round trips.
+      selectorCleanup?.();
+      selectorCleanup = null;
+      bar.classList.add('--capturing');
+      try {
+        const light = await extractSvgForTheme(target, { theme: 'light', settings });
+        const dark  = await extractSvgForTheme(target, { theme: 'dark',  settings });
+        if (light && dark) handleExtract(light, dark);
+      } finally {
+        capturing = false;
+        bar.classList.remove('--capturing');
+        if (active === ctx) selectorCleanup = installPickSelector();
+      }
       return;
     }
     if (capturing) return;
@@ -846,7 +912,6 @@ export async function enterCaptureMode(opts = {}) {
     // captured.
     selectorCleanup?.();
     selectorCleanup = null;
-    bar.classList.add('--capturing');
 
     const finishCapture = (light, dark, resized, anno) => {
       if (!light || !dark) return;
@@ -855,8 +920,16 @@ export async function enterCaptureMode(opts = {}) {
 
     try {
       if (settings.resizeMode) {
+        // The bar stays live while the box is up — Grow/Shrink nudge it and
+        // the padding stepper can still be adjusted (padding is only read at
+        // screenshot time). --capturing greys the bar once Enter confirms.
+        setNudgeEnabled(true);
         await new Promise(resolve => {
           enterResizeMode(target, settings, async (rect, resized, untouched) => {
+            // The box is down and the screenshots are about to run — grey the
+            // whole bar now rather than during the resize phase.
+            setNudgeEnabled(false);
+            bar.classList.add('--capturing');
             // Plain Enter with the box untouched = the user wants the element
             // as-is: take the element path so the rounded-corner mask applies,
             // exactly like a non-resize-mode capture. Only an adjusted box
@@ -871,6 +944,7 @@ export async function enterCaptureMode(opts = {}) {
           }, () => resolve());
         });
       } else {
+        bar.classList.add('--capturing');
         if (document.activeElement && typeof document.activeElement.blur === 'function') {
           document.activeElement.blur();
         }
@@ -883,6 +957,7 @@ export async function enterCaptureMode(opts = {}) {
       }
     } finally {
       capturing = false;
+      setNudgeEnabled(false);
       bar.classList.remove('--capturing');
       // Re-arm the selector if still in mode.
       if (active === ctx) selectorCleanup = installPickSelector();
@@ -897,7 +972,7 @@ export async function enterCaptureMode(opts = {}) {
     const wasZapped = zapped.size > 0;
     const baseSlug = captureBaseSlug(light.filename);
     const suffix = captureFlagSuffix(anno.annotated, wasZapped, anno.names, baseSlug);
-    sessionBuffer.push({
+    commitBufferEntry({
       lightDataUrl: light.dataUrl,
       lightFilename: appendCaptureSuffix(light.filename, suffix),
       darkDataUrl: dark.dataUrl,
@@ -911,6 +986,31 @@ export async function enterCaptureMode(opts = {}) {
       dimValue: 50,
       addToLibrary: true,
     });
+  }
+
+  // Extract-mode entries carry no -a/-z flags: annotation rings and zaps are
+  // pixel-space concepts that can't appear in serialized SVG bytes.
+  function handleExtract(light, dark) {
+    commitBufferEntry({
+      lightDataUrl: light.dataUrl,
+      lightFilename: light.filename,
+      darkDataUrl: dark.dataUrl,
+      darkFilename: dark.filename,
+      resized: false,
+      padding: 0,
+      annotated: false,
+      annotationNames: [],
+      zapped: false,
+      dimMode: 'height',
+      dimValue: 50,
+      addToLibrary: true,
+    });
+  }
+
+  // Shared tail for every buffered pick (screenshot or extract): persist,
+  // enforce the capture cap, run the bar's sweep animation.
+  function commitBufferEntry(entry) {
+    sessionBuffer.push(entry);
     persistSession(snapshotForSession());
     if (ctx.maxCaptures && sessionBuffer.length >= ctx.maxCaptures) {
       sweepBottomBorder();
@@ -936,6 +1036,11 @@ export async function enterCaptureMode(opts = {}) {
     if (active !== ctx) return;
     active = null;
 
+    // Release the session-long reduced-motion hold (detaches the debugger,
+    // clears the infobar). Every exit path — ✕, Esc, Done, limit, cold — lands
+    // here.
+    chrome.runtime.sendMessage({ type: 'captureMotionRelease' }, () => void chrome.runtime.lastError);
+
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onPopoverOutside, true);
@@ -947,7 +1052,7 @@ export async function enterCaptureMode(opts = {}) {
     // Done / limit-reached, cold) lands here.
     clearAllAnnotations();
     restoreAllZapped();
-    document.documentElement.classList.remove('mb-annotate-mode', 'mb-zap-mode');
+    document.documentElement.classList.remove('mb-annotate-mode', 'mb-zap-mode', 'mb-extract-mode');
     popover.remove();
     colourPopover.remove();
 
@@ -1020,6 +1125,10 @@ export async function restoreCaptureMode() {
   if (active || starting) return;
   const navEntry = performance.getEntriesByType?.('navigation')?.[0];
   if (navEntry?.type === 'reload') {
+    // The session-long reduced-motion hold belongs to the mode we're
+    // discarding — release it, or the debugger attach (and Chrome's infobar)
+    // would outlive capture mode on a plain F5.
+    chrome.runtime.sendMessage({ type: 'captureMotionRelease' }, () => void chrome.runtime.lastError);
     clearSession();
     return;
   }

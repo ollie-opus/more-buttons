@@ -59,8 +59,11 @@ export async function openCaptureNew({ capture } = {}) {
     let done = false; // true once we navigate away — leave the tile busy then
     try {
       const base = currentBase();
-      const light = `media/occ-captures/${base}-light-mode.png`;
-      const dark = `media/occ-captures/${base}-dark-mode.png`;
+      // Keep the buffered pair's extension: screenshot captures carry .png,
+      // Extract-mode captures .svg (mediaUpload.js is the same model).
+      const ext = capture.lightFilename?.match(/\.([a-z0-9]+)$/)?.[1] ?? 'png';
+      const light = `media/occ-captures/${base}-light-mode.${ext}`;
+      const dark = `media/occ-captures/${base}-dark-mode.${ext}`;
       const lightPath = `docs/assets/${light}`;
       const darkPath = `docs/assets/${dark}`;
 

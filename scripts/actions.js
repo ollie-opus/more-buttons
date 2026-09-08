@@ -21,6 +21,7 @@ import './gridEditor.js';
 import './buttonEditor.js';
 import './navLinksEditor.js';
 import './diagramEditor.js';
+import './codeBlockEditor.js';
 import './integrations.js';
 import './knowledgeBaseSettings.js';
 

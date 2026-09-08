@@ -70,6 +70,11 @@ const DIV_CLOSE_RE = /^\s*<\/div>\s*$/;
 // A div that opens AND closes on one line (e.g. the nav-links placeholder
 // `<div class="mb-nav-links" …></div>`) — net-zero for depth tracking.
 const DIV_SELFCLOSED_RE = /^\s*<div\b[^>]*>.*<\/div>\s*$/;
+// Any fenced-code line (open or close, any indent). Fence content must be
+// masked like grid-cell content: a column-0 `#` comment in a bash/python code
+// block would otherwise scan as a section heading (splitting the section and
+// injecting a UUID span mid-block on the next identity migration).
+const FENCE_LINE_RE = /^\s*```/;
 
 /**
  * Flags every line that sits INSIDE a `<div … markdown>` container block (a grid
@@ -83,8 +88,14 @@ const DIV_SELFCLOSED_RE = /^\s*<div\b[^>]*>.*<\/div>\s*$/;
 function markContainerLines(lines) {
   const inside = new Array(lines.length).fill(false);
   let depth = 0;
+  let fence = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // Fenced code blocks first: their content is opaque (a `#` line inside is
+    // code, not a heading). The fence lines themselves are flagged too — they
+    // are never headings, and flagging keeps the masked block contiguous.
+    if (FENCE_LINE_RE.test(line)) { inside[i] = true; fence = !fence; continue; }
+    if (fence) { inside[i] = true; continue; }
     if (DIV_SELFCLOSED_RE.test(line)) { if (depth > 0) inside[i] = true; continue; }
     if (DIV_CLOSE_RE.test(line)) { depth = Math.max(0, depth - 1); continue; }
     if (depth > 0) inside[i] = true;

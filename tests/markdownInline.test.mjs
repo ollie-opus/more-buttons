@@ -213,11 +213,16 @@ test('parseInline: label among text keeps neighbours', () => {
     { type: 'text', value: ' b' },
   ]);
 });
-test('renderHtml: label → class-only span (colour painted later)', () => {
-  assert.equal(renderHtml(parseInline(L('slate', 'x'))), L('slate', 'x'));
+// Rendered pill (surface/preview HTML): atomic contenteditable=false, unlike
+// the canonical class-only SOURCE span (L above) — the caret must never enter
+// a pill in the rich surface, mirroring icon atoms.
+const LR = (slug, t) => `<span class="mb-label mb-label-${slug}" contenteditable="false">${t}</span>`;
+
+test('renderHtml: label → atomic contenteditable=false span (colour painted later)', () => {
+  assert.equal(renderHtml(parseInline(L('slate', 'x'))), LR('slate', 'x'));
 });
 test('renderHtml: label text is escaped', () => {
-  assert.equal(renderHtml([{ type: 'label', slug: 'red', text: 'a & b' }]), L('red', 'a &amp; b'));
+  assert.equal(renderHtml([{ type: 'label', slug: 'red', text: 'a & b' }]), LR('red', 'a &amp; b'));
 });
 test('round-trip: renderMarkdown(parseInline(md)) === md', () => {
   const md = 'see ' + L('amber', 'WIP') + ' here';
@@ -231,6 +236,26 @@ test('matchLabel reads slug + text; labelMarkup/labelTextOffset are consistent',
 });
 test('markSpans skips a label span (no phantom marks from inner * or ==)', () => {
   assert.deepEqual(markSpans(L('blue', 'a *b* ==c==')), []);
+});
+
+// ── Icons INSIDE label pills ─────────────────────────────────────────────────
+// A pill's text is still plain source (no marks), but it may carry icon
+// shortcodes — the KB renders them via pymdownx.emoji inside the span and
+// statusEvents already emits `:lucide-check: Completed` pills.
+const IC = name => `<span class="mb-icon" data-mb-icon="${name}" contenteditable="false"></span>`;
+test('parseInline: a label keeps an inner icon shortcode as plain text (atomic pill)', () => {
+  assert.deepEqual(parseInline(L('green', ':lucide-check: Done')),
+    [{ type: 'label', slug: 'green', text: ':lucide-check: Done' }]);
+});
+test('renderHtml: an icon shortcode inside a label renders as an icon atom, not raw text', () => {
+  assert.equal(renderHtml([{ type: 'label', slug: 'green', text: ':lucide-check: Done' }]),
+    LR('green', `${IC('check')} Done`));
+  assert.equal(renderHtml([{ type: 'label', slug: 'red', text: 'a & :lucide-x: b :lucide-y:' }]),
+    LR('red', `a &amp; ${IC('x')} b ${IC('y')}`));
+});
+test('renderMarkdown round-trips a label with an inner icon exactly', () => {
+  const src = `go ${L('green', ':lucide-check: Done')} now`;
+  assert.equal(renderMarkdown(parseInline(src)), src);
 });
 
 // ── Lucide icon shortcodes ───────────────────────────────────────────────────

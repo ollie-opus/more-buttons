@@ -2,14 +2,27 @@
   <h2>Knowledge Base</h2>
 
   <div class="more-buttons-tabs">
-    <div class="more-buttons-tab-list">
+    <!-- Tabs are root directories; page STATE filters ride the same row as two
+         right-aligned dropdowns (draft state - visibility), with a muted "n of N"
+         while the tree is narrowed and Clear while a filter is on. -->
+    <div class="more-buttons-tab-list --with-filters">
       <button type="button" class="more-buttons-tab --active" data-tab="guides">Guides</button>
       <button type="button" class="more-buttons-tab" data-tab="system">System</button>
-      <button type="button" class="more-buttons-tab" data-tab="unlisted">Unlisted</button>
+      <span class="mb-kb-filter-summary" data-kb-filter-summary aria-live="polite"></span>
+      <button type="button" class="mb-kb-filter-clear" data-kb-filter-clear hidden>Clear</button>
+      <select class="mb-kb-filter-select" name="kbFilterDraft" aria-label="Filter by draft state">
+        <option value="all">Any draft state</option>
+        <option value="drafting">Drafting</option>
+        <option value="none">No draft</option>
+      </select>
+      <select class="mb-kb-filter-select" name="kbFilterVis" aria-label="Filter by visibility">
+        <option value="all">Any visibility</option>
+        <option value="public">Public</option>
+        <option value="unlisted">Unlisted</option>
+      </select>
     </div>
     <div class="more-buttons-tab-panel" data-tab-panel="guides" data-kb-panel="guides"></div>
     <div class="more-buttons-tab-panel" data-tab-panel="system" data-kb-panel="system" hidden></div>
-    <div class="more-buttons-tab-panel" data-tab-panel="unlisted" data-kb-panel="unlisted" hidden></div>
   </div>
 
   <div class="more-buttons-form-actions">

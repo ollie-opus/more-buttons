@@ -343,6 +343,174 @@ button.more-buttons-crumb:hover {
   tab-size: 2;
 }
 
+/* ── Rich code editor (codeRichEditor.js, editCodeBlock.html) ──────────────
+   Toolbar (Add annotation + Rich|Raw tabs, reusing the .mb-rte__toolbar
+   chrome) over an editable plain-text code surface where annotation markers
+   render as (+) chips; the raw codeSource textarea is the Raw view. */
+.mb-cre {
+  position: relative; /* anchors the annotation popover */
+}
+.mb-cre__surface {
+  display: block;
+  width: 100%;
+  min-height: 21rem; /* ~ the old rows="16" textarea */
+  padding: 8px 9px;
+  box-sizing: border-box;
+  border: 1px solid var(--mb-border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  color: var(--mb-text);
+  background-color: var(--mb-bg-input);
+  outline: none;
+  white-space: pre;
+  tab-size: 2;
+  overflow-x: auto;
+}
+.mb-cre__surface:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+.mb-cre__surface:empty::before {
+  content: attr(data-placeholder);
+  color: var(--mb-text-placeholder);
+}
+/* The Raw-view textarea joins the toolbar the way .mb-rte__input does. */
+.mb-cre textarea.mb-cre__raw {
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  min-height: 21rem;
+}
+.mb-cre__surface[hidden],
+.mb-cre textarea.mb-cre__raw[hidden],
+.mb-codeann-popover[hidden] {
+  display: none;
+}
+.mb-cre.--invalid .mb-cre__surface,
+.mb-cre.--invalid textarea.mb-cre__raw {
+  border-color: var(--mb-acc-danger);
+}
+
+/* Inline annotation chip — Zensical's published (+) affordance. */
+.mb-codechip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background-color: var(--mb-acc-info);
+  color: var(--mb-acc-on);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: text-bottom;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.12s ease;
+}
+.mb-codechip:hover { transform: scale(1.15); }
+.mb-codechip.--open { transform: rotate(45deg); } /* the + reads as × while its popover is open */
+
+/* The annotation popover: Zensical-tooltip-style card holding the relocated
+   shared RTE (full toolbar). Positioned by JS relative to .mb-cre. */
+.mb-codeann-popover {
+  position: absolute;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  width: min(480px, 92%);
+  box-sizing: border-box;
+  border: 1px solid var(--mb-border);
+  border-radius: 8px;
+  background-color: var(--mb-bg-input);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.mb-codeann-popover__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mb-codeann-popover__title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mb-text-label);
+  margin-right: auto;
+}
+.mb-codeann-popover__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mb-text-muted);
+  cursor: pointer;
+}
+.mb-codeann-popover__btn:hover { background-color: var(--mb-border-subtle); color: var(--mb-text); }
+.mb-codeann-popover__btn.--danger:hover { color: var(--mb-acc-danger); }
+.mb-codeann-popover__btn .more-buttons-icon { font-size: 17px; }
+/* The relocated annotation RTE keeps a sensible writing height in the card. */
+.mb-codeann-popover__body .mb-rte__surface { min-height: 5.5rem; }
+.mb-codeann-popover__body .mb-rte__input { min-height: 5.5rem; }
+
+/* Unreferenced annotations (list items no code marker points at). */
+.mb-cre__orphans {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--mb-border);
+  border-radius: 6px;
+}
+.mb-cre__orphans-label {
+  font-size: 0.75rem;
+  color: var(--mb-text-label);
+}
+.mb-cre__orphan-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mb-cre__orphan-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+}
+.mb-cre__orphan-btn {
+  flex: none;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background: var(--mb-bg-input);
+  color: var(--mb-text-muted);
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.mb-cre__orphan-btn:hover { border-color: var(--mb-text-muted); color: var(--mb-text); }
+.mb-cre__orphan-btn.--danger:hover { border-color: var(--mb-acc-danger); color: var(--mb-acc-danger); }
+
+/* Language warning under the editor (console / no-comment languages only —
+   there is no permanent hint). */
+.mb-cre__hint {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--mb-text-label);
+}
+
 .more-buttons-input-text::placeholder,
 .more-buttons-overlay-content input::placeholder,
 .more-buttons-overlay-content textarea::placeholder {
@@ -400,6 +568,7 @@ button.more-buttons-crumb:hover {
 
 .more-buttons-radio-btn {
   --mb-acc: var(--mb-acc-default);
+  position: relative; /* containing block for the hidden input below */
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -420,6 +589,8 @@ button.more-buttons-crumb:hover {
 .more-buttons-radio-btn input[type="radio"],
 .more-buttons-radio-btn input[type="checkbox"] {
   position: absolute;
+  width: 1px;
+  height: 1px;
   opacity: 0;
   pointer-events: none;
 }
@@ -1211,6 +1382,10 @@ button.more-buttons-crumb:hover {
   padding: 6px 8px;
   border: 1px solid var(--mb-info-border);
 }
+
+/* Library insert notice ("picks from this tab are copied into …"): sits above
+   the media tree, so give it breathing room from the tab strip and the tree. */
+.mb-media-notice { margin: 0 0 10px; }
 
 /* ── Accent cards (incidents, system updates, admonitions) ───────────────── */
 
@@ -2207,6 +2382,12 @@ details[open] .more-buttons-advanced-toggle::before {
   color: var(--cb-primary-fg);
   border-color: var(--cb-primary-bg);
 }
+/* Grow/Shrink nudge buttons sit greyed out until a resize box is active. */
+.mb-capture-bar__toggle:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  cursor: default;
+}
 
 /* Annotation colour swatch — square chip holding the current-ink dot; shown
  * only in annotate mode (see the mode-scoped rules by the zap-mode hides).
@@ -2570,10 +2751,21 @@ html.mb-zap-mode .mb-capture-selector,
 html.mb-zap-mode .mb-capture-padding-ring {
   --cb-hue: #ef4444; /* red-500 */
 }
-/* Resize + padding shape what gets drawn/captured; zapper picks just delete,
- * so the controls hide rather than advertise dead affordances. */
+/* Extract mode: same trick, purple. */
+html.mb-extract-mode .mb-capture-bar,
+html.mb-extract-mode .mb-capture-tab,
+html.mb-extract-mode .mb-capture-glow,
+html.mb-extract-mode .mb-capture-selector,
+html.mb-extract-mode .mb-capture-padding-ring {
+  --cb-hue: #a855f7; /* purple-500 */
+}
+/* Resize + padding shape what gets drawn/captured; zapper picks just delete
+ * and extract lifts markup (no pixels to crop or pad), so the controls hide
+ * rather than advertise dead affordances. */
 html.mb-zap-mode .mb-capture-bar [data-bar-resize],
-html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap] {
+html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap],
+html.mb-extract-mode .mb-capture-bar [data-bar-resize],
+html.mb-extract-mode .mb-capture-bar [data-bar-padding-wrap] {
   display: none;
 }
 /* The colour swatch only makes sense while annotating — inverse of the zap
@@ -2738,6 +2930,7 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
 }
 
 .more-buttons-side-nav-item {
+  position: relative; /* containing block for the hidden input below */
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2753,6 +2946,8 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
 
 .more-buttons-side-nav-item input[type="radio"] {
   position: absolute;
+  width: 1px;
+  height: 1px;
   opacity: 0;
   pointer-events: none;
 }
@@ -3093,47 +3288,9 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
 
 /* ── Grid editor ───────────────────────────────────────────────────────────── */
 
-/* Structure controls reuse .mb-ct-manage; let them wrap like the data table. */
-.mb-grid-manage {
-  flex-wrap: wrap;
-}
-
-/* Square cell tiles — component-card styling laid out in a wrapping grid. */
-.mb-grid-cells {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 160px);
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.mb-grid-cell-tile {
-  height: 160px;
-  margin-bottom: 0;            /* the grid gap owns spacing */
-  display: flex;
-  flex-direction: column;
-  cursor: pointer;
-}
-
-/* Selected tile: same accent outline as a selected data-table cell. */
-.mb-grid-cell-tile.--selected {
-  outline: 2px solid var(--mb-radio-checked-bg);
-  outline-offset: -2px;
-}
-
-/* Body fills the middle and clamps; the foot (Edit) pins to the bottom-right. */
-.mb-grid-cell-tile .mb-incident-card__body {
-  flex: 1 1 auto;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-}
-
-.mb-grid-cell-tile .mb-incident-card__foot {
-  margin-top: auto;
-}
-
-.mb-grid-cell-tile__empty {
+/* The cell list lives in a "Cells" form group and reuses the component list
+   chrome (.mb-insert-component bars + .mb-component-row rails) unchanged. */
+.mb-grid-cell-empty {
   color: var(--mb-text-muted);
   opacity: 0.65;
   font-style: italic;
@@ -3294,6 +3451,7 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
 .mb-kb-pill.--padded   { --mb-pill-accent: rgb(66, 165, 245); } /* Material blue */
 .mb-kb-pill.--annotated { --mb-pill-accent: rgb(102, 187, 106); } /* same green as Live */
 .mb-kb-pill.--zapped    { --mb-pill-accent: rgb(239, 83, 80); }   /* Material red */
+.mb-kb-pill.--system-update { --mb-pill-accent: rgb(171, 71, 188); } /* Material purple — frozen system-update capture */
 /* File-format pill (.png / .svg / .mp4…) — neutral grey; the extension text is
    already lowercase-with-dot, so opt out of the uppercase transform. */
 .mb-kb-pill.--format   { --mb-pill-accent: rgb(148, 163, 184); text-transform: none; }
@@ -3337,6 +3495,79 @@ h2[data-edit-media-title] .mb-kb-pills {
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
 }
 
+/* KB management filters: two dropdowns riding the right end of the tab row
+   (tabs are root directories; page state is filtered, not tabbed), with a muted
+   "n of N" while the tree is narrowed and Clear while a filter is on. The
+   modifier centres the controls but lets the tabs keep stretching, so the
+   active-tab underline stays glued to the row's bottom border. */
+.more-buttons-tab-list.--with-filters { align-items: center; }
+.more-buttons-tab-list.--with-filters .more-buttons-tab { align-self: stretch; }
+/* Box chrome (border, radius, input bg, focus ring) comes from the shared
+   select rule; this owns the arrow instead of the native one — appearance:none
+   plus a slate chevron (rgb(148,163,184), the Unlisted-pill hue, legible on
+   both themes) with padding reserved so text never runs under it. */
+.more-buttons-overlay-content .mb-kb-filter-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: auto;
+  padding: 4px 26px 4px 10px;
+  margin: 0 0 6px 6px;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  background-size: 14px;
+  cursor: pointer;
+}
+.more-buttons-overlay-content .mb-kb-filter-select:hover {
+  border-color: var(--mb-text-muted);
+  color: var(--mb-text);
+}
+/* A select that is narrowing the tree wears the chip-checked treatment —
+   accent border + tinted fill (background-color, never the shorthand, which
+   would wipe the chevron background-image). The accent follows the chosen
+   value's pill hue, so the control glances the same as the rows it filters:
+   amber = Drafting, green = Public, slate = Unlisted and No draft. */
+.more-buttons-overlay-content .mb-kb-filter-select.--active {
+  --mb-acc: rgb(148,163,184);
+  border-color: var(--mb-acc);
+  background-color: color-mix(in srgb, var(--mb-acc) 13%, var(--mb-bg-input));
+  color: var(--mb-text);
+  font-weight: 500;
+}
+.more-buttons-overlay-content .mb-kb-filter-select:has(option[value="drafting"]:checked) { --mb-acc: rgb(255,179,0); }
+.more-buttons-overlay-content .mb-kb-filter-select:has(option[value="public"]:checked)   { --mb-acc: rgb(102,187,106); }
+.mb-kb-filter-summary {
+  margin-left: auto;
+  margin-bottom: 5px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--mb-text-muted);
+  white-space: nowrap;
+}
+.mb-kb-filter-clear {
+  margin-bottom: 5px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--mb-text-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: transparent;
+  transition: color 0.12s ease, text-decoration-color 0.12s ease;
+}
+.mb-kb-filter-clear:hover { color: var(--mb-text); text-decoration-color: currentColor; }
+.mb-kb-filter-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+.mb-kb-filter-clear[hidden] { display: none; }
+
 .mb-kb-node.--search-hidden {
   display: none;
 }
@@ -3370,6 +3601,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none; /* buttons never squash — the strip scrolls instead */
   width: 28px;
   height: 28px;
   padding: 0;
@@ -3383,9 +3615,12 @@ h2[data-edit-media-title] .mb-kb-pills {
 .mb-rte__btn.--active { background-color: var(--mb-border-subtle); color: #3b82f6; }
 .mb-rte__btn .more-buttons-icon { font-size: 18px; }
 
-/* Segmented Rich | Markdown tabs (right side of the toolbar). */
+/* Segmented Rich | Markdown tabs (right side of the toolbar). flex:none keeps
+   them fully visible however narrow the toolbar gets — the button strip is
+   what gives way (it scrolls). */
 .mb-rte__tabs {
   display: inline-flex;
+  flex: none;
   gap: 2px;
   padding: 2px;
   margin-left: auto;
@@ -3407,11 +3642,46 @@ h2[data-edit-media-title] .mb-kb-pills {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
-/* Format buttons sit to the left of the tabs. */
+/* Format buttons sit to the left of the tabs, inside a horizontal scroller so
+   a narrow host (the annotation popover, a squeezed form) never overflows the
+   toolbar — extra buttons scroll instead. The wrap paints edge shadows while
+   more buttons sit off-screen (--can-left / --can-right toggled by
+   wireToolbarScroll in richTextEditor.js). */
+.mb-rte__btnwrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
 .mb-rte__btns {
   display: flex;
   gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.mb-rte__btns::-webkit-scrollbar { display: none; }
+.mb-rte__btnwrap::before,
+.mb-rte__btnwrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 1;
+}
+.mb-rte__btnwrap::before {
+  left: 0;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.16), transparent);
+}
+.mb-rte__btnwrap::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.16), transparent);
+}
+.mb-rte__btnwrap.--can-left::before { opacity: 1; }
+.mb-rte__btnwrap.--can-right::after { opacity: 1; }
 .mb-rte__btn:disabled { opacity: 0.4; cursor: default; }
 .mb-rte__btn:disabled:hover { background: transparent; }
 
@@ -3473,6 +3743,15 @@ h2[data-edit-media-title] .mb-kb-pills {
 .mb-rte__surface u { text-decoration: underline; }
 .mb-rte__surface s { text-decoration: line-through; }
 .mb-rte__surface a { color: #3b82f6; text-decoration: underline; }
+/* Literal fenced-code source (parseDoc's fence block, rendered by
+   renderDocHtml in the RTE surface and rich card previews): monospace so it
+   reads as code, but plain editable text — buildSource unwraps the span and
+   serializes the fence lines verbatim. */
+.mb-rte-fencesrc {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+
 .mb-rte__surface code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85em;
@@ -3661,6 +3940,15 @@ h2[data-edit-media-title] .mb-kb-pills {
   }
 }
 
+/* In the rich surface a pill is an atomic contenteditable=false node whose
+   click gesture opens the label popover (mirrors `.mb-rte__surface .mb-icon`)
+   — signal the affordance. */
+.mb-rte__surface .mb-label { cursor: pointer; }
+.mb-rte__surface .mb-label:hover { filter: brightness(0.94); }
+@media (prefers-color-scheme: dark) {
+  .mb-rte__surface .mb-label:hover { filter: brightness(1.18); }
+}
+
 /* The Label popover is wider than the link one so the swatch grid fits more
    pills per row (fewer rows → shorter popover). */
 .mb-rte__popover--label { width: 440px; }
@@ -3693,6 +3981,9 @@ h2[data-edit-media-title] .mb-kb-pills {
 /* In the surface a click on the atom selects it (the edit gesture); show it. */
 .mb-rte__surface .mb-icon { cursor: pointer; border-radius: 3px; }
 .mb-rte__surface .mb-icon:hover { background: rgba(127, 127, 127, 0.18); }
+/* An icon inside a label pill is part of the pill's text (its click opens the
+   label popover, not the icon one) — no separate hover target. */
+.mb-rte__surface .mb-label .mb-icon:hover { background: none; }
 
 /* Icon popover: the search combobox + a small resolved-icon preview row. The
    picker's result list normally floats over the page; inside the popover it
@@ -3803,6 +4094,46 @@ h2[data-edit-media-title] .mb-kb-pills {
   color: var(--mb-acc-info);
 }
 
+/* ── Button editor: Destination link-type picker ─────────────────────────────
+   Kind pills over a swap area (URL input / internal-page tree / groove hint).
+   The tree reuses the context-free .mb-kb-* base styles; this block mirrors the
+   RTE link popover's .mb-rte__page-tree extras under a form-scoped class. */
+.mb-dest-picker { display: flex; flex-direction: column; gap: 8px; }
+
+.mb-dest-tree {
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  padding: 6px;
+}
+.mb-dest-tree .mb-kb-tree { max-height: 260px; overflow-y: auto; }
+.mb-dest-tree__loading {
+  margin: 2px 4px;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+}
+
+/* Live / Unlisted group roots read as headers, not folders. */
+.mb-dest-tree [data-kb-group] .mb-kb-node-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mb-text-muted);
+}
+
+/* Single-select highlight for the picked page (the generic --selected styling
+   elsewhere in this file is reorder-row specific). */
+.mb-dest-tree .mb-kb-node.--selected > .mb-kb-node-row {
+  background: color-mix(in srgb, var(--mb-acc-info) 14%, transparent);
+  color: var(--mb-acc-info);
+}
+
+.mb-dest-groove-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+}
+
 /* Swatch grid inside the Label popover. `overflow-y: auto` also clips the x-axis,
    which would crop the selected swatch's outline halo — the inner padding gives
    that 4px halo room (especially on the flush-left column). */
@@ -3885,6 +4216,8 @@ h2[data-edit-media-title] .mb-kb-pills {
 /* Component reorder rail (Plan 2) — vertical up/down arrows on each card's left edge. */
 .mb-component-row { display: flex; align-items: stretch; gap: 6px; }
 .mb-component-row > .mb-incident-card { flex: 1 1 auto; margin-bottom: 0; }
+/* Shift+click multi-select Copy: selected cards take the info-accent outline (same as .mb-kb-node.--selected). */
+.mb-component-row.--selected > .mb-incident-card { outline: 2px solid var(--mb-acc-info); outline-offset: 2px; }
 .mb-component-rail { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 0 0 auto; }
 .mb-component-rail__btn {
   width: 28px; height: 28px; padding: 0; line-height: 1;
@@ -4020,6 +4353,50 @@ h2[data-edit-media-title] .mb-kb-pills {
 .mb-conflict__foot {
   display: flex;
   justify-content: flex-end;
+  margin-top: 12px;
+}
+
+/* ── Confirm / notice panel (confirmPanel.js) ─────────────────────────────── */
+
+.mb-confirm {
+  --mb-confirm-hue: rgb(239, 68, 68);
+  flex-shrink: 0;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--mb-confirm-hue) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mb-confirm-hue) 45%, transparent);
+  border-radius: 8px;
+}
+
+.mb-confirm.--notice {
+  --mb-confirm-hue: rgb(255, 179, 0);
+}
+
+.mb-confirm__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--mb-text);
+}
+
+.mb-confirm__head .more-buttons-icon {
+  font-size: 1.125rem;
+  color: var(--mb-confirm-hue);
+}
+
+.mb-confirm__desc {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--mb-text-muted);
+}
+
+.mb-confirm__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
   margin-top: 12px;
 }
 

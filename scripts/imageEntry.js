@@ -15,7 +15,8 @@ import { githubReplaceImage } from './github.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 import { captureCard, captureGrid, captureSizeField, wireCaptureSizeField, readCaptureSizeField, captureCornerField, capturePathField, captureUploadField, readMediaFile, mediaFileExt, mediaBasePath } from './captureCards.js';
 import { formLoading } from './loading.js';
-import { buildUsagePanelHtml, wireUsagePanel } from './usagePanel.js';
+import { buildUsagePanelHtml, wireUsagePanel, deleteMediaEntry } from './usagePanel.js';
+import { isSystemUpdateCapturePath } from './captureDest.js';
 
 const STRIP = 'docs/assets/';
 const stripPrefix = (p) => (p && p.startsWith(STRIP) ? p.slice(STRIP.length) : p);
@@ -42,14 +43,18 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
   // Replacement happens in place at the stored path, so the picker only takes
   // the file's own format.
   const storedExt = mediaFileExt({ name: singlePath });
+  // Legacy singles migrated into the frozen system-update folder: no replace.
+  const frozen = isSystemUpdateCapturePath(singlePath);
   if (titleEl) {
     titleEl.textContent = insertMode ? `Insert image — ${base}` : base;
-    // Same grey format pill as the library tree, pushed to the row's right.
-    titleEl.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills"><span class="mb-kb-pill --format">.${storedExt}</span></span>`);
+    // Same pills as the library tree (System update + grey format), pushed to the row's right.
+    const suPill = frozen ? '<span class="mb-kb-pill --system-update">System update</span>' : '';
+    titleEl.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills">${suPill}<span class="mb-kb-pill --format">.${storedExt}</span></span>`);
   }
 
   let imageUrl = '';
-  let usageHtml = ''; // "Used on pages" block, loaded once per open (browse only)
+  // "Used on pages" block + delete gate, loaded once per open (browse only).
+  let usage = { html: '', unused: false };
   const revoke = (u) => { if (u?.startsWith('blob:')) URL.revokeObjectURL(u); };
 
   async function loadBlob() {
@@ -68,12 +73,19 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
       captureGrid([captureCard({ theme: 'light', title: 'Image', src: imageUrl, alt: label ?? 'image' })]) +
       (insertMode
         ? captureSizeField({ dimMode: 'height', dimValue: 50 }) + captureCornerField()
-        : usageHtml);
+        : usage.html);
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
       ? `<button type="button" class="more-buttons-button secondary" data-image-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
          <button type="button" class="more-buttons-button" data-image-entry-insert><span class="more-buttons-icon">add</span>Insert this image</button>`
-      : `<button type="button" class="more-buttons-button" data-image-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>`;
+      : (frozen
+          ? ''
+          : `<button type="button" class="more-buttons-button" data-image-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>`) +
+        // Only offered when the usage index confirms zero pages/drafts
+        // reference the file (fails closed on a usage-load error).
+        (usage.unused
+          ? `<button type="button" class="more-buttons-button danger" data-image-entry-delete><span class="more-buttons-icon">delete</span>Delete image</button>`
+          : '');
   }
 
   // ── Replace via upload — the browse flavour's two extra views, mirroring
@@ -176,6 +188,13 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
     else if (e.target.closest('[data-image-entry-cancel]')) navigateBack();
     else if (e.target.closest('[data-image-entry-upload]')) renderUploadPicker();
     else if (e.target.closest('[data-image-entry-save]')) saveChanges();
+    else if (e.target.closest('[data-image-entry-delete]')) {
+      deleteMediaEntry({
+        button: e.target.closest('[data-image-entry-delete]'),
+        noun: 'image', label: base,
+        paths: [singlePath],
+      });
+    }
     else if (e.target.closest('[data-image-entry-cancel-replace]')) {
       if (busy) return;
       pendingReplace = null;
@@ -187,7 +206,7 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
     wireUsagePanel(formEl);
     formLoading.show();
     try {
-      usageHtml = await buildUsagePanelHtml([singlePath]);
+      usage = await buildUsagePanelHtml([singlePath]);
     } finally {
       formLoading.dismiss();
     }

@@ -31,16 +31,19 @@
 import { generateUUID } from './admonitions.js';
 import { splitTagList } from './frontmatter.js';
 
-// A path-mode nav-links div line. Group 1 indent, group 2 the path. Attribute
-// spacing is tolerated, but class + data-nav-path are required (an arbitrary
-// <div> is not a nav-links block). We always author the canonical form below.
+// A path-mode nav-links div line. Group 1 indent, group 2 the path, group 3
+// the optional data-nav-new-tab value (authored as "true" iff new-tab; absent
+// → same tab). Attribute spacing is tolerated, but class + data-nav-path are
+// required (an arbitrary <div> is not a nav-links block). We always author the
+// canonical form below.
 const NAVLINKS_LINE_RE =
-  /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-path="([^"]*)"\s*>\s*<\/div>\s*$/;
+  /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-path="([^"]*)"(?:\s+data-nav-new-tab="([^"]*)")?\s*>\s*<\/div>\s*$/;
 
 // A tag-mode nav-links div line. Group 2 the tag CSV, group 3 the layout (the
-// attribute is tolerated-absent → flat, but we always author it explicitly).
+// attribute is tolerated-absent → flat, but we always author it explicitly),
+// group 4 the optional data-nav-new-tab value (as above).
 const NAVLINKS_TAG_LINE_RE =
-  /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-tag="([^"]*)"(?:\s+data-nav-layout="([^"]*)")?\s*>\s*<\/div>\s*$/;
+  /^(\s*)<div\s+class="mb-nav-links"\s+data-nav-tag="([^"]*)"(?:\s+data-nav-layout="([^"]*)")?(?:\s+data-nav-new-tab="([^"]*)")?\s*>\s*<\/div>\s*$/;
 
 const UUID_SPAN_LINE_RE = /^\s*<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
 
@@ -54,9 +57,16 @@ function cleanLayout(layout) {
   return layout === 'grouped' ? 'grouped' : 'flat';
 }
 
+/** ` data-nav-new-tab="true"` iff newTab — the attribute is only ever
+ * authored for new-tab blocks, so old (absent) and default lines are
+ * byte-identical. */
+function newTabAttr(newTab) {
+  return newTab ? ' data-nav-new-tab="true"' : '';
+}
+
 /** The canonical div line for a path-mode nav-links block. */
-function navLinksLine(path) {
-  return `<div class="mb-nav-links" data-nav-path="${cleanAttr(path)}"></div>`;
+function navLinksLine(path, newTab) {
+  return `<div class="mb-nav-links" data-nav-path="${cleanAttr(path)}"${newTabAttr(newTab)}></div>`;
 }
 
 /** The canonical tag CSV: trimmed, empties dropped, case-insensitive dedupe,
@@ -66,13 +76,13 @@ function cleanTagList(tag) {
 }
 
 /** The canonical div line for a tag-mode nav-links block (one or more tags). */
-function navLinksTagLine(tag, layout) {
-  return `<div class="mb-nav-links" data-nav-tag="${cleanTagList(tag)}" data-nav-layout="${cleanLayout(layout)}"></div>`;
+function navLinksTagLine(tag, layout, newTab) {
+  return `<div class="mb-nav-links" data-nav-tag="${cleanTagList(tag)}" data-nav-layout="${cleanLayout(layout)}"${newTabAttr(newTab)}></div>`;
 }
 
 /** One nav object → its canonical div line. Tag mode iff `tag` is present. */
 function navLinksLineOf(n) {
-  return n.tag != null ? navLinksTagLine(n.tag, n.layout) : navLinksLine(n.path);
+  return n.tag != null ? navLinksTagLine(n.tag, n.layout, n.newTab) : navLinksLine(n.path, n.newTab);
 }
 
 /**
@@ -121,6 +131,7 @@ export function locateNavLinksLines(body) {
       path: pm ? pm[2] : null,
       tag: tm ? tm[2] : null,
       layout: tm ? cleanLayout(tm[3]) : null,
+      newTab: (pm ? pm[3] : tm[4]) === 'true',
       indent: (pm ?? tm)[1],
       startLine,
       endLine: i + 1,
@@ -190,9 +201,9 @@ export function navLinksComponent(nav) {
 /** The single div line (no identity span — replaceNavLinksByUUID keeps the span).
  * `mode` picks the flavour when both fields are populated (the edit form keeps
  * hidden-mode values around); absent, tag presence decides. */
-export function navLinksLineFrom({ mode, path, tag, layout }) {
+export function navLinksLineFrom({ mode, path, tag, layout, newTab }) {
   const isTag = mode ? mode === 'tag' : tag != null;
-  return isTag ? navLinksTagLine(tag, layout) : navLinksLine(path);
+  return isTag ? navLinksTagLine(tag, layout, newTab) : navLinksLine(path, newTab);
 }
 
 /**
@@ -208,5 +219,6 @@ export function navLinksDimFields(nav) {
     navPath: nav?.path ?? '',
     navTag: nav?.tag ?? '',
     navLayout: isTag ? cleanLayout(nav.layout) : 'flat',
+    navNewTab: nav?.newTab ? 'yes' : 'no',
   };
 }

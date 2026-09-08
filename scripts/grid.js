@@ -2,8 +2,11 @@
  * grid.js — Pure primitives for parsing, building, and mutating Zensical grid
  * blocks (`<div class="grid" markdown>` … `</div>`) in markdown strings.
  *
- * A grid is one component: an optional hidden identity span on the line
- * immediately before the wrapper, then N CELL divs, then a closing `</div>`.
+ * A grid is one component: an optional hidden identity span before the wrapper
+ * (separated by a blank line so Python-Markdown never glues the wrapper into
+ * the span's paragraph when the grid sits inside an admonition/tab, where
+ * md_in_html is inert; legacy documents may still have the span on the line
+ * immediately before), then N CELL divs, then a closing `</div>`.
  * Each cell is `<div class="card" markdown>` (card flavor) or `<div markdown>`
  * (generic flavor) and is itself a component container — its body begins with
  * its own identity span (admonition-style), so admonitions / captures / content
@@ -114,57 +117,107 @@ export function locateGrids(markdown) {
 
     let startLine = i;
     let uuid = null;
-    if (i > 0) {
-      const sm = lines[i - 1].match(UUID_SPAN_LINE_RE);
-      if (sm && lineIndent(lines[i - 1]) === indent) { uuid = sm[1]; startLine = i - 1; }
+    let s = i - 1;
+    while (s >= 0 && lines[s] === '') s--; // span may be separated by blank lines
+    if (s >= 0) {
+      const sm = lines[s].match(UUID_SPAN_LINE_RE);
+      if (sm && lineIndent(lines[s]) === indent) { uuid = sm[1]; startLine = s; }
     }
 
-    const cells = [];
-    let flavor = 'generic';
-    let depth = 1;             // inside the wrapper div
-    let j = i + 1;
-    let cellStart = -1;        // first line after a cell's open div, or -1
-    let cellSpill = false;     // the open cell's "spill" class, applied on close
-    let cellValign = 'default';// the open cell's vertical alignment, applied on close
-    while (j < lines.length && depth > 0) {
-      const line = lines[j];
-      if (DIV_SELFCLOSED_RE.test(line)) { j++; continue; }
-      const isClose = DIV_CLOSE_RE.test(line);
-      const cm = (!isClose && depth === 1) ? line.match(CELL_OPEN_RE) : null;
-      if (cm && cm[1] === indent) {
-        const classes = cm[2] ? cm[2].split(/\s+/) : [];
-        if (classes.includes('card')) flavor = 'card';
-        cellSpill = classes.includes('spill');
-        cellValign = valignFromStyle(cm[3]);
-        cellStart = j + 1;
-        depth++;               // entered the cell div
-        j++;
-        continue;
-      }
-      if (isClose) {
-        depth--;
-        if (depth === 1 && cellStart >= 0) {
-          const raw = lines.slice(cellStart, j)
-            .map(l => (indent && l.startsWith(indent)) ? l.slice(indent.length) : l);
-          while (raw.length && raw[0] === '') raw.shift();
-          while (raw.length && raw[raw.length - 1] === '') raw.pop();
-          const body = raw.join('\n');
-          cells.push({ uuid: getCellBodyUUID(body), body, spill: cellSpill, valign: cellValign });
-          cellStart = -1;
-          cellSpill = false;
-          cellValign = 'default';
-        }
-        j++;
-        continue;
-      }
-      if (DIV_OPEN_ANY_RE.test(line)) depth++;
-      j++;
-    }
-
-    out.push({ uuid, flavor, indent, cells, startLine, endLine: j });
-    i = j;
+    const { cells, flavor, end } = scanCells(lines, i + 1, indent);
+    out.push({ uuid, flavor, indent, cells, startLine, endLine: end });
+    i = end;
   }
   return out;
+}
+
+/**
+ * Scans the cells of one grid wrapper, starting at `start` (the line after the
+ * `<div class="grid" markdown>` opener) with depth-counted `<div>` nesting, until
+ * the wrapper's own close. Cell content is md_in_html (not indented), so nested
+ * grids/divs are consumed as body lines. `stray` is set when a non-blank line at
+ * wrapper depth is neither a same-indent cell opener nor the wrapper close — the
+ * strict "cells only" check used by parseGridCellBlocks; locateGrids ignores it.
+ *
+ * @returns {{ cells: Array, flavor: 'card'|'generic', end: number, depth: number, stray: boolean }}
+ *   `end` is the line after the wrapper close (exclusive); `depth` is 0 when the
+ *   wrapper closed, >0 when the input ran out first.
+ */
+function scanCells(lines, start, indent) {
+  const cells = [];
+  let flavor = 'generic';
+  let depth = 1;             // inside the wrapper div
+  let j = start;
+  let cellStart = -1;        // first line after a cell's open div, or -1
+  let cellSpill = false;     // the open cell's "spill" class, applied on close
+  let cellValign = 'default';// the open cell's vertical alignment, applied on close
+  let stray = false;
+  while (j < lines.length && depth > 0) {
+    const line = lines[j];
+    const isClose = DIV_CLOSE_RE.test(line);
+    const cm = (!isClose && depth === 1) ? line.match(CELL_OPEN_RE) : null;
+    const classes = cm && cm[2] ? cm[2].split(/\s+/) : [];
+    const isCellOpen = !!cm && cm[1] === indent && !classes.includes('grid');
+    if (depth === 1 && line.trim() !== '' && !isClose && !isCellOpen) stray = true;
+    if (DIV_SELFCLOSED_RE.test(line)) { j++; continue; }
+    if (isCellOpen) {
+      if (classes.includes('card')) flavor = 'card';
+      cellSpill = classes.includes('spill');
+      cellValign = valignFromStyle(cm[3]);
+      cellStart = j + 1;
+      depth++;               // entered the cell div
+      j++;
+      continue;
+    }
+    if (isClose) {
+      depth--;
+      if (depth === 1 && cellStart >= 0) {
+        const raw = lines.slice(cellStart, j)
+          .map(l => (indent && l.startsWith(indent)) ? l.slice(indent.length) : l);
+        while (raw.length && raw[0] === '') raw.shift();
+        while (raw.length && raw[raw.length - 1] === '') raw.pop();
+        const body = raw.join('\n');
+        cells.push({ uuid: getCellBodyUUID(body), body, spill: cellSpill, valign: cellValign });
+        cellStart = -1;
+        cellSpill = false;
+        cellValign = 'default';
+      }
+      j++;
+      continue;
+    }
+    if (DIV_OPEN_ANY_RE.test(line)) depth++;
+    j++;
+  }
+  return { cells, flavor, end: j, depth, stray };
+}
+
+/**
+ * Parses clipboard text as a list of grid CELL blocks — the "Paste cell markdown"
+ * payload. Accepts either one whole grid block (its cells are returned) or one or
+ * more bare `<div … markdown>…</div>` cell blocks with nothing else at cell level.
+ * Any stray prose, an early-closing wrapper, or no cells at all → null. Returned
+ * cells are `{ uuid, body, spill, valign }` (no flavor — that is grid-level and
+ * comes from the target grid; a `card` class on a pasted cell is ignored).
+ */
+export function parseGridCellBlocks(text) {
+  const lines = (text ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const nonBlank = (l) => l.trim() !== '';
+  if (!lines.some(nonBlank)) return null;
+
+  // One whole grid (with or without its identity span) covering every
+  // non-blank line → its cells. A grid nested inside a bare cell block has the
+  // cell wrapper outside its range, so it falls through to the cell scan.
+  const grids = locateGrids(lines.join('\n')).filter(g => g.indent === '');
+  if (grids.length === 1) {
+    const g = grids[0];
+    const outside = lines.some((l, idx) => nonBlank(l) && (idx < g.startLine || idx >= g.endLine));
+    if (!outside) return g.cells.length ? g.cells : null;
+  }
+
+  const wrapped = ['<div class="grid" markdown>', ...lines, '</div>'];
+  const { cells, end, depth, stray } = scanCells(wrapped, 1, '');
+  if (stray || depth !== 0 || end !== wrapped.length || !cells.length) return null;
+  return cells;
 }
 
 /**
@@ -173,7 +226,7 @@ export function locateGrids(markdown) {
  * style carries `align-self` for a non-'default' vertical alignment. A generic,
  * non-spill, default-aligned cell has neither attribute (`<div markdown>`).
  */
-function cellOpenTag(flavor, spill, valign) {
+export function cellOpenTag(flavor, spill, valign) {
   const classes = [];
   if (flavor === 'card') classes.push('card');
   if (spill) classes.push('spill');
@@ -196,8 +249,13 @@ function cellOpenTag(flavor, spill, valign) {
  * @returns {string}
  */
 export function buildGrid(uuid, flavor, cells) {
+  // Blank line between span and wrapper: without it Python-Markdown glues the
+  // wrapper into the span's paragraph wherever md_in_html is inert (inside
+  // admonitions/tabs), and the browser's recovery from the stray </p> inserts
+  // an empty <p> as the grid's first child — a phantom grid cell.
   const lines = [
     `<span data-uuid="${uuid}" style="display:none"></span>`,
+    '',
     '<div class="grid" markdown>',
   ];
   for (const c of cells) {
@@ -219,19 +277,21 @@ export function buildGrid(uuid, flavor, cells) {
 /**
  * Locates the line range [startLine, endLine) of the GRID whose identity span
  * carries `uuid`, at any nesting depth. Returns null when the uuid isn't a grid
- * span (e.g. it's a cell's own span). A grid span is immediately followed by the
- * `<div class="grid" markdown>` wrapper at the same indent.
+ * span (e.g. it's a cell's own span). A grid span is followed (ignoring blank
+ * lines) by the `<div class="grid" markdown>` wrapper at the same indent.
  */
 export function locateGridByUUID(lines, uuid) {
   const spanIdx = lines.findIndex(l => l.includes(`data-uuid="${uuid}"`));
   if (spanIdx === -1) return null;
   const indent = lineIndent(lines[spanIdx]);
-  const openLine = lines[spanIdx + 1];
+  let openIdx = spanIdx + 1;
+  while (openIdx < lines.length && lines[openIdx] === '') openIdx++;
+  const openLine = lines[openIdx];
   const om = openLine != null ? openLine.match(GRID_OPEN_RE) : null;
   if (!om || om[1] !== indent) return null;
 
   let depth = 1;
-  let j = spanIdx + 2;
+  let j = openIdx + 1;
   for (; j < lines.length; j++) {
     if (DIV_SELFCLOSED_RE.test(lines[j])) continue;
     if (DIV_OPEN_ANY_RE.test(lines[j])) depth++;

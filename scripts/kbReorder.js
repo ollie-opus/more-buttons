@@ -1,9 +1,9 @@
 // scripts/kbReorder.js
 // Working-copy controller for KB tree reordering. Holds an editable merged
 // nav-node tree, applies index-path move/reparent ops, tracks dirty state, and
-// builds the { nav, draftNav } payload by projecting the edited tree onto each
-// array's membership (exact values reused; Home/System and non-guide entries
-// preserved). Pure — no DOM, no network.
+// builds the { nav, draftNav, unlistedNav } payload by projecting the edited
+// tree onto each array's membership (exact values reused; Home/System and
+// non-guide entries preserved). Pure — no DOM, no network.
 import {
   slugify, valueMapByBase, leafBases, projectTree, spliceGuideBlock,
   nodeAtPath, moveSibling, detachAtPath, attachUnderPath, attachUnderSegments,
@@ -18,10 +18,15 @@ function subtreeContains(ancestor, node) {
   return ancestor.children.some(c => subtreeContains(c, node));
 }
 
-export function createReorderState({ tree, navItems, draftItems }) {
+export function createReorderState({ tree, navItems, draftItems, unlistedItems = [] }) {
   let dirty = false;
   const liveMap = valueMapByBase(navItems);
   const draftMap = valueMapByBase(draftItems);
+  // Unlisted pages sit in the same tree as public ones (the KB form has no
+  // separate Unlisted tab), so their placement is projected into unlisted_nav
+  // exactly like nav / draft_nav. Membership filtering in projectTree keeps a
+  // public page out of unlisted_nav and vice versa.
+  const unlistedMap = valueMapByBase(unlistedItems);
 
   const move = (pathStr, dir) => {
     if (moveSibling(tree, parsePath(pathStr), dir === 'up' ? -1 : +1)) dirty = true;
@@ -81,7 +86,8 @@ export function createReorderState({ tree, navItems, draftItems }) {
     const editedBases = leafBases(tree);
     const nav = spliceGuideBlock(navItems, projectTree(tree, liveMap), editedTopSlugs, editedBases);
     const draftNav = spliceGuideBlock(draftItems, projectTree(tree, draftMap), editedTopSlugs, editedBases);
-    return { nav, draftNav };
+    const unlistedNav = spliceGuideBlock(unlistedItems, projectTree(tree, unlistedMap), editedTopSlugs, editedBases);
+    return { nav, draftNav, unlistedNav };
   };
 
   return {

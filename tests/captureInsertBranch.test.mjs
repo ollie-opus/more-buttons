@@ -25,6 +25,17 @@ const CAP = {
   uuid: 'U1',
 };
 
+test('frozen system-update filenames render under the flat folder path', () => {
+  const lines = buildCaptureLines([{
+    ...CAP,
+    lightFilename: 'media/system-update-captures/a-ab12cd34-light-mode.png',
+    darkFilename: 'media/system-update-captures/a-ab12cd34-dark-mode.png',
+    dimMode: 'none', dimValue: null,
+  }]);
+  assert.ok(lines.some(l => l.includes('](../assets/media/system-update-captures/a-ab12cd34-light-mode.png#only-light)')));
+  assert.ok(lines.some(l => l.includes('](../assets/media/system-update-captures/a-ab12cd34-dark-mode.png#only-dark)')));
+});
+
 test('height dim renders the style attr on both theme lines', () => {
   const lines = buildCaptureLines([{ ...CAP, dimMode: 'height', dimValue: 64 }]);
   assert.ok(lines.some(l => l.includes('#only-light){ style="height: 64px" loading=lazy }')));

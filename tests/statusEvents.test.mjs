@@ -7,7 +7,7 @@ import {
   updateMarkdownIncidents, updateMarkdownPastIncident, deleteMarkdownEvent,
   recalculateServiceStatuses, deriveMaintenanceWindow, deriveBannerStatus,
   parseEventBlocks, sectionBodies, parseServiceNames,
-  ALL_SERVICES, normalizeServiceSelection,
+  ALL_SERVICES, normalizeServiceSelection, servicesToSelectionArray,
 } from '../scripts/statusEvents.js';
 
 let passed = 0;
@@ -635,6 +635,58 @@ test('recalc reads Services Affected from new-format cards (tiles flip)', () => 
   const out = recalculateServiceStatuses(statusFile({ active: [incident('disruption', 'Server, Files', 'i1')] }));
   assert.ok(out.includes('!!! status-disruption "Server"'));
   assert.ok(out.includes('!!! status-disruption "Files"'));
+});
+
+// ── Editable services/impact on update ───────────────────────────────────────
+
+test('update: changing impact rewrites the admonition type, pill, and tile', () => {
+  const md = statusFile({ active: [incident('disruption', 'Server', 'i1')] });
+  const out = updateMarkdownIncidents(md, { i1: { impact: 'outage' } }, null);
+  const active = sectionBodies(out).active;
+  assert.ok(active.includes('!!! status-outage "<span class="mb-label mb-label-red">OUTAGE</span>"'));
+  assert.ok(!active.includes('status-disruption'));
+  assert.ok(out.includes('!!! status-outage "Server"'));
+});
+
+test('update: changing services moves the tile impact', () => {
+  const md = statusFile({ active: [incident('outage', 'Server', 'i1')] });
+  const out = updateMarkdownIncidents(md, { i1: { services: 'Files' } }, null);
+  assert.ok(out.includes('- **Services Affected:** Files'));
+  assert.ok(out.includes('!!! status-outage "Files"'));
+  assert.ok(out.includes('!!! status-available "Server"'));
+});
+
+test('update: services set to the sentinel raises every tile', () => {
+  const md = statusFile({ active: [incident('disruption', 'Server', 'i1')] });
+  const out = updateMarkdownIncidents(md, { i1: { services: ALL_SERVICES } }, null);
+  assert.ok(out.includes('!!! status-disruption "Server"'));
+  assert.ok(out.includes('!!! status-disruption "Files"'));
+});
+
+test('past update: impact rewrites in place without raising tiles', () => {
+  const md = statusFile({ past: [incident('disruption', 'Server', 'i1', 'resolved')] });
+  const out = updateMarkdownPastIncident(md, 'i1', { impact: 'outage', services: 'Files' });
+  const [past] = parseIncidentBlocks(sectionBodies(out).past);
+  assert.equal(past.impact, 'outage');
+  assert.equal(past.services, 'Files');
+  assert.ok(out.includes('!!! status-available "Server"'));
+  assert.ok(out.includes('!!! status-available "Files"'));
+});
+
+test('maintenance update: changing services moves the maintenance tile', () => {
+  const inProg = maintenance({ uuid: 'm1', services: 'Server', start: '2026-08-14 09:00', end: '2026-08-14 11:00', startIso: '2026-08-14T09:00+01:00', endIso: '2026-08-14T11:00+01:00', status: 'in progress' });
+  const out = updateMarkdownMaintenance(statusFile({ active: [inProg] }), 'm1', { services: 'Files' });
+  assert.ok(out.includes('- **Services Affected:** Files'));
+  assert.ok(out.includes('!!! status-maintenance "Files"'));
+  assert.ok(out.includes('!!! status-available "Server"'));
+});
+
+test('servicesToSelectionArray: sentinel collapses, comma lists split and trim', () => {
+  assert.deepEqual(servicesToSelectionArray(ALL_SERVICES), [ALL_SERVICES]);
+  assert.deepEqual(servicesToSelectionArray('  all services  '), [ALL_SERVICES]);
+  assert.deepEqual(servicesToSelectionArray('Server, Files'), ['Server', 'Files']);
+  assert.deepEqual(servicesToSelectionArray(''), []);
+  assert.deepEqual(servicesToSelectionArray(undefined), []);
 });
 
 console.log(`\n${passed} passed`);

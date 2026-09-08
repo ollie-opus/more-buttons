@@ -758,13 +758,20 @@ function scanLabels(value) {
   return out;
 }
 
-// Find the label pill whose rendered text the selection sits within, so the
-// toolbar can EDIT/recolour it instead of nesting a new one. Mirror of grooveAt.
-// Returns `{ start, end, text, slug }` (the whole `[start, end)` span range), or null.
+// Find the label pill the selection touches, so the toolbar can EDIT/recolour
+// it instead of nesting a new one. Pills are atomic in the rich surface
+// (contenteditable=false), so the click gesture selects the whole node — which
+// maps to exactly the pill's `[start, end)` source range. Like iconAt, this
+// matches any non-empty selection overlapping the pill (widening a partial
+// overlap to the whole pill), or a collapsed caret strictly INSIDE the span
+// markup (markdown mode). A caret merely adjacent is a plain insert → null.
+// Returns `{ start, end, text, slug }`, or null.
 export function labelAt(value, selStart, selEnd) {
   const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
   for (const l of scanLabels(value)) {
-    if (lo >= l.textStart && hi <= l.textEnd) return { start: l.start, end: l.end, text: l.text, slug: l.slug };
+    const overlaps = lo < l.end && hi > l.start;
+    const inside = lo === hi && lo > l.start && lo < l.end;
+    if (overlaps || inside) return { start: l.start, end: l.end, text: l.text, slug: l.slug };
   }
   return null;
 }

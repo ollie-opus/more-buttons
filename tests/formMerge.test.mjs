@@ -155,4 +155,42 @@ test('orderedUuidList: recorded choice theirs applies while fresh stable', () =>
   assert.equal(resolved.componentOrder, 'C,B,A');
 });
 
+// ── sepList (sep-joined item lists, e.g. code block annotations) ─────────────
+
+const SEP = '\u001f';
+const SL_SPECS = [{ name: 'anns', type: 'sepList', sep: SEP, label: 'Annotations' }];
+const joinSep = (...items) => items.join(SEP);
+
+test('sepList: untouched takes theirs', () => {
+  const { resolved, conflicts } = mergeFields(
+    { anns: joinSep('a', 'b') }, { anns: joinSep('a', 'b') }, { anns: joinSep('a', 'B2') }, SL_SPECS);
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.anns, joinSep('a', 'B2'));
+});
+
+test('sepList: only-you-changed takes yours', () => {
+  const { resolved, conflicts } = mergeFields(
+    { anns: joinSep('a', 'b') }, { anns: joinSep('a', 'b', 'c') }, { anns: joinSep('a', 'b') }, SL_SPECS);
+  assert.equal(conflicts.length, 0);
+  assert.equal(resolved.anns, joinSep('a', 'b', 'c'));
+});
+
+test('sepList: collision reports the conflict with array mine/theirs', () => {
+  const { conflicts } = mergeFields(
+    { anns: joinSep('a', 'b') }, { anns: joinSep('a', 'MINE') }, { anns: joinSep('a', 'THEIRS') }, SL_SPECS);
+  assert.equal(conflicts.length, 1);
+  assert.deepEqual(conflicts[0].mine, ['a', 'MINE']);
+  assert.deepEqual(conflicts[0].theirs, ['a', 'THEIRS']);
+});
+
+test('sepList: recorded choice applies while theirs is stable, re-prompts when it moves', () => {
+  const snap = { anns: joinSep('a') }, cur = { anns: joinSep('MINE') };
+  const res = { anns: { choice: 'mine', theirsShown: ['THEIRS'] } };
+  const stable = mergeFields(snap, cur, { anns: joinSep('THEIRS') }, SL_SPECS, res);
+  assert.equal(stable.conflicts.length, 0);
+  assert.equal(stable.resolved.anns, joinSep('MINE'));
+  const moved = mergeFields(snap, cur, { anns: joinSep('MOVED') }, SL_SPECS, res);
+  assert.equal(moved.conflicts.length, 1);
+});
+
 console.log(`\n${passed} passed`);

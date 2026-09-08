@@ -15,15 +15,15 @@
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Scheduled Start</label>
-    <input type="datetime-local" name="scheduledStart" />
+    <input type="datetime-local" name="scheduledStart" required />
   </div>
 
   <div class="more-buttons-form-group">
     <label class="more-buttons-label">Scheduled End</label>
-    <input type="datetime-local" name="scheduledEnd" />
+    <input type="datetime-local" name="scheduledEnd" required />
   </div>
 
   <div class="more-buttons-form-actions">
-    <button type="button" class="more-buttons-button publish" data-action="submitReportMaintenance"><span class="more-buttons-icon">verified</span>Publish Maintenance</button>
+    <button type="button" class="more-buttons-button publish" data-validate data-action="submitReportMaintenance"><span class="more-buttons-icon">verified</span>Publish Maintenance</button>
   </div>
 </form>

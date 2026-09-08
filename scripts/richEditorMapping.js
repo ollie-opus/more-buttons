@@ -5,7 +5,7 @@
 // re-render). DOM-free except placeCaret, so the rest is unit tested with a
 // fake DOM in tests/richEditorMapping.test.mjs.
 
-import { grooveMarkup, grooveTextOffset, labelMarkup, labelTextOffset, iconMarkup } from './markdownInline.js';
+import { grooveMarkup, grooveTextOffset, labelMarkup, labelTextOffset, iconMarkup, atomInnerText } from './markdownInline.js';
 
 const TEXT_NODE = 3, ELEMENT_NODE = 1;
 
@@ -83,9 +83,11 @@ export function buildSource(root, onText, onBoundary) {
             // A label pill is atomic (like a Groove link): re-emit the canonical
             // class-only span from its slug + text, ignoring any inline colour
             // style the preview painted, so the DOM->source sync can't corrupt it.
+            // Its text may hold icon atoms → atomInnerText re-emits their
+            // shortcodes (and never the painted <svg>).
             const cls = child.getAttribute('class') || '';
             const slug = (cls.match(/mb-label-([a-z0-9-]+)/) || [])[1] || '';
-            const txt = child.textContent;
+            const txt = atomInnerText(child);
             if (onText && child.firstChild && child.firstChild.nodeType === TEXT_NODE) onText(child.firstChild, out.length + labelTextOffset(slug));
             out += labelMarkup(slug, txt);
           }

@@ -24,11 +24,16 @@ import {
   captureThemeField, captureCornerField,
 } from './captureCards.js';
 import { registerFormAction, getFormAction } from './formActions.js';
+import { OCC_DIR, SU_DIR, pairFilenames } from './captureDest.js';
 
-export async function openCaptureInsertNew({ capture } = {}) {
+// `dir` is the pair folder the capture will be pushed into (captureDest.js):
+// occ-captures for guides (editable page-path base), system-update-captures
+// for system updates (flat, generated `<slug>-<id8>` name, read-only).
+export async function openCaptureInsertNew({ capture, dir = OCC_DIR } = {}) {
   if (!capture?.lightDataUrl) return;
+  const frozen = dir === SU_DIR;
 
-  const opener = () => openCaptureInsertNew({ capture });
+  const opener = () => openCaptureInsertNew({ capture, dir });
   const { formEl, overlay } = await createForm('captureInsertNew', opener);
   if (!formEl) return;
 
@@ -45,12 +50,19 @@ export async function openCaptureInsertNew({ capture } = {}) {
   const originalBase = captureBasePath(capture.lightFilename);
 
   bodyEl.innerHTML =
-    capturePathField({
-      label: 'Proposed capture path',
-      value: originalBase,
-      editable: true,
-      hint: 'Warning: Only rename this path for legitimate reasons. The majority of the time you will want to utilise the automatically generated path',
-    }) +
+    (frozen
+      ? capturePathField({
+          label: 'System update capture',
+          value: originalBase,
+          editable: false,
+          hint: 'Saved to the frozen system-update-captures library under this generated name. System update captures are never recaptured or replaced.',
+        })
+      : capturePathField({
+          label: 'Proposed capture path',
+          value: originalBase,
+          editable: true,
+          hint: 'Warning: Only rename this path for legitimate reasons. The majority of the time you will want to utilise the automatically generated path',
+        })) +
     captureGrid([
       captureCard({ theme: 'light', title: 'Light mode', src: capture.lightDataUrl, alt: 'light mode' }),
       captureCard({ theme: 'dark', title: 'Dark mode', src: capture.darkDataUrl, alt: 'dark mode' }),
@@ -80,8 +92,10 @@ export async function openCaptureInsertNew({ capture } = {}) {
     let done = false; // true once the commit action takes over — leave it busy
     try {
       const base = currentBase();
-      const light = `media/occ-captures/${base}-light-mode.png`;
-      const dark = `media/occ-captures/${base}-dark-mode.png`;
+      // Keep the buffered pair's extension: screenshot captures carry .png,
+      // Extract-mode captures .svg (mediaUpload.js is the same model).
+      const ext = capture.lightFilename?.match(/\.([a-z0-9]+)$/)?.[1] ?? 'png';
+      const { lightFilename: light, darkFilename: dark } = pairFilenames(dir, base, ext);
       const lightPath = `docs/assets/${light}`;
       const darkPath = `docs/assets/${dark}`;
 

@@ -46,7 +46,7 @@ const STORAGE_KEY = 'moreButtonsEditNavLinks';
 // ── Form ↔ data ────────────────────────────────────────────────────────────
 
 function emptyFields() {
-  return { navMode: 'path', navPath: '', navTag: '', navLayout: 'flat' };
+  return { navMode: 'path', navPath: '', navTag: '', navLayout: 'flat', navNewTab: 'no' };
 }
 
 function readNavLinksFields(formEl) {
@@ -56,6 +56,7 @@ function readNavLinksFields(formEl) {
     // Canonical CSV of the chips (the widget already keeps it canonical).
     tag: splitTagList(formEl.querySelector('[name="navTag"]')?.value ?? '').join(', '),
     layout: formEl.querySelector('[name="navLayout"]:checked')?.value === 'grouped' ? 'grouped' : 'flat',
+    newTab: formEl.querySelector('[name="navNewTab"]:checked')?.value === 'yes',
   };
 }
 
@@ -65,7 +66,7 @@ function fieldsLabel(f) {
 }
 
 function fieldsToStorage(f) {
-  return { navMode: f.mode, navPath: f.path, navTag: f.tag, navLayout: f.layout };
+  return { navMode: f.mode, navPath: f.path, navTag: f.tag, navLayout: f.layout, navNewTab: f.newTab ? 'yes' : 'no' };
 }
 
 function seedStorage(fields) {
@@ -228,8 +229,8 @@ async function persistNewNavLinks(formEl, onProgress = () => {}) {
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
   const nav = f.mode === 'tag'
-    ? { uuid: newUuid, tag: f.tag, layout: f.layout }
-    : { uuid: newUuid, path: f.path };
+    ? { uuid: newUuid, tag: f.tag, layout: f.layout, newTab: f.newTab }
+    : { uuid: newUuid, path: f.path, newTab: f.newTab };
   await spliceIntoContainer(parent, insertAt, [{ kind: 'navlinks', nav }], onProgress);
   return { newUuid, file: parent.file };
 }
@@ -268,6 +269,7 @@ async function persistNavLinksEdit(formEl, onProgress = () => {}) {
       { name: 'navPath', type: 'scalar', label: 'Path' },
       { name: 'navTag', type: 'scalar', label: 'Tags' },
       { name: 'navLayout', type: 'scalar', label: 'Layout' },
+      { name: 'navNewTab', type: 'scalar', label: 'Open in new tab' },
     ],
     readFresh: md => navLinksDimFields(locateNavLinksByUUID(md, editUuid) ?? {}),
     build: (md, resolved) => {
@@ -275,6 +277,7 @@ async function persistNavLinksEdit(formEl, onProgress = () => {}) {
       const line = navLinksLineFrom({
         mode: resolved.navMode, path: resolved.navPath,
         tag: resolved.navTag, layout: resolved.navLayout,
+        newTab: resolved.navNewTab === 'yes',
       });
       return replaceNavLinksByUUID(md, editUuid, line);
     },

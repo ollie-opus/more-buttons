@@ -3,12 +3,14 @@ import { pushCaptures, resolveCaptureConflict, overwriteCapturePair } from './ca
 import { githubPathExists, githubPushImageIfNotExists, githubReplaceImage } from './github.js';
 import { captureCard, captureGrid, capturePathField, captureUploadField, readCaptureImage, readMediaFile, CAPTURE_UPLOAD_TYPES } from './captureCards.js';
 import { registerFormAction } from './formActions.js';
+import { OCC_DIR, SU_DIR, PAIR_DIRS, pairFilenames, shortId } from './captureDest.js';
 
 const MEDIA_ROOT = 'docs/assets/media';
-// Uploads into this folder use the capture pipeline: a light+dark PNG/SVG pair
-// with the theme suffixes appended. Every other folder takes a single file of
-// any format, stored under the typed path with the file's own extension.
-const CAPTURE_FOLDER = 'occ-captures';
+// Uploads into the pair folders (captureDest.js PAIR_DIRS) use the capture
+// pipeline: a light+dark PNG/SVG pair with the theme suffixes appended; the
+// frozen system-update folder is flat and gets a short id appended to the
+// name. Every other folder takes a single file of any format, stored under the
+// typed path with the file's own extension.
 
 // Library-side "Upload a new file". The destination dropdown lists the media
 // library's top-level folders (passed in by the library so the two stay in
@@ -26,9 +28,10 @@ export async function openMediaUpload({ folders, folder } = {}) {
   const saveBtn = contentEl.querySelector('[data-media-upload-save]');
   const cancelBtn = contentEl.querySelector('[data-media-upload-cancel]');
 
-  const folderList = folders?.length ? folders : [{ key: CAPTURE_FOLDER, label: 'Occ Captures' }];
+  const folderList = folders?.length ? folders : [{ key: OCC_DIR, label: 'Occ Captures' }];
   let dest = folderList.some(f => f.key === folder) ? folder : folderList[0].key;
-  const isCaptureDest = () => dest === CAPTURE_FOLDER;
+  const isCaptureDest = () => PAIR_DIRS.includes(dest);
+  const isFrozenDest = () => dest === SU_DIR;
 
   const picked = { light: null, dark: null, single: null }; // { ext, dataUrl } per file input
 
@@ -46,7 +49,9 @@ export async function openMediaUpload({ folders, folder } = {}) {
           label: 'Capture path',
           value: '',
           editable: true,
-          hint: 'Folder path + file name, no extension. e.g. sites/overview is saved as sites/overview-light-mode.svg and sites/overview-dark-mode.svg — the theme suffixes and file extension are added for you, so don’t type .png/.svg or -light-mode/-dark-mode',
+          hint: isFrozenDest()
+            ? 'File name only, no folders or extension. e.g. overview is saved as overview-<id>-light-mode.svg and overview-<id>-dark-mode.svg — a short id, the theme suffixes and file extension are added for you. System update captures are frozen: never recaptured or replaced'
+            : 'Folder path + file name, no extension. e.g. sites/overview is saved as sites/overview-light-mode.svg and sites/overview-dark-mode.svg — the theme suffixes and file extension are added for you, so don’t type .png/.svg or -light-mode/-dark-mode',
         }) +
         captureUploadField({ label: 'Light mode image', name: 'light' }) +
         captureUploadField({ label: 'Dark mode image', name: 'dark' }) +
@@ -114,11 +119,12 @@ export async function openMediaUpload({ folders, folder } = {}) {
 
   let busy = false;
 
-  // occ-captures: the original pair save — theme suffixes, pair conflict flow.
+  // Pair folders: the original pair save — theme suffixes, pair conflict flow.
+  // The frozen folder appends a short id so names never clash there.
   async function saveCapturePair(base) {
     const ext = picked.light.ext;
-    const light = `media/${CAPTURE_FOLDER}/${base}-light-mode.${ext}`;
-    const dark = `media/${CAPTURE_FOLDER}/${base}-dark-mode.${ext}`;
+    const finalBase = isFrozenDest() ? `${base}-${shortId()}` : base;
+    const { lightFilename: light, darkFilename: dark } = pairFilenames(dest, finalBase, ext);
     const lightPath = `docs/assets/${light}`;
     const darkPath = `docs/assets/${dark}`;
 
@@ -191,6 +197,10 @@ export async function openMediaUpload({ folders, folder } = {}) {
       return;
     }
     if (isCaptureDest()) {
+      if (isFrozenDest() && base.includes('/')) {
+        alert('System update captures live in a flat folder — enter a file name without folders.');
+        return;
+      }
       if (!picked.light || !picked.dark) {
         alert('Choose both a light and a dark image.');
         return;

@@ -139,3 +139,16 @@ export async function readRepoBlob(path, { signal } = {}) {
   }
   return blob;
 }
+
+// readRepoBlob as a `data:<type>;base64,…` URL — the shape the capture flows
+// carry in `lightDataUrl` / `darkDataUrl` and that pushCaptures splits on the
+// comma. Used to duplicate an existing library pair into another folder.
+export async function readRepoDataUrl(path, opts) {
+  const blob = await readRepoBlob(path, opts);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read ' + path));
+    reader.readAsDataURL(blob);
+  });
+}

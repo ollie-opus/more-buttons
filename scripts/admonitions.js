@@ -12,6 +12,8 @@
  * Generates a new random UUID using the native Web Crypto API.
  * @returns {string} A UUID v4 string, e.g. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
  */
+import { stripIconShortcodes } from './markdownInline.js';
+
 export function generateUUID() {
   return crypto.randomUUID();
 }
@@ -281,6 +283,19 @@ const LABEL_SPAN_RE = /<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/sp
  */
 export function stripLabelSpans(title) {
   return (title ?? '').replace(LABEL_SPAN_RE, (_, _slug, text) => text);
+}
+
+/**
+ * stripLabelSpans plus icon-shortcode removal — a title reduced to bare words
+ * for sites that can render neither pills nor icons (breadcrumbs, conflict
+ * descriptors). Kept separate from stripLabelSpans, which statusEvents uses
+ * as a generic field reader where a Description may legitimately keep an icon.
+ *
+ * @param {string} title
+ * @returns {string}
+ */
+export function stripInlineAtoms(title) {
+  return stripIconShortcodes(stripLabelSpans(title));
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────

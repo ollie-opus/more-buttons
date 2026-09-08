@@ -1,0 +1,52 @@
+<form data-nav data-dirty-guard id="edit-codeblock-form" data-storage-key="moreButtonsEditCodeBlock" data-width="90vw" data-height="90vh">
+  <h2 data-codeblock-heading>Edit code block</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Language</label>
+    <input type="text" name="codeLanguage" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="e.g. python — leave empty for plain text" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Title</label>
+    <input type="text" name="codeTitle" autocomplete="off" placeholder="Optional — e.g. bubble_sort.py" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Line numbers</label>
+    <div class="more-buttons-radio-btn-group-row">
+      <label class="more-buttons-radio-btn"><input type="radio" name="codeLinenumsMode" value="off" checked /> Off</label>
+      <label class="more-buttons-radio-btn"><input type="radio" name="codeLinenumsMode" value="on" /> On</label>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-group" data-show-when="codeLinenumsMode=on">
+    <label class="more-buttons-label">First line number</label>
+    <input type="number" name="codeLinenumsStart" min="1" step="1" placeholder="1" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Highlighted lines</label>
+    <input type="text" name="codeHlLines" autocomplete="off" spellcheck="false" placeholder="Optional — e.g. 2 3 or 3-5" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Code</label>
+    <textarea name="codeSource" class="--code" rows="16" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="def bubble_sort(items):&#10;    ..." required></textarea>
+  </div>
+
+  <input type="hidden" name="codeAnnotations" value="" />
+
+  <!-- The annotation popover's relocatable rich text editor. Unnamed, so it is
+       invisible to readFormValues / hydration / validation; form.js's generic
+       data-richtext sweep upgrades it with the full toolbar, and
+       codeRichEditor.js moves the whole .mb-rte wrapper into the popover of
+       whichever annotation chip is being edited (parked back here on close). -->
+  <div data-codeann-editor-host hidden>
+    <textarea data-codeann-editor data-richtext rows="4" placeholder="Annotation text — markdown allowed"></textarea>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button success" data-action="submitEditCodeBlock" data-validate data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">save</span>Save to draft</button>
+    <button type="button" class="more-buttons-button danger" data-action="deleteCodeBlock" data-delete-codeblock-btn><span class="more-buttons-icon">delete</span>Delete</button>
+  </div>
+</form>

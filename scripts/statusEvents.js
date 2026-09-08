@@ -100,6 +100,19 @@ export function normalizeServiceSelection(selected, allNames) {
   return real.length === allNames.length ? ALL_SERVICES : real.join(', ');
 }
 
+/**
+ * The inverse of normalizeServiceSelection for seeding the chip picker: a
+ * stored `Services Affected` string as the array of chip values to check.
+ * The sentinel stays a single entry — the picker's own sync locks the rest.
+ *
+ * @param {string} services - Stored value: comma-joined names or the sentinel.
+ * @returns {string[]} Chip values to check; `[ALL_SERVICES]` for the sentinel.
+ */
+export function servicesToSelectionArray(services) {
+  if (isAllServices(services)) return [ALL_SERVICES];
+  return (services ?? '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
 // ── Section-name migration ────────────────────────────────────────────────────
 
 /**
