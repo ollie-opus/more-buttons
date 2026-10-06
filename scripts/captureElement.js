@@ -315,30 +315,52 @@ export function compositeColorStack(stack) {
   return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
 }
 
-function sampleBackgroundColor(el) {
-  const r = el.getBoundingClientRect();
-  const OFFSET = 3;
-  const t = r.top - OFFSET, b = r.bottom + OFFSET;
-  const l = r.left - OFFSET, ri = r.right + OFFSET;
+/**
+ * The 12 probe points for a rect (viewport coords): three per side at 25/50/75%
+ * along each edge, `offset` px outside it (negative = inside). Exported for tests.
+ */
+export function bgProbePoints(r, offset) {
+  const right = r.left + r.width, bottom = r.top + r.height;
+  const t = r.top - offset, b = bottom + offset;
+  const l = r.left - offset, ri = right + offset;
   const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-
-  const points = [
+  return [
     [r.left + r.width * 0.25, t], [cx, t], [r.left + r.width * 0.75, t],
     [r.left + r.width * 0.25, b], [cx, b], [r.left + r.width * 0.75, b],
     [l, r.top + r.height * 0.25], [l, cy], [l, r.top + r.height * 0.75],
     [ri, r.top + r.height * 0.25], [ri, cy], [ri, r.top + r.height * 0.75],
   ];
+}
+
+/**
+ * Majority vote over per-probe colours; ties go to the first colour seen. A
+ * null entry is a probe that landed outside the viewport — it hit no page node,
+ * so it must not vote (it used to count as opaque white, which won the vote
+ * for full-width targets like headers and left a white band in dark mode).
+ * Returns null when no probe voted. Exported for tests.
+ */
+export function voteBackgroundColor(colors) {
+  const freq = {};
+  for (const c of colors) if (c) freq[c] = (freq[c] || 0) + 1;
+  return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+// `r` is the captured region in viewport coords: the element's rect, or the
+// drawn box for resize-mode captures.
+function sampleBackgroundColor(r) {
+  const OFFSET = 3;
 
   // Hide our overlays so they don't shadow elementFromPoint.
   const overlays = document.querySelectorAll('.mb-capture-selector, .mb-capture-padding-ring, .mb-capture-bar, .mb-capture-tab, .mb-capture-resize');
   const prevDisplay = [];
   overlays.forEach((o, i) => { prevDisplay[i] = o.style.display; o.style.display = 'none'; });
-  const colors = points.map(([x, y]) => {
+  const colorAt = ([x, y]) => {
     // Collect every painted layer from the hit node up to <html> (inclusive)
     // and flatten to the opaque colour actually seen. Stopping at the first
     // painted layer — the old behaviour — returned semi-transparent veils
     // verbatim, which made the padding band itself transparent in the PNG.
-    let node = document.elementFromPoint(x, y) || document.documentElement;
+    let node = document.elementFromPoint(x, y);
+    if (!node) return null; // outside the viewport — no vote
     const stack = [];
     while (node) {
       const bg = getComputedStyle(node).backgroundColor;
@@ -350,12 +372,14 @@ function sampleBackgroundColor(el) {
       node = node === document.documentElement ? null : (node.parentElement ?? document.documentElement);
     }
     return compositeColorStack(stack);
-  });
+  };
+  // Probe just outside the region; if every one of those is off-screen (the
+  // region fills the viewport), fall back to probing just inside its edges.
+  const color = voteBackgroundColor(bgProbePoints(r, OFFSET).map(colorAt))
+    ?? voteBackgroundColor(bgProbePoints(r, -OFFSET).map(colorAt));
   overlays.forEach((o, i) => { o.style.display = prevDisplay[i] ?? ''; });
 
-  const freq = {};
-  for (const c of colors) freq[c] = (freq[c] || 0) + 1;
-  return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'rgb(255,255,255)';
+  return color ?? 'rgb(255,255,255)';
 }
 
 export function getElementLabel(el) {
@@ -646,7 +670,12 @@ export async function screenshotElement(el, { theme, customRect = null, settings
   const bgListener = (msg, _sender, sendResponse) => {
     if (msg.type !== 'sampleBgForCapture') return false;
     chrome.runtime.onMessage.removeListener(bgListener);
-    sampledBgColor = padding > 0 ? sampleBackgroundColor(el) : null;
+    // Resize-mode captures sample around the drawn box (doc coords → viewport),
+    // not the originally picked element, so the padding matches the box's edges.
+    const sampleRect = customRect
+      ? { left: customRect.left - window.scrollX, top: customRect.top - window.scrollY, width: customRect.width, height: customRect.height }
+      : el.getBoundingClientRect();
+    sampledBgColor = padding > 0 ? sampleBackgroundColor(sampleRect) : null;
     sendResponse({ bgColor: sampledBgColor });
     return false;
   };
