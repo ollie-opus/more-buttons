@@ -1,6 +1,6 @@
 /* ── Theme tokens ─────────────────────────────────────────────────────────── */
 
-.more-buttons-overlay-content {
+.more-buttons-overlay-content, .mb-page-dock, .mb-popup {
   --mb-bg:               #ffffff;
   --mb-bg-subtle:        #f8fafc;
   --mb-bg-input:         #ffffff;
@@ -25,6 +25,29 @@
   --mb-acc-busy:     #b45309;  /* amber — commit in flight             */
   --mb-acc-magenta:  #be185d;  /* pink/rose — reorder mode toggle       */
   --mb-acc-on:       #ffffff;  /* label colour when a button fills      */
+  /* Named button palette (config/buttonColours.json — keep in sync; the
+     buttonColours test enforces it). Picked by `.more-buttons-button.<name>`. */
+  --mb-col-red:      #dc2626;
+  --mb-col-orange:   #ea580c;
+  --mb-col-amber:    #b45309;
+  --mb-col-yellow:   #a16207;
+  --mb-col-lime:     #4d7c0f;
+  --mb-col-green:    #15803d;
+  --mb-col-emerald:  #059669;
+  --mb-col-teal:     #0d9488;
+  --mb-col-cyan:     #0e7490;
+  --mb-col-sky:      #0284c7;
+  --mb-col-blue:     #2563eb;
+  --mb-col-indigo:   #4f46e5;
+  --mb-col-violet:   #7c3aed;
+  --mb-col-purple:   #9333ea;
+  --mb-col-fuchsia:  #c026d3;
+  --mb-col-pink:     #be185d;
+  --mb-col-rose:     #e11d48;
+  --mb-col-slate:    #64748b;
+  --mb-col-grey:     #6b7280;
+  --mb-col-zinc:     #71717a;
+  --mb-col-stone:    #78716c;
   --mb-info-bg:          #e2f3ff;
   --mb-info-border:      #bfdbfe;
   --mb-heading:          #0f172a;
@@ -38,7 +61,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .more-buttons-overlay-content {
+  .more-buttons-overlay-content, .mb-page-dock, .mb-popup {
     --mb-bg:               #1e293b;
     --mb-bg-subtle:        #0f172a;
     --mb-bg-input:         #0f172a;
@@ -62,6 +85,28 @@
     --mb-acc-busy:     #fbbf24;
     --mb-acc-magenta:  #f472b6;
     --mb-acc-on:       #0f172a;
+    /* Named button palette, dark values. */
+    --mb-col-red:      #f87171;
+    --mb-col-orange:   #fb923c;
+    --mb-col-amber:    #fbbf24;
+    --mb-col-yellow:   #facc15;
+    --mb-col-lime:     #a3e635;
+    --mb-col-green:    #4ade80;
+    --mb-col-emerald:  #34d399;
+    --mb-col-teal:     #2dd4bf;
+    --mb-col-cyan:     #22d3ee;
+    --mb-col-sky:      #38bdf8;
+    --mb-col-blue:     #60a5fa;
+    --mb-col-indigo:   #818cf8;
+    --mb-col-violet:   #a78bfa;
+    --mb-col-purple:   #c084fc;
+    --mb-col-fuchsia:  #e879f9;
+    --mb-col-pink:     #f472b6;
+    --mb-col-rose:     #fb7185;
+    --mb-col-slate:    #94a3b8;
+    --mb-col-grey:     #9ca3af;
+    --mb-col-zinc:     #a1a1aa;
+    --mb-col-stone:    #a8a29e;
     --mb-info-bg:          rgba(30, 58, 138, 0.25);
     --mb-info-border:      #1d4ed8;
     --mb-heading:          #f1f5f9;
@@ -858,19 +903,19 @@ button.more-buttons-crumb:hover {
   opacity: 1;
 }
 /* Dim the button's FACE — icon + border — not the whole element, so the tag stays
-   opaque. Excludes `.success` (the settled "saved" confirmation is intentionally
+   opaque. Excludes `.green` (the settled "saved" confirmation is intentionally
    full-strength). The tag itself is left at full colour. */
-.more-buttons-form-actions > .more-buttons-button[aria-disabled="true"]:not(.success),
-.more-buttons-form-actions > .more-buttons-button:disabled:not(.busy):not(.success),
-.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button[aria-disabled="true"]:not(.success),
-.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:disabled:not(.busy):not(.success) {
+.more-buttons-form-actions > .more-buttons-button[aria-disabled="true"]:not(.green),
+.more-buttons-form-actions > .more-buttons-button:disabled:not(.busy):not(.green),
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button[aria-disabled="true"]:not(.green),
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:disabled:not(.busy):not(.green) {
   border-color: color-mix(in srgb, var(--mb-border) 65%, transparent);
   color: var(--mb-text-disabled);
 }
-.more-buttons-form-actions > .more-buttons-button[aria-disabled="true"]:not(.success) .more-buttons-icon,
-.more-buttons-form-actions > .more-buttons-button:disabled:not(.busy):not(.success) .more-buttons-icon,
-.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button[aria-disabled="true"]:not(.success) .more-buttons-icon,
-.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:disabled:not(.busy):not(.success) .more-buttons-icon {
+.more-buttons-form-actions > .more-buttons-button[aria-disabled="true"]:not(.green) .more-buttons-icon,
+.more-buttons-form-actions > .more-buttons-button:disabled:not(.busy):not(.green) .more-buttons-icon,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button[aria-disabled="true"]:not(.green) .more-buttons-icon,
+.more-buttons-form-actions > .mb-kb-actions > .more-buttons-button:disabled:not(.busy):not(.green) .more-buttons-icon {
   opacity: 0.5;                /* fade the glyph so the button reads as inactive */
 }
 
@@ -1239,31 +1284,38 @@ button.more-buttons-crumb:hover {
   font-variation-settings: 'FILL' 1, 'opsz' 20;
 }
 
-/* Semantic colour variants. `.secondary` is intentionally absent here: it is
-   now just an alias of the neutral default for existing markup. */
-.more-buttons-button.info     { --mb-acc: var(--mb-acc-info); }
-.more-buttons-button.success  { --mb-acc: var(--mb-acc-success); }
-.more-buttons-button.publish  { --mb-acc: var(--mb-acc-info); }
-.more-buttons-button.danger   { --mb-acc: var(--mb-acc-danger); }
-/* Outlined magenta — same calm faint-fill treatment as the variants above, for an
-   active action like "Switch to reorder mode". */
-.more-buttons-button.magenta  { --mb-acc: var(--mb-acc-magenta); }
+/* Named colour palette. Each `.more-buttons-button.<name>` picks its accent from
+   the matching `--mb-col-<name>` token (config/buttonColours.json); every colour
+   gets the same calm faint-fill treatment, filling solid on hover. */
+.more-buttons-button.red      { --mb-acc: var(--mb-col-red); }
+.more-buttons-button.orange   { --mb-acc: var(--mb-col-orange); }
+.more-buttons-button.amber    { --mb-acc: var(--mb-col-amber); }
+.more-buttons-button.yellow   { --mb-acc: var(--mb-col-yellow); }
+.more-buttons-button.lime     { --mb-acc: var(--mb-col-lime); }
+.more-buttons-button.green    { --mb-acc: var(--mb-col-green); }
+.more-buttons-button.emerald  { --mb-acc: var(--mb-col-emerald); }
+.more-buttons-button.teal     { --mb-acc: var(--mb-col-teal); }
+.more-buttons-button.cyan     { --mb-acc: var(--mb-col-cyan); }
+.more-buttons-button.sky      { --mb-acc: var(--mb-col-sky); }
+.more-buttons-button.blue     { --mb-acc: var(--mb-col-blue); }
+.more-buttons-button.indigo   { --mb-acc: var(--mb-col-indigo); }
+.more-buttons-button.violet   { --mb-acc: var(--mb-col-violet); }
+.more-buttons-button.purple   { --mb-acc: var(--mb-col-purple); }
+.more-buttons-button.fuchsia  { --mb-acc: var(--mb-col-fuchsia); }
+.more-buttons-button.pink     { --mb-acc: var(--mb-col-pink); }
+.more-buttons-button.rose     { --mb-acc: var(--mb-col-rose); }
+.more-buttons-button.slate    { --mb-acc: var(--mb-col-slate); }
+.more-buttons-button.grey     { --mb-acc: var(--mb-col-grey); }
+.more-buttons-button.zinc     { --mb-acc: var(--mb-col-zinc); }
+.more-buttons-button.stone    { --mb-acc: var(--mb-col-stone); }
 
-.more-buttons-button.info,
-.more-buttons-button.success,
-.more-buttons-button.publish,
-.more-buttons-button.danger,
-.more-buttons-button.magenta {
+.more-buttons-button:is(.red, .orange, .amber, .yellow, .lime, .green, .emerald, .teal, .cyan, .sky, .blue, .indigo, .violet, .purple, .fuchsia, .pink, .rose, .slate, .grey, .zinc, .stone) {
   background: color-mix(in srgb, var(--mb-acc) 11%, transparent);
   border-color: color-mix(in srgb, var(--mb-acc) 48%, transparent);
   color: var(--mb-acc);
 }
 
-.more-buttons-button.info:hover,
-.more-buttons-button.success:hover,
-.more-buttons-button.publish:hover,
-.more-buttons-button.danger:hover,
-.more-buttons-button.magenta:hover {
+.more-buttons-button:is(.red, .orange, .amber, .yellow, .lime, .green, .emerald, .teal, .cyan, .sky, .blue, .indigo, .violet, .purple, .fuchsia, .pink, .rose, .slate, .grey, .zinc, .stone):hover {
   background: var(--mb-acc);
   border-color: var(--mb-acc);
   color: var(--mb-acc-fill-fg);
@@ -1272,13 +1324,13 @@ button.more-buttons-crumb:hover {
 /* The saved/clean state: disabled but settled into a calm filled-green
    confirmation rather than a dimmed action. Higher specificity than the
    generic disabled rule below, so it wins regardless of source order. */
-.more-buttons-button.success:disabled,
-.more-buttons-button.success[aria-disabled="true"] {
+.more-buttons-button.green:disabled,
+.more-buttons-button.green[aria-disabled="true"] {
   opacity: 1;
   cursor: default;
-  background: color-mix(in srgb, var(--mb-acc-success) 16%, transparent);
-  border-color: color-mix(in srgb, var(--mb-acc-success) 40%, transparent);
-  color: var(--mb-acc-success);
+  background: color-mix(in srgb, var(--mb-col-green) 16%, transparent);
+  border-color: color-mix(in srgb, var(--mb-col-green) 40%, transparent);
+  color: var(--mb-col-green);
 }
 
 /* Amber "working" state while a save/publish commit is in flight. Filled (not

@@ -1,0 +1,86 @@
+{
+  "red": {
+    "light": "#dc2626",
+    "dark": "#f87171"
+  },
+  "orange": {
+    "light": "#ea580c",
+    "dark": "#fb923c"
+  },
+  "amber": {
+    "light": "#b45309",
+    "dark": "#fbbf24"
+  },
+  "yellow": {
+    "light": "#a16207",
+    "dark": "#facc15"
+  },
+  "lime": {
+    "light": "#4d7c0f",
+    "dark": "#a3e635"
+  },
+  "green": {
+    "light": "#15803d",
+    "dark": "#4ade80"
+  },
+  "emerald": {
+    "light": "#059669",
+    "dark": "#34d399"
+  },
+  "teal": {
+    "light": "#0d9488",
+    "dark": "#2dd4bf"
+  },
+  "cyan": {
+    "light": "#0e7490",
+    "dark": "#22d3ee"
+  },
+  "sky": {
+    "light": "#0284c7",
+    "dark": "#38bdf8"
+  },
+  "blue": {
+    "light": "#2563eb",
+    "dark": "#60a5fa"
+  },
+  "indigo": {
+    "light": "#4f46e5",
+    "dark": "#818cf8"
+  },
+  "violet": {
+    "light": "#7c3aed",
+    "dark": "#a78bfa"
+  },
+  "purple": {
+    "light": "#9333ea",
+    "dark": "#c084fc"
+  },
+  "fuchsia": {
+    "light": "#c026d3",
+    "dark": "#e879f9"
+  },
+  "pink": {
+    "light": "#be185d",
+    "dark": "#f472b6"
+  },
+  "rose": {
+    "light": "#e11d48",
+    "dark": "#fb7185"
+  },
+  "slate": {
+    "light": "#64748b",
+    "dark": "#94a3b8"
+  },
+  "grey": {
+    "light": "#6b7280",
+    "dark": "#9ca3af"
+  },
+  "zinc": {
+    "light": "#71717a",
+    "dark": "#a1a1aa"
+  },
+  "stone": {
+    "light": "#78716c",
+    "dark": "#a8a29e"
+  }
+}
