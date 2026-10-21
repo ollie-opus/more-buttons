@@ -240,7 +240,6 @@
     "displayText": "Opus",
     "descriptionText": "Switch the focus of the access tree to opus",
     "icon": "network",
-    "colour": "slate",
     "pageMatch": {
       "mode": "and",
       "keywords": ["access/edit"]
@@ -254,7 +253,6 @@
     "displayText": "Opus Safety Ltd",
     "descriptionText": "Switch the focus of the access tree to Opus Safety Ltd",
     "icon": "briefcase",
-    "colour": "slate",
     "pageMatch": {
       "mode": "and",
       "keywords": ["access/edit"]

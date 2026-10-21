@@ -24,8 +24,8 @@ test('removed keys are absent', () => {
   }
 });
 
-test('colour is a palette key', () => {
-  for (const b of buttons) assert.ok(palette.includes(b.colour), `${b.id}: ${b.colour}`);
+test('colour, when present, is a palette key (omit it for the default ghost look)', () => {
+  for (const b of buttons) if ('colour' in b) assert.ok(palette.includes(b.colour), `${b.id}: ${b.colour}`);
 });
 
 test('surface is page, popup, both or undefined', () => {
