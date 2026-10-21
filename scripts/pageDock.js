@@ -3,7 +3,7 @@
  *
  * Owns:
  *   - The `#mb-page-dock` root (appended to document.documentElement): a frosted
- *     vertical island of icon-only tiles plus a collapse handle on its left edge.
+ *     vertical island of icon-only tiles, preceded by a collapse handle on its left.
  *   - The open/collapsed state, persisted to chrome.storage.local
  *     (`moreButtonsPageDock` → { open }, default open).
  *
@@ -65,12 +65,13 @@ function createRoot(doc, open) {
   root.id = ROOT_ID;
   root.setAttribute('role', 'toolbar');
   root.setAttribute('aria-label', 'More Buttons');
-  root.appendChild(make(doc, 'div', 'mb-page-dock__island'));
-
+  // Handle FIRST: collapsing translates the root so only its leftmost
+  // handle-width + gap stays on screen, which must be the handle.
   const handle = make(doc, 'button', 'mb-page-dock__handle');
   handle.setAttribute('type', 'button');
   const icon = handle.appendChild(make(doc, 'span', 'more-buttons-icon'));
   root.appendChild(handle);
+  root.appendChild(make(doc, 'div', 'mb-page-dock__island'));
   applyOpenState(root, handle, icon, open);
 
   handle.addEventListener('click', () => {
@@ -94,7 +95,10 @@ function buildTile(doc, def, dispatch) {
   if (def.descriptionText) tag.appendChild(make(doc, 'small', null, def.descriptionText));
   tile.appendChild(tag);
 
-  tile.addEventListener('click', () => dispatch(def.action));
+  tile.addEventListener('click', () => {
+    Promise.resolve().then(() => dispatch(def.action))
+      .catch((err) => console.warn('MB Warn: dock action failed', err));
+  });
   return tile;
 }
 

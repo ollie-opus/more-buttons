@@ -4747,8 +4747,9 @@ h2[data-edit-media-title] .mb-kb-pills {
 /* ── Page dock ─────────────────────────────────────────────────────────────────
    The floating right-edge button dock on host webapp pages (scripts/pageDock.js).
    A vertical frosted island of icon-only tiles — same island/tile values as the
-   KB form-actions dock above — with a slim collapse handle on its left edge.
-   Collapsing slides the whole dock right until only the handle peeks out. Each
+   KB form-actions dock above — preceded (DOM order: handle, island) by a slim
+   collapse handle on its left. Collapsing slides the whole dock right until only
+   the handle (the root's leftmost handle-width + 4px gap) stays on screen. Each
    tile's label + description shows in a coloured tag to the LEFT of the tile on
    hover/focus (a real child span, not a pseudo-element, so it can hold two lines).
    Theme tokens come from the shared `.mb-page-dock` token selector at the top of
@@ -4782,8 +4783,6 @@ h2[data-edit-media-title] .mb-kb-pills {
   flex-direction: column;
   gap: 8px;
   padding: 7px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
   border: 1px solid color-mix(in srgb, var(--mb-border) 70%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
@@ -4825,6 +4824,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   flex-direction: column;
   gap: 2px;
   padding: 6px 10px;
+  width: max-content;
   max-width: 280px;
   text-align: left;
   border: 1px solid var(--mb-acc);
@@ -4872,10 +4872,9 @@ h2[data-edit-media-title] .mb-kb-pills {
   justify-content: center;
   width: var(--mb-dock-handle-w);
   height: 44px;
-  margin-left: 4px;
+  margin-right: 4px;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--mb-border) 70%, transparent);
-  border-right: none;
   border-radius: 8px 0 0 8px;
   background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);

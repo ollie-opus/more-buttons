@@ -85,6 +85,8 @@ await test('renders root into documentElement with stylesheet link', async () =>
   assert.equal(root.getAttribute('role'), 'toolbar');
   assert.ok(!root.classList.contains('--closed'));
   assert.ok(doc.getElementById('more-buttons-overlay-stylesheet'));
+  // Handle first so the collapsed transform leaves the handle on screen.
+  assert.deepEqual(root.children.map((c) => c.className), ['mb-page-dock__handle', 'mb-page-dock__island']);
 });
 
 await test('groups follow orderDockButtons with separators only between groups', async () => {
@@ -126,7 +128,31 @@ await test('tile click dispatches its action', async () => {
   const calls = [];
   await renderPageDock(buttons, (a) => calls.push(a), { doc });
   doc.getElementById('b2').click();
+  await Promise.resolve(); await Promise.resolve();
   assert.deepEqual(calls, ['act-b2']);
+});
+
+await test('rejecting dispatch is caught and warned', async () => {
+  fakeChrome({});
+  const doc = fakeDoc();
+  const warn = console.warn; const warned = [];
+  console.warn = (...a) => warned.push(a);
+  try {
+    await renderPageDock(buttons, async () => { throw new Error('boom'); }, { doc });
+    doc.getElementById('b2').click();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(warned.length, 1);
+    assert.match(String(warned[0][0]), /dock action failed/);
+  } finally { console.warn = warn; }
+});
+
+await test('storage get rejecting renders the dock open', async () => {
+  fakeChrome({});
+  globalThis.chrome.storage.local.get = async () => { throw new Error('nope'); };
+  const doc = fakeDoc();
+  await renderPageDock(buttons, () => {}, { doc });
+  const root = doc.getElementById('mb-page-dock');
+  assert.ok(root && !root.classList.contains('--closed'));
 });
 
 await test('second render reuses root and replaces island children', async () => {
