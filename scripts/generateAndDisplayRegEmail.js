@@ -1,4 +1,29 @@
-export function generateAndDisplayRegEmail(mode = 'default') {
+export function generateAndDisplayRegEmail(mode = 'user') {
+
+    // Guidebook card content per access level (every non-seed mode)
+
+    const GUIDEBOOKS = {
+        user: {
+            title: `User Guidebook`,
+            description: `<strong>New to Opus Compliance Cloud?</strong> This guidebook provides everything a
+            User needs to know to use Opus Compliance Cloud effectively.`,
+            url: `https://support.opus-safety.co.uk/pages/using-opus-compliance-cloud/`
+        },
+        manager: {
+            title: `Manager Guidebook`,
+            description: `<strong>New to Opus Compliance Cloud?</strong> This guidebook provides everything a
+            Manager needs to know to manage Opus Compliance Cloud effectively.`,
+            url: `https://support.opus-safety.co.uk/pages/managing-opus-compliance-cloud/`
+        },
+        admin: {
+            title: `Administrator Guidebook`,
+            description: `<strong>New to Opus Compliance Cloud?</strong> This guidebook provides everything an
+            Administrator needs to know to administer Opus Compliance Cloud effectively.`,
+            url: `https://support.opus-safety.co.uk/pages/administering-opus-compliance-cloud/`
+        }
+    };
+
+    const guidebook = GUIDEBOOKS[mode] || GUIDEBOOKS.user;
 
     const regLink = (() => {
         const params = new URLSearchParams(window.location.search);
@@ -65,7 +90,7 @@ export function generateAndDisplayRegEmail(mode = 'default') {
 
     <!-- Step 2 -->
     <tr>
-    <td style="padding:16px 32px 8px;">
+    <td style="padding:16px 32px 0;">
         <table width="100%" cellpadding="0" cellspacing="0" border="0"
         style="border-radius:6px; background-color:#f7f8fc; border:1px solid #e3e6f0;">
         <tr>
@@ -89,6 +114,50 @@ export function generateAndDisplayRegEmail(mode = 'default') {
         </table>
     </td>
     </tr>
+
+    <!-- Step 3 -->
+    <tr>
+    <td style="padding:16px 32px 8px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0"
+        style="border-radius:6px; background-color:#f7f8fc; border:1px solid #e3e6f0;">
+        <tr>
+            <td style="padding:16px 18px 14px;">
+            <p style="margin:0 0 4px; font-size:12px; letter-spacing:0.06em;
+            text-transform:uppercase; color:#7a8193; font-weight:600;">
+                Step 3
+            </p>
+            <p style="margin:0 0 8px; font-size:16px; font-weight:600; color:#002e72;">
+                Complete the subscription wizard
+            </p>
+            <p style="margin:0 0 6px; font-size:14px; color:#4a4f5c;">
+                Once your account is linked, you'll be guided through our subscription wizard.
+            </p>
+            <p style="margin:0 0 10px; font-size:14px; color:#4a4f5c;">
+            Follow the steps to set up your profile and <strong>notification preferences</strong>.
+            </p>
+            </td>
+        </tr>
+        </table>
+    </td>
+    </tr>
+
+    ${mode === 'seed' ? '' : `
+    <!-- Account guide link -->
+    <tr>
+    <td style="padding:2px 32px 0;">
+        <p style="margin:0; font-size:12px; color:#8b90a0;">
+        <em>
+            See our guide
+            <a href="https://support.opus-safety.co.uk/pages/creating-and-linking-your-opus-account/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="color:#002e72; text-decoration:underline;">here</a>
+            for more guidance on creating and linking your Opus account.
+        </em>
+        </p>
+    </td>
+    </tr>
+    `}
 
     <!-- Divider -->
     <tr>
@@ -173,7 +242,7 @@ export function generateAndDisplayRegEmail(mode = 'default') {
                     smallText: `<strong>Tip:</strong> bookmark this webpage for quick future access.`
                 },
                 {
-                    title: `🔔 Audit email notifications <span style="font-size:12px; font-weight:400; color:#7a8193;">(recommended)</span>`,
+                    title: `🔔 Audit email notifications <span style="font-size:12px; font-weight:400; color:#7a8193;">(recommended; likely already enabled by wizard)</span>`,
                     description: `Configure to receive an email whenever a new audit is published for your site(s).`,
                     buttonTitle: `Your notification settings`,
                     buttonUrl: `https://cloud.opus-safety.co.uk/sites/${uuid}/todos?todo_subscriptions#system/audit_review-email-severity`,
@@ -183,8 +252,8 @@ export function generateAndDisplayRegEmail(mode = 'default') {
                     title: `💡 Knowledge Base & support`,
                     description: `Find how-to articles, FAQs and guidance on using Opus Compliance Cloud.`,
                     buttonTitle: `Open Knowledge Base`,
-                    buttonUrl: `https://sites.google.com/opus-safety.co.uk/opus-help/home`,
-                    smallText: `You can also access the Knowledge Base from within OCC by clicking your profile icon in the top-right corner and selecting <strong>Support</strong>.`
+                    buttonUrl: `https://support.opus-safety.co.uk/`,
+                    smallText: `You can also access the Opus Knowledge Base from within OCC by clicking your profile icon and selecting <strong>Support</strong>.`
                 },
                 {
                     title: `✅ Make the most of Opus Compliance Cloud`,
@@ -205,18 +274,11 @@ export function generateAndDisplayRegEmail(mode = 'default') {
                     smallText: `<strong>Tip:</strong> bookmark this webpage for quick future access.`
                 },
                 {
-                    title: `📺 Training Videos`,
-                    description: `New to Opus Compliance Cloud? Learn how to use the software here.`,
-                    buttonTitle: `View Training Videos`,
-                    buttonUrl: `https://sites.google.com/opus-safety.co.uk/opus-help/introduction/training-videos`,
-                    smallText: `We <strong>highly recommend</strong> watching these to get up to speed on how to manage effectively on OCC.`
-                },
-                {
-                    title: `🔔 Subscribing to email and In-System Notifications`,
-                    description: `Follow this guide to set up notifications for incidents and other events.`,
-                    buttonTitle: `Open Notification Guide`,
-                    buttonUrl: `https://sites.google.com/opus-safety.co.uk/opus-help/introduction/subscribing-to-notifications-email-in-system`,
-                    smallText: `You can also access the Knowledge Base from within OCC by clicking your profile icon in the top-right corner and selecting <strong>Support</strong>.`
+                    title: `📖 ${guidebook.title}`,
+                    description: guidebook.description,
+                    buttonTitle: `Open ${guidebook.title}`,
+                    buttonUrl: guidebook.url,
+                    smallText: `<strong>Tip:</strong> you can also access the Opus Knowledge Base from within OCC by clicking your profile icon and selecting <strong>Support</strong>.`
                 }
             ];
         }

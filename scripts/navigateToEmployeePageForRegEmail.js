@@ -1,4 +1,14 @@
-export function navigateToEmployeePageForRegEmail(mode = 'default') {
+const AUTOMATION_BY_MODE = {
+  user: 'more_buttons_automation_35c0f382',
+  manager: 'more_buttons_automation_3cf47076',
+  admin: 'more_buttons_automation_7e95d97e',
+  seed: 'more_buttons_automation_70d24924'
+};
+
+export function navigateToEmployeePageForRegEmail(mode = 'user') {
+  const automation = AUTOMATION_BY_MODE[mode];
+  if (!automation) return;
+
   const currentUrl = window.location.href.split('?')[0];
   const baseUrl = currentUrl.split('/link')[0];
 
@@ -10,12 +20,5 @@ export function navigateToEmployeePageForRegEmail(mode = 'default') {
   const encodedSourceUrl = encodeURIComponent(sourceUrl);
   const encodedLinkURL = encodeURIComponent(linkURL);
 
-  if (mode === 'seed') {
-    const finalUrl = `${baseUrl}?source_url=${encodedSourceUrl}&link_url=${encodedLinkURL}&more_buttons_automation_70d24924`;
-    window.location.href = finalUrl;
-  }
-  else if (mode === 'default') {
-    const finalUrl = `${baseUrl}?source_url=${encodedSourceUrl}&link_url=${encodedLinkURL}&more_buttons_automation_35c0f382`;
-    window.location.href = finalUrl;
-  }
+  window.location.href = `${baseUrl}?source_url=${encodedSourceUrl}&link_url=${encodedLinkURL}&${automation}`;
 }

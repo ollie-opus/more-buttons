@@ -13,7 +13,23 @@
       "mode": "or",
       "keywords": ["more_buttons_automation_35c0f382"]
     },
-    "action": "generateAndDisplayRegEmail:default"
+    "action": "generateAndDisplayRegEmail:user"
+  },
+  {
+    "id": "more_buttons_automation_3cf47076",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_3cf47076"]
+    },
+    "action": "generateAndDisplayRegEmail:manager"
+  },
+  {
+    "id": "more_buttons_automation_7e95d97e",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["more_buttons_automation_7e95d97e"]
+    },
+    "action": "generateAndDisplayRegEmail:admin"
   },
   {
     "id": "more_buttons_automation_70d24924",
@@ -67,7 +83,7 @@
     "id": "more_buttons_automation_20658ec2",
     "pageMatch": {
       "mode": "or",
-      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\\?.*)?$"]
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\/dashboard(?:\\?.*)?$"]
     },
     "action": "employeeRecordAccessEditEnhancement"
   },

@@ -9,7 +9,7 @@ export async function attachColorPresetPills(root = document) {
     return;
   }
 
-  const pillClasses = "inline-flex items-center px-1.5 py-1 rounded-full text-xs max-w-full font-medium font-mono transition-all duration-200 ease-out truncate bg-[--bg] text-[--text] border-[--border] border dark:bg-[--bg-dark] dark:text-[--text-dark] dark:border-[--border-dark]";
+  const pillClasses = "inline-flex items-center px-1.5 py-1 rounded-full text-xs max-w-full font-medium font-mono transition-all duration-200 ease-out truncate bg-(--bg) text-(--text) border-(--border) border dark:bg-(--bg-dark) dark:text-(--text-dark) dark:border-(--border-dark)";
 
   function deepEqual(a, b) {
     return JSON.stringify(a) === JSON.stringify(b);

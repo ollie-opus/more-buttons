@@ -157,7 +157,7 @@
   {
     "id": "mb-generate-client-email-btn",
     "displayText": "Generate default e-mail",
-    "hoverText": "Generates a registration email to send to this employee",
+    "hoverText": "Choose a registration email to generate for this employee",
     "icon": "mail",
     "fillColor": "#0070FF",
     "textColor": "white",
@@ -167,7 +167,52 @@
       "keywords": ["/link/", "!confirm"]
     },
     "containerId": "centeredLinkPageContainer-absolute",
-    "action": "navigateToEmployeePageForRegEmail:default"
+    "action": "toggleContainerVisibility:regEmailButtonHiddenContainer"
+  },
+  {
+    "id": "mb-generate-user-email-btn",
+    "displayText": "User e-mail",
+    "hoverText": "Generates a registration email with the User guidebook to send to this employee",
+    "icon": "person",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/link/", "!confirm"]
+    },
+    "containerId": "regEmailButtonHiddenContainer",
+    "action": "navigateToEmployeePageForRegEmail:user"
+  },
+  {
+    "id": "mb-generate-manager-email-btn",
+    "displayText": "Manager e-mail",
+    "hoverText": "Generates a registration email with the Manager guidebook to send to this employee",
+    "icon": "work",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/link/", "!confirm"]
+    },
+    "containerId": "regEmailButtonHiddenContainer",
+    "action": "navigateToEmployeePageForRegEmail:manager"
+  },
+  {
+    "id": "mb-generate-admin-email-btn",
+    "displayText": "Admin e-mail",
+    "hoverText": "Generates a registration email with the Administrator guidebook to send to this employee",
+    "icon": "settings",
+    "fillColor": "#0070FF",
+    "textColor": "white",
+    "border": "none",
+    "pageMatch": {
+      "mode": "and",
+      "keywords": ["/link/", "!confirm"]
+    },
+    "containerId": "regEmailButtonHiddenContainer",
+    "action": "navigateToEmployeePageForRegEmail:admin"
   },
   {
     "id": "mb-generate-seed-client-email-btn",
@@ -194,7 +239,7 @@
     "border": "none",
     "pageMatch": {
       "mode": "or",
-      "keywords": ["more_buttons_automation_35c0f382"]
+      "keywords": ["more_buttons_automation_35c0f382", "more_buttons_automation_3cf47076", "more_buttons_automation_7e95d97e"]
     },
     "containerId": "centeredBottomContainer-fixed",
     "action": "copyEmailFromEmailIframe"
@@ -431,7 +476,7 @@
     "border": "none",
     "pageMatch": {
       "mode": "and",
-      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/dashboard$"]
     },
     "containerId": "topRightContainer-fixed-meatballoffset",
     "action": "toggleContainerVisibility:moreSiteOptionsButtonHiddenContainer"
@@ -446,7 +491,7 @@
     "border": "none",
     "pageMatch": {
       "mode": "and",
-      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/dashboard$"]
     },
     "containerId": "moreSiteOptionsButtonHiddenContainer",
     "action": "copySitesToClipboard:sites"
@@ -461,7 +506,7 @@
     "border": "none",
     "pageMatch": {
       "mode": "and",
-      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/dashboard$"]
     },
     "containerId": "moreSiteOptionsButtonHiddenContainer",
     "action": "copySitesToClipboard:adminSites"
@@ -476,7 +521,7 @@
     "border": "none",
     "pageMatch": {
       "mode": "and",
-      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+$"]
+      "keywords": ["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/dashboard$"]
     },
     "containerId": "moreSiteOptionsButtonHiddenContainer",
     "action": "copySitesToClipboard:all"

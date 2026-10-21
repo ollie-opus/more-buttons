@@ -46,6 +46,24 @@
     }
   },
   {
+    "id": "regEmailButtonHiddenContainer",
+    "position": "fixed",
+    "width": "auto",
+    "height": "auto",
+    "backgroundColor": "#ffffff",
+    "border": "3px solid #007fff",
+    "borderRadius": ".375rem",
+    "padding": "8px",
+    "flexDirection": "column",
+    "zIndex": 9999,
+    "hidden": true,
+    "relative": {
+      "toId": "mb-generate-client-email-btn",
+      "offsetX": 16,
+      "offsetY": 4
+    }
+  },
+  {
     "id": "moreSiteOptionsButtonHiddenContainer",
     "position": "fixed",
     "width": "auto",

@@ -42,6 +42,29 @@ function contentsReadUrl(path) {
   return `${contentsApiUrl(path)}&_cb=${Date.now()}-${++_readNonce}`;
 }
 
+// Error for a non-ok contents-API response. GitHub's error bodies are *usually*
+// JSON ({ message }), but edge/5xx failures (and some proxies) answer with HTML
+// or an empty body. Parsing those with res.json() threw a bare "Unexpected end
+// of JSON input" that hid the real status and made every transient outage look
+// like a client bug. Read the body as text, use the JSON message when there is
+// one, and always carry the HTTP status so the cause is visible in the alert.
+async function githubError(res) {
+  let message = '';
+  try {
+    const text = await res.text();
+    try { message = JSON.parse(text)?.message ?? ''; }
+    catch { message = /^\s*</.test(text) ? '' : text.trim().slice(0, 200); }
+  } catch { /* body unreadable: status alone */ }
+  return new Error(message ? `${message} (HTTP ${res.status})` : `GitHub API error: ${res.status}`);
+}
+
+// Parse a 200 contents-API JSON envelope, naming the status if the body is not
+// JSON (empty/truncated) instead of surfacing the raw parse error.
+async function readEnvelope(res) {
+  try { return await res.json(); }
+  catch { throw new Error(`GitHub API error: unreadable response body (HTTP ${res.status})`); }
+}
+
 // Serialise an operation behind any in-flight ones, returning a promise that
 // carries the op's real result/rejection to the caller. The queue itself is
 // advanced with a swallowed copy: chaining .then() on a *rejected* _opQueue
@@ -156,7 +179,7 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
   let currentMarkdown = '';
   let currentSha;
   if (fileRes.ok) {
-    const fileData = await fileRes.json();
+    const fileData = await readEnvelope(fileRes);
     currentMarkdown = decodeURIComponent(escape(atob(fileData.content.replace(/\n/g, ''))));
     currentSha = fileData.sha;
   } else if (fileRes.status !== 404) {
@@ -199,8 +222,7 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
     return _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, 0);
   }
   if (!putRes.ok) {
-    const err = await putRes.json();
-    throw new Error(err.message || `GitHub API error: ${putRes.status}`);
+    throw await githubError(putRes);
   }
   // Remember what we pushed (+ its new sha) so an immediate re-read survives the
   // contents API's read-after-write lag (see reconcileRead in repoClient.js).
@@ -237,7 +259,7 @@ async function _githubDeleteFile(filePath, onProgress) {
   if (fileRes.status === 404) return; // already gone
   if (!fileRes.ok) throw new Error(`GitHub API error: ${fileRes.status}`);
 
-  const fileData = await fileRes.json();
+  const fileData = await readEnvelope(fileRes);
   const sha = fileData.sha;
 
   onProgress?.('Deleting file...');
@@ -252,8 +274,7 @@ async function _githubDeleteFile(filePath, onProgress) {
     }),
   });
   if (!delRes.ok) {
-    const err = await delRes.json();
-    throw new Error(err.message || `GitHub API error: ${delRes.status}`);
+    throw await githubError(delRes);
   }
   // Read-your-deletes: a read before the replica catches up would resurrect the
   // file; remember it as empty so readers see it gone immediately.
@@ -279,7 +300,7 @@ async function _githubReplaceImage(imagePath, base64Data, onProgress) {
   });
   if (fileRes.status === 404) throw new Error(`File not found: ${imagePath}`);
   if (!fileRes.ok) throw new Error(`GitHub API error: ${fileRes.status}`);
-  const { sha } = await fileRes.json();
+  const { sha } = await readEnvelope(fileRes);
 
   onProgress?.(`Uploading ${imagePath.split('/').pop()}...`);
   const putRes = await fetch(contentsApiUrl(imagePath), {
@@ -292,8 +313,7 @@ async function _githubReplaceImage(imagePath, base64Data, onProgress) {
     }),
   });
   if (!putRes.ok) {
-    const err = await putRes.json();
-    throw new Error(err.message || `GitHub API error: ${putRes.status}`);
+    throw await githubError(putRes);
   }
 }
 
@@ -333,8 +353,7 @@ export async function githubPushImageIfNotExists(imagePath, base64Data, onProgre
     })
   });
   if (!putRes.ok) {
-    const err = await putRes.json();
-    throw new Error(err.message || `GitHub API error: ${putRes.status}`);
+    throw await githubError(putRes);
   }
   return true;
 }
