@@ -137,6 +137,12 @@ body {
   gap: 2px;
 }
 
+.mb-popup__group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 /* ── Disabled note ────────────────────────────────────────────────────────── */
 .mb-popup__disabled-note {
   display: none;

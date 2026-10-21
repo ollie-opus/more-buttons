@@ -1,89 +1,37 @@
-function createToggleButton(button, { resolveColor, isDarkMode }) {
+function buildButton(def, iconName, text) {
   const btn = document.createElement("button");
-  btn.id = button.id;
-  btn.title = button.hoverText || "";
+  btn.type = "button";
+  btn.id = def.id;
+  btn.className = "more-buttons-button";
+  if (def.descriptionText) btn.title = def.descriptionText;
+  const icon = document.createElement("span");
+  icon.className = "more-buttons-icon";
+  icon.textContent = iconName ?? "";
+  btn.appendChild(icon);
+  const label = document.createTextNode(text ?? "");
+  btn.appendChild(label);
+  return { btn, icon, label };
+}
 
-  const rawBtnFill   = button.fillColor || "#6b7280";
-  const rawBtnText   = button.textColor || "white";
-  const rawBtnBorder = button.border    || "none";
-  btn.style.backgroundColor = resolveColor(rawBtnFill, isDarkMode());
-  btn.style.color            = resolveColor(rawBtnText, isDarkMode());
-  btn.style.border           = resolveColor(rawBtnBorder, isDarkMode());
+function createPopupButton(def, dispatch) {
+  const { btn } = buildButton(def, def.icon, def.displayText);
+  if (def.colour) btn.classList.add(def.colour);
+  btn.addEventListener("click", () => dispatch(def.action));
+  return btn;
+}
 
-  if ([rawBtnFill, rawBtnText, rawBtnBorder].some(v => typeof v === 'object')) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      btn.style.backgroundColor = resolveColor(rawBtnFill, e.matches);
-      btn.style.color            = resolveColor(rawBtnText, e.matches);
-      btn.style.border           = resolveColor(rawBtnBorder, e.matches);
-    });
-  }
-  btn.style.margin = "4px";
-  btn.style.borderRadius = "3px";
-  btn.style.display = "flex";
-  btn.style.alignItems = "center";
-  btn.style.justifyContent = "center";
-  btn.style.gap = "6px";
-  btn.style.cursor = "pointer";
-  btn.style.fontWeight = "500";
-  btn.style.fontFamily = "RubikVariable, ui-sans-serif, system-ui, sans-serif";
-  btn.style.fontSize = ".875rem";
-  btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
-  btn.style.transition = "box-shadow 0.2s ease, background-color 0.5s ease-in-out";
+function createToggleButton(def) {
+  const { storageKey, iconOn, iconOff, colourOn, colourOff, displayTextOn, displayTextOff } = def.toggle;
+  const { btn, icon, label } = buildButton(def, iconOff, displayTextOff);
 
-  btn.addEventListener("mouseenter", () => {
-    btn.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
-    btn.style.filter = "brightness(1.05)";
-  });
-  btn.addEventListener("mouseleave", () => {
-    btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
-    btn.style.filter = "brightness(1)";
-  });
-
-  const { iconOn, iconOff } = button.toggle;
-  const iconContainer = document.createElement("span");
-  iconContainer.style.position = "relative";
-  iconContainer.style.width = "18px";
-  iconContainer.style.height = "18px";
-
-  const makeIcon = (name) => {
-    const el = document.createElement("span");
-    el.className = "material-symbols-outlined";
-    el.textContent = name;
-    el.style.position = "absolute";
-    el.style.top = "0";
-    el.style.left = "0";
-    el.style.fontSize = "18px";
-    return el;
-  };
-
-  const iconOffEl = makeIcon(iconOff);
-  const iconOnEl = makeIcon(iconOn);
-  iconContainer.appendChild(iconOffEl);
-  iconContainer.appendChild(iconOnEl);
-  btn.appendChild(iconContainer);
-
-  const { storageKey, fillColorOn, fillColorOff, displayTextOn, displayTextOff } = button.toggle;
-
-  let toggleTextEl = null;
-  if (displayTextOn || displayTextOff) {
-    toggleTextEl = document.createElement("span");
-    btn.appendChild(toggleTextEl);
-  }
-
-  const applyState = (isActive, isDark = isDarkMode()) => {
-    btn.style.backgroundColor = resolveColor(isActive ? fillColorOn : fillColorOff, isDark);
-    iconOnEl.style.opacity = isActive ? "1" : "0";
-    iconOffEl.style.opacity = isActive ? "0" : "1";
-    if (toggleTextEl) toggleTextEl.textContent = isActive ? (displayTextOn ?? "") : (displayTextOff ?? "");
+  const applyState = (isActive) => {
+    if (colourOn) btn.classList.toggle(colourOn, isActive);
+    if (colourOff) btn.classList.toggle(colourOff, !isActive);
+    icon.textContent = (isActive ? iconOn : iconOff) ?? "";
+    label.textContent = (isActive ? displayTextOn : displayTextOff) ?? "";
   };
 
   chrome.storage.local.get(storageKey, (data) => applyState(data[storageKey] !== false));
-
-  if ([fillColorOn, fillColorOff].some(v => typeof v === 'object')) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      chrome.storage.local.get(storageKey, (data) => applyState(data[storageKey] !== false, e.matches));
-    });
-  }
 
   btn.addEventListener("click", () => {
     chrome.storage.local.get(storageKey, (data) => {
@@ -96,9 +44,6 @@ function createToggleButton(button, { resolveColor, isDarkMode }) {
     });
   });
 
-  const hasText = displayTextOn || displayTextOff;
-  btn.style.padding = hasText ? "9px 13px" : "10.5px 10.5px";
-
   return btn;
 }
 
@@ -106,17 +51,12 @@ async function renderPopupButtons() {
   const versionEl = document.getElementById("mb-popup-version");
   if (versionEl) versionEl.textContent = "v" + chrome.runtime.getManifest().version;
 
-  const [{ createButton }, { pageMatchesUrl, resolveColor, isDarkMode }] = await Promise.all([
-    import(chrome.runtime.getURL('scripts/buttons.js')),
+  const [{ pageMatchesUrl }, { orderDockButtons, normaliseGroup }] = await Promise.all([
     import(chrome.runtime.getURL('scripts/utils.js')),
+    import(chrome.runtime.getURL('scripts/dockLayout.js')),
   ]);
 
-  const [buttonsRes, containersRes] = await Promise.all([
-    fetch(chrome.runtime.getURL("config/buttons.json")),
-    fetch(chrome.runtime.getURL("config/containers.json")),
-  ]);
-  const buttons = await buttonsRes.json();
-  const containers = await containersRes.json();
+  const buttons = await (await fetch(chrome.runtime.getURL("config/buttons.json"))).json();
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const url = tab?.url ?? "";
@@ -141,39 +81,31 @@ async function renderPopupButtons() {
   };
 
   const popupButtons = buttons.filter(b =>
-    b.containerId?.startsWith("popup-") && pageMatchesUrl(b.pageMatch, url)
+    b.surface === "popup" && pageMatchesUrl(b.pageMatch, url)
   );
 
-  const popupContainerIds = containers
-    .filter(c => c.context === "popup")
-    .map(c => c.id);
-
-  // The master enable/disable switch is hoisted out of its container and pinned
+  // The master enable/disable switch is hoisted out of its group and pinned
   // to the top, above the divider. It stays visible at all times; everything
   // else lives in the body and hides while the extension is off.
   const masterToggle = popupButtons.find(b => b.toggle?.storageKey === "moreButtonsActive");
 
   const powerControl = document.getElementById("mb-popup-power-control");
   if (masterToggle && powerControl) {
-    powerControl.appendChild(createToggleButton(masterToggle, { resolveColor, isDarkMode }));
+    powerControl.appendChild(createToggleButton(masterToggle));
   }
 
   const wrapper = document.getElementById("popup-buttons-container");
+  const rest = popupButtons.filter(b => b !== masterToggle);
 
-  for (const containerId of popupContainerIds) {
-    const group = popupButtons.filter(b => b.containerId === containerId && b !== masterToggle);
+  for (const group of orderDockButtons(rest)) {
     if (!group.length) continue;
-
     const groupEl = document.createElement("div");
-    groupEl.id = containerId;
-    groupEl.style.display = "flex";
-    groupEl.style.flexWrap = "wrap";
-    groupEl.style.gap = "4px";
-
-    for (const btn of group) {
-      groupEl.appendChild(btn.toggle ? createToggleButton(btn, { resolveColor, isDarkMode }) : createButton(btn, dispatch));
+    groupEl.className = "mb-popup__group";
+    const name = normaliseGroup(group[0].dockGroup);
+    if (name) groupEl.dataset.group = name;
+    for (const def of group) {
+      groupEl.appendChild(def.toggle ? createToggleButton(def) : createPopupButton(def, dispatch));
     }
-
     wrapper.appendChild(groupEl);
   }
 
