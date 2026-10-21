@@ -338,7 +338,7 @@ async function renderKnowledgeBaseManagement() {
       const reo = actions.querySelector('[data-kb-actions="reorder"]');
       if (reo) reo.hidden = !reorderMode;
       // The persistent toggle mirrors the popup's master switch: state shown by
-      // colour (magenta on / neutral off), icon, and label — kept as a form button.
+      // colour (pink on / neutral off), icon, and label — kept as a form button.
       const toggle = actions.querySelector('[data-kb-reorder-toggle]');
       if (toggle) {
         toggle.classList.toggle('pink', reorderMode);
@@ -353,9 +353,9 @@ async function renderKnowledgeBaseManagement() {
       const save = actions.querySelector('[data-kb-reorder-save]');
       const discard = actions.querySelector('[data-kb-reorder-discard]');
       // This bar edits LIVE data, so the commit is a blue "Publish changes to
-      // live" (`.publish`), not a green draft save. The accent class rides ONLY
+      // live" (`.blue`), not a green draft save. The accent class rides ONLY
       // while dirty: the disabled-dimming rule overrides a button's border + text
-      // but NOT an accent's faint background fill, so a static `.publish` would
+      // but NOT an accent's faint background fill, so a static `.blue` would
       // stay blue when disabled. Stripping the class when clean lets it fall back
       // to the plain neutral dimmed button — same trick as the guide bar's
       // `.success` Save.

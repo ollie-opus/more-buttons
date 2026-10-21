@@ -17,7 +17,7 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "config/containers.json",
+        "config/buttonColours.json",
         "config/buttons.json",
         "config/automations.json",
         "config/labelColours.json",
@@ -49,8 +49,8 @@
         "scripts/richTextEditor.js",
         "scripts/aiReword.js",
         "scripts/richEditorMapping.js",
-        "scripts/buttons.js",
-        "scripts/containers.js",
+        "scripts/dockLayout.js",
+        "scripts/pageDock.js",
         "scripts/automations.js",
         "scripts/utils.js",
         "scripts/navigateToNewDocumentPage.js",
@@ -72,7 +72,6 @@
         "scripts/applyAdvancedNavigation.js",
         "scripts/mergeIndicatorsEnhancement.js",
         "scripts/questionSectionToggle.js",
-        "scripts/toggleContainerVisibility.js",
         "scripts/updateFocusParam.js",
         "scripts/bulkRevisionDownload.js",
         "scripts/smartDocumentSubmit.js",

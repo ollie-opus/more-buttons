@@ -50,7 +50,6 @@ export { fillInputsFromPreset } from './fillInputsFromPreset.js';
 export { applyAdvancedNavigation } from './applyAdvancedNavigation.js';
 export { mergeIndicatorsEnhancement } from './mergeIndicatorsEnhancement.js';
 export { questionSectionToggle } from './questionSectionToggle.js';
-export { toggleContainerVisibility } from './toggleContainerVisibility.js';
 export { updateFocusParam } from './updateFocusParam.js';
 export { bulkRevisionDownload } from './bulkRevisionDownload.js';
 export { smartDocumentSubmit } from './smartDocumentSubmit.js';
