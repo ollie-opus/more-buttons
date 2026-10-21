@@ -4743,3 +4743,157 @@ h2[data-edit-media-title] .mb-kb-pills {
 .mb-kb-move-opt:hover { background: rgba(0,0,0,0.06); }
 .mb-kb-move-new { padding: 6px; }
 .mb-kb-move-input { width: 100%; box-sizing: border-box; }
+
+/* ── Page dock ─────────────────────────────────────────────────────────────────
+   The floating right-edge button dock on host webapp pages (scripts/pageDock.js).
+   A vertical frosted island of icon-only tiles — same island/tile values as the
+   KB form-actions dock above — with a slim collapse handle on its left edge.
+   Collapsing slides the whole dock right until only the handle peeks out. Each
+   tile's label + description shows in a coloured tag to the LEFT of the tile on
+   hover/focus (a real child span, not a pseudo-element, so it can hold two lines).
+   Theme tokens come from the shared `.mb-page-dock` token selector at the top of
+   the file, so dark mode is automatic. Lives on a foreign page, so it sets its
+   own font stack and box-sizing. */
+.mb-page-dock {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  z-index: 9990;
+  display: flex;
+  align-items: center;
+  transform: translateY(-50%);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  font-family: RubikVariable, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  color: var(--mb-text);
+  --mb-dock-handle-w: 14px;
+}
+.mb-page-dock,
+.mb-page-dock * {
+  box-sizing: border-box;
+}
+.mb-page-dock.--closed {
+  transform: translate(calc(100% - var(--mb-dock-handle-w) - 4px), -50%);
+}
+
+.mb-page-dock__island {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 7px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--mb-border) 70%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow:
+    0 8px 24px -10px color-mix(in srgb, var(--mb-text) 45%, transparent),
+    0 2px 6px -3px color-mix(in srgb, var(--mb-text) 30%, transparent);
+}
+.mb-page-dock__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* The shared divider is vertical in the horizontal KB bar; rotate it here. */
+.mb-page-dock__island > .mb-dock-sep {
+  width: 1.35rem;
+  height: 1px;
+  margin: 0;
+}
+
+.mb-page-dock__tile {
+  position: relative;
+  max-width: 2.15rem;
+  padding: 7px;
+  overflow: visible;
+}
+.mb-page-dock__tile .more-buttons-icon {
+  margin-left: 0;
+}
+
+/* The tag (body) + its right-pointing caret. Hidden until hover/focus. */
+.mb-page-dock__tag {
+  position: absolute;
+  right: calc(100% + 9px);
+  top: 50%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  max-width: 280px;
+  text-align: left;
+  border: 1px solid var(--mb-acc);
+  border-radius: 7px;
+  background: var(--mb-acc);
+  color: var(--mb-acc-fill-fg);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--mb-acc) 35%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(4px, -50%);
+  transition: opacity 0.14s ease-out,
+    transform 0.14s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mb-page-dock__tag b {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mb-page-dock__tag small {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.85;
+}
+.mb-page-dock__tag::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  border-left: 6px solid var(--mb-acc);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+.mb-page-dock__tile:hover .mb-page-dock__tag,
+.mb-page-dock__tile:focus-visible .mb-page-dock__tag {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.mb-page-dock__handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mb-dock-handle-w);
+  height: 44px;
+  margin-left: 4px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--mb-border) 70%, transparent);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  color: var(--mb-text-muted);
+  cursor: pointer;
+}
+.mb-page-dock__handle:hover {
+  color: var(--mb-text);
+}
+.mb-page-dock__handle .more-buttons-icon {
+  font-size: 1rem;
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mb-page-dock,
+  .mb-page-dock__tag {
+    transition: none;
+  }
+}
