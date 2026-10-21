@@ -1,3 +1,8 @@
+// Memoised actions.js import. Also publishes the module on the global that
+// scripts/form.js reads.
+const getActions = () => (window.__mbActionsPromise ??=
+    import(chrome.runtime.getURL('scripts/actions.js')).then(m => (window.__mbActionsModule = m, m)));
+
 //
 // check if extension is active
 //
@@ -51,75 +56,44 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
         }
     }
 
-    // ---- GLOBAL POSITIONING MANAGER (for repositioning relative containers on scroll/zoom) ----
-    if (!window.__mbGlobalPositioningAttached) {
-        window.__mbGlobalPositioningAttached = true;
-
-        function updateAllRelativeContainers() {
-            const nodes = document.querySelectorAll('.more-buttons-container[data-relative-to-id]');
-            nodes.forEach(el => {
-                if (getComputedStyle(el).display === "none") return;
-                if (typeof el.__mbPositionOnce === "function") {
-                    el.__mbPositionOnce();
-                }
-            });
-        }
-
-        let rafId = null;
-        function scheduleUpdate() {
-            if (rafId) return;
-            rafId = requestAnimationFrame(() => {
-                rafId = null;
-                updateAllRelativeContainers();
-            });
-        }
-
-        window.addEventListener("scroll", scheduleUpdate, { passive: true });
-        window.addEventListener("resize", scheduleUpdate);
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener("scroll", scheduleUpdate, { passive: true });
-            window.visualViewport.addEventListener("resize", scheduleUpdate);
-        }
-
-        window.__mbPositioning = { scheduleUpdate, updateAllRelativeContainers };
-    }
-
-    // Unified loader for containers + buttons + automations
+    // Unified loader for the page dock + automations
     async function loadUI() {
         try {
             const [
-                { createButton },
-                { createContainer },
+                { renderPageDock, removePageDock },
+                { splitBySurface },
                 { runAutomations },
                 { pageMatchesUrl },
             ] = await Promise.all([
-                import(chrome.runtime.getURL('scripts/buttons.js')),
-                import(chrome.runtime.getURL('scripts/containers.js')),
+                import(chrome.runtime.getURL('scripts/pageDock.js')),
+                import(chrome.runtime.getURL('scripts/dockLayout.js')),
                 import(chrome.runtime.getURL('scripts/automations.js')),
                 import(chrome.runtime.getURL('scripts/utils.js')),
             ]);
 
-            const [buttonsRes, containersRes, automationsRes] = await Promise.all([
+            const [buttonsRes, automationsRes] = await Promise.all([
                 fetch(chrome.runtime.getURL("config/buttons.json")),
-                fetch(chrome.runtime.getURL("config/containers.json")),
                 fetch(chrome.runtime.getURL("config/automations.json")),
             ]);
 
             const buttons = await buttonsRes.json();
-            const containers = await containersRes.json();
             const automations = await automationsRes.json();
 
             const url = window.location.href;
             const matchedButtons = buttons.filter(btn => pageMatchesUrl(btn.pageMatch, url));
+            const { page: pageButtons } = splitBySurface(matchedButtons);
             const matchedAutomations = automations.filter(auto => pageMatchesUrl(auto.pageMatch, url));
 
-            if (!matchedButtons.length && !matchedAutomations.length) return;
+            // Clear any dock left over from a previous URL before bailing out.
+            if (!pageButtons.length) removePageDock();
+
+            if (!pageButtons.length && !matchedAutomations.length) return;
 
             console.log("MB Log: URL match detected. Rendering buttons / running automations...");
             injectGoogleMaterialIcons();
 
             const dispatch = (action) => {
-                import(chrome.runtime.getURL('scripts/actions.js')).then(module => {
+                getActions().then(module => {
                     const [name, ...params] = action.split(':');
                     const fn = module[name];
                     if (typeof fn === 'function') fn(...params);
@@ -129,34 +103,7 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
 
             runAutomations(matchedAutomations, dispatch);
 
-            const containerMap = Object.fromEntries(containers.map(c => [c.id, c]));
-            const createdContainerIds = new Set();
-
-            matchedButtons.forEach(button => {
-                const containerId = button.containerId;
-                const containerDef = containerMap[containerId];
-                if (!containerDef) {
-                    console.warn(`MB Warn: No container definition for containerId: ${containerId}`);
-                    return;
-                }
-                if (containerDef.context === "popup") return;
-
-                if (!document.getElementById(containerId) && !createdContainerIds.has(containerId)) {
-                    const containerEl = createContainer(containerDef);
-                    document.body.appendChild(containerEl);
-                    createdContainerIds.add(containerId);
-                }
-
-                const containerEl = document.getElementById(containerId);
-                if (!containerEl) return;
-
-                const existingBtn = containerEl.querySelector(`#${button.id}`);
-                if (existingBtn) existingBtn.remove();
-
-                containerEl.appendChild(createButton(button, dispatch));
-            });
-
-            window.__mbPositioning?.scheduleUpdate();
+            if (pageButtons.length) await renderPageDock(pageButtons, dispatch);
 
         } catch (err) {
             console.error("MB Error: Failed to load UI configs", err);
@@ -201,8 +148,6 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
     let lastHref = location.href;
 
     setInterval(async () => {
-        console.log("MB Log: Searching for changes...");
-
         if (location.href !== lastHref && document.readyState === "complete") {
             lastHref = location.href;
             console.log("MB Log: URL changed, waiting for DOM to settle...");
@@ -218,7 +163,7 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
     // Resume capture mode if a window.sessionStorage record survived a hard
     // navigation. restoreCaptureMode itself decides whether to restore based
     // on performance navigation type (reload → clear instead of restore).
-    import(chrome.runtime.getURL('scripts/actions.js')).then(m => {
+    getActions().then(m => {
         m.restoreCaptureMode?.();
     }).catch(() => {});
 
@@ -228,7 +173,7 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== "runAction") return;
     const { actionName, params } = message;
-    import(chrome.runtime.getURL("scripts/actions.js")).then(module => {
+    getActions().then(module => {
         const fn = module[actionName];
         if (typeof fn === "function") fn(...(params ?? []));
         sendResponse({ ok: true });
