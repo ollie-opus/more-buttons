@@ -28,8 +28,8 @@ test('colour is a palette key', () => {
   for (const b of buttons) assert.ok(palette.includes(b.colour), `${b.id}: ${b.colour}`);
 });
 
-test('surface is page, popup or undefined', () => {
-  for (const b of buttons) assert.ok([undefined, 'page', 'popup'].includes(b.surface), b.id);
+test('surface is page, popup, both or undefined', () => {
+  for (const b of buttons) assert.ok([undefined, 'page', 'popup', 'both'].includes(b.surface), b.id);
 });
 
 test('dockOrder is a finite number', () => {
@@ -57,7 +57,7 @@ test('exactly one moreButtonsActive toggle, on popup', () => {
 });
 
 test('deleted ids are gone', () => {
-  for (const id of ['mb-example-btn', 'mb-switch-focus-toggle-btn', 'mb-generate-client-email-btn', 'mb-more-site-options-btn']) assert.equal(byId(id), undefined, id);
+  for (const id of ['mb-example-btn', 'mb-switch-focus-toggle-btn', 'mb-generate-client-email-btn', 'mb-more-site-options-btn', 'mb-copy-reg-email-btn', 'mb-copy-seed-client-email-btn']) assert.equal(byId(id), undefined, id);
 });
 
 test('renamed ids exist, old ids gone', () => {

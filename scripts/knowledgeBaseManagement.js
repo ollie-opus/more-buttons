@@ -343,7 +343,7 @@ async function renderKnowledgeBaseManagement() {
       if (toggle) {
         toggle.classList.toggle('pink', reorderMode);
         toggle.innerHTML =
-          `<span class="more-buttons-icon">swap_vert</span>Reorder mode ${reorderMode ? 'enabled' : 'disabled'}`;
+          `<span class="more-buttons-icon">arrow-up-down</span>Reorder mode ${reorderMode ? 'enabled' : 'disabled'}`;
         // Lift the new label into the dock tag (and strip the inline text).
         syncDockTag(toggle);
       }

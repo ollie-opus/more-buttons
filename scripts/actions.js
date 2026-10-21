@@ -38,7 +38,6 @@ export { copyQuestions } from './copyQuestions.js';
 export { auditCSVExport } from './auditCSVExport.js';
 export { navigateToEmployeePageForRegEmail } from './navigateToEmployeePageForRegEmail.js';
 export { generateAndDisplayRegEmail } from './generateAndDisplayRegEmail.js';
-export { copyEmailFromEmailIframe } from './copyEmailFromEmailIframe.js';
 export { copyRoleCheckboxValue } from './copyRoleCheckboxValue.js';
 export { initSiteQRPosterGeneration } from './initSiteQRPosterGeneration.js';
 export { createSiteQRCode } from './createSiteQRCode.js';

@@ -140,6 +140,7 @@
 .more-buttons-overlay-content {
   background: var(--mb-bg);
   padding: 18px 20px 20px;
+  border: 1px solid var(--mb-border);
   border-radius: 12px;
   width: 100%;
   max-width: 540px;
@@ -183,14 +184,32 @@
   gap: 6px;
 }
 
-/* Inline material icon for use in headings/text */
+/* ── Inline icon (lucide) ────────────────────────────────────────────────────
+   Chrome writes `<span class="more-buttons-icon">trash-2</span>`; the document's
+   icon painter (scripts/lucideIcons.js) swaps the name for the inline SVG —
+   the filled variant where one exists, else the stock outline. The
+   box is a 1em square driven by font-size, so every existing per-surface
+   `font-size` override keeps sizing the glyph. Until the SVG lands the bare
+   name is hidden so it never flashes as text. */
 .more-buttons-icon {
-  font-family: 'Material Symbols Outlined';
-  font-variation-settings: 'FILL' 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
   font-size: 1.25rem;
-  font-style: normal;
   line-height: 1;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
+/* The SVG carries its own paint: stock outlines are stroke="currentColor",
+   filled variants (lucide-extended) are fill="currentColor" paths. CSS only
+   sizes the box. */
+.more-buttons-icon > svg {
+  width: 100%;
+  height: 100%;
+}
+.more-buttons-icon:not(:has(> svg)) { visibility: hidden; }
 
 /* ── Navigation bar (back/forward + breadcrumb) ───────────────────────────── */
 
@@ -777,9 +796,6 @@ button.more-buttons-crumb:hover {
   background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
   backdrop-filter: blur(12px) saturate(1.4);
-  box-shadow:
-    0 8px 24px -10px color-mix(in srgb, var(--mb-text) 45%, transparent),
-    0 2px 6px -3px color-mix(in srgb, var(--mb-text) 30%, transparent);
 }
 
 /* Give the scroll area room so its final content settles above the floating dock
@@ -958,7 +974,7 @@ button.more-buttons-crumb:hover {
   color: var(--mb-text);
 }
 
-.mb-rate-limit__refresh .material-symbols-outlined {
+.mb-rate-limit__refresh .more-buttons-icon {
   font-size: 18px;
 }
 
@@ -1278,10 +1294,6 @@ button.more-buttons-crumb:hover {
 .more-buttons-button .more-buttons-icon {
   font-size: 1.25rem;
   margin-left: -2px;
-  /* Icons render at ~20px — matching Material Symbols' opsz 20 so the outlines
-     are optically tuned to the rendered size. Repeat FILL 1 since this replaces
-     the base rule's font-variation-settings wholesale rather than merging. */
-  font-variation-settings: 'FILL' 1, 'opsz' 20;
 }
 
 /* Named colour palette. Each `.more-buttons-button.<name>` picks its accent from
@@ -3401,7 +3413,6 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
   font-size: 1rem;
   color: var(--mb-text-muted);
   flex-shrink: 0;
-  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
 }
 
 /* Section expand/collapse arrow */
@@ -4709,7 +4720,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   cursor: pointer; color: var(--mb-text-muted); }
 .mb-kb-ctl:hover { background: rgba(0,0,0,0.06); }
 .mb-kb-ctl:disabled { opacity: 0.3; cursor: default; }
-.mb-kb-ctl .material-symbols-outlined { font-size: 18px; }
+.mb-kb-ctl .more-buttons-icon { font-size: 18px; }
 
 .mb-kb-actions { display: inline-flex; align-items: center; gap: 8px; }
 
@@ -4746,21 +4757,57 @@ h2[data-edit-media-title] .mb-kb-pills {
 .mb-kb-move-new { padding: 6px; }
 .mb-kb-move-input { width: 100%; box-sizing: border-box; }
 
+/* ── Registration e-mail preview ───────────────────────────────────────────────
+   Formless overlay (config/forms/regEmailPreview.html): heading, description, then
+   the e-mail rendered in an iframe that takes all remaining height. The dock's
+   clearance padding (the :has rule above) keeps the frame above the floating
+   action bar. The e-mail itself is light-themed HTML mail, so the frame keeps
+   the mail's own pale backdrop in both themes rather than inheriting ours. */
+.more-buttons-overlay-content > .mb-reg-email {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mb-reg-email__frame {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--mb-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f5f7fb;
+}
+.mb-reg-email__frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #f5f7fb;
+}
+
 /* ── Page dock ─────────────────────────────────────────────────────────────────
    The floating right-edge button dock on host webapp pages (scripts/pageDock.js).
    A vertical frosted island of icon-only tiles — same island/tile values as the
    KB form-actions dock above — preceded (DOM order: handle, island) by a slim
-   collapse handle on its left. Collapsing slides the whole dock right until only
-   the handle (the root's leftmost handle-width) stays flush on the screen edge. Each
-   tile's label + description shows in a coloured tag to the LEFT of the tile on
-   hover/focus (a real child span, not a pseudo-element, so it can hold two lines).
+   collapse handle glued to its left edge. Like the form dock it floats clear of
+   the viewport edge (`--mb-dock-inset`, matching the form dock's 16px bottom
+   offset) rather than hugging it. Collapsing slides the whole dock right until
+   only the handle (the root's leftmost handle-width) stays flush on the screen
+   edge — the inset is part of the travel so the collapsed handle still lands
+   on the edge. Open/closed is per-tab; the island's top strip holds two micro
+   toggles: pin (left — open by default in new tabs) and expand (right).
+   Compressed (default): square icon-only tiles whose displayText shows in a
+   coloured tag to the LEFT of the tile on hover/focus (a real child span rather
+   than a pseudo-element). Expanded (`.--expanded` on the root): tiles become
+   full-width rows with the inline `__label` visible, and the tag shows the
+   `<small>` descriptionText instead (tiles without one show no tag).
    Theme tokens come from the shared `.mb-page-dock` token selector at the top of
    the file, so dark mode is automatic. Lives on a foreign page, so it sets its
    own font stack and box-sizing. */
 .mb-page-dock {
   position: fixed;
   top: 50%;
-  right: 0;
+  right: var(--mb-dock-inset);
   z-index: 9990;
   display: flex;
   align-items: center;
@@ -4771,39 +4818,118 @@ h2[data-edit-media-title] .mb-kb-pills {
   line-height: 1.25;
   color: var(--mb-text);
   --mb-dock-handle-w: 14px;
+  --mb-dock-inset: 16px;
 }
 .mb-page-dock,
 .mb-page-dock * {
   box-sizing: border-box;
 }
 .mb-page-dock.--closed {
-  transform: translate(calc(100% - var(--mb-dock-handle-w)), -50%);
+  transform: translate(calc(100% - var(--mb-dock-handle-w) + var(--mb-dock-inset)), -50%);
 }
 
+/* Stacking (bottom → top): handle, island, hover tags.
+   The island is a stacking context (backdrop-filter), so its tags can never
+   rise above a sibling stacked over it — the handle must sit BELOW the island.
+   Neither dock carries a drop shadow: the frosted background + border define
+   the island on their own (a text-tinted shadow read as a white glow in dark
+   mode). */
+
 .mb-page-dock__island {
-  margin-left: 4px; /* gap after the handle; lives here so the collapsed handle sits flush */
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 7px;
   border: 1px solid color-mix(in srgb, var(--mb-border) 70%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
   backdrop-filter: blur(12px) saturate(1.4);
-  box-shadow:
-    0 8px 24px -10px color-mix(in srgb, var(--mb-text) 45%, transparent),
-    0 2px 6px -3px color-mix(in srgb, var(--mb-text) 30%, transparent);
 }
 .mb-page-dock__group {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-/* The shared divider is vertical in the horizontal KB bar; rotate it here. */
-.mb-page-dock__island > .mb-dock-sep {
+/* Replaceable tiles container (renderPageDock swaps its children per page). */
+.mb-page-dock__tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* The shared divider is vertical in the horizontal KB bar. Here it is a flex row
+   whose ::after is the line, so expanded mode can put the group name before it.
+   The leading separator is hidden in compressed mode (there is nothing above it). */
+.mb-page-dock__tiles > .mb-dock-sep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 1.35rem;
+  height: auto;
+  margin: 0;
+  background: none;
+  opacity: 1;
+}
+.mb-page-dock__tiles > .mb-dock-sep::after {
+  content: "";
+  flex: 1 1 auto;
   height: 1px;
+  border-radius: 1px;
+  background: var(--mb-border);
+  opacity: 0.65;
+}
+.mb-page-dock__tiles > .mb-dock-sep:first-child {
+  display: none;
+}
+.mb-page-dock__sep-label {
+  display: none;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--mb-text-muted);
+}
+
+/* Micro-controls strip: pin hugs the left edge, expand the right. Persists
+   across renders (it is a sibling of __tiles, not inside it). */
+.mb-page-dock__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1px;
+}
+.mb-page-dock__micro {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;  /* 2 × 16px + strip padding fits inside the 2.15rem compressed tile width */
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mb-text-muted);
+  cursor: pointer;
+  transition: color 0.14s ease-out, background-color 0.14s ease-out;
+}
+.mb-page-dock__micro:hover {
+  color: var(--mb-text);
+  background: color-mix(in srgb, var(--mb-text) 8%, transparent);
+}
+.mb-page-dock__micro:focus-visible {
+  outline: 2px solid var(--mb-focus, var(--mb-acc-neutral));
+  outline-offset: 1px;
+}
+/* A set pin reads as "on"; the expand toggle's icon already says which way it goes. */
+.mb-page-dock__micro.--pin[aria-pressed="true"] {
+  color: var(--mb-text);
+}
+.mb-page-dock__micro .more-buttons-icon {
+  font-size: 0.9375rem;
   margin: 0;
 }
 
@@ -4815,6 +4941,34 @@ h2[data-edit-media-title] .mb-kb-pills {
 }
 .mb-page-dock__tile .more-buttons-icon {
   margin-left: 0;
+}
+/* Inline label: only visible in expanded mode. */
+.mb-page-dock__label {
+  display: none;
+  white-space: nowrap;
+}
+
+/* Expanded: full-width rows, icon left, label left-aligned; dividers stretch. */
+.mb-page-dock.--expanded .mb-page-dock__tile {
+  max-width: none;
+  width: 100%;
+  justify-content: flex-start;
+  padding: 7px 12px 7px 7px;
+}
+.mb-page-dock.--expanded .mb-page-dock__label {
+  display: inline;
+}
+.mb-page-dock.--expanded .mb-page-dock__tiles > .mb-dock-sep {
+  width: auto;
+  align-self: stretch;
+  padding: 0 2px;
+}
+.mb-page-dock.--expanded .mb-page-dock__sep-label {
+  display: inline;
+}
+/* The leading separator becomes the first group's heading — but only when it has one. */
+.mb-page-dock.--expanded .mb-page-dock__tiles > .mb-dock-sep:first-child:has(> .mb-page-dock__sep-label) {
+  display: flex;
 }
 
 /* The tag (body) + its right-pointing caret. Hidden until hover/focus. */
@@ -4846,10 +5000,22 @@ h2[data-edit-media-title] .mb-kb-pills {
   font-weight: 600;
   white-space: nowrap;
 }
+/* Which line the tag shows: displayText (compressed) or descriptionText (expanded). */
 .mb-page-dock__tag small {
-  font-size: 0.75rem;
-  font-weight: 500;
-  opacity: 0.85;
+  display: none;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: normal;
+}
+.mb-page-dock.--expanded .mb-page-dock__tag b {
+  display: none;
+}
+.mb-page-dock.--expanded .mb-page-dock__tag small {
+  display: block;
+}
+.mb-page-dock.--expanded .mb-page-dock__tag:not(:has(> small)) {
+  display: none; /* label is already inline; nothing extra to say */
 }
 .mb-page-dock__tag::after {
   content: "";
@@ -4870,6 +5036,8 @@ h2[data-edit-media-title] .mb-kb-pills {
 }
 
 .mb-page-dock__handle {
+  position: relative;
+  z-index: 1; /* below the island (see stacking note) */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4877,6 +5045,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   height: 44px;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--mb-border) 70%, transparent);
+  border-right: none; /* glued to the island: its left border is the seam */
   border-radius: 8px 0 0 8px;
   background: color-mix(in srgb, var(--mb-bg) 78%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);

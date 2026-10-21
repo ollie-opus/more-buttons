@@ -1,3 +1,5 @@
+import { createForm } from './form.js';
+
 export function generateAndDisplayRegEmail(mode = 'user') {
 
     // Guidebook card content per access level (every non-seed mode)
@@ -371,6 +373,21 @@ export function generateAndDisplayRegEmail(mode = 'user') {
 
     // Overlay Display Logic
 
+    const TITLES = {
+        user: 'User registration e-mail',
+        manager: 'Manager registration e-mail',
+        admin: 'Admin registration e-mail',
+        seed: 'Seed client registration e-mail'
+    };
+
+    // The dock buttons reach this page with the extension's own query params
+    // (source_url, link_url, the automation flag). Leaving via Copy / Close
+    // reloads the bare page so the automation doesn't re-fire on refresh — the
+    // same exit the old copy button took.
+    const leaveToCleanUrl = () => {
+        window.location.href = window.location.origin + window.location.pathname;
+    };
+
     (async () => {
 
         let uuid;
@@ -420,35 +437,47 @@ export function generateAndDisplayRegEmail(mode = 'user') {
 
         const finalHtml = getHtmlMessage(uuid);
 
-        document.body.style.overflow = 'hidden';
+        const { content } = await createForm('regEmailPreview');
+        const title = content.querySelector('[data-reg-email-title]');
+        if (title) title.textContent = TITLES[mode] || TITLES.user;
 
-        const overlay = document.createElement('div');
-        overlay.style = `
-            position:fixed;
-            top:0; left:0;
-            width:100%; height:100%;
-            background:white;
-            z-index:8000;
-            display:flex;
-            justify-content:center;
-            padding:60px;
-        `;
-
-        const iframe = document.createElement('iframe');
-        iframe.style = `
-            width:50%;
-            height:100%;
-            border:1px solid #ccc;
-            box-shadow:0 4px 15px rgba(0,0,0,0.2);
-            background:white;
-        `;
-
-        overlay.appendChild(iframe);
-        document.body.appendChild(overlay);
-
+        const iframe = content.querySelector('[data-reg-email-frame]');
+        if (!iframe) return;
         const iframeDoc = iframe.contentWindow.document;
         iframeDoc.open();
         iframeDoc.write(finalHtml);
         iframeDoc.close();
+
+        // Copy / Close are bound here (not via data-action): the formless
+        // dispatcher removes the overlay — and with it the iframe document we
+        // read from — before any action runs.
+        const copyBtn = content.querySelector('[data-reg-email-copy]');
+        const closeBtn = content.querySelector('[data-reg-email-close]');
+        closeBtn?.addEventListener('click', leaveToCleanUrl);
+        copyBtn?.addEventListener('click', async () => {
+            if (copyBtn.disabled) return;
+            const setTag = (text) => { copyBtn.dataset.mbTag = text; copyBtn.setAttribute('aria-label', text); };
+            try {
+                const doc = iframe.contentDocument;
+                const html = doc.documentElement.outerHTML;
+                const plainText = doc.body.innerText;
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        'text/html': new Blob([html], { type: 'text/html' }),
+                        'text/plain': new Blob([plainText], { type: 'text/plain' }),
+                    })
+                ]);
+            } catch (err) {
+                console.warn('MB Warn: registration e-mail copy failed', err);
+                setTag('Copy failed');
+                setTimeout(() => setTag('Copy e-mail'), 1500);
+                return;
+            }
+            copyBtn.disabled = true;
+            copyBtn.classList.remove('blue');
+            copyBtn.classList.add('green');
+            setTag('Copied ✓');
+            setTimeout(leaveToCleanUrl, 700);
+        });
     })();
 }

@@ -5,6 +5,7 @@ import { renderDraftUpdates, renderPublishedUpdates } from './systemUpdates.js';
 import { upgradeTextarea } from './richTextEditor.js';
 import { applyCardClamps, toggleCardExpand } from './cardRenderer.js';
 import { formLoading, syncDockTag } from './loading.js';
+import { watchIconSpans } from './lucideIcons.js';
 import {
   markRequiredFields,
   validateFields,
@@ -282,7 +283,7 @@ export function bindSaveStateButton(formEl) {
     // Clear any native disabled left by a prior setButtonBusy cycle.
     btn.disabled = false;
     btn.setAttribute('aria-disabled', String(!unsaved));
-    const icon = unsaved ? 'save' : 'check_circle';
+    const icon = unsaved ? 'save' : 'circle-check';
     const label = unsaved ? unsavedLabel : savedLabel;
     btn.innerHTML = `<span class="more-buttons-icon">${icon}</span>${label}`;
     // Lift the freshly-written label into the dock tag (strips the inline text).
@@ -421,6 +422,9 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
 
   overlay.appendChild(content);
   document.body.appendChild(overlay);
+  // Overlay chrome writes icons as lucide-name text; make sure this document's
+  // icon painter is running (idempotent — content.js usually started it).
+  watchIconSpans(document);
 
   // Lock body scroll while overlay is open
   const previousBodyOverflow = document.body.style.overflow;
@@ -519,13 +523,16 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
 
   // Grab the form with storage key attribute
   const formEl = content.querySelector('form[data-storage-key]');
-  if (formEl?.dataset.width) {
-    content.style.width = formEl.dataset.width;
-    content.style.maxWidth = formEl.dataset.width;
+  // Formless (div-rooted) overlays size themselves the same way, via
+  // data-width / data-height on their root element.
+  const sizedEl = formEl ?? content.querySelector(':scope > [data-width], :scope > [data-height]');
+  if (sizedEl?.dataset.width) {
+    content.style.width = sizedEl.dataset.width;
+    content.style.maxWidth = sizedEl.dataset.width;
   }
-  if (formEl?.dataset.height) {
-    content.style.height = formEl.dataset.height;
-    content.style.maxHeight = formEl.dataset.height;
+  if (sizedEl?.dataset.height) {
+    content.style.height = sizedEl.dataset.height;
+    content.style.maxHeight = sizedEl.dataset.height;
   }
   if (!formEl) {
     // No form element — delegate action buttons (close / back / module fns).
@@ -579,8 +586,8 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
 
       const arrows = document.createElement('div');
       arrows.className = 'more-buttons-nav-arrows';
-      [['back', 'arrow_back', cursor <= 0],
-       ['forward', 'arrow_forward', cursor >= history.length - 1]].forEach(([action, icon, disabled]) => {
+      [['back', 'arrow-left', cursor <= 0],
+       ['forward', 'arrow-right', cursor >= history.length - 1]].forEach(([action, icon, disabled]) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'more-buttons-nav-arrow';
@@ -623,7 +630,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
       closeBtn.className = 'more-buttons-nav-arrow more-buttons-nav-close';
       closeBtn.dataset.navAction = 'close';
       closeBtn.setAttribute('aria-label', 'Close');
-      closeBtn.innerHTML = '<span class="more-buttons-icon">close</span>';
+      closeBtn.innerHTML = '<span class="more-buttons-icon">x</span>';
 
       nav.append(arrows, crumbs, closeBtn);
       const existing = content.querySelector('.more-buttons-navbar');

@@ -9,6 +9,8 @@
 // into the input. If the name list fails to load, the input simply stays a
 // plain text input — saving still works.
 
+import { getLucideSvgMarkup } from './lucideIcons.js';
+
 const MAX_RESULTS = 30;
 
 let namesPromise = null;
@@ -22,37 +24,9 @@ function loadNames() {
 /** The bundled lucide name list (string[]), or null if it failed to load. */
 export function loadLucideNames() { return loadNames(); }
 
-// Lazily-loaded {name: innerSVG} map (~340 KB) — kept separate from the eager
-// names list (29 KB) so a form open never pays for art it doesn't preview.
-let bodiesPromise = null;
-function loadBodies() {
-  bodiesPromise ??= fetch(chrome.runtime.getURL('config/lucideIconBodies.json'))
-    .then(r => r.json())
-    .catch(() => null);
-  return bodiesPromise;
-}
-
-// The one envelope every zensical lucide SVG shares (asserted by the regen
-// script); bodies are stored without it and re-wrapped here.
-function wrapBody(name, body) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-${name}" viewBox="0 0 24 24">${body}</svg>`;
-}
-
-/**
- * Resolves a lucide icon to markup safe to assign to innerHTML, or '' when
- * the name isn't in the bundled set (or the map failed to load). Bodies come
- * from the repo's own generated file, but the markup lands in the host page
- * via innerHTML, so the no-script/no-handler check stays as belt-and-braces.
- * Shared by the picker dropdown, the RTE icon popover and the button preview
- * tiles. Promise-returning so callers needn't care that the map is lazy.
- */
-export function getLucideSvgMarkup(name) {
-  return loadBodies().then(bodies => {
-    const body = bodies && typeof bodies[name] === 'string' ? bodies[name] : '';
-    if (!body || /<script|\bon\w+\s*=/i.test(body)) return '';
-    return wrapBody(name, body);
-  });
-}
+// Art comes from the shared lucide module (one loader for the picker, the
+// RTE icon popover, the button preview tiles AND the extension's own chrome).
+export { getLucideSvgMarkup };
 
 // Fill every empty `.mb-icon[data-mb-icon]` under `root` with its lucide SVG.
 // renderHtml (markdownInline) emits the span empty because it's synchronous and

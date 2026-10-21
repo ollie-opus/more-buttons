@@ -80,7 +80,7 @@ export function showConflictResolver(formEl, conflicts, options = {}) {
     const desc = options.desc ?? 'These fields changed elsewhere (another tab, device, or person) while you had this open. Pick which value to keep.';
 
     panel.innerHTML =
-      `<div class="mb-conflict__head"><span class="more-buttons-icon">sync_problem</span>${esc(head)}</div>` +
+      `<div class="mb-conflict__head"><span class="more-buttons-icon">refresh-cw-off</span>${esc(head)}</div>` +
       `<p class="mb-conflict__desc">${esc(desc)}</p>` +
       fields +
       `<div class="mb-conflict__foot"><button type="button" class="more-buttons-button" data-conflict-cancel>Cancel</button></div>`;

@@ -90,7 +90,7 @@ export function upgradeCodeTextarea(textarea, { langInput, annotationsInput } = 
   addBtn.type = 'button';
   addBtn.className = 'mb-rte__btn';
   addBtn.setAttribute('aria-label', 'Add annotation');
-  addBtn.innerHTML = '<span class="more-buttons-icon">add_comment</span>';
+  addBtn.innerHTML = '<span class="more-buttons-icon">message-square-plus</span>';
   addBtn.addEventListener('mousedown', e => e.preventDefault()); // keep the surface caret
   btnGroup.appendChild(addBtn);
 
@@ -133,8 +133,8 @@ export function upgradeCodeTextarea(textarea, { langInput, annotationsInput } = 
   pop.innerHTML = `
     <div class="mb-codeann-popover__head">
       <span class="mb-codeann-popover__title" data-codeann-title></span>
-      <button type="button" class="mb-codeann-popover__btn --danger" data-codeann-delete title="Delete annotation"><span class="more-buttons-icon">delete</span></button>
-      <button type="button" class="mb-codeann-popover__btn" data-codeann-close title="Close"><span class="more-buttons-icon">close</span></button>
+      <button type="button" class="mb-codeann-popover__btn --danger" data-codeann-delete title="Delete annotation"><span class="more-buttons-icon">trash-2</span></button>
+      <button type="button" class="mb-codeann-popover__btn" data-codeann-close title="Close"><span class="more-buttons-icon">x</span></button>
     </div>
     <div class="mb-codeann-popover__body" data-codeann-body></div>`;
   wrapper.append(orphansEl, hintEl, pop);

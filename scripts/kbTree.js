@@ -17,9 +17,9 @@ const escapeHtml = (s) =>
 function controlsHtml(idxPath, isFirst, isLast) {
   const path = idxPath.join('.');
   return `<span class="mb-kb-row-controls">
-      <button class="mb-kb-ctl" type="button" data-kb-move-up data-kb-path="${path}" title="Move up"${isFirst ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_up</span></button>
-      <button class="mb-kb-ctl" type="button" data-kb-move-down data-kb-path="${path}" title="Move down"${isLast ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_down</span></button>
-      <button class="mb-kb-ctl" type="button" data-kb-move-to data-kb-path="${path}" title="Move to…"><span class="material-symbols-outlined">drive_file_move</span></button>
+      <button class="mb-kb-ctl" type="button" data-kb-move-up data-kb-path="${path}" title="Move up"${isFirst ? ' disabled' : ''}><span class="more-buttons-icon">chevron-up</span></button>
+      <button class="mb-kb-ctl" type="button" data-kb-move-down data-kb-path="${path}" title="Move down"${isLast ? ' disabled' : ''}><span class="more-buttons-icon">chevron-down</span></button>
+      <button class="mb-kb-ctl" type="button" data-kb-move-to data-kb-path="${path}" title="Move to…"><span class="more-buttons-icon">folder-input</span></button>
     </span>`;
 }
 
@@ -42,7 +42,7 @@ function renderNode(node, idxPath, opts) {
     const attrPairs = Object.entries(node.attrs ?? {})
       .map(([k, v]) => `${k}="${escapeAttr(v)}"`).join(' ');
     const button = `<button class="mb-kb-node-row" type="button" data-kb-leaf ${attrPairs}${pathAttr}>
-        <span class="mb-kb-node-icon material-symbols-outlined">description</span>
+        <span class="mb-kb-node-icon more-buttons-icon">file-text</span>
         <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
       </button>`;
     return `<div class="mb-kb-node">
@@ -56,7 +56,7 @@ function renderNode(node, idxPath, opts) {
   const attrPairs = Object.entries(node.attrs ?? {})
     .map(([k, v]) => `${k}="${escapeAttr(v)}"`).join(' ');
   const button = `<button class="mb-kb-node-row" type="button" data-kb-section ${attrPairs}${pathAttr}>
-      <span class="mb-kb-node-icon mb-kb-arrow material-symbols-outlined">chevron_right</span>
+      <span class="mb-kb-node-icon mb-kb-arrow more-buttons-icon">chevron-right</span>
       <span class="mb-kb-node-label">${escapeHtml(node.label)}</span>
     </button>`;
   return `<div class="mb-kb-node">

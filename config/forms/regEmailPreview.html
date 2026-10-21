@@ -1,0 +1,18 @@
+<!-- Formless (div-rooted) overlay: generateAndDisplayRegEmail.js writes the
+     e-mail into the iframe and binds Copy / Close itself (no data-action, since
+     the formless dispatcher tears the overlay — and the iframe — down before an
+     action runs). -->
+<div class="mb-reg-email" data-width="780px" data-height="calc(100vh - 3rem)">
+  <h2><span class="more-buttons-icon">mail</span> <span data-reg-email-title>Registration e-mail</span></h2>
+
+  <p class="more-buttons-description">Preview of the generated registration e-mail. Copy it, then paste into a new message in your mail client.</p>
+
+  <div class="mb-reg-email__frame">
+    <iframe title="Registration e-mail preview" data-reg-email-frame></iframe>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button blue" data-reg-email-copy><span class="more-buttons-icon">copy</span>Copy e-mail</button>
+    <button type="button" class="more-buttons-button" data-reg-email-close><span class="more-buttons-icon">x</span>Close</button>
+  </div>
+</div>

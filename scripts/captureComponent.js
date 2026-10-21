@@ -82,7 +82,7 @@ async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
   // dock tag follows the per-kind label.
   const manageBtn = (formEl.parentElement ?? formEl).querySelector('[data-action="openMediaEntryFromComponent"]');
   if (manageBtn) {
-    manageBtn.innerHTML = `<span class="more-buttons-icon">photo_library</span>Manage this ${isVideo ? 'video' : isImage ? 'image' : 'capture'}`;
+    manageBtn.innerHTML = `<span class="more-buttons-icon">images</span>Manage this ${isVideo ? 'video' : isImage ? 'image' : 'capture'}`;
   }
 
   // Playback radios are video-only; Theme is meaningless without a pair

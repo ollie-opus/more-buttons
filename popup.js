@@ -51,10 +51,13 @@ async function renderPopupButtons() {
   const versionEl = document.getElementById("mb-popup-version");
   if (versionEl) versionEl.textContent = "v" + chrome.runtime.getManifest().version;
 
-  const [{ pageMatchesUrl }, { orderDockButtons, normaliseGroup }] = await Promise.all([
+  const [{ pageMatchesUrl }, { orderDockButtons, normaliseGroup }, { watchIconSpans }] = await Promise.all([
     import(chrome.runtime.getURL('scripts/utils.js')),
     import(chrome.runtime.getURL('scripts/dockLayout.js')),
+    import(chrome.runtime.getURL('scripts/lucideIcons.js')),
   ]);
+  // Buttons write their icon as lucide-name text; the painter swaps it for SVG.
+  watchIconSpans(document);
 
   const buttons = await (await fetch(chrome.runtime.getURL("config/buttons.json"))).json();
 
@@ -81,7 +84,7 @@ async function renderPopupButtons() {
   };
 
   const popupButtons = buttons.filter(b =>
-    b.surface === "popup" && pageMatchesUrl(b.pageMatch, url)
+    (b.surface === "popup" || b.surface === "both") && pageMatchesUrl(b.pageMatch, url)
   );
 
   // The master enable/disable switch is hoisted out of its group and pinned

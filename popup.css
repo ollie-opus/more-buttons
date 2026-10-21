@@ -41,32 +41,6 @@ body {
     "Segoe UI", Roboto, sans-serif;
 }
 
-/* ── Material Symbols (the toggle and shell icons depend on this) ──────────── */
-@font-face {
-  font-family: "Material Symbols Outlined";
-  font-style: normal;
-  font-weight: 100 700;
-  src: url("assets/fonts/MaterialSymbolsOutlined.woff2") format("woff2");
-}
-
-.material-symbols-outlined {
-  font-family: "Material Symbols Outlined";
-  font-variation-settings: "FILL" 1;
-  font-weight: normal;
-  font-style: normal;
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
-  display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  direction: ltr;
-  vertical-align: middle;
-  transition: color 0.3s ease;
-  user-select: none;
-}
-
 /* ── Shell ────────────────────────────────────────────────────────────────── */
 .mb-popup {
   display: flex;
@@ -157,7 +131,7 @@ body {
   color: var(--mb-text-muted);
 }
 
-.mb-popup__disabled-note .material-symbols-outlined {
+.mb-popup__disabled-note .more-buttons-icon {
   font-size: 18px;
   color: var(--mb-text-label);
   flex-shrink: 0;

@@ -236,8 +236,8 @@ async function renderGuideEntryContent(formEl) {
     actionsEl.innerHTML = `
       ${viewLinksHtml({ draft: false })}
       ${dockSep}
-      <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">add</span>Create draft</button>
-      <button type="button" class="more-buttons-button red" data-guide-action="delete"><span class="more-buttons-icon">delete</span>Delete guide</button>`;
+      <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">plus</span>Create draft</button>
+      <button type="button" class="more-buttons-button red" data-guide-action="delete"><span class="more-buttons-icon">trash-2</span>Delete guide</button>`;
     return;
   }
 
@@ -270,7 +270,7 @@ function renderGuideDraftView(formEl, draftMarkdown) {
 // modes. Mirrors the KB toggle: magenta/on vs neutral/off, static swap_vert icon.
 function reorderToggleHtml() {
   const on = guideReorderMode;
-  return `<button type="button" class="more-buttons-button mb-reorder-toggle ${on ? 'pink' : ''}" data-guide-reorder-toggle><span class="more-buttons-icon">swap_vert</span>Reorder mode ${on ? 'enabled' : 'disabled'}</button>`;
+  return `<button type="button" class="more-buttons-button mb-reorder-toggle ${on ? 'pink' : ''}" data-guide-reorder-toggle><span class="more-buttons-icon">arrow-up-down</span>Reorder mode ${on ? 'enabled' : 'disabled'}</button>`;
 }
 
 // "View live" / "View draft" links to the published pages on the Zensical site.
@@ -279,10 +279,10 @@ function reorderToggleHtml() {
 // draft page only exists once a draft has been created.
 function viewLinksHtml({ draft } = {}) {
   const live = publishedUrl(navValueOf(currentGuide.livePath));
-  let html = `<a class="more-buttons-button" href="${live}" target="_blank" rel="noopener" title="View live page"><span class="more-buttons-icon">public</span>View live</a>`;
+  let html = `<a class="more-buttons-button" href="${live}" target="_blank" rel="noopener" title="View live page"><span class="more-buttons-icon">globe</span>View live</a>`;
   if (draft) {
     const d = publishedUrl(draftNavValueOf(currentGuide.livePath));
-    html += `<a class="more-buttons-button" href="${d}" target="_blank" rel="noopener" title="View draft page"><span class="more-buttons-icon">draft</span>View draft</a>`;
+    html += `<a class="more-buttons-button" href="${d}" target="_blank" rel="noopener" title="View draft page"><span class="more-buttons-icon">file-pen</span>View draft</a>`;
   }
   return html;
 }
@@ -294,13 +294,13 @@ const dockSep = '<span class="mb-dock-sep" aria-hidden="true"></span>';
 // | [publish, discard]. Create leads its group (same convention as the KB bar).
 function normalActionsHtml(title) {
   return `
-    <button type="button" class="more-buttons-button" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
+    <button type="button" class="more-buttons-button" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">plus</span>Add new section</button>
     ${reorderToggleHtml()}
     ${dockSep}
     ${viewLinksHtml({ draft: true })}
     ${dockSep}
-    <button type="button" class="more-buttons-button blue" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
-    <button type="button" class="more-buttons-button red" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
+    <button type="button" class="more-buttons-button blue" data-guide-action="publish"><span class="more-buttons-icon">badge-check</span>Publish draft to live</button>
+    <button type="button" class="more-buttons-button red" data-guide-action="discard"><span class="more-buttons-icon">trash-2</span>Discard draft</button>`;
 }
 
 // Reorder-mode groups mirror the normal bar (minus create): [reorder toggle] |
@@ -313,7 +313,7 @@ export function reorderActionsHtml(dirty = reorderDirty) {
     ${viewLinksHtml({ draft: true })}
     ${dockSep}
     <button type="button" class="more-buttons-button${saveClass}" data-guide-reorder-save${dis}><span class="more-buttons-icon">save</span>Save changes</button>
-    <button type="button" class="more-buttons-button" data-guide-reorder-discard${dis}><span class="more-buttons-icon">close</span>Discard changes</button>`;
+    <button type="button" class="more-buttons-button" data-guide-reorder-discard${dis}><span class="more-buttons-icon">x</span>Discard changes</button>`;
 }
 
 // A standalone tree block (separate from the section tree) for page-level
@@ -323,7 +323,7 @@ function renderPageSettingsNode() {
     <div class="mb-kb-tree mb-kb-tree--page-settings">
       <div class="mb-kb-node">
         <button class="mb-kb-node-row" type="button" data-edit-page-settings>
-          <span class="mb-kb-node-icon material-symbols-outlined">tune</span>
+          <span class="mb-kb-node-icon more-buttons-icon">sliders-horizontal</span>
           <strong>Page settings</strong>
         </button>
       </div>
@@ -336,9 +336,9 @@ function renderPageSettingsNode() {
 function sectionControlsHtml(uuid, level, isFirst, isLast) {
   const u = escapeHtml(uuid ?? '');
   return `<span class="mb-kb-row-controls">
-      <button class="mb-kb-ctl" type="button" data-section-move-up data-uuid="${u}" title="Move up"${isFirst ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_up</span></button>
-      <button class="mb-kb-ctl" type="button" data-section-move-down data-uuid="${u}" title="Move down"${isLast ? ' disabled' : ''}><span class="material-symbols-outlined">keyboard_arrow_down</span></button>
-      <button class="mb-kb-ctl" type="button" data-section-move-to data-uuid="${u}" data-level="${level}" title="Move to…"><span class="material-symbols-outlined">drive_file_move</span></button>
+      <button class="mb-kb-ctl" type="button" data-section-move-up data-uuid="${u}" title="Move up"${isFirst ? ' disabled' : ''}><span class="more-buttons-icon">chevron-up</span></button>
+      <button class="mb-kb-ctl" type="button" data-section-move-down data-uuid="${u}" title="Move down"${isLast ? ' disabled' : ''}><span class="more-buttons-icon">chevron-down</span></button>
+      <button class="mb-kb-ctl" type="button" data-section-move-to data-uuid="${u}" data-level="${level}" title="Move to…"><span class="more-buttons-icon">folder-input</span></button>
     </span>`;
 }
 
@@ -358,7 +358,7 @@ function renderGuideSectionTree(markdown, { reorderable = false } = {}) {
     : button;
   const sectionButton = (node) => `
         <button class="mb-kb-node-row" type="button" data-edit-guide-section="${escapeHtml(node.uuid ?? '')}">
-          <span class="mb-kb-node-icon material-symbols-outlined">subject</span>
+          <span class="mb-kb-node-icon more-buttons-icon">text</span>
           ${nodeLabel(node)}
         </button>`;
   const h3Html = (h3, isFirst, isLast) => `

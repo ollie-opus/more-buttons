@@ -1,3 +1,5 @@
+import { getLucideSvgMarkup } from './lucideIcons.js';
+
 export function siteListFocusIcons() {
   function extractUUID(href) {
     if (!href) return null;
@@ -23,18 +25,17 @@ export function siteListFocusIcons() {
     btn.title = 'Focus this site';
 
     const icon = document.createElement('span');
-    icon.className = 'material-symbols-outlined';
-    icon.textContent = 'visibility';
+    icon.className = 'more-buttons-icon';
     icon.style.fontSize = '18px';
-    icon.style.fontVariationSettings = "'FILL' 1";
     icon.style.color = '#b66797';
     icon.style.transition = 'color 0.2s ease';
     icon.style.lineHeight = '1';
     icon.style.display = 'block';
     icon.style.width = '18px';
-    icon.style.overflow = 'hidden';
-    icon.style.visibility = 'hidden';
-    document.fonts.ready.then(() => { icon.style.visibility = 'visible'; });
+    icon.style.height = '18px';
+    // Painted directly (not via the name-text route) so nothing shows on a host
+    // page the overlay stylesheet hasn't reached until the SVG is in.
+    getLucideSvgMarkup('eye').then(svg => { if (svg) icon.innerHTML = svg; });
     btn.appendChild(icon);
 
     btn.style.marginLeft = '6px';

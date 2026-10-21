@@ -13,11 +13,11 @@ import { loadLabelPalette, paintLabelVars } from './labelPalette.js';
 // when the caret sits inside it). Order matters: it is the nesting order used
 // when several marks are armed at once (outermost first). Matches the old toolbar.
 const MARKS = [
-  { key: 'bold', marker: '**', tags: ['strong', 'b'], icon: 'format_bold', label: 'Bold' },
-  { key: 'italic', marker: '*', tags: ['em', 'i'], icon: 'format_italic', label: 'Italic' },
-  { key: 'underline', marker: '^^', tags: ['u'], icon: 'format_underlined', label: 'Underline' },
-  { key: 'strike', marker: '~~', tags: ['s', 'strike', 'del'], icon: 'strikethrough_s', label: 'Strikethrough' },
-  { key: 'highlight', marker: '==', tags: ['mark'], icon: 'format_ink_highlighter', label: 'Highlight' },
+  { key: 'bold', marker: '**', tags: ['strong', 'b'], icon: 'bold', label: 'Bold' },
+  { key: 'italic', marker: '*', tags: ['em', 'i'], icon: 'italic', label: 'Italic' },
+  { key: 'underline', marker: '^^', tags: ['u'], icon: 'underline', label: 'Underline' },
+  { key: 'strike', marker: '~~', tags: ['s', 'strike', 'del'], icon: 'strikethrough', label: 'Strikethrough' },
+  { key: 'highlight', marker: '==', tags: ['mark'], icon: 'highlighter', label: 'Highlight' },
   { key: 'code', marker: '`', tags: ['code'], icon: 'code', label: 'Code' },
 ];
 
@@ -26,16 +26,16 @@ const MARKS = [
 // of queuing a format for the next typed text. `tag` is the rendered list
 // element that means "the caret is inside this kind" (lights the button).
 const LISTS = [
-  { key: 'ul', kind: 'ul', tag: 'ul', icon: 'format_list_bulleted', label: 'Bulleted list' },
-  { key: 'ol', kind: 'ol', tag: 'ol', icon: 'format_list_numbered', label: 'Numbered list' },
+  { key: 'ul', kind: 'ul', tag: 'ul', icon: 'list', label: 'Bulleted list' },
+  { key: 'ol', kind: 'ol', tag: 'ol', icon: 'list-ordered', label: 'Numbered list' },
 ];
 
 // Indent / outdent the current list item(s) by one nesting level. Like LISTS
 // these act on the caret's line; they're disabled (greyed) unless the caret sits
 // inside a list, since there's nothing to nest otherwise. `dir`: +1 / -1.
 const INDENTS = [
-  { key: 'outdent', dir: -1, icon: 'format_indent_decrease', label: 'Decrease indent' },
-  { key: 'indent', dir: 1, icon: 'format_indent_increase', label: 'Increase indent' },
+  { key: 'outdent', dir: -1, icon: 'indent-decrease', label: 'Decrease indent' },
+  { key: 'indent', dir: 1, icon: 'indent-increase', label: 'Increase indent' },
 ];
 
 // Pure: collapse line breaks (and surrounding whitespace) to single spaces —
@@ -564,7 +564,7 @@ function buildButtons(rte) {
   // Inline lucide icon — always added too (the KB uses `:lucide-check:` in
   // datatable cells).
   if (want('icon')) {
-    const iconBtn = makeBtn('emoji_symbols', 'Icon', () => rte.openIconPopover?.());
+    const iconBtn = makeBtn('smile-plus', 'Icon', () => rte.openIconPopover?.());
     iconBtn._icon = true;
     rte.btnGroup.appendChild(iconBtn);
     rte.buttons.push(iconBtn);
@@ -1279,7 +1279,7 @@ function attachAiPopover(rte) {
     if (ui.spin) {
       const s = document.createElement('span');
       s.className = 'more-buttons-icon more-buttons-icon--spin';
-      s.textContent = 'progress_activity';
+      s.textContent = 'loader-circle';
       statusLine.appendChild(s);
     }
     if (ui.statusText) statusLine.appendChild(document.createTextNode(ui.statusText));

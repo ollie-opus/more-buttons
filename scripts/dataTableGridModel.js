@@ -323,23 +323,23 @@ export function rowMenuItems(st, row) {
   if (band && band.r1 > band.r0 && row >= band.r0 && row <= band.r1) {
     const n = band.r1 - band.r0 + 1;
     return [
-      { id: 'rows-insert-above', label: `Insert ${n} rows above`, icon: 'add' },
-      { id: 'rows-insert-below', label: `Insert ${n} rows below`, icon: 'add' },
+      { id: 'rows-insert-above', label: `Insert ${n} rows above`, icon: 'plus' },
+      { id: 'rows-insert-below', label: `Insert ${n} rows below`, icon: 'plus' },
       { divider: true },
-      { id: 'rows-delete', label: `Delete ${n} rows`, icon: 'delete', danger: true, disabled: n >= st.rows.length },
+      { id: 'rows-delete', label: `Delete ${n} rows`, icon: 'trash-2', danger: true, disabled: n >= st.rows.length },
     ];
   }
   // The header row (-1) gets the same menu: insert-above/move/delete on it are
   // content-level promote/demote/swap ops (see insertRow/moveRow/deleteRow),
   // so the markdown always keeps a header.
   return [
-    { id: 'row-insert-above', label: 'Insert 1 row above', icon: 'add' },
-    { id: 'row-insert-below', label: 'Insert 1 row below', icon: 'add' },
+    { id: 'row-insert-above', label: 'Insert 1 row above', icon: 'plus' },
+    { id: 'row-insert-below', label: 'Insert 1 row below', icon: 'plus' },
     { divider: true },
-    { id: 'row-move-up', label: 'Move row up', icon: 'arrow_upward', disabled: row === -1 },
-    { id: 'row-move-down', label: 'Move row down', icon: 'arrow_downward', disabled: row >= st.rows.length - 1 },
+    { id: 'row-move-up', label: 'Move row up', icon: 'arrow-up', disabled: row === -1 },
+    { id: 'row-move-down', label: 'Move row down', icon: 'arrow-down', disabled: row >= st.rows.length - 1 },
     { divider: true },
-    { id: 'row-delete', label: 'Delete row', icon: 'delete', danger: true, disabled: st.rows.length <= 1 },
+    { id: 'row-delete', label: 'Delete row', icon: 'trash-2', danger: true, disabled: st.rows.length <= 1 },
   ];
 }
 
@@ -348,49 +348,49 @@ export function columnMenuItems(st, col) {
   if (band && band.c1 > band.c0 && col >= band.c0 && col <= band.c1) {
     const n = band.c1 - band.c0 + 1;
     return [
-      { id: 'cols-insert-left', label: `Insert ${n} columns left`, icon: 'add' },
-      { id: 'cols-insert-right', label: `Insert ${n} columns right`, icon: 'add' },
+      { id: 'cols-insert-left', label: `Insert ${n} columns left`, icon: 'plus' },
+      { id: 'cols-insert-right', label: `Insert ${n} columns right`, icon: 'plus' },
       { divider: true },
-      { id: 'cols-delete', label: `Delete ${n} columns`, icon: 'delete', danger: true, disabled: n >= st.align.length },
+      { id: 'cols-delete', label: `Delete ${n} columns`, icon: 'trash-2', danger: true, disabled: n >= st.align.length },
     ];
   }
   return [
-    { id: 'col-insert-left', label: 'Insert 1 column left', icon: 'add' },
-    { id: 'col-insert-right', label: 'Insert 1 column right', icon: 'add' },
+    { id: 'col-insert-left', label: 'Insert 1 column left', icon: 'plus' },
+    { id: 'col-insert-right', label: 'Insert 1 column right', icon: 'plus' },
     { divider: true },
-    { id: 'col-move-left', label: 'Move column left', icon: 'arrow_back', disabled: col <= 0 },
-    { id: 'col-move-right', label: 'Move column right', icon: 'arrow_forward', disabled: col >= st.align.length - 1 },
+    { id: 'col-move-left', label: 'Move column left', icon: 'arrow-left', disabled: col <= 0 },
+    { id: 'col-move-right', label: 'Move column right', icon: 'arrow-right', disabled: col >= st.align.length - 1 },
     { divider: true },
     {
-      id: 'col-align', label: 'Alignment', icon: `format_align_${st.align[col] ?? 'left'}`,
+      id: 'col-align', label: 'Alignment', icon: `align-${st.align[col] ?? 'left'}`,
       submenu: COLUMN_ALIGNMENTS.map(a => ({
         id: `col-align-${a}`,
         label: a[0].toUpperCase() + a.slice(1),
-        icon: `format_align_${a}`,
+        icon: `align-${a}`,
         checked: (st.align[col] ?? 'left') === a,
       })),
     },
     { divider: true },
-    { id: 'col-delete', label: 'Delete column', icon: 'delete', danger: true, disabled: st.align.length <= 1 },
+    { id: 'col-delete', label: 'Delete column', icon: 'trash-2', danger: true, disabled: st.align.length <= 1 },
   ];
 }
 
 export function cellMenuItems(st, row, col, { mediaKind = null } = {}) {
   if (row === -1) {
     // Header cells hold column titles only — no media.
-    return [{ id: 'cell-clear', label: 'Clear cell', icon: 'backspace' }];
+    return [{ id: 'cell-clear', label: 'Clear cell', icon: 'delete' }];
   }
   if (mediaKind) {
     // mediaKind: 'capture' | 'image' — same ids, kind-specific labels.
     return [
-      { id: 'cell-edit-capture', label: `Edit ${mediaKind}`, icon: 'photo_camera' },
+      { id: 'cell-edit-capture', label: `Edit ${mediaKind}`, icon: 'camera' },
       { divider: true },
-      { id: 'cell-remove-capture', label: `Remove ${mediaKind}`, icon: 'delete', danger: true },
+      { id: 'cell-remove-capture', label: `Remove ${mediaKind}`, icon: 'trash-2', danger: true },
     ];
   }
   return [
     {
-      id: 'cell-capture', label: 'Insert media', icon: 'photo_camera',
+      id: 'cell-capture', label: 'Insert media', icon: 'camera',
       submenu: [
         { id: 'cell-capture-new', label: 'Create a new capture' },
         { id: 'cell-capture-library', label: 'Add capture from library' },
@@ -398,6 +398,6 @@ export function cellMenuItems(st, row, col, { mediaKind = null } = {}) {
       ],
     },
     { divider: true },
-    { id: 'cell-clear', label: 'Clear cell', icon: 'backspace' },
+    { id: 'cell-clear', label: 'Clear cell', icon: 'delete' },
   ];
 }

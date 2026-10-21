@@ -23,7 +23,7 @@
 // (see tests/loading.test.mjs).
 
 const SPINNER =
-  '<span class="more-buttons-icon more-buttons-icon--spin">progress_activity</span>';
+  '<span class="more-buttons-icon more-buttons-icon--spin">loader-circle</span>';
 
 // Open form tiles, excluding the standalone loading tile itself.
 const TILE_SELECTOR = '.more-buttons-overlay-content:not(.more-buttons-loading-tile)';
@@ -98,7 +98,7 @@ export function syncDockTag(btn) {
 // ── Busy buttons (moved verbatim from form.js, plus the dismiss handoff) ────
 
 // Put a save/publish button into the amber "working" state while a GitHub
-// commit runs: disabled, amber, spinning change_circle icon, and a progress
+// commit runs: disabled, amber, spinning refresh-cw icon, and a progress
 // message. The progress message rides in the dock tag (`data-mb-tag`), which the
 // `.busy` rule keeps visible without a hover — so the square stays icon-only and
 // the message never doubles up inline. The icon is built once (so the spin
@@ -112,7 +112,7 @@ export function setButtonBusy(btn, message) {
   if (!btn.classList.contains('busy')) {
     btn.classList.remove('blue', 'green', 'red', 'pink');
     btn.classList.add('busy');
-    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">change_circle</span>';
+    btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">refresh-cw</span>';
   }
   btn.dataset.mbTag = message;
   btn.setAttribute('aria-label', message);

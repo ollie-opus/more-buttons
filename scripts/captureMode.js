@@ -33,6 +33,7 @@
  */
 
 import { installSelector, screenshotElement, enterResizeMode, nudgeActiveResize, getElementLabel, slugifyLabel } from './captureElement.js';
+import { watchIconSpans } from './lucideIcons.js';
 import { extractSvgForTheme } from './svgExtract.js';
 import { getFormAction } from './formActions.js';
 import { captureSizeField, wireCaptureSizeField, readCaptureSizeField } from './captureCards.js';
@@ -161,15 +162,15 @@ function buildBar({ settings }) {
     <div class="mb-capture-bar__mode" role="group" aria-label="Mode" data-bar-mode>
       <button type="button" class="mb-capture-bar__mode-btn --on" data-mode-capture
         title="Shift + click captures the element" aria-pressed="true">
-        <span class="more-buttons-icon" aria-hidden="true">photo_camera</span>Capture
+        <span class="more-buttons-icon" aria-hidden="true">camera</span>Capture
       </button>
       <button type="button" class="mb-capture-bar__mode-btn" data-mode-annotate
         title="Shift + click marks the element with a coloured ring" aria-pressed="false">
-        <span class="more-buttons-icon" aria-hidden="true">border_color</span>Annotate
+        <span class="more-buttons-icon" aria-hidden="true">pencil</span>Annotate
       </button>
       <button type="button" class="mb-capture-bar__mode-btn" data-mode-zap
         title="Shift + click deletes the element from the page" aria-pressed="false">
-        <span class="more-buttons-icon" aria-hidden="true">bolt</span>Zapper
+        <span class="more-buttons-icon" aria-hidden="true">zap</span>Zapper
       </button>
       <button type="button" class="mb-capture-bar__mode-btn" data-mode-extract
         title="Shift + click extracts the SVG icon as light/dark files" aria-pressed="false">
@@ -185,19 +186,19 @@ function buildBar({ settings }) {
         data-bar-resize
         title="Resize mode: crop after picking"
         aria-pressed="${settings.resizeMode ? 'true' : 'false'}">
-        <span class="more-buttons-icon" aria-hidden="true">crop_free</span>
+        <span class="more-buttons-icon" aria-hidden="true">scan</span>
         <span class="mb-capture-bar__toggle-label">Resize</span>
       </button>
 
       <button type="button" class="mb-capture-bar__toggle" data-bar-resize-grow disabled
         title="Grow resize box 1px" aria-label="Grow resize box">
-        <span class="more-buttons-icon" aria-hidden="true">open_in_full</span>
+        <span class="more-buttons-icon" aria-hidden="true">maximize-2</span>
         <span class="mb-capture-bar__toggle-label">Grow</span>
       </button>
 
       <button type="button" class="mb-capture-bar__toggle" data-bar-resize-shrink disabled
         title="Shrink resize box 1px" aria-label="Shrink resize box">
-        <span class="more-buttons-icon" aria-hidden="true">close_fullscreen</span>
+        <span class="more-buttons-icon" aria-hidden="true">minimize-2</span>
         <span class="mb-capture-bar__toggle-label">Shrink</span>
       </button>
 
@@ -210,13 +211,13 @@ function buildBar({ settings }) {
 
       <button type="button" class="mb-capture-bar__toggle" data-bar-clear-annotations hidden
         title="Remove all annotation rings">
-        <span class="more-buttons-icon" aria-hidden="true">ink_eraser</span>
+        <span class="more-buttons-icon" aria-hidden="true">eraser</span>
         <span class="mb-capture-bar__toggle-label" data-bar-clear-count>Clear</span>
       </button>
 
       <button type="button" class="mb-capture-bar__toggle" data-bar-restore-zapped hidden
         title="Bring back all zapped elements">
-        <span class="more-buttons-icon" aria-hidden="true">undo</span>
+        <span class="more-buttons-icon" aria-hidden="true">undo-2</span>
         <span class="mb-capture-bar__toggle-label" data-bar-restore-count>Restore</span>
       </button>
 
@@ -238,7 +239,7 @@ function buildBar({ settings }) {
     </button>
 
     <button type="button" class="mb-capture-bar__close" data-bar-close aria-label="Exit capture mode">
-      <span class="more-buttons-icon" aria-hidden="true">close</span>
+      <span class="more-buttons-icon" aria-hidden="true">x</span>
     </button>
   `;
   return bar;
@@ -323,6 +324,7 @@ export async function enterCaptureMode(opts = {}) {
   // bar and its event handlers persist across navigation without any
   // serialisation.
   document.documentElement.appendChild(glow);
+  watchIconSpans(document); // bar icons are lucide-name text; paint them
   document.documentElement.appendChild(bar);
   document.documentElement.appendChild(tab);
   // After the first paint, clear the inline overrides so the stylesheet's

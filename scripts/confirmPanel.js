@@ -23,7 +23,7 @@ function showPanel(host, { variant, title, message, cancelResult, buttons }) {
     panel.className = 'mb-confirm' + (variant === 'notice' ? ' --notice' : '');
     panel.setAttribute('data-confirm-panel', '');
     panel.innerHTML =
-      `<div class="mb-confirm__head"><span class="more-buttons-icon">warning</span>${esc(title)}</div>` +
+      `<div class="mb-confirm__head"><span class="more-buttons-icon">triangle-alert</span>${esc(title)}</div>` +
       `<p class="mb-confirm__desc">${esc(message)}</p>` +
       `<div class="mb-confirm__foot">${buttons.map((b, i) =>
         `<button type="button" class="more-buttons-button ${b.cls}" data-confirm-value="${i}"><span class="more-buttons-icon">${b.icon}</span>${esc(b.label)}</button>`
@@ -72,8 +72,8 @@ export function showDangerConfirm(host, { title, message, confirmLabel = 'Delete
   return showPanel(host, {
     variant: 'danger', title, message, cancelResult: false,
     buttons: [
-      { label: confirmLabel, cls: 'red', icon: 'delete', result: true },
-      { label: cancelLabel, cls: '', icon: 'close', result: false, focus: true },
+      { label: confirmLabel, cls: 'red', icon: 'trash-2', result: true },
+      { label: cancelLabel, cls: '', icon: 'x', result: false, focus: true },
     ],
   });
 }

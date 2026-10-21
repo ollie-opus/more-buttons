@@ -161,7 +161,7 @@ function renderGrid(formEl) {
   const rowActive = r => (hasRange ? r >= rect.r0 && r <= rect.r1 : sel.row === r);
 
   const menuBtn = label =>
-    `<button type="button" class="mb-dt-handle__menu" data-dt-handle-menu tabindex="-1" aria-haspopup="menu" aria-label="${label} options"><span class="more-buttons-icon">arrow_drop_down</span></button>`;
+    `<button type="button" class="mb-dt-handle__menu" data-dt-handle-menu tabindex="-1" aria-haspopup="menu" aria-label="${label} options"><span class="more-buttons-icon">chevron-down</span></button>`;
 
   const chromeRow = '<tr>'
     + '<th class="mb-dt-corner"></th>'
@@ -772,7 +772,7 @@ function initCellEditor(formEl) {
   btn.type = 'button';
   btn.className = 'mb-rte__btn mb-dt-insert-capture';
   btn.dataset.dtInsertCapture = '';
-  btn.innerHTML = '<span class="more-buttons-icon">photo_camera</span>Insert Media';
+  btn.innerHTML = '<span class="more-buttons-icon">camera</span>Insert Media';
   btn.addEventListener('mousedown', e => e.preventDefault()); // keep grid selection alive
   btn.addEventListener('click', () => {
     if (formEl._dtEdit) commitEditing(formEl); // the popup acts on the committed selected cell
