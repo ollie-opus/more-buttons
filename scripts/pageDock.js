@@ -92,7 +92,6 @@ function buildTile(doc, def, dispatch) {
   tile.setAttribute('type', 'button');
   if (def.id) tile.id = def.id;
   tile.setAttribute('aria-label', def.displayText ?? '');
-  if (def.descriptionText) tile.title = def.descriptionText;
   tile.appendChild(make(doc, 'span', 'more-buttons-icon', def.icon ?? ''));
 
   const tag = make(doc, 'span', 'mb-page-dock__tag');

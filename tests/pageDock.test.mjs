@@ -248,12 +248,4 @@ await test('new stylesheet link hides root until load/error; existing link never
   assert.equal(doc.getElementById('mb-page-dock').style.visibility, undefined);
 });
 
-await test('tile title carries the description when present', async () => {
-  fakeChrome({});
-  const doc = fakeDoc();
-  await renderPageDock(buttons, () => {}, { doc });
-  assert.equal(doc.getElementById('a1').title, 'Desc a1');
-  assert.equal(doc.getElementById('a3').title, undefined);
-});
-
 console.log(`pageDock: ${passed} passed`);
