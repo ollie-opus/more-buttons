@@ -889,7 +889,7 @@ button.more-buttons-crumb:hover {
 
 /* Click-disabled but still hover-tagged: pointer-events stay auto so the dimmed
    button still reveals its (often informative) tag. Clicks are gated in JS.
-   Applies to every disabled dock button (including the settled-green `.success`
+   Applies to every disabled dock button (including the settled-green `.green`
    "saved" state, which stays full-opacity via its own rule below). */
 .more-buttons-form-actions > .more-buttons-button[aria-disabled="true"],
 .more-buttons-form-actions > .more-buttons-button:disabled:not(.busy),
@@ -1350,7 +1350,7 @@ button.more-buttons-crumb:hover {
    same held/non-go colour, but static (no spinner) and not-allowed since the
    action genuinely can't proceed. Used by the new-capture page when the target
    capture already exists in the library. Higher specificity than both the
-   generic disabled rule and `.success:disabled`, so it wins regardless of which
+   generic disabled rule and `.green:disabled`, so it wins regardless of which
    variant class the button started with. */
 .more-buttons-button.warn,
 .more-buttons-button.warn:hover,

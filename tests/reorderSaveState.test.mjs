@@ -11,26 +11,26 @@ const btn = (html, attr) => html.match(new RegExp(`<button[^>]*${attr}[^>]*>`))[
 
 // ── Reorder Save/Discard gating (shared helper) ────────────────────────────
 // Bug 1: Discard stayed permanently disabled. Bug 2: Save never appeared
-// disabled because it hard-coded `.success`, which the disabled-dimming CSS
-// deliberately excludes. The dirty flag must gate both, and `.success` must
+// disabled because it hard-coded `.green`, which the disabled-dimming CSS
+// deliberately excludes. The dirty flag must gate both, and `.green` must
 // only ride along while dirty — mirroring the normal "Draft saved" button.
 
-test('clean: aria-disabled on, Save carries no .success', () => {
+test('clean: aria-disabled on, Save carries no .green', () => {
   const { dis, saveClass } = reorderButtonGating(false);
   assert.equal(dis, ' aria-disabled="true"');
   assert.equal(saveClass, '');
 });
 
-test('dirty: aria-disabled off, Save carries .success', () => {
+test('dirty: aria-disabled off, Save carries .green', () => {
   const { dis, saveClass } = reorderButtonGating(true);
   assert.equal(dis, '');
-  assert.match(saveClass, /\bsuccess\b/);
+  assert.match(saveClass, /\bgreen\b/);
 });
 
 // ── KB reorder actions (static HTML) ───────────────────────────────────────
 // The KB buttons seeded the native `disabled` attr, but updateReorderUi only
 // toggles `aria-disabled` — so Discard stayed permanently disabled. They must
-// ship as aria-disabled, and Save must NOT hard-code `.success` (JS toggles it).
+// ship as aria-disabled, and Save must NOT hard-code `.green` (JS toggles it).
 
 test('KB html: reorder buttons use aria-disabled, not native disabled', () => {
   const file = fileURLToPath(new URL('../config/forms/knowledgeBaseManagement.html', import.meta.url));
@@ -41,11 +41,11 @@ test('KB html: reorder buttons use aria-disabled, not native disabled', () => {
     assert.match(b, /aria-disabled="true"/);
     assert.doesNotMatch(b, /\sdisabled(\s|>)/);   // no native disabled attr
   }
-  // The commit button's accent (`.publish` — blue "Publish changes to live")
+  // The commit button's accent (`.blue` — blue "Publish changes to live")
   // is JS-toggled by dirty state, so the static markup must ship WITHOUT it;
   // a baked-in accent stays coloured when disabled (the dimming rule overrides
   // border + text but not an accent's background fill).
-  assert.doesNotMatch(save, /\b(publish|success)\b/);
+  assert.doesNotMatch(save, /\b(blue|green)\b/);
 });
 
 console.log(`\n${passed} passed`);

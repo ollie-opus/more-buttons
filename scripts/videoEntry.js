@@ -89,13 +89,13 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
         : usage.html);
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
-      ? `<button type="button" class="more-buttons-button secondary" data-video-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+      ? `<button type="button" class="more-buttons-button" data-video-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
          <button type="button" class="more-buttons-button" data-video-entry-insert><span class="more-buttons-icon">add</span>Insert this video</button>`
       : `<button type="button" class="more-buttons-button" data-video-entry-upload><span class="more-buttons-icon">upload</span>Replace via upload</button>` +
         // Only offered when the usage index confirms zero pages/drafts
         // reference the file(s) (fails closed on a usage-load error).
         (usage.unused
-          ? `<button type="button" class="more-buttons-button danger" data-video-entry-delete><span class="more-buttons-icon">delete</span>Delete video</button>`
+          ? `<button type="button" class="more-buttons-button red" data-video-entry-delete><span class="more-buttons-icon">delete</span>Delete video</button>`
           : '');
   }
 
@@ -114,7 +114,7 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
       captureUploadField({ label: isSingle ? 'Video file' : 'Light mode video', name: 'light', exts: [storedExt] }) +
       (isSingle ? '' : captureUploadField({ label: 'Dark mode video', name: 'dark', exts: [storedExt] }));
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button secondary" data-video-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
+      <button type="button" class="more-buttons-button" data-video-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
     `;
   }
 
@@ -133,8 +133,8 @@ export async function openVideoEntry({ lightPath, darkPath, singlePath, label, m
         ];
     bodyEl.innerHTML = capturePathField({ label: 'Video path', value: base }) + captureGrid(cards);
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button secondary" data-video-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
-      <button type="button" class="more-buttons-button success" data-video-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
+      <button type="button" class="more-buttons-button" data-video-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
+      <button type="button" class="more-buttons-button green" data-video-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
     `;
   }
 

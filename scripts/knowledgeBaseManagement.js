@@ -341,8 +341,7 @@ async function renderKnowledgeBaseManagement() {
       // colour (magenta on / neutral off), icon, and label — kept as a form button.
       const toggle = actions.querySelector('[data-kb-reorder-toggle]');
       if (toggle) {
-        toggle.classList.toggle('magenta', reorderMode);
-        toggle.classList.toggle('secondary', !reorderMode);
+        toggle.classList.toggle('pink', reorderMode);
         toggle.innerHTML =
           `<span class="more-buttons-icon">swap_vert</span>Reorder mode ${reorderMode ? 'enabled' : 'disabled'}`;
         // Lift the new label into the dock tag (and strip the inline text).
@@ -362,7 +361,7 @@ async function renderKnowledgeBaseManagement() {
       // `.success` Save.
       if (save) {
         save.setAttribute('aria-disabled', String(!dirty));
-        save.classList.toggle('publish', dirty);
+        save.classList.toggle('blue', dirty);
       }
       if (discard) discard.setAttribute('aria-disabled', String(!dirty));
     };

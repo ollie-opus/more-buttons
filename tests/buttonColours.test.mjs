@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // No build step generates the CSS palette from buttonColours.json, so this
@@ -56,6 +56,20 @@ test('the hover :is() list contains every colour', () => {
 test('no --mb-col-* token in the CSS is absent from the JSON', () => {
   const used = new Set([...css.matchAll(/--mb-col-([a-z]+)/g)].map(m => m[1]));
   for (const name of used) assert.ok(names.includes(name), `stray --mb-col-${name}`);
+});
+
+test('no legacy semantic variant classes remain in forms HTML or scripts', () => {
+  const dirs = [['../config/forms/', /\.html$/], ['../scripts/', /\.js$/]];
+  const classRe = /more-buttons-button (info|success|publish|danger|magenta|secondary)\b/;
+  const toggleRe = /classList\.\w+\('(info|success|publish|danger|magenta|secondary)'/;
+  for (const [dir, ext] of dirs) {
+    const base = fileURLToPath(new URL(dir, import.meta.url));
+    for (const f of readdirSync(base).filter(f => ext.test(f))) {
+      const text = readFileSync(base + f, 'utf8');
+      assert.doesNotMatch(text, classRe, `${dir}${f} has legacy button class`);
+      assert.doesNotMatch(text, toggleRe, `${dir}${f} toggles legacy class`);
+    }
+  }
 });
 
 console.log(`${passed} passed`);

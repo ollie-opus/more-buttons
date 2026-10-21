@@ -120,7 +120,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         : usage.html);
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
-      ? `<button type="button" class="more-buttons-button secondary" data-capture-entry-insert-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+      ? `<button type="button" class="more-buttons-button" data-capture-entry-insert-cancel><span class="more-buttons-icon">close</span>Cancel</button>
         <button type="button" class="more-buttons-button" data-capture-entry-insert><span class="more-buttons-icon">add</span>Insert this capture</button>`
       : // Recapture pushes PNG screenshot bytes onto the stored paths, so it
         // only renders for .png pairs — an .svg pair can only be replaced by
@@ -135,7 +135,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         // Only offered when the usage index confirms zero pages/drafts
         // reference the pair (fails closed on a usage-load error).
         (usage.unused
-          ? `<button type="button" class="more-buttons-button danger" data-capture-entry-delete><span class="more-buttons-icon">delete</span>Delete capture</button>`
+          ? `<button type="button" class="more-buttons-button red" data-capture-entry-delete><span class="more-buttons-icon">delete</span>Delete capture</button>`
           : '');
   }
 
@@ -192,7 +192,7 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
       captureUploadField({ label: 'Light mode image', name: 'light', exts: [storedExt] }) +
       (darkPath ? captureUploadField({ label: 'Dark mode image', name: 'dark', exts: [storedExt] }) : '');
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+      <button type="button" class="more-buttons-button" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
     `;
   }
 
@@ -207,8 +207,8 @@ export async function openCaptureEntry({ lightPath, darkPath, label, mode, origi
         captureCard({ theme: 'dark', title: 'Dark mode (New)', src: pendingCapture.darkDataUrl, alt: 'new dark mode' }),
       ]);
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button secondary" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
-      <button type="button" class="more-buttons-button success" data-capture-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
+      <button type="button" class="more-buttons-button" data-capture-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+      <button type="button" class="more-buttons-button green" data-capture-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
     `;
   }
 

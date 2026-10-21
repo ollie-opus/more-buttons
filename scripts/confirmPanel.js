@@ -72,8 +72,8 @@ export function showDangerConfirm(host, { title, message, confirmLabel = 'Delete
   return showPanel(host, {
     variant: 'danger', title, message, cancelResult: false,
     buttons: [
-      { label: confirmLabel, cls: 'danger', icon: 'delete', result: true },
-      { label: cancelLabel, cls: 'secondary', icon: 'close', result: false, focus: true },
+      { label: confirmLabel, cls: 'red', icon: 'delete', result: true },
+      { label: cancelLabel, cls: '', icon: 'close', result: false, focus: true },
     ],
   });
 }
@@ -82,6 +82,6 @@ export function showDangerConfirm(host, { title, message, confirmLabel = 'Delete
 export function showNotice(host, { title, message, okLabel = 'OK' }) {
   return showPanel(host, {
     variant: 'notice', title, message, cancelResult: undefined,
-    buttons: [{ label: okLabel, cls: 'secondary', icon: 'check', result: undefined, focus: true }],
+    buttons: [{ label: okLabel, cls: '', icon: 'check', result: undefined, focus: true }],
   }).then(() => {});
 }

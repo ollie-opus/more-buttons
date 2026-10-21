@@ -237,7 +237,7 @@ async function renderGuideEntryContent(formEl) {
       ${viewLinksHtml({ draft: false })}
       ${dockSep}
       <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">add</span>Create draft</button>
-      <button type="button" class="more-buttons-button danger" data-guide-action="delete"><span class="more-buttons-icon">delete</span>Delete guide</button>`;
+      <button type="button" class="more-buttons-button red" data-guide-action="delete"><span class="more-buttons-icon">delete</span>Delete guide</button>`;
     return;
   }
 
@@ -270,7 +270,7 @@ function renderGuideDraftView(formEl, draftMarkdown) {
 // modes. Mirrors the KB toggle: magenta/on vs neutral/off, static swap_vert icon.
 function reorderToggleHtml() {
   const on = guideReorderMode;
-  return `<button type="button" class="more-buttons-button mb-reorder-toggle ${on ? 'magenta' : 'secondary'}" data-guide-reorder-toggle><span class="more-buttons-icon">swap_vert</span>Reorder mode ${on ? 'enabled' : 'disabled'}</button>`;
+  return `<button type="button" class="more-buttons-button mb-reorder-toggle ${on ? 'pink' : ''}" data-guide-reorder-toggle><span class="more-buttons-icon">swap_vert</span>Reorder mode ${on ? 'enabled' : 'disabled'}</button>`;
 }
 
 // "View live" / "View draft" links to the published pages on the Zensical site.
@@ -294,13 +294,13 @@ const dockSep = '<span class="mb-dock-sep" aria-hidden="true"></span>';
 // | [publish, discard]. Create leads its group (same convention as the KB bar).
 function normalActionsHtml(title) {
   return `
-    <button type="button" class="more-buttons-button secondary" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
+    <button type="button" class="more-buttons-button" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">add</span>Add new section</button>
     ${reorderToggleHtml()}
     ${dockSep}
     ${viewLinksHtml({ draft: true })}
     ${dockSep}
-    <button type="button" class="more-buttons-button publish" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
-    <button type="button" class="more-buttons-button danger" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
+    <button type="button" class="more-buttons-button blue" data-guide-action="publish"><span class="more-buttons-icon">verified</span>Publish draft to live</button>
+    <button type="button" class="more-buttons-button red" data-guide-action="discard"><span class="more-buttons-icon">delete</span>Discard draft</button>`;
 }
 
 // Reorder-mode groups mirror the normal bar (minus create): [reorder toggle] |
@@ -313,7 +313,7 @@ export function reorderActionsHtml(dirty = reorderDirty) {
     ${viewLinksHtml({ draft: true })}
     ${dockSep}
     <button type="button" class="more-buttons-button${saveClass}" data-guide-reorder-save${dis}><span class="more-buttons-icon">save</span>Save changes</button>
-    <button type="button" class="more-buttons-button secondary" data-guide-reorder-discard${dis}><span class="more-buttons-icon">close</span>Discard changes</button>`;
+    <button type="button" class="more-buttons-button" data-guide-reorder-discard${dis}><span class="more-buttons-icon">close</span>Discard changes</button>`;
 }
 
 // A standalone tree block (separate from the section tree) for page-level

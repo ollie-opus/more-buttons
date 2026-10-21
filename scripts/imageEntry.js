@@ -76,7 +76,7 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
         : usage.html);
     if (insertMode) wireCaptureSizeField(bodyEl);
     actionsEl.innerHTML = insertMode
-      ? `<button type="button" class="more-buttons-button secondary" data-image-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
+      ? `<button type="button" class="more-buttons-button" data-image-entry-cancel><span class="more-buttons-icon">close</span>Cancel</button>
          <button type="button" class="more-buttons-button" data-image-entry-insert><span class="more-buttons-icon">add</span>Insert this image</button>`
       : (frozen
           ? ''
@@ -84,7 +84,7 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
         // Only offered when the usage index confirms zero pages/drafts
         // reference the file (fails closed on a usage-load error).
         (usage.unused
-          ? `<button type="button" class="more-buttons-button danger" data-image-entry-delete><span class="more-buttons-icon">delete</span>Delete image</button>`
+          ? `<button type="button" class="more-buttons-button red" data-image-entry-delete><span class="more-buttons-icon">delete</span>Delete image</button>`
           : '');
   }
 
@@ -100,7 +100,7 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
       capturePathField({ label: 'Image path', value: base }) +
       captureUploadField({ label: 'Image file', name: 'light', exts: [storedExt] });
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button secondary" data-image-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
+      <button type="button" class="more-buttons-button" data-image-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
     `;
   }
 
@@ -111,8 +111,8 @@ export async function openImageEntry({ singlePath, label, mode } = {}) {
       captureCard({ theme: 'light', title: 'Image (New)', src: pendingReplace.dataUrl, alt: 'new image' }),
     ]);
     actionsEl.innerHTML = `
-      <button type="button" class="more-buttons-button secondary" data-image-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
-      <button type="button" class="more-buttons-button success" data-image-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
+      <button type="button" class="more-buttons-button" data-image-entry-cancel-replace><span class="more-buttons-icon">close</span>Cancel</button>
+      <button type="button" class="more-buttons-button green" data-image-entry-save><span class="more-buttons-icon">save</span>Save Changes</button>
     `;
   }
 

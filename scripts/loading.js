@@ -110,7 +110,7 @@ export function setButtonBusy(btn, message) {
   if (!btn) return;
   btn.disabled = true;
   if (!btn.classList.contains('busy')) {
-    btn.classList.remove('info', 'success', 'publish', 'danger', 'secondary');
+    btn.classList.remove('blue', 'green', 'red', 'pink');
     btn.classList.add('busy');
     btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">change_circle</span>';
   }

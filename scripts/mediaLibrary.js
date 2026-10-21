@@ -135,7 +135,7 @@ export async function openMediaLibrary({ mode, accept, excludeTabs = [], duplica
   let pageFilterOn = false;
 
   function syncPageFilter() {
-    filterBtn?.classList.toggle('magenta', pageFilterOn);
+    filterBtn?.classList.toggle('pink', pageFilterOn);
     const searchEl = formEl.querySelector('.mb-kb-search');
     const tree = panel.querySelector('.mb-kb-tree');
     if (!searchEl || !tree) return;
@@ -168,7 +168,7 @@ export async function openMediaLibrary({ mode, accept, excludeTabs = [], duplica
     // search — drop the toggle highlight rather than fight them for the box.
     if (pageFilterOn && searchEl.value !== pageFilterQuery) {
       pageFilterOn = false;
-      filterBtn?.classList.remove('magenta');
+      filterBtn?.classList.remove('pink');
     }
     const tree = panel.querySelector('.mb-kb-tree');
     if (tree) applySearch(tree, searchEl.value);

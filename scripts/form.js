@@ -275,8 +275,8 @@ export function bindSaveStateButton(formEl) {
     // Unsaved → clickable green outline (`.success`). Saved → plain disabled
     // button (no accent class) so it settles into the neutral grey "default"
     // disabled style rather than a green "confirm" pill.
-    btn.classList.remove('busy', 'info');
-    btn.classList.toggle('success', unsaved);
+    btn.classList.remove('busy', 'blue');
+    btn.classList.toggle('green', unsaved);
     // aria-disabled (not the native attr) so the dimmed "saved" button still
     // hover-expands to reveal its label in the dock; the click handler gates it.
     // Clear any native disabled left by a prior setButtonBusy cycle.
@@ -311,7 +311,7 @@ export function bindSaveStateButton(formEl) {
 // so a clean `.success` Save would never dim. Returns the `aria-disabled`
 // fragment to splice into a template and the Save button's accent class.
 export function reorderButtonGating(dirty) {
-  return { dis: dirty ? '' : ' aria-disabled="true"', saveClass: dirty ? ' success' : '' };
+  return { dis: dirty ? '' : ' aria-disabled="true"', saveClass: dirty ? ' green' : '' };
 }
 
 // Busy-button helpers live in loading.js now; re-exported here because most
