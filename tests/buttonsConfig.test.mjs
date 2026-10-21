@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 let passed = 0;
@@ -63,6 +63,32 @@ test('deleted ids are gone', () => {
 test('renamed ids exist, old ids gone', () => {
   for (const id of ['mb-qr-poster-builder-btn', 'mb-site-preset-btn', 'mb-report-type-preset-btn']) assert.ok(byId(id), id);
   for (const id of ['mb-generate-qr-btn', 'mb-apply-preset-btn', 'mb-apply-report-type-preset-btn']) assert.equal(byId(id), undefined, id);
+});
+
+const actionsSrc = readFileSync(fileURLToPath(new URL('../scripts/actions.js', import.meta.url)), 'utf8');
+const exported = new Set();
+for (const m of actionsSrc.matchAll(/export\s*\{([^}]*)\}/g)) {
+  for (const part of m[1].split(',')) {
+    const names = part.trim().split(/\s+as\s+/);
+    if (names[0]) exported.add(names.at(-1).trim());
+  }
+}
+for (const m of actionsSrc.matchAll(/export\s+(?:async\s+)?(?:function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)/g)) exported.add(m[1]);
+
+test('every action name is exported from scripts/actions.js', () => {
+  assert.ok(exported.size > 10);
+  for (const b of buttons) {
+    const name = b.action.split(':')[0];
+    assert.ok(exported.has(name), `${b.id}: ${name} not exported`);
+  }
+});
+
+test('every createForm:<name> action has config/forms/<name>.html', () => {
+  for (const b of buttons) {
+    const [fn, arg] = b.action.split(':');
+    if (fn !== 'createForm') continue;
+    assert.ok(existsSync(fileURLToPath(new URL(`../config/forms/${arg}.html`, import.meta.url))), `${b.id}: ${arg}.html`);
+  }
 });
 
 console.log(`${passed} passed`);

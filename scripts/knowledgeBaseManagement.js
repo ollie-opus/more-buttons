@@ -358,7 +358,7 @@ async function renderKnowledgeBaseManagement() {
       // but NOT an accent's faint background fill, so a static `.blue` would
       // stay blue when disabled. Stripping the class when clean lets it fall back
       // to the plain neutral dimmed button — same trick as the guide bar's
-      // `.success` Save.
+      // `.green` Save.
       if (save) {
         save.setAttribute('aria-disabled', String(!dirty));
         save.classList.toggle('blue', dirty);

@@ -1,12 +1,3 @@
-export function resolveColor(color, isDark) {
-  if (!color || typeof color === 'string') return color;
-  return isDark ? (color.dark ?? color.light) : (color.light ?? color.dark);
-}
-
-export function isDarkMode() {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
-
 export function pageMatchesUrl(rule, url) {
   if (!rule || !rule.keywords) return true;
   const lowerUrl = url.toLowerCase();

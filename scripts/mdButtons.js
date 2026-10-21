@@ -21,8 +21,8 @@
  * a hidden `<span data-uuid>` on the line BEFORE the link — the same convention
  * captures and videos use (see components.js locateVideoLines/ensureVideoUUIDs).
  *
- * (Unrelated to scripts/buttons.js, which renders the extension's own toolbar
- * buttons — hence the `mdButtons` name.)
+ * (Unrelated to the page-dock button config — config/buttons.json and
+ * scripts/pageDock.js — despite the similar `mdButtons` name.)
  *
  * All functions here are pure (no DOM, no network) except generateUUID.
  */

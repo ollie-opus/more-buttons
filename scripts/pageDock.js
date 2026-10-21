@@ -27,12 +27,14 @@ const ROOT_ID = 'mb-page-dock';
 let generation = 0;
 
 function ensureStylesheet(doc) {
-  if (doc.getElementById('more-buttons-overlay-stylesheet')) return;
+  const existing = doc.getElementById('more-buttons-overlay-stylesheet');
+  if (existing) return { link: existing, created: false };
   const link = doc.createElement('link');
   link.id = 'more-buttons-overlay-stylesheet';
   link.rel = 'stylesheet';
   link.href = chrome.runtime.getURL('config/forms/formsStyling.css');
   (doc.head || doc.documentElement).appendChild(link);
+  return { link, created: true };
 }
 
 async function loadOpen() {
@@ -55,6 +57,9 @@ function make(doc, tag, className, text) {
 
 function applyOpenState(root, handle, icon, open) {
   root.classList.toggle('--closed', !open);
+  // Collapsed tiles are translated off-screen but would stay tabbable.
+  const island = root.querySelector('.mb-page-dock__island');
+  if (island) island.inert = !open;
   handle.setAttribute('aria-expanded', String(open));
   handle.setAttribute('aria-label', open ? 'Collapse More Buttons dock' : 'Expand More Buttons dock');
   icon.textContent = open ? 'chevron_right' : 'chevron_left';
@@ -87,6 +92,7 @@ function buildTile(doc, def, dispatch) {
   tile.setAttribute('type', 'button');
   if (def.id) tile.id = def.id;
   tile.setAttribute('aria-label', def.displayText ?? '');
+  if (def.descriptionText) tile.title = def.descriptionText;
   tile.appendChild(make(doc, 'span', 'more-buttons-icon', def.icon ?? ''));
 
   const tag = make(doc, 'span', 'mb-page-dock__tag');
@@ -121,12 +127,23 @@ function buildIslandChildren(doc, buttons, dispatch) {
 
 export async function renderPageDock(buttons, dispatch, { doc = document } = {}) {
   const gen = ++generation;
-  ensureStylesheet(doc);
+  const { link, created } = ensureStylesheet(doc);
   let root = doc.getElementById(ROOT_ID);
   if (!root) {
     const open = await loadOpen();
     if (gen !== generation) return; // a newer render/remove superseded us
-    root = doc.getElementById(ROOT_ID) ?? doc.documentElement.appendChild(createRoot(doc, open));
+    root = doc.getElementById(ROOT_ID);
+    if (!root) {
+      root = createRoot(doc, open);
+      if (created) {
+        // Hide until the stylesheet settles so the dock never flashes unstyled.
+        root.style.visibility = 'hidden';
+        const reveal = () => { root.style.visibility = ''; };
+        link.addEventListener('load', reveal);
+        link.addEventListener('error', reveal);
+      }
+      doc.documentElement.appendChild(root);
+    }
   }
   root.querySelector('.mb-page-dock__island')
     .replaceChildren(...buildIslandChildren(doc, buttons, dispatch));

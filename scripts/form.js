@@ -272,7 +272,7 @@ export function bindSaveStateButton(formEl) {
   const render = () => {
     // Create-mode forms have no saved baseline yet → always "unsaved".
     const unsaved = formEl.dataset.mode === 'create' || isFormDirty(formEl);
-    // Unsaved → clickable green outline (`.success`). Saved → plain disabled
+    // Unsaved → clickable green outline (`.green`). Saved → plain disabled
     // button (no accent class) so it settles into the neutral grey "default"
     // disabled style rather than a green "confirm" pill.
     btn.classList.remove('busy', 'blue');
@@ -306,9 +306,9 @@ export function bindSaveStateButton(formEl) {
 // Disabled/colour gating for a reorder Save/Discard dock pair, by dirty state.
 // The reorder bars (KB + guide sections) render their own buttons rather than
 // going through bindSaveStateButton, but must match its look: aria-disable both
-// buttons while clean, and let `.success` (settled-green) ride the Save button
-// ONLY while dirty — the disabled-dimming CSS deliberately excludes `.success`,
-// so a clean `.success` Save would never dim. Returns the `aria-disabled`
+// buttons while clean, and let `.green` (settled-green) ride the Save button
+// ONLY while dirty — the disabled-dimming CSS deliberately excludes `.green`,
+// so a clean `.green` Save would never dim. Returns the `aria-disabled`
 // fragment to splice into a template and the Save button's accent class.
 export function reorderButtonGating(dirty) {
   return { dis: dirty ? '' : ' aria-disabled="true"', saveClass: dirty ? ' green' : '' };

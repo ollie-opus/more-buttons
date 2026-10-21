@@ -13,7 +13,7 @@ function el(tagName) {
   const listeners = {};
   const node = {
     tagName: tagName.toUpperCase(), id: '', children: [], parentNode: null, attrs: {}, dataset: {},
-    _text: '',
+    _text: '', style: {}, inert: false,
     classList: {
       add: (...c) => c.forEach((x) => classes.add(x)),
       remove: (...c) => c.forEach((x) => classes.delete(x)),
@@ -31,6 +31,7 @@ function el(tagName) {
     replaceChildren: (...cs) => { node.children = []; cs.forEach((c) => node.appendChild(c)); },
     remove: () => { const p = node.parentNode; if (p) p.children = p.children.filter((c) => c !== node); node.parentNode = null; },
     addEventListener: (t, fn) => { (listeners[t] ||= []).push(fn); },
+    fire: (t) => (listeners[t] || []).forEach((fn) => fn({})),
     click: () => (listeners.click || []).forEach((fn) => fn({ preventDefault() {}, stopPropagation() {} })),
     querySelector: (sel) => all(node).find((n) => n !== node && matches(n, sel)) ?? null,
     querySelectorAll: (sel) => all(node).filter((n) => n !== node && matches(n, sel)),
@@ -217,6 +218,42 @@ await test('removePageDock during a pending first render prevents the root appea
   removePageDock({ doc });
   await p;
   assert.equal(doc.getElementById('mb-page-dock'), null);
+});
+
+await test('collapsed island is inert; handle click restores it', async () => {
+  fakeChrome({ moreButtonsPageDock: { open: false } });
+  const doc = fakeDoc();
+  await renderPageDock(buttons, () => {}, { doc });
+  const root = doc.getElementById('mb-page-dock');
+  assert.equal(island(root).inert, true);
+  root.querySelector('.mb-page-dock__handle').click();
+  assert.equal(island(root).inert, false);
+});
+
+await test('new stylesheet link hides root until load/error; existing link never hides', async () => {
+  for (const evt of ['load', 'error']) {
+    fakeChrome({});
+    const doc = fakeDoc();
+    await renderPageDock(buttons, () => {}, { doc });
+    const root = doc.getElementById('mb-page-dock');
+    assert.equal(root.style.visibility, 'hidden');
+    doc.getElementById('more-buttons-overlay-stylesheet').fire(evt);
+    assert.equal(root.style.visibility, '');
+  }
+  fakeChrome({});
+  const doc = fakeDoc();
+  const link = doc.createElement('link'); link.id = 'more-buttons-overlay-stylesheet';
+  doc.head.appendChild(link);
+  await renderPageDock(buttons, () => {}, { doc });
+  assert.equal(doc.getElementById('mb-page-dock').style.visibility, undefined);
+});
+
+await test('tile title carries the description when present', async () => {
+  fakeChrome({});
+  const doc = fakeDoc();
+  await renderPageDock(buttons, () => {}, { doc });
+  assert.equal(doc.getElementById('a1').title, 'Desc a1');
+  assert.equal(doc.getElementById('a3').title, undefined);
 });
 
 console.log(`pageDock: ${passed} passed`);
