@@ -98,20 +98,24 @@ function attrsOpenNewTab(attrs) {
 }
 
 // Raw `onclick="…"` attr value. Kept verbatim (never normalised) so the two
-// hand-written groove variants already live in the KB round-trip byte-identical:
-//   onclick="event.preventDefault(); window.groove.widget.open();"    (system-updates)
-//   onclick="window.groove.widget.toggle(); return false;"            (index.md)
+// hand-written support-widget variants already live in the KB round-trip byte-identical:
+//   onclick="event.preventDefault(); window.supportWidget.open();"    (system-updates)
+//   onclick="window.supportWidget.toggle(); return false;"            (index.md)
+// window.supportWidget is the KB's vendor-neutral shim (assets/javascripts/
+// support-widget.js) over whichever help desk is live — Help Scout today,
+// Groove before it. Legacy `window.groove.widget.*` onclicks are still
+// recognised as support-widget buttons (see isSupportOnclick) but never emitted.
 const ONCLICK_RE = /\bonclick\s*=\s*"([^"]*)"/;
 function attrsOnclick(attrs) {
   return (attrs ?? '').match(ONCLICK_RE)?.[1] ?? '';
 }
 
-/** Canonical onclick for a NEW groove button (mirrors markdownInline.js's anchor). */
-export const GROOVE_ONCLICK = 'event.preventDefault(); window.groove.widget.open();';
+/** Canonical onclick for a NEW support-widget button (mirrors markdownInline.js's anchor). */
+export const SUPPORT_ONCLICK = 'event.preventDefault(); window.supportWidget.open();';
 
-/** True when an onclick value opens the Groove support widget (any variant). */
-export function isGrooveOnclick(v) {
-  return /\bwindow\.groove\.widget\./.test(v ?? '');
+/** True when an onclick value opens the support widget (any variant, incl. legacy Groove). */
+export function isSupportOnclick(v) {
+  return /\bwindow\.(?:supportWidget|groove\.widget)\./.test(v ?? '');
 }
 
 /**
@@ -139,7 +143,7 @@ export function buildButtonLines(list = []) {
     } else if (b.primary) {
       classList.push('.md-button--primary');
     }
-    // onclick (groove) and target/rel are mutually exclusive: opening a new tab
+    // onclick (support) and target/rel are mutually exclusive: opening a new tab
     // on an href of `#` is meaningless, so onclick wins.
     const parts = [classList.join(' ')];
     if (b.onclick) parts.push(`onclick="${b.onclick}"`);
@@ -271,11 +275,11 @@ export function buttonDimFields(btn) {
     icon: btn?.icon ?? '',
     buttonNewTab: btn?.newTab ? 'yes' : 'no',
     buttonOnclick: btn?.onclick ?? '',
-    // Link kind is derived, never stored in the markdown: groove wins (a groove
+    // Link kind is derived, never stored in the markdown: support wins (a support
     // button's `#` destination must not read as a url), then href shape decides
-    // internal vs url. A non-groove onclick classifies by destination but its
+    // internal vs url. A non-support-widget onclick classifies by destination but its
     // raw text still round-trips via buttonOnclick.
-    buttonDestKind: isGrooveOnclick(btn?.onclick) ? 'groove'
+    buttonDestKind: isSupportOnclick(btn?.onclick) ? 'support'
       : isInternalHrefShape(btn?.destination) ? 'internal' : 'url',
   };
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseInline, renderMarkdown, renderHtml, markSpans, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset, matchIcon, iconMarkup } from '../scripts/markdownInline.js';
+import { parseInline, renderMarkdown, renderHtml, markSpans, matchSupport, supportMarkup, supportTextOffset, matchLabel, labelMarkup, labelTextOffset, matchIcon, iconMarkup } from '../scripts/markdownInline.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -166,41 +166,41 @@ test('renderHtml preserves literal markdown-looking HTML as escaped text', () =>
   assert.equal(renderHtml([{ type: 'text', value: '<div>raw</div>' }]), '&lt;div&gt;raw&lt;/div&gt;');
 });
 
-// ── Groove-support links ──────────────────────────────────────────────────────
+// ── support-widget links ──────────────────────────────────────────────────────
 // Canonical anchor (raw HTML in the source so Zensical renders a working widget).
-const G = t => `<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">${t}</a>`;
+const G = t => `<a href="#" onclick="event.preventDefault(); window.supportWidget.open();">${t}</a>`;
 
-test('matchGroove recognizes the canonical anchor', () => {
+test('matchSupport recognizes the canonical anchor', () => {
   const v = 'hi ' + G('sample text') + ' bye';
-  assert.deepEqual(matchGroove(v, 3), { text: 'sample text', end: 3 + G('sample text').length });
+  assert.deepEqual(matchSupport(v, 3), { text: 'sample text', end: 3 + G('sample text').length });
 });
-test('matchGroove returns null off a non-groove anchor', () => {
-  assert.equal(matchGroove('hello', 0), null);
-  assert.equal(matchGroove('<a href="#">x</a>', 0), null);
+test('matchSupport returns null off a non-support-widget anchor', () => {
+  assert.equal(matchSupport('hello', 0), null);
+  assert.equal(matchSupport('<a href="#">x</a>', 0), null);
 });
-test('parseInline produces a groove node', () => {
-  assert.deepEqual(parseInline(G('hello')), [{ type: 'groove', text: 'hello' }]);
+test('parseInline produces a support node', () => {
+  assert.deepEqual(parseInline(G('hello')), [{ type: 'support', text: 'hello' }]);
 });
-test('groove round-trips through renderMarkdown', () => {
+test('support anchor round-trips through renderMarkdown', () => {
   const v = 'see ' + G('support') + ' now';
   assert.equal(renderMarkdown(parseInline(v)), v);
 });
-test('renderHtml renders a groove badge without onclick', () => {
-  assert.equal(renderHtml([{ type: 'groove', text: 'help' }]),
-    '<a href="#" class="mb-groove-link" data-groove="1">help</a>');
+test('renderHtml renders a support badge without onclick', () => {
+  assert.equal(renderHtml([{ type: 'support', text: 'help' }]),
+    '<a href="#" class="mb-support-link" data-support="1">help</a>');
 });
-test('grooveMarkup / grooveTextOffset are consistent', () => {
-  assert.equal(grooveMarkup('x'), G('x'));
-  assert.equal(grooveTextOffset, G('').indexOf('</a>')); // offset to inner text == open length
+test('supportMarkup / supportTextOffset are consistent', () => {
+  assert.equal(supportMarkup('x'), G('x'));
+  assert.equal(supportTextOffset, G('').indexOf('</a>')); // offset to inner text == open length
 });
-test('markSpans skips a groove anchor (no phantom spans from inner * or ==)', () => {
+test('markSpans skips a support-widget anchor (no phantom spans from inner * or ==)', () => {
   assert.deepEqual(markSpans(G('a *b* ==c==')), []);
 });
-test('markSpans still finds marks outside a groove anchor', () => {
+test('markSpans still finds marks outside a support-widget anchor', () => {
   assert.deepEqual(markSpans('**x** ' + G('y')).map(s => s.marker), ['**']);
 });
 
-// ── Label pills (atomic raw-HTML span, like Groove) ──────────────────────────
+// ── Label pills (atomic raw-HTML span, like a support-widget link) ──────────────────────────
 const L = (slug, t) => `<span class="mb-label mb-label-${slug}">${t}</span>`;
 
 test('parseInline: a label span → atomic label node', () => {

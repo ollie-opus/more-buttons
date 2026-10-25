@@ -1,5 +1,5 @@
 import { markSpans, renderDocHtml } from './markdownInline.js';
-import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, applyIcon, iconAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, applySupport, supportAt, applyLabel, labelAt, applyIcon, iconAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 import { attachIconPicker, getLucideSvgMarkup, loadLucideNames, paintIcons } from './iconPicker.js';
 import { renderTree, applySearch } from './kbTree.js';
@@ -388,7 +388,7 @@ function refreshActiveStates(rte) {
   const inLabel = rich && selectionInLabel(rte);
   const inCode = activeTags.has('code');
   const inOtherMark = NON_CODE_MARK_TAGS.some(t => activeTags.has(t));
-  const inLink = activeTags.has('a'); // normal link or groove anchor
+  const inLink = activeTags.has('a'); // normal link or support-widget anchor
   rte.buttons.forEach(btn => {
     const mark = btn._mark;
     if (mark) {
@@ -763,7 +763,7 @@ function attachLinkPopover(rte) {
     <div class="mb-rte__tabs" role="tablist">
       <button type="button" class="mb-rte__tab" data-tab="internal">Internal Page</button>
       <button type="button" class="mb-rte__tab" data-tab="url">URL</button>
-      <button type="button" class="mb-rte__tab" data-tab="groove">Groove Support</button>
+      <button type="button" class="mb-rte__tab" data-tab="support">Support widget</button>
     </div>
     <div class="mb-rte__panel" data-panel="internal" hidden>
       <label class="mb-rte__field"><span>Text</span><input type="text" data-internal-text></label>
@@ -775,9 +775,9 @@ function attachLinkPopover(rte) {
       <label class="mb-rte__field"><span>Text</span><input type="text" data-link-text></label>
       <label class="mb-rte__field"><span>URL</span><input type="text" data-link-url placeholder="https://"></label>
     </div>
-    <div class="mb-rte__panel" data-panel="groove" hidden>
-      <p class="mb-rte__hint">Creates an embedded link that opens the Groove support popup widget.</p>
-      <label class="mb-rte__field"><span>Text</span><input type="text" data-groove-text></label>
+    <div class="mb-rte__panel" data-panel="support" hidden>
+      <p class="mb-rte__hint">Creates an embedded link that opens the support widget popup.</p>
+      <label class="mb-rte__field"><span>Text</span><input type="text" data-support-text></label>
     </div>
     <div class="mb-rte__popover-actions">
       <button type="button" class="mb-rte__popover-btn" data-link-cancel>Cancel</button>
@@ -787,14 +787,14 @@ function attachLinkPopover(rte) {
 
   const textInput = popover.querySelector('[data-link-text]');
   const urlInput = popover.querySelector('[data-link-url]');
-  const grooveInput = popover.querySelector('[data-groove-text]');
+  const supportInput = popover.querySelector('[data-support-text]');
   const internalText = popover.querySelector('[data-internal-text]');
   const treeHost = popover.querySelector('[data-internal-tree]');
   const tabs = [...popover.querySelectorAll('[data-tab]')];
   const panels = [...popover.querySelectorAll('[data-panel]')];
   // Each tab's own Text input — the carry-across on tab switch and the focus
   // fallback both key off this map.
-  const textFor = { internal: internalText, url: textInput, groove: grooveInput };
+  const textFor = { internal: internalText, url: textInput, support: supportInput };
   let activeTab = 'url';
 
   // Internal Page tree: built lazily on first show (one toml fetch per page
@@ -862,12 +862,12 @@ function attachLinkPopover(rte) {
     if (focus) {
       const target = name === 'internal'
         ? (treeHost.querySelector('.mb-kb-search') ?? internalText)
-        : (name === 'groove' ? grooveInput : urlInput);
+        : (name === 'support' ? supportInput : urlInput);
       target.focus();
     }
   };
   // Carry the Text across when the user switches tabs so it's preserved (each
-  // tab has its own Text input; the URL/Groove/page specifics don't carry).
+  // tab has its own Text input; the URL/Support/page specifics don't carry).
   for (const t of tabs) t.addEventListener('click', () => {
     const to = t.dataset.tab;
     if (to !== activeTab) textFor[to].value = textFor[activeTab].value;
@@ -891,20 +891,20 @@ function attachLinkPopover(rte) {
     // link/anchor we widen the saved range to its whole syntax so Insert REPLACES
     // it rather than nesting a new one inside it.
     clearTreeSelection();
-    const groove = grooveAt(saved.value, saved.selStart, saved.selEnd);
-    const link = groove ? null : linkAt(saved.value, saved.selStart, saved.selEnd);
-    if (groove) {
-      saved.selStart = groove.start;
-      saved.selEnd = groove.end;
-      grooveInput.value = groove.text;
+    const support = supportAt(saved.value, saved.selStart, saved.selEnd);
+    const link = support ? null : linkAt(saved.value, saved.selStart, saved.selEnd);
+    if (support) {
+      saved.selStart = support.start;
+      saved.selEnd = support.end;
+      supportInput.value = support.text;
       textInput.value = ''; urlInput.value = ''; internalText.value = '';
-      setTab('groove');
+      setTab('support');
     } else if (link) {
       saved.selStart = link.start;
       saved.selEnd = link.end;
       textInput.value = link.text;
       urlInput.value = link.href;
-      grooveInput.value = '';
+      supportInput.value = '';
       internalText.value = link.text;
       if (isInternalHrefShape(link.href)) {
         // Optimistic: show the Internal tab (with its loading state) while the
@@ -925,7 +925,7 @@ function attachLinkPopover(rte) {
       // kind wraps it; default to the first tab, Internal Page.
       textInput.value = selText;
       urlInput.value = '';
-      grooveInput.value = selText;
+      supportInput.value = selText;
       internalText.value = selText;
       setTab('internal');
     }
@@ -942,12 +942,12 @@ function attachLinkPopover(rte) {
       applyResult(rte, applyLink(saved.value, saved.selStart, saved.selEnd, text, selectedHref));
       return;
     }
-    if (activeTab === 'groove') {
-      const text = grooveInput.value.trim();
+    if (activeTab === 'support') {
+      const text = supportInput.value.trim();
       if (!text) { close(); return; } // empty text → no-op
       close();
       clearArmed(rte);
-      applyResult(rte, applyGroove(saved.value, saved.selStart, saved.selEnd, text));
+      applyResult(rte, applySupport(saved.value, saved.selStart, saved.selEnd, text));
       return;
     }
     const url = urlInput.value.trim();

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyMarker, applyLink, linkAt, applyGroove, grooveAt, applyLabel, labelAt, applyIcon, iconAt, stripFormatting } from '../scripts/markdownToolbarActions.js';
+import { applyMarker, applyLink, linkAt, applySupport, supportAt, applyLabel, labelAt, applyIcon, iconAt, stripFormatting } from '../scripts/markdownToolbarActions.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -277,32 +277,32 @@ test('editing a link replaces the whole snippet via linkAt + applyLink', () => {
     { value: 'go [guide](https://y) now', selStart: 21, selEnd: 21 });
 });
 
-// grooveAt / applyGroove — detect + insert the Groove-support anchor.
-const G = t => `<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">${t}</a>`;
-const grooveTextStart = pre => pre + G('').indexOf('</a>'); // inner text start given a prefix length
+// supportAt / applySupport — detect + insert the support-widget anchor.
+const G = t => `<a href="#" onclick="event.preventDefault(); window.supportWidget.open();">${t}</a>`;
+const supportTextStart = pre => pre + G('').indexOf('</a>'); // inner text start given a prefix length
 
-test('grooveAt finds the anchor a caret sits in', () => {
+test('supportAt finds the anchor a caret sits in', () => {
   const v = 'go ' + G('chat') + ' now';
-  const at = grooveTextStart(3) + 1;
-  assert.deepEqual(grooveAt(v, at, at), { start: 3, end: 3 + G('chat').length, text: 'chat' });
+  const at = supportTextStart(3) + 1;
+  assert.deepEqual(supportAt(v, at, at), { start: 3, end: 3 + G('chat').length, text: 'chat' });
 });
-test('grooveAt returns null outside any groove anchor', () => {
-  assert.equal(grooveAt('go ' + G('chat') + ' now', 0, 0), null);
+test('supportAt returns null outside any support-widget anchor', () => {
+  assert.equal(supportAt('go ' + G('chat') + ' now', 0, 0), null);
 });
-test('grooveAt returns null when the selection spills past the anchor text', () => {
+test('supportAt returns null when the selection spills past the anchor text', () => {
   const v = 'go ' + G('chat') + ' now';
-  assert.equal(grooveAt(v, grooveTextStart(3), v.length), null);
+  assert.equal(supportAt(v, supportTextStart(3), v.length), null);
 });
-test('applyGroove splices the canonical anchor at a caret', () => {
+test('applySupport splices the canonical anchor at a caret', () => {
   const end = 4 + G('support').length;
-  assert.deepEqual(applyGroove('see ', 4, 4, 'support'),
+  assert.deepEqual(applySupport('see ', 4, 4, 'support'),
     { value: 'see ' + G('support'), selStart: end, selEnd: end });
 });
-test('editing a groove link replaces the whole anchor via grooveAt + applyGroove', () => {
+test('editing a support-widget link replaces the whole anchor via supportAt + applySupport', () => {
   const v = 'go ' + G('chat') + ' now';
-  const at = grooveTextStart(3) + 1;
-  const g = grooveAt(v, at, at);
-  assert.equal(applyGroove(v, g.start, g.end, 'help').value, 'go ' + G('help') + ' now');
+  const at = supportTextStart(3) + 1;
+  const g = supportAt(v, at, at);
+  assert.equal(applySupport(v, g.start, g.end, 'help').value, 'go ' + G('help') + ' now');
 });
 
 // stripFormatting — clear all inline formatting from the selection to bare text.

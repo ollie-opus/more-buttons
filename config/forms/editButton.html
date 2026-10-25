@@ -32,17 +32,17 @@
       <div class="more-buttons-radio-btn-group-row">
         <label class="more-buttons-radio-btn"><input type="radio" name="buttonDestKind" value="internal" /> Internal page</label>
         <label class="more-buttons-radio-btn"><input type="radio" name="buttonDestKind" value="url" /> URL</label>
-        <label class="more-buttons-radio-btn"><input type="radio" name="buttonDestKind" value="groove" /> Groove support</label>
+        <label class="more-buttons-radio-btn"><input type="radio" name="buttonDestKind" value="support" /> Support widget</label>
       </div>
       <!-- Single backing field for all three kinds. Deliberately NOT inside a
            data-show-when container: required must run for the internal kind too
            (error painted on the tree via _validationHost). buttonEditor toggles
-           .hidden per kind; groove holds '#'. -->
+           .hidden per kind; support holds '#'. -->
       <input type="text" name="buttonDestination" placeholder="Where the button links to, e.g. /signup or https://…" required />
       <div class="mb-dest-tree" data-dest-tree data-show-when="buttonDestKind=internal" style="display:none">
         <p class="mb-dest-tree__loading">Loading pages…</p>
       </div>
-      <p class="mb-dest-groove-hint" data-show-when="buttonDestKind=groove" style="display:none">Opens the Groove support popup widget instead of navigating.</p>
+      <p class="mb-dest-support-hint" data-show-when="buttonDestKind=support" style="display:none">Opens the support widget popup instead of navigating.</p>
       <!-- Raw onclick attr text, round-tripped verbatim (mdButtons.js). -->
       <input type="hidden" name="buttonOnclick" />
     </div>
@@ -56,7 +56,7 @@
     <input type="text" name="icon" placeholder="Search lucide icons…" autocomplete="off" />
   </div>
 
-  <div class="more-buttons-form-group" data-show-when="buttonDestKind!=groove">
+  <div class="more-buttons-form-group" data-show-when="buttonDestKind!=support">
     <label class="more-buttons-label">Open in new tab?</label>
     <div class="more-buttons-radio-btn-group-row">
       <label class="more-buttons-radio-btn --blue"><input type="radio" name="buttonNewTab" value="yes" /> Yes</label>

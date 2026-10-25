@@ -3909,7 +3909,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   color: var(--mb-acc-on);
 }
 
-/* Link popover tabs (URL | Groove Support) and their panels. Scoped to the
+/* Link popover tabs (URL | Support widget) and their panels. Scoped to the
    popover so they never touch the toolbar's segmented Rich | Markdown switcher,
    which shares the .mb-rte__tabs / .mb-rte__tab class names. */
 .mb-rte__popover .mb-rte__tabs {
@@ -3951,11 +3951,11 @@ h2[data-edit-media-title] .mb-kb-pills {
   color: var(--mb-text-muted);
 }
 
-/* Editor-preview only marker for a Groove-support link. The published page emits
+/* Editor-preview only marker for a support-widget link. The published page emits
    the raw onclick anchor with no class, so this never affects the live site —
-   it just lets authors tell a Groove link from a normal URL link. */
-.mb-groove-link {
-  --mb-groove-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z'/%3E%3C/svg%3E");
+   it just lets authors tell a support-widget link from a normal URL link. */
+.mb-support-link {
+  --mb-support-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z'/%3E%3C/svg%3E");
   color: var(--mb-acc-info);
   text-decoration: underline;
   text-decoration-style: dotted;
@@ -3964,7 +3964,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   border-radius: 3px;
   padding: 0 3px;
 }
-.mb-groove-link::before {
+.mb-support-link::before {
   content: "";
   display: inline-block;
   width: 0.85em;
@@ -3972,8 +3972,8 @@ h2[data-edit-media-title] .mb-kb-pills {
   margin-right: 0.25em;
   vertical-align: -0.1em;
   background-color: currentColor;
-  -webkit-mask: var(--mb-groove-icon) center / contain no-repeat;
-  mask: var(--mb-groove-icon) center / contain no-repeat;
+  -webkit-mask: var(--mb-support-icon) center / contain no-repeat;
+  mask: var(--mb-support-icon) center / contain no-repeat;
 }
 
 /* ── Label pills ──────────────────────────────────────────────────────────────
@@ -4160,7 +4160,7 @@ h2[data-edit-media-title] .mb-kb-pills {
 }
 
 /* ── Button editor: Destination link-type picker ─────────────────────────────
-   Kind pills over a swap area (URL input / internal-page tree / groove hint).
+   Kind pills over a swap area (URL input / internal-page tree / support hint).
    The tree reuses the context-free .mb-kb-* base styles; this block mirrors the
    RTE link popover's .mb-rte__page-tree extras under a form-scoped class. */
 .mb-dest-picker { display: flex; flex-direction: column; gap: 8px; }
@@ -4193,7 +4193,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   color: var(--mb-acc-info);
 }
 
-.mb-dest-groove-hint {
+.mb-dest-support-hint {
   margin: 0;
   font-size: 0.8125rem;
   color: var(--mb-text-muted);

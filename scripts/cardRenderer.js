@@ -1,7 +1,7 @@
 import { renderDocHtml, iconTextHtml } from './markdownInline.js';
 import { assetCdnUrl } from './repoClient.js';
 import { ADMONITION_TYPE_LABELS, ADMONITION_TYPE_COLOURS } from './admonitions.js';
-import { isGrooveOnclick } from './mdButtons.js';
+import { isSupportOnclick } from './mdButtons.js';
 
 export function escapeHtml(str) {
   return (str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -86,7 +86,7 @@ function subPreviewHtml(sub) {
     case 'grid':
       return subCard('teal', escapeHtml('Grid'), 'Grid', escapeHtml(`${sub.cells} cell${sub.cells === 1 ? '' : 's'} — ${sub.flavor === 'card' ? 'Cards' : 'Plain'}`));
     case 'button':
-      return subCard('grey', escapeHtml((sub.label ?? '').trim() || (sub.groove ? 'Groove support' : (sub.destination ?? '').trim()) || '(no label)'), 'Button');
+      return subCard('grey', escapeHtml((sub.label ?? '').trim() || (sub.support ? 'Support widget' : (sub.destination ?? '').trim()) || '(no label)'), 'Button');
     case 'navlinks':
       return subCard('grey', escapeHtml((sub.text ?? '').trim() || '(no path)'), 'Nav links');
     case 'diagram':
@@ -211,9 +211,9 @@ export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyA
 // and border), and an Edit button. Legacy colourless buttons fall back to the
 // old Primary/Secondary tag.
 export function buttonComponentCard({ label, destination, primary, colour, theme, border, onclick, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
-  const groove = isGrooveOnclick(onclick);
-  // A groove button's destination is a meaningless `#` — name it instead.
-  const text = (label ?? '').trim() || (groove ? 'Groove support' : (destination ?? '').trim()) || '(no label)';
+  const support = isSupportOnclick(onclick);
+  // A support-widget button's destination is a meaningless `#` — name it instead.
+  const text = (label ?? '').trim() || (support ? 'Support widget' : (destination ?? '').trim()) || '(no label)';
   const themeLabels = { inversed: 'Inversed', 'force-light': 'Force light', 'force-dark': 'Force dark' };
   const borderLabels = { bordered: 'Bordered', 'border-light': 'Border light only', 'border-dark': 'Border dark only', borderless: 'Borderless' };
   const tag = (colour
@@ -221,7 +221,7 @@ export function buttonComponentCard({ label, destination, primary, colour, theme
       + (themeLabels[theme] ? ` · ${themeLabels[theme]}` : '')
       + (borderLabels[border] ? ` · ${borderLabels[border]}` : '')
     : (primary ? 'Primary' : 'Secondary'))
-    + (groove ? ' · Groove' : '');
+    + (support ? ' · Support' : '');
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">

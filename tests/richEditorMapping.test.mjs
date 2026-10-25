@@ -141,21 +141,21 @@ test('serialize drops nested empty marks', () => {
   assert.equal(serialize(el('root', el('strong', el('em')))), '');
 });
 
-// ── Groove links serialize atomically to the canonical anchor ─────────────────
-const GROOVE = t => `<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">${t}</a>`;
-function groove(...children) { const a = el('a', ...children); a.setAttribute('data-groove', '1'); return a; }
+// ── support-widget links serialize atomically to the canonical anchor ─────────────────
+const SUPPORT = t => `<a href="#" onclick="event.preventDefault(); window.supportWidget.open();">${t}</a>`;
+function support(...children) { const a = el('a', ...children); a.setAttribute('data-support', '1'); return a; }
 
-test('serialize a groove link emits the canonical anchor (not [text](#))', () => {
-  assert.equal(serialize(el('root', txt('go '), groove(txt('chat')))), 'go ' + GROOVE('chat'));
+test('serialize a support-widget link emits the canonical anchor (not [text](#))', () => {
+  assert.equal(serialize(el('root', txt('go '), support(txt('chat')))), 'go ' + SUPPORT('chat'));
 });
-test('serialize a groove link is atomic — inner marks the browser added are ignored', () => {
-  assert.equal(serialize(el('root', groove(el('strong', txt('chat'))))), GROOVE('chat'));
+test('serialize a support-widget link is atomic — inner marks the browser added are ignored', () => {
+  assert.equal(serialize(el('root', support(el('strong', txt('chat'))))), SUPPORT('chat'));
 });
-test('serializeWithSelection maps a caret inside a groove link to source', () => {
+test('serializeWithSelection maps a caret inside a support-widget link to source', () => {
   const t = txt('chat');
-  const root = el('root', txt('go '), groove(t));
+  const root = el('root', txt('go '), support(t));
   const sel = { anchorNode: t, anchorOffset: 2, focusNode: t, focusOffset: 2 };
-  const open = '<a href="#" onclick="event.preventDefault(); window.groove.widget.open();">';
+  const open = '<a href="#" onclick="event.preventDefault(); window.supportWidget.open();">';
   assert.equal(serializeWithSelection(root, sel).selStart, ('go ' + open).length + 2);
 });
 

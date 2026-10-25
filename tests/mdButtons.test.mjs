@@ -3,7 +3,7 @@ import {
   buildButtonLines, locateButtonLines, ensureButtonUUIDs,
   locateButtonByUUID, replaceButtonByUUID, deleteButtonByUUID,
   iconToShortcode, shortcodeToIcon, buttonDimFields,
-  GROOVE_ONCLICK, isGrooveOnclick,
+  SUPPORT_ONCLICK, isSupportOnclick,
 } from '../scripts/mdButtons.js';
 import { parseComponents, buildComponentBody, uuidOfComponent, parsePastedComponents, componentMarkdown } from '../scripts/components.js';
 import { GUIDE_ADMONITION_TYPES_RE } from '../scripts/admonitions.js';
@@ -210,7 +210,7 @@ test('locate: a theme modifier alone is NOT a colour', () => {
 });
 
 test('locate: the real system-updates.md line (onclick attrs) parses', () => {
-  const line = '[Contact us :lucide-send:](#){ .md-button .custom-button-emerald onclick="event.preventDefault(); window.groove.widget.open();" }';
+  const line = '[Contact us :lucide-send:](#){ .md-button .custom-button-emerald onclick="event.preventDefault(); window.supportWidget.open();" }';
   const got = locateButtonLines(line)[0];
   assert.equal(got.label, 'Contact us');
   assert.equal(got.icon, 'lucide/send');
@@ -367,36 +367,36 @@ test('dimFields: style maps through; absent style baselines to default', () => {
   assert.equal(buttonDimFields(plain).buttonStyle, 'default');
 });
 
-// ── onclick (Groove support) round-trip ──────────────────────────────────────
+// ── onclick (support widget) round-trip ──────────────────────────────────────
 
 // The exact hand-written lines live in the KB today; both must round-trip
-// byte-identical or a whole-body rebuild would strip their groove behaviour.
-const GROOVE_LINE_SYSTEM_UPDATES =
-  '[Contact us :lucide-send:](#){ .md-button .custom-button-emerald .custom-button--force-dark .custom-button--borderless onclick="event.preventDefault(); window.groove.widget.open();" }';
-const GROOVE_LINE_INDEX =
-  '[Submit a support ticket](#){ .md-button onclick="window.groove.widget.toggle(); return false;" }';
+// byte-identical or a whole-body rebuild would strip their support-widget behaviour.
+const SUPPORT_LINE_SYSTEM_UPDATES =
+  '[Contact us :lucide-send:](#){ .md-button .custom-button-emerald .custom-button--force-dark .custom-button--borderless onclick="event.preventDefault(); window.supportWidget.open();" }';
+const SUPPORT_LINE_INDEX =
+  '[Submit a support ticket](#){ .md-button onclick="window.supportWidget.toggle(); return false;" }';
 
-test('locate+build: the live system-updates groove line is byte-identical', () => {
-  const got = locateButtonLines(GROOVE_LINE_SYSTEM_UPDATES)[0];
-  assert.equal(got.onclick, 'event.preventDefault(); window.groove.widget.open();');
+test('locate+build: the live system-updates support line is byte-identical', () => {
+  const got = locateButtonLines(SUPPORT_LINE_SYSTEM_UPDATES)[0];
+  assert.equal(got.onclick, 'event.preventDefault(); window.supportWidget.open();');
   assert.equal(got.destination, '#');
   assert.equal(got.colour, 'emerald');
   assert.equal(got.theme, 'force-dark');
   assert.equal(got.border, 'borderless');
   assert.equal(got.newTab, false);
-  assert.equal(buildButtonLines([got])[1], GROOVE_LINE_SYSTEM_UPDATES);
+  assert.equal(buildButtonLines([got])[1], SUPPORT_LINE_SYSTEM_UPDATES);
 });
 
 test('locate+build: the live index.md toggle variant is byte-identical', () => {
-  const got = locateButtonLines(GROOVE_LINE_INDEX)[0];
-  assert.equal(got.onclick, 'window.groove.widget.toggle(); return false;');
+  const got = locateButtonLines(SUPPORT_LINE_INDEX)[0];
+  assert.equal(got.onclick, 'window.supportWidget.toggle(); return false;');
   assert.equal(got.colour, '');
-  assert.equal(buildButtonLines([got])[1], GROOVE_LINE_INDEX);
+  assert.equal(buildButtonLines([got])[1], SUPPORT_LINE_INDEX);
 });
 
 test('build: onclick suppresses target/rel even when newTab is set', () => {
-  const lines = buildButtonLines([{ label: 'Help', destination: '#', colour: 'red', onclick: GROOVE_ONCLICK, newTab: true, icon: null }]);
-  assert.deepEqual(lines, ['', `[Help](#){ .md-button .custom-button-red onclick="${GROOVE_ONCLICK}" }`]);
+  const lines = buildButtonLines([{ label: 'Help', destination: '#', colour: 'red', onclick: SUPPORT_ONCLICK, newTab: true, icon: null }]);
+  assert.deepEqual(lines, ['', `[Help](#){ .md-button .custom-button-red onclick="${SUPPORT_ONCLICK}" }`]);
 });
 
 test('build: no onclick leaves the newTab attrs unchanged (regression)', () => {
@@ -404,37 +404,49 @@ test('build: no onclick leaves the newTab attrs unchanged (regression)', () => {
   assert.deepEqual(lines, ['', '[Docs](/d){ .md-button target="_blank" rel="noopener" }']);
 });
 
-test('replace: a label-only edit keeps the groove onclick (data-loss fix)', () => {
+test('replace: a label-only edit keeps the support-widget onclick (data-loss fix)', () => {
   const md = [
     '<span data-uuid="g1" style="display:none"></span>',
-    GROOVE_LINE_SYSTEM_UPDATES,
+    SUPPORT_LINE_SYSTEM_UPDATES,
   ].join('\n');
   const btn = locateButtonByUUID(md, 'g1');
   const newLine = buildButtonLines([{ ...btn, uuid: null, label: 'Talk to us' }])[1];
   const out = replaceButtonByUUID(md, 'g1', newLine);
   const after = locateButtonByUUID(out, 'g1');
   assert.equal(after.label, 'Talk to us');
-  assert.equal(after.onclick, 'event.preventDefault(); window.groove.widget.open();');
+  assert.equal(after.onclick, 'event.preventDefault(); window.supportWidget.open();');
   assert.equal(after.border, 'borderless');
 });
 
-test('dimFields: kind derivation — groove, internal, url', () => {
-  assert.equal(buttonDimFields({ destination: '#', onclick: GROOVE_ONCLICK }).buttonDestKind, 'groove');
-  assert.equal(buttonDimFields({ destination: '#', onclick: 'window.groove.widget.toggle(); return false;' }).buttonDestKind, 'groove');
+test('dimFields: kind derivation — support, internal, url', () => {
+  assert.equal(buttonDimFields({ destination: '#', onclick: SUPPORT_ONCLICK }).buttonDestKind, 'support');
+  assert.equal(buttonDimFields({ destination: '#', onclick: 'window.supportWidget.toggle(); return false;' }).buttonDestKind, 'support');
   assert.equal(buttonDimFields({ destination: 'overview.md', onclick: '' }).buttonDestKind, 'internal');
   assert.equal(buttonDimFields({ destination: 'pages/overview.md', onclick: '' }).buttonDestKind, 'internal');
   assert.equal(buttonDimFields({ destination: 'https://example.com', onclick: '' }).buttonDestKind, 'url');
   assert.equal(buttonDimFields({ destination: '/signup', onclick: '' }).buttonDestKind, 'url');
   assert.equal(buttonDimFields({ destination: '#', onclick: '' }).buttonDestKind, 'url');
   // Raw onclick passes through verbatim.
-  assert.equal(buttonDimFields({ onclick: GROOVE_ONCLICK }).buttonOnclick, GROOVE_ONCLICK);
+  assert.equal(buttonDimFields({ onclick: SUPPORT_ONCLICK }).buttonOnclick, SUPPORT_ONCLICK);
 });
 
-test('isGrooveOnclick: matches both live variants, rejects other onclicks', () => {
-  assert.equal(isGrooveOnclick(GROOVE_ONCLICK), true);
-  assert.equal(isGrooveOnclick('window.groove.widget.toggle(); return false;'), true);
-  assert.equal(isGrooveOnclick(''), false);
-  assert.equal(isGrooveOnclick('alert(1)'), false);
+test('isSupportOnclick: matches both live variants, rejects other onclicks', () => {
+  assert.equal(isSupportOnclick(SUPPORT_ONCLICK), true);
+  assert.equal(isSupportOnclick('window.supportWidget.toggle(); return false;'), true);
+  assert.equal(isSupportOnclick(''), false);
+  assert.equal(isSupportOnclick('alert(1)'), false);
+});
+
+test('isSupportOnclick: legacy Groove-era onclicks still classify as support (never emitted)', () => {
+  const legacyOpen = 'event.preventDefault(); window.groove.widget.open();';
+  const legacyToggle = 'window.groove.widget.toggle(); return false;';
+  assert.equal(isSupportOnclick(legacyOpen), true);
+  assert.equal(isSupportOnclick(legacyToggle), true);
+  assert.equal(buttonDimFields({ destination: '#', onclick: legacyOpen }).buttonDestKind, 'support');
+  // A legacy line still round-trips byte-identical (verbatim onclick).
+  const line = `[Help](#){ .md-button onclick="${legacyToggle}" }`;
+  assert.equal(buildButtonLines([locateButtonLines(line)[0]])[1], line);
+  assert.notEqual(SUPPORT_ONCLICK, legacyOpen);
 });
 
 // ── components.js integration: button as an ordered component ────────────────
@@ -488,17 +500,17 @@ test('componentMarkdown: Copy payload strips the uuid span', () => {
 test('parseComponents: projects btn.onclick (guards the explicit field list)', () => {
   const body = [
     '<span data-uuid="g1" style="display:none"></span>',
-    GROOVE_LINE_SYSTEM_UPDATES,
+    SUPPORT_LINE_SYSTEM_UPDATES,
   ].join('\n');
   const { components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
   assert.equal(components.length, 1);
-  assert.equal(components[0].btn.onclick, 'event.preventDefault(); window.groove.widget.open();');
+  assert.equal(components[0].btn.onclick, 'event.preventDefault(); window.supportWidget.open();');
 });
 
-test('componentMarkdown: Copy payload preserves the groove onclick', () => {
-  const btn = locateButtonLines(GROOVE_LINE_SYSTEM_UPDATES)[0];
+test('componentMarkdown: Copy payload preserves the support-widget onclick', () => {
+  const btn = locateButtonLines(SUPPORT_LINE_SYSTEM_UPDATES)[0];
   const comp = { kind: 'button', btn: { ...btn, uuid: 'g1' } };
-  assert.equal(componentMarkdown(comp), GROOVE_LINE_SYSTEM_UPDATES);
+  assert.equal(componentMarkdown(comp), SUPPORT_LINE_SYSTEM_UPDATES);
 });
 
 console.log(`\n${passed} passed`);

@@ -5,7 +5,7 @@
 // re-render). DOM-free except placeCaret, so the rest is unit tested with a
 // fake DOM in tests/richEditorMapping.test.mjs.
 
-import { grooveMarkup, grooveTextOffset, labelMarkup, labelTextOffset, iconMarkup, atomInnerText } from './markdownInline.js';
+import { supportMarkup, supportTextOffset, labelMarkup, labelTextOffset, iconMarkup, atomInnerText } from './markdownInline.js';
 
 const TEXT_NODE = 3, ELEMENT_NODE = 1;
 
@@ -71,16 +71,16 @@ export function buildSource(root, onText, onBoundary) {
           // would corrupt the source and render literally. Happens when the user
           // deletes all the text inside a mark but the browser keeps the wrapper.
           if (marker) { if (child.textContent) { out += marker; walk(child, inListItem, depth); out += marker; } else { walk(child, inListItem, depth); } }
-          else if (tag === 'a' && child.getAttribute('data-groove') != null) {
-            // A Groove link is atomic: emit the canonical anchor from its text and
+          else if (tag === 'a' && child.getAttribute('data-support') != null) {
+            // A support-widget link is atomic: emit the canonical anchor from its text and
             // don't walk inside (any inner marks the browser added are dropped), so
             // the DOM->source sync can never downgrade or corrupt the raw HTML.
             const txt = child.textContent;
-            if (onText && child.firstChild && child.firstChild.nodeType === TEXT_NODE) onText(child.firstChild, out.length + grooveTextOffset);
-            out += grooveMarkup(txt);
+            if (onText && child.firstChild && child.firstChild.nodeType === TEXT_NODE) onText(child.firstChild, out.length + supportTextOffset);
+            out += supportMarkup(txt);
           }
           else if (tag === 'span' && /(?:^|\s)mb-label(?:\s|$)/.test(child.getAttribute('class') || '')) {
-            // A label pill is atomic (like a Groove link): re-emit the canonical
+            // A label pill is atomic (like a support-widget link): re-emit the canonical
             // class-only span from its slug + text, ignoring any inline colour
             // style the preview painted, so the DOM->source sync can't corrupt it.
             // Its text may hold icon atoms → atomInnerText re-emits their

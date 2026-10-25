@@ -8,7 +8,7 @@
  * Border (Default/Always/Light only/Dark only/None — per-trio border override),
  * Style (Default/Slim — the full-width flex row), Destination (a link-type
  * picker: Internal page via the kbTree nav picker, URL via the text input, or
- * Groove support — an onclick that opens the Groove widget), and an optional
+ * support widget — an onclick that opens the support widget), and an optional
  * Icon (the lucide picker reused from page settings). Theme and Border live in
  * a collapsed Advanced <details> that auto-opens when non-default. Live light/dark preview
  * tiles above the fields repaint on every edit (buttonPreview.js). Legacy Primary/Secondary buttons still parse, but editing one
@@ -40,7 +40,7 @@ import { loadLabelPalette } from './richTextEditor.js';
 import { markRequiredFields } from './formValidation.js';
 import {
   buildButtonLines, locateButtonByUUID, replaceButtonByUUID, deleteButtonByUUID, buttonDimFields,
-  GROOVE_ONCLICK, isGrooveOnclick,
+  SUPPORT_ONCLICK, isSupportOnclick,
 } from './mdButtons.js';
 import { loadInternalNav, buildInternalTreeNodes, resolveInternalHref, isInternalHrefShape } from './internalPages.js';
 import { renderTree, applySearch } from './kbTree.js';
@@ -161,10 +161,10 @@ function attachButtonPreview(formEl, flat) {
 }
 
 // The Destination link-type picker: buttonDestKind pills (Internal page / URL /
-// Groove support) over one always-required backing input. `data-show-when` in
-// the markup swaps the tree panel / groove hint / newTab group declaratively;
+// support widget) over one always-required backing input. `data-show-when` in
+// the markup swaps the tree panel / support hint / newTab group declaratively;
 // this handler owns everything value-shaped: hiding the text input, the tree's
-// selection ↔ input sync, the groove '#'+onclick stash, and pointing required-
+// selection ↔ input sync, the support '#'+onclick stash, and pointing required-
 // error painting at the tree while the input is hidden.
 function attachDestinationPicker(formEl, seeded) {
   const destInput = formEl.querySelector('[name="buttonDestination"]');
@@ -174,7 +174,7 @@ function attachDestinationPicker(formEl, seeded) {
 
   let treePromise = null;
   let navData = null;
-  let grooveStash = null; // {d, o} captured when entering groove, restored on leave
+  let supportStash = null; // {d, o} captured when entering support, restored on leave
 
   // Real input/change events so the dirty guard, save-state button and the live
   // preview react (the tagChips contract). No-op guarded: the async tree render
@@ -238,7 +238,7 @@ function attachDestinationPicker(formEl, seeded) {
     // derive from the values themselves; check the radio silently (no events —
     // this is repair, not an edit).
     const kind = seeded?.buttonDestKind
-      ?? (isGrooveOnclick(onclickInput.value) ? 'groove'
+      ?? (isSupportOnclick(onclickInput.value) ? 'support'
         : isInternalHrefShape(destInput.value) ? 'internal' : 'url');
     const radio = formEl.querySelector(`[name="buttonDestKind"][value="${kind}"]`);
     if (radio) radio.checked = true;
@@ -258,22 +258,22 @@ function attachDestinationPicker(formEl, seeded) {
     if (kind === 'internal') { ensureTree(); selectCurrent(); }
   };
 
-  // User intent only — the kind-radio change handler. Entering groove leaves
-  // an onclick that is already a groove variant (canonical or the legacy
-  // hand-written ones, see mdButtons isGrooveOnclick) byte-identical; leaving
+  // User intent only — the kind-radio change handler. Entering support leaves
+  // an onclick that is already a support-widget variant (canonical or the legacy
+  // hand-written ones, see mdButtons isSupportOnclick) byte-identical; leaving
   // it restores what the user had before, or empty fields on a hydrated
-  // groove button (never a bare '#').
+  // support-widget button (never a bare '#').
   const applyKindChange = () => {
     const kind = currentKind();
-    if (kind === 'groove') {
-      if (!isGrooveOnclick(onclickInput.value)) {
-        grooveStash = { d: destInput.value, o: onclickInput.value };
+    if (kind === 'support') {
+      if (!isSupportOnclick(onclickInput.value)) {
+        supportStash = { d: destInput.value, o: onclickInput.value };
         setField(destInput, '#');
-        setField(onclickInput, GROOVE_ONCLICK);
+        setField(onclickInput, SUPPORT_ONCLICK);
       }
-    } else if (isGrooveOnclick(onclickInput.value)) {
-      const stash = grooveStash ?? { d: '', o: '' };
-      grooveStash = null;
+    } else if (isSupportOnclick(onclickInput.value)) {
+      const stash = supportStash ?? { d: '', o: '' };
+      supportStash = null;
       setField(destInput, stash.d);
       setField(onclickInput, stash.o);
     }
@@ -439,7 +439,7 @@ async function persistButtonEdit(formEl, onProgress = () => {}) {
       { name: 'icon', type: 'scalar', label: 'Icon' },
       { name: 'buttonNewTab', type: 'scalar', label: 'Open in new tab' },
       { name: 'buttonDestKind', type: 'scalar', label: 'Link type' },
-      { name: 'buttonOnclick', type: 'scalar', label: 'Groove link' },
+      { name: 'buttonOnclick', type: 'scalar', label: 'Support widget link' },
     ],
     readFresh: md => buttonDimFields(locateButtonByUUID(md, editUuid) ?? {}),
     build: (md, resolved) => {

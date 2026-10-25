@@ -3,7 +3,7 @@
 // value and the selection range to restore. No DOM, no side effects — unit
 // tested in tests/markdownToolbarActions.test.mjs.
 
-import { markSpans, matchLink, matchGroove, grooveMarkup, grooveTextOffset, matchLabel, labelMarkup, labelTextOffset, matchIcon, iconMarkup, LIST_ITEM_RE } from './markdownInline.js';
+import { markSpans, matchLink, matchSupport, supportMarkup, supportTextOffset, matchLabel, labelMarkup, labelTextOffset, matchIcon, iconMarkup, LIST_ITEM_RE } from './markdownInline.js';
 
 // Every delimiter the toolbar can insert. Order matters: longer delimiters that
 // share a leading character ('**' before '*') must come first so the layer
@@ -694,16 +694,16 @@ export function applyLink(value, selStart, selEnd, text, url) {
   };
 }
 
-// Every Groove anchor in `value`, left-to-right, with source ranges. `text` is
+// Every support-widget anchor in `value`, left-to-right, with source ranges. `text` is
 // the rendered range between '>' and '</a>'; [start, end) is the whole anchor.
-function scanGroove(value) {
+function scanSupport(value) {
   const out = [];
   let i = 0;
   while (i < value.length) {
     if (value[i] === '<') {
-      const g = matchGroove(value, i);
+      const g = matchSupport(value, i);
       if (g) {
-        const textStart = i + grooveTextOffset;
+        const textStart = i + supportTextOffset;
         out.push({ start: i, end: g.end, textStart, textEnd: textStart + g.text.length, text: g.text });
         i = g.end;
         continue;
@@ -714,21 +714,21 @@ function scanGroove(value) {
   return out;
 }
 
-// Find the Groove anchor whose rendered text the selection sits within, so the
+// Find the support-widget anchor whose rendered text the selection sits within, so the
 // toolbar can EDIT it instead of nesting a new one. Mirror of linkAt. Returns
 // `{ start, end, text }` (the whole `[start, end)` anchor range), or null.
-export function grooveAt(value, selStart, selEnd) {
+export function supportAt(value, selStart, selEnd) {
   const lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
-  for (const g of scanGroove(value)) {
+  for (const g of scanSupport(value)) {
     if (lo >= g.textStart && hi <= g.textEnd) return { start: g.start, end: g.end, text: g.text };
   }
   return null;
 }
 
-// Splice the canonical Groove anchor at the selection, replacing it. Caret after
+// Splice the canonical support-widget anchor at the selection, replacing it. Caret after
 // the inserted snippet. Mirror of applyLink.
-export function applyGroove(value, selStart, selEnd, text) {
-  const snippet = grooveMarkup(text);
+export function applySupport(value, selStart, selEnd, text) {
+  const snippet = supportMarkup(text);
   const caret = selStart + snippet.length;
   return {
     value: value.slice(0, selStart) + snippet + value.slice(selEnd),
@@ -739,7 +739,7 @@ export function applyGroove(value, selStart, selEnd, text) {
 
 // Every label pill in `value`, left-to-right, with source ranges. `text` is the
 // rendered range between '>' and '</span>'; [start, end) is the whole span.
-// Mirror of scanGroove.
+// Mirror of scanSupport.
 function scanLabels(value) {
   const out = [];
   let i = 0;
@@ -777,7 +777,7 @@ export function labelAt(value, selStart, selEnd) {
 }
 
 // Splice the canonical label span at the selection, replacing it. Caret after
-// the inserted snippet. Mirror of applyGroove.
+// the inserted snippet. Mirror of applySupport.
 export function applyLabel(value, selStart, selEnd, text, slug) {
   const snippet = labelMarkup(slug, text);
   const caret = selStart + snippet.length;

@@ -27,7 +27,7 @@ import { buildImageLines } from './images.js';
 import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from './contentTabs.js';
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID, parseGridCellBlocks, cellOpenTag } from './grid.js';
-import { locateButtonLines, buildButtonLines, ensureButtonUUIDs, isGrooveOnclick } from './mdButtons.js';
+import { locateButtonLines, buildButtonLines, ensureButtonUUIDs, isSupportOnclick } from './mdButtons.js';
 import { locateDiagramLines, buildDiagramLines, ensureDiagramUUIDs } from './mdDiagrams.js';
 import { locateCodeBlockLines, buildCodeBlockLines, ensureCodeBlockUUIDs } from './mdCodeBlocks.js';
 import { locateNavLinksLines, buildNavLinksLines, ensureNavLinksUUIDs } from './navLinks.js';
@@ -510,7 +510,7 @@ function subViewModel(c, typeRegex) {
     case 'tabs':     return { kind: 'tabs', titles: (c.grp.tabs ?? []).map(t => t.title).filter(Boolean) };
     case 'table':    return { kind: 'table', cols: c.tbl.align?.length ?? (c.tbl.header ?? []).length, rows: c.tbl.rows.length };
     case 'grid':     return { kind: 'grid', cells: (c.grid.cells ?? []).length, flavor: c.grid.flavor };
-    case 'button':   return { kind: 'button', label: c.btn.label, destination: c.btn.destination, groove: isGrooveOnclick(c.btn.onclick) };
+    case 'button':   return { kind: 'button', label: c.btn.label, destination: c.btn.destination, support: isSupportOnclick(c.btn.onclick) };
     case 'navlinks': return { kind: 'navlinks', text: c.nav.tag != null ? `${c.nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${c.nav.tag}` : c.nav.path };
     case 'diagram':  return { kind: 'diagram' };
     case 'codeblock': return { kind: 'codeblock', title: c.cb.title, language: c.cb.language };
