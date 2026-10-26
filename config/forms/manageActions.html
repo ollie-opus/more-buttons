@@ -1,0 +1,14 @@
+<!-- Hub: no named inputs, so the storage key is never written; it exists so
+     the form takes the form-rooted path and keeps history for child forms. -->
+<form id="manage-actions-form" data-nav data-storage-key="moreButtonsManageActionsHub" data-width="680px" data-height="80vh">
+  <h2>Actions</h2>
+
+  <p class="more-buttons-description">Record a sequence of clicks and field edits once, then play it back on any page. Only the <strong>active</strong> action is played by the dock's Play button.</p>
+
+  <div class="mb-action-list" data-actions-list></div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button red" data-action="startActionRecording"><span class="more-buttons-icon">disc</span>Record new</button>
+    <button type="button" class="more-buttons-button" data-action="close"><span class="more-buttons-icon">x</span>Close</button>
+  </div>
+</form>

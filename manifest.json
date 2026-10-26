@@ -111,6 +111,8 @@
         "scripts/actionSteps.js",
         "scripts/actionLocators.js",
         "scripts/actionsLibrary.js",
+        "scripts/actionCards.js",
+        "scripts/actionsManage.js",
         "scripts/gridEditor.js",
         "scripts/mdButtons.js",
         "scripts/buttonEditor.js",

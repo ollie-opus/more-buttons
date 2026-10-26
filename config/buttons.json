@@ -443,5 +443,33 @@
     },
     "action": "clearAllCheckboxes",
     "dockOrder": 900
+  },
+  {
+    "id": "mb-actions-manage-btn",
+    "displayText": "Manage saved actions",
+    "descriptionText": "Record, edit and choose the active action to play on any page",
+    "icon": "list-video",
+    "colour": "orange",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["/"]
+    },
+    "action": "openManageActions",
+    "dockGroup": "Actions",
+    "dockOrder": 10
+  },
+  {
+    "id": "mb-actions-play-btn",
+    "displayText": "Play actions",
+    "descriptionText": "Play the active action on this page. Ctrl/Cmd-click skips the confirmation.",
+    "icon": "circle-play",
+    "colour": "orange",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["/"]
+    },
+    "action": "playActiveAction",
+    "dockGroup": "Actions",
+    "dockOrder": 20
   }
 ]

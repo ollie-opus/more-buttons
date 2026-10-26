@@ -73,6 +73,11 @@ const FORM_LABELS = {
   integrations: 'Integrations',
   githubIntegration: 'GitHub',
   geminiIntegration: 'Google Gemini',
+  manageActions: 'Actions',
+  editAction: 'Edit Action',
+  actionName: 'Name Action',
+  askAtPlay: 'Play Action',
+  confirmPlayAction: 'Play Action',
 };
 
 function resetHistory() {
