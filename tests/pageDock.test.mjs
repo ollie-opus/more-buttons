@@ -32,7 +32,7 @@ function el(tagName) {
     remove: () => { const p = node.parentNode; if (p) p.children = p.children.filter((c) => c !== node); node.parentNode = null; },
     addEventListener: (t, fn) => { (listeners[t] ||= []).push(fn); },
     fire: (t) => (listeners[t] || []).forEach((fn) => fn({})),
-    click: () => (listeners.click || []).forEach((fn) => fn({ preventDefault() {}, stopPropagation() {} })),
+    click: (ev = {}) => (listeners.click || []).forEach((fn) => fn({ preventDefault() {}, stopPropagation() {}, ...ev })),
     querySelector: (sel) => all(node).find((n) => n !== node && matches(n, sel)) ?? null,
     querySelectorAll: (sel) => all(node).filter((n) => n !== node && matches(n, sel)),
   };
@@ -168,6 +168,16 @@ await test('tile click dispatches its action', async () => {
   doc.getElementById('b2').click();
   await Promise.resolve(); await Promise.resolve();
   assert.deepEqual(calls, ['act-b2']);
+});
+
+await test('tile click passes held modifier keys to dispatch as a second argument', async () => {
+  fakeChrome({});
+  const doc = fakeDoc();
+  const calls = [];
+  await renderPageDock(buttons, (...a) => calls.push(a), { doc });
+  doc.getElementById('b2').click({ ctrlKey: true, metaKey: false, shiftKey: false, altKey: false });
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(calls, [['act-b2', { ctrlKey: true, metaKey: false, shiftKey: false, altKey: false }]]);
 });
 
 await test('rejecting dispatch is caught and warned', async () => {

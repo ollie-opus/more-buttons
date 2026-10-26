@@ -24,6 +24,12 @@ test('content.js Actions session gate uses the recorder module\'s sessionStorage
   assert.ok(keys.includes(recorder), 'recorder key gated');
 });
 
+test('content.js dispatch forwards dock modifiers only when one is held (existing actions never see an extra arg)', () => {
+  assert.match(content, /function dispatch\(action, mods\)/);
+  assert.match(content, /mods\.ctrlKey \|\| mods\.metaKey \|\| mods\.shiftKey \|\| mods\.altKey/);
+  assert.match(content, /fn\(\.\.\.params, \.\.\.extra\)/);
+});
+
 test('content.js no longer polls for url changes', () => {
   assert.ok(!/setInterval\(/.test(content), 'setInterval found in content.js');
   assert.ok(!/waitForDomToSettle/.test(content));

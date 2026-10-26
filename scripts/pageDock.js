@@ -223,8 +223,12 @@ function buildTile(doc, def, dispatch, groupName = null) {
   }
   tile.appendChild(tag);
 
-  tile.addEventListener('click', () => {
-    Promise.resolve().then(() => dispatch(def.action))
+  tile.addEventListener('click', (e) => {
+    // Modifier state rides along so an action can offer a Ctrl/Cmd-click
+    // variant (Play actions skips its confirm). content.js only forwards it
+    // when a modifier is actually held, so plain clicks are unchanged.
+    const mods = { ctrlKey: !!e?.ctrlKey, metaKey: !!e?.metaKey, shiftKey: !!e?.shiftKey, altKey: !!e?.altKey };
+    Promise.resolve().then(() => dispatch(def.action, mods))
       .catch((err) => console.warn('MB Warn: dock action failed', err));
   });
   return tile;

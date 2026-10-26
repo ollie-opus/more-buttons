@@ -9,11 +9,14 @@ const getActions = () => (window.__mbActionsPromise ??=
 // Read here so a page with no capture session never pays the actions import.
 const CAPTURE_SESSION_KEY = 'moreButtonsCaptureSession';
 
-function dispatch(action) {
+// `mods` (from a dock tile click) is appended as a trailing argument ONLY when a
+// modifier key was held, so existing actions never see an unexpected object.
+function dispatch(action, mods) {
     getActions().then(module => {
         const [name, ...params] = action.split(':');
         const fn = module[name];
-        if (typeof fn === 'function') fn(...params);
+        const extra = mods && (mods.ctrlKey || mods.metaKey || mods.shiftKey || mods.altKey) ? [mods] : [];
+        if (typeof fn === 'function') fn(...params, ...extra);
         else console.warn(`MB Warn: Action "${name}" not found in actions.js`);
     }).catch(err => console.error('MB Error: action failed', action, err));
 }
