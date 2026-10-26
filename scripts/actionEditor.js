@@ -15,7 +15,7 @@ import { showDangerConfirm } from './confirmPanel.js';
 import { loadLibrary, upsertAction, removeAction, newAction } from './actionsLibrary.js';
 import { moveStep, removeStep, setAskAtPlay, spliceSteps } from './actionSteps.js';
 import { timelineHtml, STEP_INSERT_ATTR, stepCountText } from './actionCards.js';
-import { watchIconSpans } from './lucideIcons.js';
+import { paintIconSpans } from './lucideIcons.js';
 import { startRecording, clearRecording } from './actionRecorder.js';
 
 const serialise = steps => JSON.stringify(steps);
@@ -26,16 +26,17 @@ function syncState(formEl) {
   formEl._refreshSaveState?.();
 }
 
-function render(formEl) {
+// Exported for tests/actionFormsSmoke.test.mjs.
+export function renderTimeline(formEl) {
   const host = formEl.querySelector('[data-action-steps]');
   if (!host) return;
   host.innerHTML = timelineHtml(formEl._action.steps);
-  watchIconSpans(host);
+  paintIconSpans(host);
 }
 
 function update(formEl, steps) {
   formEl._action.steps = steps;
-  render(formEl);
+  renderTimeline(formEl);
   syncState(formEl);
 }
 
@@ -89,7 +90,7 @@ export async function openEditAction({ id, draft = null } = {}) {
   formEl.querySelector('[data-action-heading]').textContent = saved ? `Edit “${saved.name}”` : 'New action';
   const nameInput = formEl.querySelector('[name="actionName"]');
   if (nameInput) nameInput.value = name;
-  render(formEl);
+  renderTimeline(formEl);
   syncState(formEl);
   wire(formEl);
 }
@@ -130,5 +131,7 @@ registerFormAction('finishInsertRecording', async ({ state }) => {
   clearRecording(window.sessionStorage);
   if (!ins) return getFormAction('openManageActions')?.();
   const steps = spliceSteps(ins.draftSteps ?? [], ins.insertAt ?? 0, state.steps ?? []);
-  await openEditAction({ id: ins.actionId, draft: { name: ins.name, steps } });
+  // Manage first, so the editor is a child form with a Back target.
+  await getFormAction('openManageActions')?.();
+  await getFormAction('openEditAction')({ id: ins.actionId, draft: { name: ins.name, steps } });
 });

@@ -20,7 +20,8 @@
  */
 
 import { segmentBounds, summariseStep } from './actionSteps.js';
-import { resolveLocator } from './actionLocators.js';
+import { resolveLocator, defaultIsVisible } from './actionLocators.js';
+import { isOwnUi } from './actionRecorder.js';
 import { mountActionBar } from './actionToolbar.js';
 import { createNavigationWatcher } from './pageNavigation.js';
 import { createForm } from './form.js';
@@ -81,8 +82,12 @@ export function preflightSegment(steps, from, root, opts = {}) {
   return { ok: failures.length === 0, end, failures };
 }
 
+/** Visibility for locator ties at playback: the extension's own bars/overlays never count. */
+export const playerIsVisible = el => defaultIsVisible(el) && !isOwnUi(el);
+const RESOLVE_OPTS = { isVisible: playerIsVisible };
+
 export function describeFailure(f) {
-  const { title } = summariseStep(f.step);
+  const title = f.step ? summariseStep(f.step).title : 'unknown step';
   const head = `Step ${f.index + 1} · ${title}`;
   if (f.reason) return `${head} — ${f.reason}`;
   const counts = (f.tried ?? []).map(t => t.count);
@@ -150,32 +155,42 @@ function defaultEnv(env) {
 
 async function waitFor(locator, root, { step, deadline }) {
   for (;;) {
-    const { el } = resolveLocator(locator, root);
+    const { el } = resolveLocator(locator, root, RESOLVE_OPTS);
     if (el && !el.disabled && !(step.kind === 'set' && el.readOnly)) return el;
     if (Date.now() >= deadline) return null;
     await sleep(STEP_POLL_MS);
   }
 }
 
-// Resolves when a DIFFERENT page has settled (body swapped or href changed).
-function waitForNavigationSettle(env, timeoutMs) {
+/**
+ * Resolves true once a DIFFERENT page has settled, false on timeout. Only a
+ * body swap counts: on a Turbo visit the href changes at turbo:visit while
+ * the old body is still mounted, and the watcher's own fallback timer would
+ * otherwise "settle" that stale body after 1.5 s on any slow server round
+ * trip. The fallback is therefore pushed out to our own timeout. (A hard
+ * navigation kills this context; resumePlayback picks up from the record.)
+ * Exported for tests/actionPlayer.test.mjs.
+ */
+export function waitForNavigationSettle(env, timeoutMs) {
   const { doc, win } = env;
-  const bodyBefore = doc.body, hrefBefore = win.location.href;
+  const bodyBefore = doc.body;
   return new Promise(resolve => {
     let done = false;
     const finish = ok => { if (done) return; done = true; clearTimeout(timer); watcher.stop(); resolve(ok); };
-    const watcher = env.watcherFactory({ doc, win, onNavigate: () => {}, onSettle: url => { if (doc.body !== bodyBefore || url !== hrefBefore) finish(true); } });
+    const watcher = env.watcherFactory({ doc, win, fallbackMs: timeoutMs, onNavigate: () => {}, onSettle: () => { if (doc.body !== bodyBefore) finish(true); } });
     const timer = setTimeout(() => finish(false), timeoutMs);
     watcher.start();
   });
 }
 
-// Resolves when THIS page has settled (used on resume, where content.js may run at document_start).
+// Resolves when THIS page has settled (used on resume, where content.js may
+// run at document_start). Same long fallback: a slow page must not be
+// preflighted half-loaded.
 function waitForCurrentSettle(env) {
   const { doc, win } = env;
   return new Promise(resolve => {
     let done = false;
-    const watcher = env.watcherFactory({ doc, win, onNavigate: () => {}, onSettle: () => { if (done) return; done = true; watcher.stop(); resolve(); } });
+    const watcher = env.watcherFactory({ doc, win, fallbackMs: NAV_WAIT_MS, onNavigate: () => {}, onSettle: () => { if (done) return; done = true; watcher.stop(); resolve(); } });
     watcher.start();
   });
 }
@@ -215,11 +230,12 @@ async function run(initial, env) {
   active = { stop: () => { aborted = true; } };
 
   const steps = state.steps;
+  try {
   while (state.nextIndex < steps.length) {
     if (aborted) return teardown();
     if (steps[state.nextIndex].kind === 'navigate') { state = { ...state, nextIndex: state.nextIndex + 1 }; persist(); continue; }
 
-    const pre = preflightSegment(steps, state.nextIndex, doc);
+    const pre = preflightSegment(steps, state.nextIndex, doc, RESOLVE_OPTS);
     if (!pre.ok) return fail(pre.failures);
     const { end, navigateAt } = segmentBounds(steps, state.nextIndex);
 
@@ -247,6 +263,12 @@ async function run(initial, env) {
   bar.setTitle(`Played · ${steps.length} step${steps.length === 1 ? '' : 's'}`);
   await sleep(900);
   teardown();
+  } catch (e) {
+    // Anything the loop didn't expect: never leave the bar up or `active` set.
+    const i = Math.min(state.nextIndex, steps.length - 1);
+    console.error('[MB actions] playback crashed:', e);
+    if (active) return fail([{ index: Math.max(i, 0), step: steps[i], reason: `unexpected error: ${e?.message ?? e}` }]);
+  }
 }
 
 /** Start playing `action` on this page. `askValues` = { [stepId]: value } for ask-at-play steps. */

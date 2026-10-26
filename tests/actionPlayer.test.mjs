@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   PLAYBACK_KEY, newPlaybackState, playbackTitle, persistedState, preflightSegment, describeFailure, performStep, setNativeValue,
-  readPlayback, writePlayback, clearPlayback,
+  readPlayback, writePlayback, clearPlayback, waitForNavigationSettle, playerIsVisible, startPlayback, isPlaying,
 } from '../scripts/actionPlayer.js';
 
 let passed = 0;
@@ -121,6 +121,49 @@ await test('session helpers round-trip and reject garbage', () => {
   assert.equal(readPlayback(storage), null);
   clearPlayback(storage);
   assert.equal(readPlayback(storage), null);
+});
+
+
+await test('waitForNavigationSettle: watcher fallback is pushed past our timeout and only a body swap counts as "moved"', async () => {
+  let opts = null;
+  const body1 = {}, body2 = {};
+  const doc = { body: body1 };
+  const win = { location: { href: 'https://h/a' } };
+  const env = { doc, win, watcherFactory: o => { opts = o; return { start() {}, stop() {} }; } };
+  let settled = null;
+  const p = waitForNavigationSettle(env, 500).then(v => { settled = v; });
+  assert.equal(opts.fallbackMs, 500, 'the 1.5 s default fallback must never pre-empt the navigation wait');
+  win.location.href = 'https://h/b';
+  opts.onSettle('https://h/b');          // turbo:visit already changed the href, old body still mounted
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(settled, null, 'new href on the OLD body is not a settled new page');
+  doc.body = body2;
+  opts.onSettle('https://h/b');
+  await p;
+  assert.equal(settled, true);
+});
+
+await test('playerIsVisible rejects elements inside the extension\'s own UI', () => {
+  const inBar = { isConnected: true, offsetParent: {}, closest: sel => (sel.includes('.mb-capture-bar') ? {} : null) };
+  const onPage = { isConnected: true, offsetParent: {}, closest: () => null };
+  assert.equal(playerIsVisible(inBar), false);
+  assert.equal(playerIsVisible(onPage), true);
+});
+
+await test('an unexpected throw inside the run loop still tears down (error form shown, player idle)', async () => {
+  const el = new FakeControl({ tag: 'button' });
+  const store = new Map();
+  const storage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k) };
+  const errors = [];
+  const bar = { setTitle() { throw new Error('boom'); }, setArmed() {}, setVariant() {}, setControl() {}, flash() {}, remove() { bar.removed = true; } };
+  await startPlayback({ id: 'a', name: 'n', steps: [step('click', 'x')] }, {}, {
+    doc: { querySelectorAll: sel => (sel === '#x' ? [el] : []) }, win: { location: { href: 'h' } }, storage,
+    mountBar: () => bar, watcherFactory: () => ({ start() {}, stop() {} }), showError: (st, failures) => { errors.push(failures); },
+  });
+  assert.equal(isPlaying(), false);
+  assert.equal(bar.removed, true);
+  assert.equal(store.has(PLAYBACK_KEY), false);
+  assert.match(errors[0][0].reason, /boom/);
 });
 
 console.log(`\n${passed} passed`);

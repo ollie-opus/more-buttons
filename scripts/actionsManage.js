@@ -10,18 +10,29 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { showDangerConfirm } from './confirmPanel.js';
 import { loadLibrary, removeAction, setActiveAction, getActiveAction, upsertAction, newAction } from './actionsLibrary.js';
 import { actionsListHtml, stepCountText } from './actionCards.js';
-import { watchIconSpans } from './lucideIcons.js';
-import { startRecording, resumeRecording, readRecording, clearRecording } from './actionRecorder.js';
-import { startPlayback, resumePlayback, readPlayback } from './actionPlayer.js';
+import { paintIconSpans } from './lucideIcons.js';
+import { startRecording, resumeRecording, readRecording, clearRecording, isRecording } from './actionRecorder.js';
+import { startPlayback, resumePlayback, readPlayback, isPlaying } from './actionPlayer.js';
 import { askAtPlaySteps, summariseStep } from './actionSteps.js';
 import { escapeHtml } from './cardRenderer.js';
 
-async function renderList(formEl) {
+// Exported for tests/actionFormsSmoke.test.mjs. paintIconSpans (not
+// watchIconSpans, which takes a Document) paints the empty state's icon; the
+// overlay's own document watcher covers later mutations.
+export async function renderActionsList(formEl) {
   const host = formEl.querySelector('[data-actions-list]');
   if (!host) return;
   host.innerHTML = actionsListHtml(await loadLibrary());
-  watchIconSpans(host);
+  paintIconSpans(host);
 }
+
+/** Why a new recording/playback can't start in this tab right now, or null. */
+export function busyReason(recording, playing) {
+  if (playing) return 'An action is already playing in this tab. Stop it (top-left bar) before starting another.';
+  if (recording) return 'A recording is in progress in this tab. Stop or cancel it (top-left bar) first.';
+  return null;
+}
+const busy = () => busyReason(isRecording(), isPlaying());
 
 function wireList(formEl) {
   // Cards live inside the form (the dock does not), so delegate on formEl.
@@ -30,7 +41,7 @@ function wireList(formEl) {
     if (toggle) {
       const pressed = toggle.getAttribute('aria-pressed') === 'true';
       await setActiveAction(pressed ? null : toggle.dataset.actionActive);
-      await renderList(formEl);
+      await renderActionsList(formEl);
       return;
     }
     const edit = e.target.closest('[data-action-edit]');
@@ -52,7 +63,7 @@ function wireList(formEl) {
       });
       if (!ok) return;
       await removeAction(id);
-      await renderList(formEl);
+      await renderActionsList(formEl);
     }
   });
 }
@@ -60,7 +71,7 @@ function wireList(formEl) {
 export async function openManageActions() {
   const { formEl } = await createForm('manageActions', openManageActions, { rootEntry: true });
   if (!formEl) return;
-  await renderList(formEl);
+  await renderActionsList(formEl);
   wireList(formEl);
 }
 
@@ -75,6 +86,8 @@ const skipConfirm = a => !!a && typeof a === 'object' && (a.ctrlKey === true || 
 let pendingPlay = null;
 
 async function runAction(action) {
+  const reason = busy();
+  if (reason) { window.alert(reason); return; }
   const asks = askAtPlaySteps(action.steps);
   if (!asks.length) return startPlayback(action, { askValues: {} });
   pendingPlay = action;
@@ -134,6 +147,8 @@ async function openNamePrompt(state) {
 
 // Dock "Record new" (and the empty-state button): close the form, start recording.
 registerFormAction('startActionRecording', async ({ cleanup } = {}) => {
+  const reason = busy();
+  if (reason) { window.alert(reason); return; }
   cleanup?.();
   startRecording({ mode: 'new' });
 });
@@ -148,12 +163,15 @@ registerFormAction('finishActionRecording', async ({ state }) => {
   await openNamePrompt(state);
 });
 
+// Both hand-offs go through the registry so Manage sits under the editor in
+// the breadcrumb (the insert bar closed the editor with closeActiveForm, which
+// leaves no history to come Back to otherwise).
 registerFormAction('cancelActionRecording', async ({ state }) => {
+  await getFormAction('openManageActions')?.();
   if (state?.mode === 'insert') {
     const open = getFormAction('openEditAction');
     if (open) return open({ id: state.insert.actionId, draft: { name: state.insert.name, steps: state.insert.draftSteps } });
   }
-  await openManageActions();
 });
 
 registerFormAction('submitActionName', async ({ formEl }) => {
