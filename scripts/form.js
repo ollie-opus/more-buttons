@@ -365,7 +365,18 @@ function navigateForward() {
 // even when an overlay is already open from an in-flight stack — otherwise the
 // open overlay makes `deeper` true and the root form is appended as a new crumb
 // (KB › guide › section › KB) instead of restarting the trail.
-export async function createForm(formName, opener, { rootEntry = false } = {}) {
+// Close whatever overlay form is open (keyboard handler, scroll lock, DOM),
+// for in-form controls that hand the page over to another mode (the Actions
+// editor's insert bar → recorder). Dock buttons get `cleanup` in their ctx;
+// delegated in-form clicks don't, hence this.
+export function closeActiveForm() {
+  if (activeFormCleanup) { activeFormCleanup(); activeFormCleanup = null; }
+}
+
+// `baseline`: the dirty-guard snapshot to compare against instead of the
+// hydrated values (an opener that paints an unsaved DRAFT passes the saved
+// values so the form opens dirty).
+export async function createForm(formName, opener, { rootEntry = false, baseline = null } = {}) {
   const resolvedOpener = opener ?? currentOpener() ?? (() => createForm(formName));
   const descriptor = currentInvocationDescriptor();
   const replaying = navMode === 'replay';
@@ -1207,7 +1218,7 @@ export async function createForm(formName, opener, { rootEntry = false } = {}) {
     // Snapshot baseline for dirty-guard forms after hydration completes so
     // later edits can be detected when the user tries to navigate away.
     if (formEl.hasAttribute('data-dirty-guard')) {
-      formEl._initialSnapshot = readFormValues(formEl);
+      formEl._initialSnapshot = baseline ?? readFormValues(formEl);
     }
     // Wire the informational save-state button (no-op for forms without one).
     bindSaveStateButton(formEl);

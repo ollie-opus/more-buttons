@@ -5095,3 +5095,50 @@ h2[data-edit-media-title] .mb-kb-pills {
   10%, 80%  { opacity: 1; transform: none; }
   100%      { opacity: 0; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Actions timeline (scripts/actionEditor.js / actionCards.js)
+ *
+ * The edit form's step list reuses the component list chrome (insert bars +
+ * reorder rail + .mb-incident-card) and adds a vertical spine down the left
+ * with one node per step, tinted by the step kind via --mb-step-accent. */
+.mb-action-timeline { position: relative; padding-left: 18px; }
+.mb-action-timeline::before {
+  content: "";
+  position: absolute;
+  left: 7px; top: 14px; bottom: 14px;
+  border-left: 2px solid var(--mb-border-subtle, rgba(127, 127, 127, 0.35));
+}
+.mb-action-timeline .mb-component-row { position: relative; }
+.mb-action-timeline .mb-component-row::before {
+  content: "";
+  position: absolute;
+  left: -16px; top: 50%;
+  width: 10px; height: 10px; margin-top: -5px;
+  border-radius: 50%;
+  background: var(--mb-step-accent, var(--mb-text-muted, #94a3b8));
+  box-shadow: 0 0 0 3px var(--mb-bg, #fff);
+}
+@media (prefers-color-scheme: dark) {
+  .mb-action-timeline .mb-component-row::before { box-shadow: 0 0 0 3px var(--mb-bg, #0f172a); }
+}
+.mb-action-timeline .mb-insert-component { margin-left: -4px; }
+.mb-action-timeline__empty { margin: 0 0 6px; font-size: 0.8125rem; color: var(--mb-text-muted, #64748b); }
+
+.mb-action-step .mb-incident-card__title { display: inline-flex; align-items: center; gap: 6px; }
+.mb-action-step .mb-incident-card__title .more-buttons-icon { font-size: 1rem; }
+.mb-action-step__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--mb-code-bg, rgba(127, 127, 127, 0.14));
+  word-break: break-all;
+}
+.mb-action-step__value.--masked { letter-spacing: 0.15em; }
+.mb-action-step .mb-incident-card__edit[aria-pressed="true"] { background: var(--mb-accent, #2563eb); color: #fff; }
+
+/* Playback error form: one row per failed / played step. */
+.mb-action-error__row { padding: 4px 0; font-size: 0.8125rem; border-bottom: 1px solid var(--mb-border-subtle, rgba(127, 127, 127, 0.25)); }
+.mb-action-error__row:last-child { border-bottom: none; }
+.mb-action-error__row.--ok { color: var(--mb-text-muted, #64748b); }

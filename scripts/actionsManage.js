@@ -179,7 +179,9 @@ export async function resumeActionSession() {
   if (readPlayback(session())) return resumePlayback();
   const rec = readRecording(session());
   if (rec) {
-    if (rec.phase === 'naming') return openNamePrompt(rec);
+    if (rec.phase === 'naming') {
+      return rec.mode === 'insert' ? getFormAction('finishInsertRecording')?.({ state: rec }) : openNamePrompt(rec);
+    }
     resumeRecording();
   }
 }

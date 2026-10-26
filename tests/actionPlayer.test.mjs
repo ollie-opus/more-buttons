@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  PLAYBACK_KEY, newPlaybackState, playbackTitle, preflightSegment, describeFailure, performStep, setNativeValue,
+  PLAYBACK_KEY, newPlaybackState, playbackTitle, persistedState, preflightSegment, describeFailure, performStep, setNativeValue,
   readPlayback, writePlayback, clearPlayback,
 } from '../scripts/actionPlayer.js';
 
@@ -97,6 +97,15 @@ await test('performStep check/choose click only when the state differs; click fo
   const btn = new FakeControl({ tag: 'button' });
   await performStep(step('click', 'b'), btn, {});
   assert.equal(btn.focused, true); assert.equal(btn.clicks, 1);
+});
+
+await test('persistedState keeps only ask-at-play values that a step still to run needs', () => {
+  const steps = [step('set', 'p1', { askAtPlay: true }), step('click', 'c'), step('set', 'p2', { askAtPlay: true })];
+  const st = newPlaybackState({ id: 'a', name: 'n', steps }, { askValues: { p1: 'one', p2: 'two', stale: 'x' }, now: 0, runId: 'r' });
+  assert.deepEqual(persistedState(st).askValues, { p1: 'one', p2: 'two' }, 'nothing run yet: both kept, unknown ids dropped');
+  assert.deepEqual(persistedState({ ...st, nextIndex: 1 }).askValues, { p2: 'two' }, 'p1 consumed');
+  assert.deepEqual(persistedState({ ...st, nextIndex: 3 }).askValues, {}, 'all consumed');
+  assert.deepEqual(st.askValues, { p1: 'one', p2: 'two', stale: 'x' }, 'in-memory state untouched');
 });
 
 await test('session helpers round-trip and reject garbage', () => {

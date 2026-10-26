@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { relativeTime, actionCardHtml, actionsListHtml } from '../scripts/actionCards.js';
+import { relativeTime, actionCardHtml, actionsListHtml, stepCardHtml, timelineHtml, STEP_INSERT_ATTR } from '../scripts/actionCards.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -51,6 +51,44 @@ test('actionsListHtml renders every action with the active one marked, or the em
   assert.ok(empty.includes('class="mb-adm-empty mb-action-empty"'));
   assert.ok(empty.includes('data-action="startActionRecording"'));
   assert.ok(empty.includes('<span class="mb-adm-empty__icon more-buttons-icon">disc</span>'));
+});
+
+
+const mk = (kind, id, over = {}) => ({ id, kind, locator: { key: '#' + id, candidates: [] }, describe: { label: 'Site <name>', tag: 'input', type: 'text' }, value: null, askAtPlay: false, ...over });
+
+test('stepCardHtml: kind icon + escaped title, kind badge, value chip, meta, ask-at-play only on set steps', () => {
+  const html = stepCardHtml(mk('set', 's1', { value: 'Acme <Ltd>' }), 2);
+  assert.ok(html.includes('class="mb-incident-card --teal mb-action-step"'));
+  assert.ok(html.includes('<span class="more-buttons-icon">text-cursor-input</span>'));
+  assert.ok(html.includes('Set “Site &lt;name&gt;”'));
+  assert.ok(html.includes('<span class="mb-incident-card__badge">Set value</span>'));
+  assert.ok(html.includes('<code class="mb-action-step__value">Acme &lt;Ltd&gt;</code>'));
+  assert.ok(html.includes('Step 3 · input[text]'));
+  assert.ok(html.includes('data-step-ask="2" aria-pressed="false"'));
+  assert.ok(html.includes('data-step-delete="2"'));
+  const masked = stepCardHtml(mk('set', 's2', { askAtPlay: true }), 0);
+  assert.ok(masked.includes('class="mb-action-step__value --masked">••••</code>'));
+  assert.ok(masked.includes('aria-pressed="true"'));
+  const click = stepCardHtml(mk('click', 's3', { describe: { label: 'Save', tag: 'button', type: null } }), 0);
+  assert.ok(!click.includes('data-step-ask'), 'no ask toggle on clicks');
+  assert.ok(!click.includes('mb-action-step__value'), 'no value chip on clicks');
+  assert.ok(click.includes('Step 1 · button'));
+  const nav = stepCardHtml({ id: 'n', kind: 'navigate', locator: null, describe: {}, value: '/admin/sites', askAtPlay: false }, 1);
+  assert.ok(nav.includes('--grey') && nav.includes('>Page change<') && nav.includes('/admin/sites') && !nav.includes('data-step-ask'));
+});
+
+test('timelineHtml: insert bar before every step and after the last, rows carry index + kind accent', () => {
+  const steps = [mk('click', 'a', { describe: { label: 'Go', tag: 'button', type: null } }), mk('set', 'b', { value: 'x' })];
+  const html = timelineHtml(steps);
+  assert.equal((html.match(new RegExp(`${STEP_INSERT_ATTR}="\\d+"`, 'g')) || []).length, 3);
+  assert.ok(html.includes(`${STEP_INSERT_ATTR}="0"`) && html.includes(`${STEP_INSERT_ATTR}="2"`));
+  assert.ok(html.includes('>+ Record steps here<'));
+  assert.ok(html.includes('data-step-index="0" style="--mb-step-accent: var(--mb-col-blue)"'));
+  assert.ok(html.includes('data-step-index="1" style="--mb-step-accent: var(--mb-col-teal)"'));
+  assert.ok(html.includes('data-move-step="up" disabled') && html.includes('data-move-step="down" disabled'));
+  const empty = timelineHtml([]);
+  assert.equal((empty.match(new RegExp(STEP_INSERT_ATTR, 'g')) || []).length, 1);
+  assert.ok(empty.includes('mb-action-timeline__empty'));
 });
 
 console.log(`\n${passed} passed`);

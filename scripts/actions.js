@@ -24,6 +24,7 @@ import './diagramEditor.js';
 import './codeBlockEditor.js';
 import './integrations.js';
 import './knowledgeBaseSettings.js';
+import './actionEditor.js';
 
 export { openKnowledgeBaseManagement } from './knowledgeBaseManagement.js';
 export { openMediaLibrary } from './mediaLibrary.js';

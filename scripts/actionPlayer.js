@@ -43,6 +43,19 @@ export function playbackTitle(state) {
   return `Playing · step ${Math.min(state.nextIndex + 1, n)} of ${n}`;
 }
 
+/**
+ * What goes to sessionStorage. Ask-at-play values are secrets typed for this
+ * run: only the ones a step still to run needs are written, and each is
+ * dropped from the record as soon as its step has run. The in-memory state
+ * keeps the full set.
+ */
+export function persistedState(state) {
+  const pending = new Set(state.steps.slice(state.nextIndex).filter(s => s.askAtPlay).map(s => s.id));
+  const askValues = {};
+  for (const [id, v] of Object.entries(state.askValues ?? {})) if (pending.has(id)) askValues[id] = v;
+  return { ...state, askValues };
+}
+
 export function readPlayback(storage) {
   try {
     const raw = storage.getItem(PLAYBACK_KEY);
@@ -187,7 +200,7 @@ async function run(initial, env) {
   const { doc, storage } = env;
   let state = initial;
   let aborted = false;
-  const persist = () => writePlayback(storage, state);
+  const persist = () => writePlayback(storage, persistedState(state));
 
   const bar = env.mountBar({
     variant: 'playing', title: playbackTitle(state),
@@ -241,7 +254,7 @@ export async function startPlayback(action, { askValues = {} } = {}, envIn = {})
   if (active) return;
   const env = defaultEnv(envIn);
   const state = newPlaybackState(action, { askValues });
-  writePlayback(env.storage, state);
+  writePlayback(env.storage, persistedState(state));
   return run(state, env);
 }
 

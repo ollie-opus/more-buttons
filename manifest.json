@@ -116,6 +116,7 @@
         "scripts/actionToolbar.js",
         "scripts/actionRecorder.js",
         "scripts/actionPlayer.js",
+        "scripts/actionEditor.js",
         "scripts/gridEditor.js",
         "scripts/mdButtons.js",
         "scripts/buttonEditor.js",

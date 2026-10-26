@@ -1,0 +1,24 @@
+<form id="edit-action-form" data-nav data-dirty-guard data-storage-key="moreButtonsEditAction" data-width="760px" data-height="90vh">
+  <h2 data-action-heading>Edit action</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label" for="edit-action-name">Name</label>
+    <input id="edit-action-name" class="more-buttons-input-text" type="text" name="actionName" required data-maxlength="60" autocomplete="off" />
+  </div>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Steps</label>
+    <div>
+      <p class="more-buttons-description">Steps play top to bottom. Hover between steps to record more at that point; use the arrows to reorder.</p>
+      <div class="mb-action-timeline" data-action-steps></div>
+    </div>
+  </div>
+
+  <input type="hidden" name="actionState" />
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button green" data-action="saveEditAction" data-validate data-save-state data-saved-label="Saved" data-unsaved-label="Save"><span class="more-buttons-icon">save</span>Save</button>
+    <button type="button" class="more-buttons-button" data-action="back"><span class="more-buttons-icon">arrow-left</span>Back</button>
+    <button type="button" class="more-buttons-button red" data-action="deleteActionFromEditor"><span class="more-buttons-icon">trash-2</span>Delete action</button>
+  </div>
+</form>
