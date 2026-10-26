@@ -105,6 +105,17 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
         }).catch(() => {});
     }
 
+    // Actions recorder / player sessions (scripts/actionRecorder.js RECORDING_KEY,
+    // scripts/actionPlayer.js PLAYBACK_KEY; pinned by tests/contentScript.test.mjs).
+    // Unlike capture mode, a reload CONTINUES the session: a recording may span
+    // a full page load and a playback resumes on the page it navigated to.
+    const ACTION_SESSION_KEYS = ['moreButtonsActionRecording', 'moreButtonsActionPlayback'];
+    let hasActionSession = false;
+    try { hasActionSession = ACTION_SESSION_KEYS.some(k => window.sessionStorage.getItem(k) != null); } catch {}
+    if (hasActionSession) {
+        getActions().then(m => m.resumeActionSession?.()).catch(() => {});
+    }
+
 });
 
 // Listen for action requests from the popup

@@ -8,9 +8,10 @@
 import { createForm } from './form.js';
 import { registerFormAction, getFormAction } from './formActions.js';
 import { showDangerConfirm } from './confirmPanel.js';
-import { loadLibrary, removeAction, setActiveAction, getActiveAction } from './actionsLibrary.js';
+import { loadLibrary, removeAction, setActiveAction, getActiveAction, upsertAction, newAction } from './actionsLibrary.js';
 import { actionsListHtml, stepCountText } from './actionCards.js';
 import { watchIconSpans } from './lucideIcons.js';
+import { startRecording, resumeRecording, readRecording, clearRecording } from './actionRecorder.js';
 
 async function renderList(formEl) {
   const host = formEl.querySelector('[data-actions-list]');
@@ -89,6 +90,70 @@ export async function playActiveAction(...args) {
   } else {
     none?.removeAttribute('hidden');
     playBtn?.remove();
+  }
+}
+
+// ── Recording hand-offs ───────────────────────────────────────────────────────
+// The recorder dispatches these by name (it may be running in a page load that
+// never saw the form that started it), reading everything from the session.
+
+const session = () => window.sessionStorage;
+
+async function openNamePrompt(state) {
+  const { formEl } = await createForm('actionName');
+  if (!formEl) return;
+  formEl.querySelector('[data-step-count]').textContent = stepCountText(state.steps.length);
+  formEl.querySelector('input[name="actionName"]')?.focus();
+}
+
+// Dock "Record new" (and the empty-state button): close the form, start recording.
+registerFormAction('startActionRecording', async ({ cleanup } = {}) => {
+  cleanup?.();
+  startRecording({ mode: 'new' });
+});
+
+registerFormAction('finishActionRecording', async ({ state }) => {
+  if (state.mode === 'insert') {
+    const splice = getFormAction('finishInsertRecording');
+    if (splice) return splice({ state });
+    console.warn('[MB actions] editor not available; recording kept in session');
+    return;
+  }
+  await openNamePrompt(state);
+});
+
+registerFormAction('cancelActionRecording', async ({ state }) => {
+  if (state?.mode === 'insert') {
+    const open = getFormAction('openEditAction');
+    if (open) return open({ id: state.insert.actionId, draft: { name: state.insert.name, steps: state.insert.draftSteps } });
+  }
+  await openManageActions();
+});
+
+registerFormAction('submitActionName', async ({ formEl }) => {
+  const name = formEl?.querySelector('input[name="actionName"]')?.value.trim();
+  const state = readRecording(session());
+  if (!name || !state) { clearRecording(session()); return openManageActions(); }
+  await upsertAction(newAction({ name, steps: state.steps }));
+  clearRecording(session());
+  await openManageActions();
+});
+
+registerFormAction('discardRecording', async () => {
+  clearRecording(session());
+  await openManageActions();
+});
+
+/**
+ * Called by content.js on a page load that found an Actions session key in
+ * sessionStorage: a recording (or, later, a playback) survived a hard
+ * navigation and must carry on in this document.
+ */
+export async function resumeActionSession() {
+  const rec = readRecording(session());
+  if (rec) {
+    if (rec.phase === 'naming') return openNamePrompt(rec);
+    resumeRecording();
   }
 }
 

@@ -30,7 +30,7 @@ export { openMediaLibrary } from './mediaLibrary.js';
 export { openKnowledgeBaseSettings } from './knowledgeBaseSettings.js';
 export { openCaptureEntry } from './captureEntry.js';
 export { openIntegrations } from './integrations.js';
-export { openManageActions, playActiveAction } from './actionsManage.js';
+export { openManageActions, playActiveAction, resumeActionSession } from './actionsManage.js';
 
 export { navigateToNewDocumentPage } from './navigateToNewDocumentPage.js';
 export { clearAllCheckboxes } from './clearAllCheckboxes.js';

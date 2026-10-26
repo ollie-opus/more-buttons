@@ -17,6 +17,13 @@ test('content.js capture-session gate uses the same sessionStorage key as captur
   assert.equal(inContent, inCaptureMode);
 });
 
+test('content.js Actions session gate uses the recorder module\'s sessionStorage key', () => {
+  const keys = content.match(/ACTION_SESSION_KEYS = \[([^\]]+)\]/)?.[1].match(/'([^']+)'/g).map(k => k.slice(1, -1));
+  const recorder = src('../scripts/actionRecorder.js').match(/RECORDING_KEY = '([^']+)'/)?.[1];
+  assert.ok(keys?.length >= 1 && recorder);
+  assert.ok(keys.includes(recorder), 'recorder key gated');
+});
+
 test('content.js no longer polls for url changes', () => {
   assert.ok(!/setInterval\(/.test(content), 'setInterval found in content.js');
   assert.ok(!/waitForDomToSettle/.test(content));
