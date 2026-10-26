@@ -5067,3 +5067,31 @@ h2[data-edit-media-title] .mb-kb-pills {
     transition: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Action bar variants (scripts/actionToolbar.js)
+ *
+ * Recording / playback reuse the capture-mode bar + tab chrome wholesale and
+ * only re-hue it: red while recording, amber while paused, blue while playing.
+ * Both the bar and the tab own a --cb-hue (sibling elements can't inherit),
+ * so each variant sets it on both. These rules sit after the capture tab's
+ * own --cb-hue so the two-class selectors win on order as well as specificity. */
+.mb-action-bar { --tab-w: 190px; } /* tab grows to "Recording · 12 steps" */
+.mb-action-tab { min-width: 160px; }
+.mb-action-bar.--recording, .mb-action-tab.--recording { --cb-hue: #ef4444; } /* red-500 */
+.mb-action-bar.--paused,    .mb-action-tab.--paused    { --cb-hue: #f59e0b; } /* amber-500 */
+.mb-action-bar.--playing,   .mb-action-tab.--playing   { --cb-hue: #2563eb; } /* blue-600 */
+
+.mb-action-bar__flash {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
+  white-space: nowrap;
+  animation: mb-action-flash 2200ms ease-out both;
+}
+.mb-action-bar__flash[hidden] { display: none; }
+@keyframes mb-action-flash {
+  0%        { opacity: 0; transform: translateY(2px); }
+  10%, 80%  { opacity: 1; transform: none; }
+  100%      { opacity: 0; }
+}
