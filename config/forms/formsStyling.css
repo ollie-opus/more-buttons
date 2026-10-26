@@ -804,8 +804,12 @@ button.more-buttons-crumb:hover {
    Tag-agnostic: matches the <form> body of editor forms AND the <div> body of the
    short error/warning forms (errorNoQRSettings, githubNotConnected, …), which
    would otherwise let the absolute dock overlay their text. The prepended
-   .more-buttons-navbar is excluded so it isn't pushed down by the clearance. */
-.more-buttons-overlay-content > :not(.more-buttons-navbar):has(~ .more-buttons-form-actions) {
+   .more-buttons-navbar is excluded so it isn't pushed down by the clearance.
+   Adjacent (+), not general (~): form.js appends the dock LAST and the inline
+   panels (confirmPanel.js, conflictResolver.js) mount BEFORE the body, so only
+   the body touches the dock — a general sibling match gave every panel 70px of
+   dead space under its buttons. */
+.more-buttons-overlay-content > :not(.more-buttons-navbar):has(+ .more-buttons-form-actions) {
   padding-bottom: 70px;
 }
 
