@@ -240,7 +240,7 @@ await test('overlapping first renders create a single root with the newest butto
   assert.equal(doc.getElementById('a1'), null);
 });
 
-await test('unpinned renders collapsed; handle toggles per-tab and writes nothing', async () => {
+await test('unpinned renders collapsed; handle toggles and persists open for every tab', async () => {
   const { writes } = fakeChrome({ moreButtonsPageDock: { pinned: false } });
   const doc = fakeDoc();
   await renderPageDock(buttons, () => {}, { doc });
@@ -255,9 +255,26 @@ await test('unpinned renders collapsed; handle toggles per-tab and writes nothin
   assert.equal(handle.getAttribute('aria-expanded'), 'true');
   assert.equal(handle.getAttribute('aria-label'), 'Collapse More Buttons dock');
   assert.equal(iconOf(handle), 'chevron-right');
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: false, open: true } });
   handle.click();
   assert.ok(root.classList.contains('--closed'));
-  assert.deepEqual(writes, [], 'the handle is per-tab only; it never persists');
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: false, open: false } });
+  assert.equal(writes.length, 2, 'one write per handle click');
+});
+
+await test('stored open wins over pinned for the initial drawer state (pushed away in another tab stays away)', async () => {
+  for (const [stored, expectClosed] of [
+    [{ moreButtonsPageDock: { pinned: true, open: false } }, true],
+    [{ moreButtonsPageDock: { pinned: false, open: true } }, false],
+    [{ moreButtonsPageDock: { pinned: true, expanded: true, open: true } }, false],
+  ]) {
+    fakeChrome(stored);
+    const doc = fakeDoc();
+    await renderPageDock(buttons, () => {}, { doc });
+    const root = doc.getElementById('mb-page-dock');
+    assert.equal(root.classList.contains('--closed'), expectClosed, JSON.stringify(stored));
+    assert.equal(island(root).inert, expectClosed, JSON.stringify(stored));
+  }
 });
 
 await test('pinned (default) renders open; legacy { open:false } reads as unpinned', async () => {
@@ -266,7 +283,6 @@ await test('pinned (default) renders open; legacy { open:false } reads as unpinn
     [{ moreButtonsPageDock: { pinned: true } }, false],
     [{ moreButtonsPageDock: { open: true } }, false],
     [{ moreButtonsPageDock: { open: false } }, true],
-    [{ moreButtonsPageDock: { open: false, pinned: true } }, false], // explicit pinned wins over legacy open
   ]) {
     fakeChrome(stored);
     const doc = fakeDoc();
@@ -275,9 +291,16 @@ await test('pinned (default) renders open; legacy { open:false } reads as unpinn
     assert.equal(root.classList.contains('--closed'), expectClosed, JSON.stringify(stored));
     assert.equal(pinBtn(root).getAttribute('aria-pressed'), String(!expectClosed), JSON.stringify(stored));
   }
+  // Legacy `open` has no `pinned` beside it; a stored `pinned` means `open` is the real pref.
+  fakeChrome({ moreButtonsPageDock: { open: false, pinned: true } });
+  const doc = fakeDoc();
+  await renderPageDock(buttons, () => {}, { doc });
+  const root = doc.getElementById('mb-page-dock');
+  assert.ok(root.classList.contains('--closed'));
+  assert.equal(pinBtn(root).getAttribute('aria-pressed'), 'true');
 });
 
-await test('pin toggle flips aria-pressed + icon, persists the whole prefs object, leaves open state alone', async () => {
+await test('pin toggle flips aria-pressed + icon, persists the whole prefs object with open = pinned, leaves this tab open', async () => {
   const { writes } = fakeChrome({});
   const doc = fakeDoc();
   await renderPageDock(buttons, () => {}, { doc });
@@ -289,18 +312,18 @@ await test('pin toggle flips aria-pressed + icon, persists the whole prefs objec
   pin.click();
   assert.equal(pin.getAttribute('aria-pressed'), 'false');
   assert.equal(iconOf(pin), 'pin');
-  assert.ok(!root.classList.contains('--closed'), 'unpinning does not collapse the current tab');
-  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: false } });
+  assert.ok(!root.classList.contains('--closed'), 'unpinning does not collapse the current tab until the pointer leaves');
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: false, open: false } });
   pin.click();
   assert.equal(pin.getAttribute('aria-pressed'), 'true');
   assert.equal(iconOf(pin), 'pin-off');
-  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: true, expanded: false } });
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: true, expanded: false, open: true } });
   assert.ok(pin.getAttribute('aria-label'));
   assert.ok(pin.getAttribute('title'));
 });
 
 await test('unpinning arms a one-shot collapse that fires when the pointer leaves the dock', async () => {
-  fakeChrome({});
+  const { writes } = fakeChrome({});
   const doc = fakeDoc();
   await renderPageDock(buttons, () => {}, { doc });
   const root = doc.getElementById('mb-page-dock');
@@ -311,10 +334,13 @@ await test('unpinning arms a one-shot collapse that fires when the pointer leave
   assert.ok(root.classList.contains('--closed'), 'collapses once the pointer leaves');
   assert.equal(handle.getAttribute('aria-expanded'), 'false');
   assert.equal(island(root).inert, true);
+  assert.equal(writes.length, 1, 'the unpin already wrote open:false; the leave collapse does not write again');
   // One-shot: pulling it open again and leaving does not collapse it (unpinned = stays open once pulled).
   handle.click();
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: false, open: true } });
   root.fire('pointerleave');
   assert.ok(!root.classList.contains('--closed'));
+  assert.equal(writes.length, 2);
 });
 
 await test('re-pinning before the pointer leaves disarms the collapse; opening an unpinned dock never arms it', async () => {
@@ -349,11 +375,11 @@ await test('expand toggle sets --expanded on the root, swaps icon and persists a
   assert.ok(root.classList.contains('--expanded'));
   assert.equal(ex.getAttribute('aria-pressed'), 'true');
   assert.equal(iconOf(ex), 'shrink');
-  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: true } });
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: true, open: false } });
   ex.click();
   assert.ok(!root.classList.contains('--expanded'));
   assert.equal(iconOf(ex), 'expand');
-  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: false } });
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: false, expanded: false, open: false } });
 });
 
 await test('stored expanded renders --expanded on first paint', async () => {
@@ -371,18 +397,20 @@ await test('storage change from another tab applies expanded without touching op
   const doc = fakeDoc();
   await renderPageDock(buttons, () => {}, { doc });
   const root = doc.getElementById('mb-page-dock');
-  root.querySelector('.mb-page-dock__handle').click();   // locally collapsed
-  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: true } } });
+  root.querySelector('.mb-page-dock__handle').click();   // collapsed here (and written for the others)
+  assert.deepEqual(writes, [{ moreButtonsPageDock: { pinned: true, expanded: false, open: false } }]);
+  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: true, open: false } } });
   assert.ok(root.classList.contains('--expanded'));
   assert.ok(root.classList.contains('--closed'), 'an expand-only change leaves this tab collapsed');
-  assert.deepEqual(writes, [], 'applying a remote change must not echo a write');
+  assert.equal(writes.length, 1, 'applying a remote change must not echo a write');
   // Other areas / other keys are ignored.
-  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: false } } }, 'sync');
+  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: false, open: true } } }, 'sync');
   fireChange({ somethingElse: { newValue: 1 } });
   assert.ok(root.classList.contains('--expanded'));
+  assert.ok(root.classList.contains('--closed'));
   // Subsequent local toggle builds on the synced prefs.
   expandBtn(root).click();
-  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: true, expanded: false } });
+  assert.deepEqual(writes.at(-1), { moreButtonsPageDock: { pinned: true, expanded: false, open: false } });
 });
 
 await test('pin change from another tab collapses/opens this tab immediately', async () => {
@@ -402,11 +430,38 @@ await test('pin change from another tab collapses/opens this tab immediately', a
   assert.equal(pinBtn(root).getAttribute('aria-pressed'), 'true');
   assert.ok(!root.classList.contains('--closed'));
   assert.equal(island(root).inert, false);
-  // Unchanged pinned in a later change (e.g. expand toggled remotely) does not re-open a locally collapsed tab.
+  // Unchanged open in a later change (e.g. expand toggled remotely) does not re-open a collapsed tab.
   handle.click();
-  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: true } } });
+  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: true, open: false } } });
   assert.ok(root.classList.contains('--closed'));
-  assert.deepEqual(writes, []);
+  assert.deepEqual(writes, [{ moreButtonsPageDock: { pinned: true, expanded: false, open: false } }]);
+});
+
+await test('handle change from another tab pushes/pulls this tab immediately, pin untouched', async () => {
+  const { fireChange, writes } = fakeChrome({});
+  const doc = fakeDoc();
+  await renderPageDock(buttons, () => {}, { doc });
+  const root = doc.getElementById('mb-page-dock');
+  const handle = root.querySelector('.mb-page-dock__handle');
+  // Another tab pushes the dock away → this tab collapses, still pinned.
+  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: false, open: false } } });
+  assert.ok(root.classList.contains('--closed'));
+  assert.equal(island(root).inert, true);
+  assert.equal(handle.getAttribute('aria-expanded'), 'false');
+  assert.equal(iconOf(handle), 'chevron-left');
+  assert.equal(pinBtn(root).getAttribute('aria-pressed'), 'true');
+  // Another tab pulls it out → this tab opens.
+  fireChange({ moreButtonsPageDock: { newValue: { pinned: true, expanded: false, open: true } } });
+  assert.ok(!root.classList.contains('--closed'));
+  assert.equal(island(root).inert, false);
+  assert.equal(iconOf(handle), 'chevron-right');
+  assert.deepEqual(writes, [], 'following remote changes never writes');
+  // A remote push while an unpin-collapse is armed here disarms it (nothing left to collapse).
+  pinBtn(root).click();                       // unpin: writes open:false, DOM still open
+  fireChange({ moreButtonsPageDock: { newValue: { pinned: false, expanded: false, open: true } } }); // other tab pulled it open
+  assert.ok(!root.classList.contains('--closed'));
+  root.fire('pointerleave');
+  assert.ok(!root.classList.contains('--closed'), 'remote open flip disarmed the leave collapse');
 });
 
 await test('removePageDock detaches the storage change listener', async () => {

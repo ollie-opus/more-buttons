@@ -30,10 +30,18 @@ export const RECORDING_KEY = 'moreButtonsActionRecording';
 
 // Explicit roots only. The host is Tailwind v4, where `mb-4` is a margin class,
 // so a `[class*="mb-"]` ignore rule would swallow half the page.
-export const OWN_UI_SELECTOR = '.mb-capture-bar, .mb-capture-tab, .mb-capture-bar__popover, .more-buttons-overlay, .more-buttons-loading-tile, #mb-page-dock, .mb-page-dock';
+export const OWN_UI_SELECTOR = '.mb-capture-bar, .mb-capture-tab, .mb-capture-bar__popover, .mb-action-veil, .more-buttons-overlay, .more-buttons-loading-tile, #mb-page-dock, .mb-page-dock';
 export const isOwnUi = target => !!target?.closest?.(OWN_UI_SELECTOR);
 
-const CLICKABLE = 'button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="option"], summary, input[type="button"], input[type="submit"], input[type="reset"]';
+// Only clicks on something INTERACTIVE become steps: a click on bare page
+// furniture (a card body, a heading, whitespace) is ignored rather than recorded
+// as a brittle "click <div>" step that does nothing useful at play time.
+const CLICKABLE = [
+  'button', 'a[href]', 'summary',
+  'input[type="button"]', 'input[type="submit"]', 'input[type="reset"]',
+  '[role="button"]', '[role="link"]', '[role="tab"]', '[role="menuitem"]', '[role="menuitemcheckbox"]', '[role="menuitemradio"]',
+  '[role="option"]', '[role="checkbox"]', '[role="radio"]', '[role="switch"]', '[role="combobox"]',
+].join(', ');
 const BUTTON_INPUT_TYPES = new Set(['button', 'submit', 'reset']);
 const SUBMIT_WINDOW_MS = 400;
 
@@ -42,7 +50,7 @@ const typeOf = el => (el.getAttribute('type') || '').toLowerCase();
 
 // ── Classification (pure) ──────────────────────────────────────────────────────
 
-/** What a click means: { kind: 'ignore' } | { kind: 'flash', message } | { kind: 'click', el }. */
+/** What a click means: { kind: 'ignore' } | { kind: 'flash', message } | { kind: 'click', el }. Non-interactive targets are ignored. */
 export function classifyClick(target) {
   if (!target || isOwnUi(target)) return { kind: 'ignore' };
   const ctl = target.closest('input, textarea, select');
@@ -52,9 +60,16 @@ export function classifyClick(target) {
     if (type === 'file') return { kind: 'flash', message: 'File pickers aren’t recorded' };
     return { kind: 'ignore' }; // focusing / typing: the change event is the step
   }
+  const el = target.closest(CLICKABLE);
   const label = target.closest('label');
+  // A real control INSIDE a label (e.g. a "Pick site" button sitting in a
+  // <label> wrapper, where label.control is that very button) takes the click
+  // itself, so it is recorded. The label rule below is only for clicks on the
+  // label's own text, which the browser forwards to the associated control
+  // (whose change event is then the step).
+  if (el && el.closest('label') === label) return { kind: 'click', el };
   if (label && (label.control || label.getAttribute('for'))) return { kind: 'ignore' };
-  return { kind: 'click', el: target.closest(CLICKABLE) ?? target };
+  return el ? { kind: 'click', el } : { kind: 'ignore' };
 }
 
 export function clickStep(el, newId) {

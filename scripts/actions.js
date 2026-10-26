@@ -35,7 +35,6 @@ export { openManageActions, playActiveAction, resumeActionSession } from './acti
 
 export { navigateToNewDocumentPage } from './navigateToNewDocumentPage.js';
 export { clearAllCheckboxes } from './clearAllCheckboxes.js';
-export { setAnnualDocumentDefault } from './setAnnualDocumentDefault.js';
 export { copyQuestions } from './copyQuestions.js';
 export { auditCSVExport } from './auditCSVExport.js';
 export { navigateToEmployeePageForRegEmail } from './navigateToEmployeePageForRegEmail.js';
@@ -47,7 +46,6 @@ export { generateSiteQRPosterPDF } from './generateSiteQRPosterPDF.js';
 export { highlightPackageTemplateInMPP } from './highlightPackageTemplateInMPP.js';
 export { setAccess } from './setAccess.js';
 export { employeeRecordAccessEditEnhancement } from './employeeRecordAccessEditEnhancement.js';
-export { fillInputsFromPreset } from './fillInputsFromPreset.js';
 export { applyAdvancedNavigation } from './applyAdvancedNavigation.js';
 export { mergeIndicatorsEnhancement } from './mergeIndicatorsEnhancement.js';
 export { questionSectionToggle } from './questionSectionToggle.js';

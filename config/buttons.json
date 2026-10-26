@@ -66,19 +66,6 @@
     "dockOrder": 10
   },
   {
-    "id": "mb-set-annual-document-default-btn",
-    "displayText": "Set annual document default",
-    "descriptionText": "Sets scope to device. Sets severity to minor. Sets interval to 1 year. Sets lead time to 2 weeks.",
-    "icon": "file-pen-line",
-    "colour": "violet",
-    "pageMatch": {
-      "mode": "and",
-      "keywords": [["documents/new?data"], ["documents", "edit"]]
-    },
-    "action": "setAnnualDocumentDefault",
-    "dockOrder": 10
-  },
-  {
     "id": "mb-copy-questions-btn",
     "displayText": "Questions/steps",
     "descriptionText": "Copy all questions/steps to clipboard.",
@@ -276,19 +263,6 @@
     "dockOrder": 130
   },
   {
-    "id": "mb-site-preset-btn",
-    "displayText": "Manage site preset",
-    "descriptionText": "Edit your stored preset and apply it onto this site/asset/employee",
-    "icon": "paint-roller",
-    "colour": "violet",
-    "pageMatch": {
-      "mode": "and",
-      "keywords": [["REGEX:^https:\\/\\/cloud\\.opus-safety\\.co\\.uk\\/admin\\/sites\\/[a-f0-9-]+\\/edit*"], ["employees/new"], ["equipments/new"]]
-    },
-    "action": "createForm:sitePreset",
-    "dockOrder": 10
-  },
-  {
     "id": "mb-advanced-navigation-btn",
     "displayText": "Advanced navigation",
     "descriptionText": "Define the specific page you land on when selecting a site",
@@ -460,7 +434,7 @@
   },
   {
     "id": "mb-actions-play-btn",
-    "displayText": "Play actions",
+    "displayText": "Play action",
     "descriptionText": "Play the active action on this page. Ctrl/Cmd-click skips the confirmation.",
     "icon": "circle-play",
     "colour": "orange",

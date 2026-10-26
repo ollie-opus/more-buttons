@@ -44,6 +44,7 @@ const ids = () => { let i = 0; return () => `s${++i}`; };
 test('RECORDING_KEY is the per-tab session key content.js gates on', () => {
   assert.equal(RECORDING_KEY, 'moreButtonsActionRecording');
   assert.ok(OWN_UI_SELECTOR.includes('.more-buttons-overlay') && OWN_UI_SELECTOR.includes('.mb-capture-bar'));
+  assert.ok(OWN_UI_SELECTOR.includes('.mb-action-veil'), 'the playback veil must never be a locator tie-breaker or a recorded click');
   assert.ok(!/\[class\*=/.test(OWN_UI_SELECTOR), 'explicit roots only (Tailwind mb-* collision)');
 });
 
@@ -68,9 +69,42 @@ test('classifyClick: input[type=submit|button] and buttons are clicks, resolved 
   assert.equal(classifyClick(icon).el, link);
   const div = el('div', { role: 'button' }); el('body', {}, [div]);
   assert.equal(classifyClick(div).el, div);
+  const sw = el('span', { role: 'switch' }); el('body', {}, [sw]);
+  assert.equal(classifyClick(sw).el, sw);
 });
 
-test('classifyClick: a label that owns a control is ignored (its change is the step); a bare label is a click', () => {
+test('classifyClick: a button INSIDE a label wrapper is a click even though label.control points at it', () => {
+  // Groove's <ds-input>: <label> wraps a hidden input, a "Pick site" button and
+  // a replacement slot. label.control resolves to the button (hidden inputs are
+  // not labelable), and the old rule swallowed the click → the picker popup
+  // never opened at play time and the next step found nothing.
+  const hidden = el('input', { type: 'hidden', name: 'todo[input_data][location-of-work]' });
+  const pick = el('button', { type: 'button', 'data-target': 'pickButton', 'data-action': 'tasks--ds-input#onPickResource' }, ['Pick site']);
+  const slot = el('div', { 'data-target': 'replacement' }, [pick]);
+  const label = el('label', { class: 'ds-input-group' }, [el('span', { class: 'form-label' }, ['Location of work']), hidden, slot]);
+  label.control = pick;
+  el('ds-input', {}, [label]);
+  assert.deepEqual(classifyClick(pick), { kind: 'click', el: pick });
+  assert.deepEqual(classifyClick(label.children[0]), { kind: 'ignore' }, 'the label text itself is still forwarded to the control, not a step');
+  // Checkbox inside its label: the click lands on the control, whose change is the step.
+  const cb = el('input', { type: 'checkbox' });
+  const owning = el('label', {}, ['Weekly', cb]); owning.control = cb; el('form', {}, [owning]);
+  assert.deepEqual(classifyClick(cb), { kind: 'ignore' });
+});
+
+test('classifyClick: clicks on non-interactive page furniture are ignored, not recorded', () => {
+  const text = el('p', {}, ['Some copy']);
+  const card = el('div', { class: 'card' }, [text]);
+  el('body', {}, [card]);
+  assert.deepEqual(classifyClick(text), { kind: 'ignore' });
+  assert.deepEqual(classifyClick(card), { kind: 'ignore' });
+  const h = el('h2', {}, ['Title']); el('section', { onclick: 'x()' }, [h]);
+  assert.deepEqual(classifyClick(h), { kind: 'ignore' }, 'inline onclick on an ancestor is not a recordable control');
+  const anchorNoHref = el('a', {}, ['nope']); el('body', {}, [anchorNoHref]);
+  assert.deepEqual(classifyClick(anchorNoHref), { kind: 'ignore' }, 'an <a> without href is not a link');
+});
+
+test('classifyClick: labels are never clicks (an owning label\'s change is the step)', () => {
   const cb = el('input', { type: 'checkbox' });
   const owning = el('label', {}, ['Weekly', cb]); owning.control = cb;
   el('form', {}, [owning]);
@@ -78,7 +112,7 @@ test('classifyClick: a label that owns a control is ignored (its change is the s
   const forLabel = el('label', { for: 'x' }, ['X']); el('form', {}, [forLabel]);
   assert.deepEqual(classifyClick(forLabel), { kind: 'ignore' });
   const bare = el('label', {}, ['Just text']); el('form', {}, [bare]);
-  assert.equal(classifyClick(bare).kind, 'click');
+  assert.deepEqual(classifyClick(bare), { kind: 'ignore' }, 'a bare label is not interactive either');
 });
 
 test('stepFromChange: text → set, checkbox → check, radio → choose (group + option text), select → set with option text', () => {

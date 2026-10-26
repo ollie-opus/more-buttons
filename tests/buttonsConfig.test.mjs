@@ -61,7 +61,7 @@ test('deleted ids are gone', () => {
 });
 
 test('renamed ids exist, old ids gone', () => {
-  for (const id of ['mb-qr-poster-builder-btn', 'mb-site-preset-btn', 'mb-report-type-preset-btn']) assert.ok(byId(id), id);
+  for (const id of ['mb-qr-poster-builder-btn', 'mb-report-type-preset-btn']) assert.ok(byId(id), id);
   for (const id of ['mb-generate-qr-btn', 'mb-apply-preset-btn', 'mb-apply-report-type-preset-btn']) assert.equal(byId(id), undefined, id);
 });
 

@@ -1,6 +1,6 @@
 /* ── Theme tokens ─────────────────────────────────────────────────────────── */
 
-.more-buttons-overlay-content, .mb-page-dock, .mb-popup {
+.more-buttons-overlay-content, .mb-page-dock, .mb-popup, .mb-action-veil__card {
   --mb-bg:               #ffffff;
   --mb-bg-subtle:        #f8fafc;
   --mb-bg-input:         #ffffff;
@@ -61,7 +61,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .more-buttons-overlay-content, .mb-page-dock, .mb-popup {
+  .more-buttons-overlay-content, .mb-page-dock, .mb-popup, .mb-action-veil__card {
     --mb-bg:               #1e293b;
     --mb-bg-subtle:        #0f172a;
     --mb-bg-input:         #0f172a;
@@ -5095,6 +5095,69 @@ h2[data-edit-media-title] .mb-kb-pills {
   10%, 80%  { opacity: 1; transform: none; }
   100%      { opacity: 0; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Playback veil (scripts/actionPlayVeil.js)
+ *
+ * Full-page input blocker shown for the whole of an Action run. Sits above
+ * the page, the dock (9990) and the form overlay (9999) but below the capture
+ * bar/tab so an armed capture session's chrome still wins if both exist.
+ * The card borrows the overlay palette (it is in the --mb token scope above)
+ * so .more-buttons-button renders exactly as it does inside forms. */
+.mb-action-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483644;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  cursor: progress;
+  animation: mb-action-veil-in 160ms ease-out both;
+}
+@keyframes mb-action-veil-in { from { opacity: 0; } to { opacity: 1; } }
+
+.mb-action-veil__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 260px;
+  max-width: min(420px, 100%);
+  padding: 26px 30px 22px;
+  border: 1px solid var(--mb-border);
+  border-radius: 14px;
+  background: var(--mb-bg);
+  color: var(--mb-text);
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+  font-family: RubikVariable, ui-sans-serif, system-ui, sans-serif,
+    Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
+  text-align: center;
+  cursor: default;
+  box-sizing: border-box;
+}
+.mb-action-veil__card > .more-buttons-icon {
+  font-size: 2.25rem;
+  color: #2563eb; /* blue-600 — the --playing hue */
+}
+.mb-action-veil.--done .mb-action-veil__card > .more-buttons-icon { color: #16a34a; } /* green-600 */
+.mb-action-veil__title {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mb-action-veil__sub {
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+  min-height: 1.2em;
+}
+.mb-action-veil__sub:empty { display: none; }
+.mb-action-veil__cancel { margin-top: 10px; }
+.mb-action-veil__cancel[hidden] { display: none; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Actions timeline (scripts/actionEditor.js / actionCards.js)

@@ -5,16 +5,21 @@
  *   - The `#mb-page-dock` root (appended to document.documentElement): a frosted
  *     vertical island preceded by a collapse handle on its left. The island holds
  *     a micro-controls strip (pin / expand toggles) above the button tiles.
- *   - Two persisted preferences in chrome.storage.local
- *     (`moreButtonsPageDock` → { pinned, expanded }):
- *       pinned   (default true)  — the dock is OPEN by default in new tabs.
+ *   - Three persisted preferences in chrome.storage.local
+ *     (`moreButtonsPageDock` → { pinned, expanded, open }):
+ *       pinned   (default true)  — unpinning arms the slide-away-on-leave collapse
+ *                                  and is the fallback for `open` when it is absent.
  *       expanded (default false) — tiles show their displayText beside the icon and
  *                                  the hover tag shows descriptionText instead.
  *                                  Compact tags read "Group: displayText" (no
  *                                  prefix for ungrouped buttons).
- *     Legacy `{ open:false }` (pre-pin builds) reads as unpinned once; the first
- *     write replaces it. Other open tabs follow pinned/expanded via storage.onChanged.
- *   - The open/collapsed state is PER-TAB: the handle toggles it without persisting.
+ *       open     (default pinned) — the drawer is pulled out. The handle, the pin
+ *                                  toggle (pin → open, unpin → closed) and the
+ *                                  pointer-leave collapse all write it.
+ *     Legacy `{ open:false }` alone (pre-pin builds) reads as unpinned + closed; the
+ *     first write replaces it. All three prefs are UNIVERSAL: every open tab
+ *     follows them via storage.onChanged and new tabs start from them, so pushing
+ *     the dock away in one tab pushes it away everywhere.
  *
  * Driven by content.js, which calls renderPageDock on every SPA navigation with
  * the buttons matching the current page and a `dispatch(action)` callback. The
@@ -54,9 +59,11 @@ function ensureStylesheet(doc) {
 
 function normalisePrefs(stored) {
   const s = stored && typeof stored === 'object' ? stored : {};
+  const pinned = typeof s.pinned === 'boolean' ? s.pinned : s.open !== false;
   return {
-    pinned: typeof s.pinned === 'boolean' ? s.pinned : s.open !== false,
+    pinned,
     expanded: s.expanded === true,
+    open: typeof s.open === 'boolean' ? s.open : pinned,
   };
 }
 
@@ -68,7 +75,7 @@ async function loadPrefs() {
 }
 
 function persistPrefs(prefs) {
-  const value = { pinned: prefs.pinned, expanded: prefs.expanded };
+  const value = { pinned: prefs.pinned, expanded: prefs.expanded, open: prefs.open };
   try { Promise.resolve(chrome.storage.local.set({ [STORAGE_KEY]: value })).catch(() => {}); } catch {}
 }
 
@@ -140,29 +147,39 @@ function createRoot(doc, prefs) {
     applyPinState(pin.btn, pin.icon, prefs.pinned);
     applyExpandedState(root, expand.btn, expand.icon, prefs.expanded);
   };
-  applyOpenState(root, handle, handleIcon, prefs.pinned);
+  applyOpenState(root, handle, handleIcon, prefs.open);
   paint();
 
+  // Paint-only; callers that change the pref go through persistOpen.
   const setOpen = (open) => applyOpenState(root, handle, handleIcon, open);
+  const persistOpen = (open) => {
+    setOpen(open);
+    if (prefs.open === open) return;
+    prefs.open = open;
+    persistPrefs(prefs);
+  };
 
   // Unpinning while the pointer is over the dock arms a ONE-SHOT collapse that
   // fires when the pointer leaves, so the drawer slides away as you move off
   // it. Re-pinning (or anything else) before that disarms it; a dock the user
-  // later pulls open via the handle is never auto-collapsed.
+  // later pulls open via the handle is never auto-collapsed. The unpin already
+  // wrote open:false (other tabs collapse at once); this tab just catches up.
   let collapseOnLeave = false;
   root.addEventListener('pointerleave', () => {
     if (!collapseOnLeave) return;
     collapseOnLeave = false;
-    setOpen(false);
+    persistOpen(false);
   });
 
-  // Per-tab: the handle never persists. Pinned only decides the default.
+  // Universal: the handle persists open/closed so every tab (and new ones) follow.
   handle.addEventListener('click', () => {
     collapseOnLeave = false;
-    setOpen(root.classList.contains('--closed'));
+    persistOpen(root.classList.contains('--closed'));
   });
   pin.btn.addEventListener('click', () => {
     prefs.pinned = !prefs.pinned;
+    // Pin → open everywhere; unpin → closed everywhere (this tab on pointer-leave).
+    prefs.open = prefs.pinned;
     paint();
     persistPrefs(prefs);
     collapseOnLeave = !prefs.pinned;
@@ -173,17 +190,17 @@ function createRoot(doc, prefs) {
     persistPrefs(prefs);
   });
 
-  // Follow pin/expand changes made in other tabs. A remote PIN change also
-  // applies open/closed here (unpin collapses every tab, pin opens them) so the
-  // pin behaves universally; an expand-only change leaves this tab's drawer alone.
+  // Follow pin/expand/open changes made in other tabs. The drawer only moves
+  // when `open` actually flipped, so an expand-only change leaves it alone and
+  // this tab's own writes (prefs already updated) are no-ops here.
   detachChangeListener();
   const onChanged = (changes, area) => {
     if (area !== 'local' || !changes || !(STORAGE_KEY in changes)) return;
     const next = normalisePrefs(changes[STORAGE_KEY]?.newValue);
-    const pinFlipped = next.pinned !== prefs.pinned;
+    const openFlipped = next.open !== prefs.open;
     Object.assign(prefs, next);
     paint();
-    if (pinFlipped) { collapseOnLeave = false; setOpen(prefs.pinned); }
+    if (openFlipped) { collapseOnLeave = false; setOpen(prefs.open); }
   };
   try {
     chrome.storage.onChanged?.addListener?.(onChanged);
@@ -225,7 +242,7 @@ function buildTile(doc, def, dispatch, groupName = null) {
 
   tile.addEventListener('click', (e) => {
     // Modifier state rides along so an action can offer a Ctrl/Cmd-click
-    // variant (Play actions skips its confirm). content.js only forwards it
+    // variant (Play action skips its confirm). content.js only forwards it
     // when a modifier is actually held, so plain clicks are unchanged.
     const mods = { ctrlKey: !!e?.ctrlKey, metaKey: !!e?.metaKey, shiftKey: !!e?.shiftKey, altKey: !!e?.altKey };
     Promise.resolve().then(() => dispatch(def.action, mods))
