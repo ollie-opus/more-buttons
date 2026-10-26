@@ -22,6 +22,8 @@ test('content.js Actions session gate uses the recorder module\'s sessionStorage
   const recorder = src('../scripts/actionRecorder.js').match(/RECORDING_KEY = '([^']+)'/)?.[1];
   assert.ok(keys?.length >= 1 && recorder);
   assert.ok(keys.includes(recorder), 'recorder key gated');
+  const player = src('../scripts/actionPlayer.js').match(/PLAYBACK_KEY = '([^']+)'/)?.[1];
+  assert.ok(player && keys.includes(player), 'player key gated');
 });
 
 test('content.js dispatch forwards dock modifiers only when one is held (existing actions never see an extra arg)', () => {

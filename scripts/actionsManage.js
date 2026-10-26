@@ -12,6 +12,9 @@ import { loadLibrary, removeAction, setActiveAction, getActiveAction, upsertActi
 import { actionsListHtml, stepCountText } from './actionCards.js';
 import { watchIconSpans } from './lucideIcons.js';
 import { startRecording, resumeRecording, readRecording, clearRecording } from './actionRecorder.js';
+import { startPlayback, resumePlayback, readPlayback } from './actionPlayer.js';
+import { askAtPlaySteps, summariseStep } from './actionSteps.js';
+import { escapeHtml } from './cardRenderer.js';
 
 async function renderList(formEl) {
   const host = formEl.querySelector('[data-actions-list]');
@@ -67,10 +70,33 @@ export async function openManageActions() {
 // when a modifier was held; Ctrl/Cmd skips the confirm.
 const skipConfirm = a => !!a && typeof a === 'object' && (a.ctrlKey === true || a.metaKey === true);
 
+// The action awaiting ask-at-play values (module memory: the prompt and its
+// submit live in the same page).
+let pendingPlay = null;
+
 async function runAction(action) {
-  // Wired to the player once actionPlayer.js lands.
-  console.warn('[MB actions] player not built yet; would play', action.name);
+  const asks = askAtPlaySteps(action.steps);
+  if (!asks.length) return startPlayback(action, { askValues: {} });
+  pendingPlay = action;
+  const { formEl } = await createForm('askAtPlay');
+  if (!formEl) return;
+  formEl.querySelector('[data-action-name]').textContent = action.name;
+  formEl.querySelector('[data-ask-fields]').innerHTML = asks.map((s, i) => `
+    <div class="more-buttons-form-group">
+      <label class="more-buttons-label" for="mb-ask-${i}">${escapeHtml(summariseStep(s).title.replace(/^Set /, ''))}</label>
+      <input id="mb-ask-${i}" class="more-buttons-input-text" type="password" name="ask_${escapeHtml(s.id)}" data-ask-step="${escapeHtml(s.id)}" required autocomplete="off" />
+    </div>`).join('');
+  formEl.querySelector('input[data-ask-step]')?.focus();
 }
+
+registerFormAction('submitAskAtPlay', async ({ formEl, cleanup }) => {
+  const action = pendingPlay;
+  pendingPlay = null;
+  const askValues = {};
+  formEl?.querySelectorAll('input[data-ask-step]').forEach(inp => { askValues[inp.dataset.askStep] = inp.value; });
+  cleanup?.();
+  if (action) await startPlayback(action, { askValues });
+});
 
 export async function playActiveAction(...args) {
   const action = await getActiveAction();
@@ -150,6 +176,7 @@ registerFormAction('discardRecording', async () => {
  * navigation and must carry on in this document.
  */
 export async function resumeActionSession() {
+  if (readPlayback(session())) return resumePlayback();
   const rec = readRecording(session());
   if (rec) {
     if (rec.phase === 'naming') return openNamePrompt(rec);
