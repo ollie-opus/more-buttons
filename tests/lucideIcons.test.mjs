@@ -290,13 +290,16 @@ const scriptFiles = listDir('../scripts/', '.js');
 const formFiles = listDir('../config/forms/', '.html');
 const popupFiles = ['../popup.html', '../popup.js', '../popup.css', '../scripts/content.js'].map(r => fileURLToPath(new URL(r, import.meta.url)));
 
-await test('every icon name in markup, icon: literals and buttons.json is a bundled lucide name', () => {
+await test('every icon name in markup, icon: literals, makeBtn calls and buttons.json is a bundled lucide name', () => {
   const bad = [];
   const check = (name, where) => { if (!LUCIDE_NAMES.has(name)) bad.push(`${name} (${where})`); };
   for (const f of [...scriptFiles, ...formFiles, ...popupFiles]) {
     const text = read(f); const where = rel(f);
     for (const m of text.matchAll(/class="(?:[^"]*\s)?more-buttons-icon(?:\s[^"]*)?"[^>]*>([^<$]+)</g)) check(m[1].trim(), where);
     for (const m of text.matchAll(/\bicon(?:On|Off)?:\s*'([a-z0-9_-]+)'/g)) check(m[1], where);
+    // Icon-first button factories (richTextEditor.makeBtn) interpolate the name
+    // into the span, so the literal lives in the call, not the markup.
+    for (const m of text.matchAll(/\bmakeBtn\(\s*'([a-z0-9_-]+)'/g)) check(m[1], where);
   }
   const buttons = JSON.parse(src('../config/buttons.json'));
   for (const b of buttons) {

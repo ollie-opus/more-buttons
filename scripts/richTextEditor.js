@@ -531,7 +531,7 @@ function buildButtons(rte) {
     // Horizontal rule (thematic break). A one-shot block insert with no active
     // state — multiline only, since a single-line cell can't hold a block.
     if (want('hr')) {
-      const hrBtn = makeBtn('horizontal_rule', 'Horizontal rule', () => runTransform(rte, insertHorizontalRule));
+      const hrBtn = makeBtn('minus', 'Horizontal rule', () => runTransform(rte, insertHorizontalRule));
       hrBtn._hr = true;
       rte.btnGroup.appendChild(hrBtn);
       rte.buttons.push(hrBtn);
@@ -540,7 +540,7 @@ function buildButtons(rte) {
     // AI Rewrite — opens the reword popover. Multiline only: the popover needs
     // room and a single-line cell has little worth rewording.
     if (want('ai')) {
-      const aiBtn = makeBtn('auto_awesome', 'AI Rewrite', () => rte.openAiPopover?.());
+      const aiBtn = makeBtn('sparkles', 'AI Rewrite', () => rte.openAiPopover?.());
       rte.btnGroup.appendChild(aiBtn);
       rte.buttons.push(aiBtn);
     }
@@ -555,7 +555,7 @@ function buildButtons(rte) {
 
   // Label pill — always added (like Link), so it works in inline cell editors too.
   if (want('label')) {
-    const labelBtn = makeBtn('label', 'Label', () => rte.openLabelPopover?.());
+    const labelBtn = makeBtn('tag', 'Label', () => rte.openLabelPopover?.());
     labelBtn._label = true;
     rte.btnGroup.appendChild(labelBtn);
     rte.buttons.push(labelBtn);
@@ -571,7 +571,7 @@ function buildButtons(rte) {
   }
 
   if (want('clear')) {
-    const clearBtn = makeBtn('format_clear', 'Clear formatting', () => runStrip(rte));
+    const clearBtn = makeBtn('remove-formatting', 'Clear formatting', () => runStrip(rte));
     rte.btnGroup.appendChild(clearBtn);
     rte.buttons.push(clearBtn);
   }
