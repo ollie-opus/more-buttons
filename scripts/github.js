@@ -9,7 +9,8 @@ import { ensureCaptureUUIDs, ensureImageUUIDs } from './components.js';
 import { ensureTabUUIDs } from './contentTabs.js';
 import { ensureDataTableUUIDs } from './dataTables.js';
 import { ensureGridUUIDs } from './grid.js';
-import { contentsApiUrl, authHeader, rememberWrite, forgetWrite, reconcileRead } from './repoClient.js';
+import { commitMessage } from './editLogGrammar.js';
+import { contentsApiUrl, authHeader, rememberWrite, forgetWrite, reconcileRead, rememberCommit } from './repoClient.js';
 import {
   USAGE_INDEX_PATH, isTrackedPagePath, scanMarkdownMediaPaths,
   applyUsageUpsert, parseUsageIndex, serializeUsageIndex,
@@ -152,8 +153,24 @@ function migrateHideTitleToSection(markdown) {
   return replaceSectionByUUID(stripped, h1.uuid, buildSection(1, h1.title, h1.uuid, newBody));
 }
 
-export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown) {
-  return _enqueue(() => _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown));
+/**
+ * Resolve a commit spec into the full commit message (subject, optional body
+ * lines, trailer). A spec is a string subject, `{ subject, bodyLines? }`, or a
+ * function of `{ before, after }` returning either. Absent → `fallbackSubject`.
+ */
+export function resolveCommitMessage(spec, ctx, fallbackSubject) {
+  const v = typeof spec === 'function' ? spec(ctx) : spec;
+  if (v == null) return commitMessage(fallbackSubject);
+  if (typeof v === 'string') return commitMessage(v);
+  return commitMessage(v.subject, v.bodyLines ?? []);
+}
+
+/**
+ * @param {{ commit?: string | {subject:string, bodyLines?:string[]} | ((ctx:{before:string, after:string}) => string | {subject:string, bodyLines?:string[]}) }} [opts]
+ *   commit — descriptive commit message; absent keeps the generic `Update <label>`.
+ */
+export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, opts = {}) {
+  return _enqueue(() => _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, opts));
 }
 
 // Read a component-bearing file, backfilling + persisting any missing identity
@@ -163,10 +180,10 @@ export function githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
 // content with UUID-less captures becomes reorderable/editable immediately,
 // without waiting for an unrelated save to trigger the migration.
 export function fetchFileMigratingIdentity(filePath, onProgress) {
-  return githubFetchAndPushFile(filePath, onProgress, md => md);
+  return githubFetchAndPushFile(filePath, onProgress, md => md, { commit: 'Updated page format' });
 }
 
-async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, retries = 1) {
+async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, opts = {}, retries = 1) {
   const auth = await authHeader();
 
   onProgress?.('Fetching current file...');
@@ -206,7 +223,7 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
   const filename = filePath.split('/').pop();
   const label = filename.replace(/\.md$/, '').replace(/-/g, ' ');
   const putBody = {
-    message: `Update ${label}\n\nPublished via More Buttons Chrome Extension`,
+    message: resolveCommitMessage(opts.commit, { before: currentMarkdown, after: updatedMarkdown }, `Update ${label}`),
     content: btoa(unescape(encodeURIComponent(updatedMarkdown)))
   };
   if (currentSha) putBody.sha = currentSha;
@@ -219,22 +236,23 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
     // The remote diverged from the base we PUT against — our memo is no longer a
     // safe basis. Drop it so the retry re-reads and rebuilds on GitHub's truth.
     forgetWrite(filePath);
-    return _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, 0);
+    return _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdown, opts, 0);
   }
   if (!putRes.ok) {
     throw await githubError(putRes);
   }
   // Remember what we pushed (+ its new sha) so an immediate re-read survives the
   // contents API's read-after-write lag (see reconcileRead in repoClient.js).
-  let newSha;
-  try { newSha = (await putRes.json())?.content?.sha; } catch { /* sha is best-effort */ }
-  rememberWrite(filePath, updatedMarkdown, newSha);
+  let json;
+  try { json = await putRes.json(); } catch { /* sha + commit are best-effort */ }
+  rememberWrite(filePath, updatedMarkdown, json?.content?.sha);
+  rememberCommit(filePath, json?.commit);
   _syncMediaUsage(filePath, updatedMarkdown);
   return updatedMarkdown;
 }
 
-export async function githubFetchAndPush(onProgress, buildUpdatedMarkdown) {
-  return githubFetchAndPushFile('docs/pages/system-status.md', onProgress, buildUpdatedMarkdown);
+export async function githubFetchAndPush(onProgress, buildUpdatedMarkdown, opts = {}) {
+  return githubFetchAndPushFile('docs/pages/system-status.md', onProgress, buildUpdatedMarkdown, opts);
 }
 
 /**
@@ -243,12 +261,13 @@ export async function githubFetchAndPush(onProgress, buildUpdatedMarkdown) {
  *
  * @param {string} filePath
  * @param {(s: string) => void} [onProgress]
+ * @param {{ commit?: * }} [opts] commit — as for githubFetchAndPushFile; ctx is `{ before: <deleted text>, after: '' }`.
  */
-export function githubDeleteFile(filePath, onProgress) {
-  return _enqueue(() => _githubDeleteFile(filePath, onProgress));
+export function githubDeleteFile(filePath, onProgress, opts = {}) {
+  return _enqueue(() => _githubDeleteFile(filePath, onProgress, opts));
 }
 
-async function _githubDeleteFile(filePath, onProgress) {
+async function _githubDeleteFile(filePath, onProgress, opts = {}) {
   const auth = await authHeader();
 
   onProgress?.('Fetching current file...');
@@ -261,6 +280,7 @@ async function _githubDeleteFile(filePath, onProgress) {
 
   const fileData = await readEnvelope(fileRes);
   const sha = fileData.sha;
+  const before = decodeURIComponent(escape(atob(String(fileData.content ?? '').replace(/\n/g, ''))));
 
   onProgress?.('Deleting file...');
   const filename = filePath.split('/').pop();
@@ -269,16 +289,19 @@ async function _githubDeleteFile(filePath, onProgress) {
     method: 'DELETE',
     headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      message: `Delete ${label}\n\nPublished via More Buttons Chrome Extension`,
+      message: resolveCommitMessage(opts.commit, { before, after: '' }, `Delete ${label}`),
       sha,
     }),
   });
   if (!delRes.ok) {
     throw await githubError(delRes);
   }
+  let delJson;
+  try { delJson = await delRes.json(); } catch { /* commit memo is best-effort */ }
   // Read-your-deletes: a read before the replica catches up would resurrect the
   // file; remember it as empty so readers see it gone immediately.
   rememberWrite(filePath, '');
+  rememberCommit(filePath, delJson?.commit);
   _syncMediaUsage(filePath, '');
 }
 

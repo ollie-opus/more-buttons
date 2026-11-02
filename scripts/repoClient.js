@@ -2,6 +2,8 @@
 // All readers go through readRepoText (no CDN, no HTTP cache).
 // Writers in github.js share the same REPO config + auth header.
 
+import { parseCommitMessage } from './editLogGrammar.js';
+
 export const REPO = { owner: 'opus-safety', name: 'opus-knowledge-base', branch: 'main' };
 
 // The published Zensical site the repo builds to.
@@ -70,6 +72,62 @@ export function reconcileRead(path, freshContent, freshSha = undefined) {
     return { content: freshContent, sha: freshSha };
   }
   return { content: memo.content, sha: memo.sha ?? freshSha };
+}
+
+// ── Response-commit memo ────────────────────────────────────────────────────────
+//
+// GitHub's list-commits endpoint lags a fresh write just as the contents API does.
+// Every writer records the `commit` object the PUT/DELETE response returns, per
+// path, so the edit log can show a just-made save immediately. An entry is dropped
+// once a fetched history contains its sha (reconcileCommits) or after the window.
+const _commitMemo = new Map(); // path -> [{ commit: NormCommit, at }] newest first
+const COMMIT_MEMO_MS = 600000;
+
+/** Normalise a contents-API PUT/DELETE response `commit` object into a NormCommit. */
+export function normalizeWriteCommit(raw, path) {
+  const { subject, body, trailers } = parseCommitMessage(raw.message);
+  return {
+    sha: raw.sha,
+    parentSha: raw.parents?.[0]?.sha ?? null,
+    path,
+    subject,
+    body,
+    trailers,
+    date: Date.parse(raw.author?.date),
+    login: null,
+    name: raw.author?.name ?? '',
+    own: true,
+  };
+}
+
+/** Record the commit a writer's response returned for `path` (falsy `raw` ignored). */
+export function rememberCommit(path, raw) {
+  if (!raw) return;
+  const list = _commitMemo.get(path) ?? [];
+  list.unshift({ commit: normalizeWriteCommit(raw, path), at: Date.now() });
+  _commitMemo.set(path, list);
+}
+
+/** Remembered commits for `path` newer than the memo window, newest first. */
+export function recentCommits(path) {
+  const now = Date.now();
+  const live = (_commitMemo.get(path) ?? []).filter(e => now - e.at < COMMIT_MEMO_MS);
+  if (live.length) _commitMemo.set(path, live); else _commitMemo.delete(path);
+  return live.map(e => e.commit);
+}
+
+/** Drop memo entries whose sha now appears in the fetched history. */
+export function reconcileCommits(path, fetched) {
+  const list = _commitMemo.get(path);
+  if (!list) return;
+  const seen = new Set(fetched.map(c => c.sha));
+  const rest = list.filter(e => !seen.has(e.commit.sha));
+  if (rest.length) _commitMemo.set(path, rest); else _commitMemo.delete(path);
+}
+
+/** Forget every remembered commit for `path`. */
+export function forgetCommits(path) {
+  _commitMemo.delete(path);
 }
 
 // Use ONLY for binary assets where a few minutes of staleness is acceptable.

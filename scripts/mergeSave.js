@@ -13,6 +13,7 @@ import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { githubFetchAndPushFile } from './github.js';
 import { readFormValues, resetDirtyBaseline } from './form.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
+import { changedFieldLabels } from './editLogGrammar.js';
 
 /**
  * @param {Object} opts
@@ -23,9 +24,11 @@ import { syncSurfaceFromTextarea } from './richTextEditor.js';
  * @param {(md:string, resolved:Object)=>string} opts.build - build updated md
  * @param {(msg:string)=>void} [opts.onProgress]
  * @param {Object} [opts.resolverOptions] - forwarded to showConflictResolver (e.g. describe)
+ * @param {string | ((ctx:{before:string, after:string, resolved:Object, changedLabels:string[]}) => string | {subject:string, bodyLines?:string[]})} [opts.commit]
+ *   descriptive commit message; a `Changed: <labels>` body line is appended when fields changed
  * @returns {Promise<Object>} the resolved values that were written
  */
-export async function mergeSave({ formEl, file, fieldSpecs, readFresh, build, onProgress = () => {}, resolverOptions = {} }) {
+export async function mergeSave({ formEl, file, fieldSpecs, readFresh, build, onProgress = () => {}, resolverOptions = {}, commit }) {
   const snap = formEl._initialSnapshot ?? {};
   const resolutions = {};
   let lastResolved = null;
@@ -39,7 +42,18 @@ export async function mergeSave({ formEl, file, fieldSpecs, readFresh, build, on
         if (conflicts.length) throw new ConflictNeeded(conflicts);
         lastResolved = resolved;
         return build(md, resolved);
-      });
+      }, commit && { commit: ({ before, after }) => {
+        // lastResolved was set by the builder above, in this same attempt.
+        const changedLabels = changedFieldLabels(snap, lastResolved, fieldSpecs);
+        const v = typeof commit === 'function'
+          ? commit({ before, after, resolved: lastResolved, changedLabels })
+          : commit;
+        const { subject, bodyLines = [] } = typeof v === 'string' ? { subject: v } : v;
+        return {
+          subject,
+          bodyLines: changedLabels.length ? [...bodyLines, `Changed: ${changedLabels.join(', ')}`] : bodyLines,
+        };
+      } });
       break;
     } catch (e) {
       if (e instanceof ConflictNeeded) {
