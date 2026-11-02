@@ -28,6 +28,7 @@
         "scripts/actions.js",
         "scripts/admonitions.js",
         "scripts/sections.js",
+        "scripts/textDiff.js",
         "scripts/captures.js",
         "scripts/captureMeta.js",
         "scripts/captureDest.js",
