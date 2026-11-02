@@ -131,6 +131,7 @@
         "scripts/formMerge.js",
         "scripts/conflictResolver.js",
         "scripts/mergeSave.js",
+        "scripts/editLogGrammar.js",
         "scripts/frontmatter.js",
         "scripts/iconPicker.js",
         "scripts/lucideIcons.js",
