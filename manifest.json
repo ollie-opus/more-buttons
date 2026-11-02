@@ -113,6 +113,7 @@
         "scripts/actionCards.js",
         "scripts/editLogView.js",
         "scripts/editLogPanel.js",
+        "scripts/editLogDescribe.js",
         "scripts/actionsManage.js",
         "scripts/actionToolbar.js",
         "scripts/actionRecorder.js",
