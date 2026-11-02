@@ -93,6 +93,28 @@ await test('githubFetchAndPush passes opts through to the system-status file', a
   assert.ok(urls.some(u => u.startsWith('PUT') && u.endsWith('docs/pages/system-status.md')));
 });
 
+await test('githubDeleteFile of a non-UTF-8 (binary) file succeeds with and without a commit function', async () => {
+  const bin = Buffer.from([0xff, 0xfe, 0x80, 0x81, 0xc3, 0x28]).toString('base64');
+  script('');
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => ((init.method || 'GET') === 'GET'
+    ? new Response(JSON.stringify({ content: bin, sha: 's', encoding: 'base64' }), { status: 200 })
+    : orig(url, init));
+  await githubDeleteFile('docs/assets/pic.png');
+  assert.equal(pw()[0].message, `Delete pic.png\n\n${TRAILER}`);
+  await githubDeleteFile('docs/assets/pic.png', undefined, { commit: ({ after }) => `Gone${after}` });
+  assert.equal(pw()[1].message, `Gone\n\n${TRAILER}`);
+});
+
+await test('a malformed response commit never fails an accepted write', async () => {
+  script('# Drafts\n');
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => ((init.method || 'GET') === 'PUT'
+    ? new Response(JSON.stringify({ content: { sha: 'n' }, commit: 'garbage' }), { status: 200 })
+    : orig(url, init));
+  assert.equal(await githubFetchAndPushFile(FILE, undefined, bump), '# Drafts\nmore\n');
+});
+
 await test('resolveCommitMessage: string, object, function, fallback', () => {
   const ctx = { before: 'a', after: 'b' };
   assert.equal(resolveCommitMessage(undefined, ctx, 'Update x'), `Update x\n\n${TRAILER}`);

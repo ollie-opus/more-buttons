@@ -18,6 +18,12 @@ import {
 
 let _opQueue = Promise.resolve();
 
+// The commit memo is best-effort: a malformed response must never fail a write
+// GitHub already accepted.
+function _rememberCommitSafe(path, raw) {
+  try { rememberCommit(path, raw); } catch { /* best-effort */ }
+}
+
 // Media-usage index maintenance: after any committed change to a tracked page
 // (docs/pages|drafts markdown), replace that page's index entry with the media
 // set scanned from the just-committed text; [] removes it (delete/discard).
@@ -246,7 +252,7 @@ async function _githubFetchAndPushFile(filePath, onProgress, buildUpdatedMarkdow
   let json;
   try { json = await putRes.json(); } catch { /* sha + commit are best-effort */ }
   rememberWrite(filePath, updatedMarkdown, json?.content?.sha);
-  rememberCommit(filePath, json?.commit);
+  _rememberCommitSafe(filePath, json?.commit);
   _syncMediaUsage(filePath, updatedMarkdown);
   return updatedMarkdown;
 }
@@ -280,7 +286,12 @@ async function _githubDeleteFile(filePath, onProgress, opts = {}) {
 
   const fileData = await readEnvelope(fileRes);
   const sha = fileData.sha;
-  const before = decodeURIComponent(escape(atob(String(fileData.content ?? '').replace(/\n/g, ''))));
+  // Only a commit callback ever sees the text; binary payloads (media) aren't
+  // valid UTF-8, so decode lazily and never let it fail the delete.
+  let before = '';
+  if (typeof opts.commit === 'function') {
+    try { before = decodeURIComponent(escape(atob(String(fileData.content ?? '').replace(/\n/g, '')))); } catch { /* not text */ }
+  }
 
   onProgress?.('Deleting file...');
   const filename = filePath.split('/').pop();
@@ -301,7 +312,7 @@ async function _githubDeleteFile(filePath, onProgress, opts = {}) {
   // Read-your-deletes: a read before the replica catches up would resurrect the
   // file; remember it as empty so readers see it gone immediately.
   rememberWrite(filePath, '');
-  rememberCommit(filePath, delJson?.commit);
+  _rememberCommitSafe(filePath, delJson?.commit);
   _syncMediaUsage(filePath, '');
 }
 
