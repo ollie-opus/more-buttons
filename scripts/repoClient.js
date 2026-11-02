@@ -17,8 +17,8 @@ export function publishedUrl(navValue) {
   return `${SITE.baseUrl}/${route}/`;
 }
 
-export function contentsApiUrl(path) {
-  return `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${path}?ref=${REPO.branch}`;
+export function contentsApiUrl(path, ref = REPO.branch) {
+  return `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${path}?ref=${ref}`;
 }
 
 // Cache-busted contents-API read URL. The browser caches/coalesces these URLs by
@@ -28,8 +28,8 @@ export function contentsApiUrl(path) {
 // param gives each read its own URL, forcing a fresh hit. (github.js' writer uses
 // the identical guard for its own JSON-envelope reads.)
 let _readNonce = 0;
-function freshContentsUrl(path) {
-  return `${contentsApiUrl(path)}&_cb=${Date.now()}-${++_readNonce}`;
+function freshContentsUrl(path, ref = REPO.branch) {
+  return `${contentsApiUrl(path, ref)}&_cb=${Date.now()}-${++_readNonce}`;
 }
 
 // ── Read-your-writes consistency ────────────────────────────────────────────────
@@ -145,16 +145,19 @@ export async function authHeader() {
 
 // Read a text file via the contents API. Bypasses HTTP caches.
 // Returns '' on 404 (file does not exist yet). Throws on other errors.
-export async function readRepoText(path, { signal } = {}) {
+// With `ref` (a commit sha) the read is of an immutable snapshot, so it skips the
+// read-your-writes memo entirely (including on 404).
+export async function readRepoText(path, { signal, ref } = {}) {
   const auth = await authHeader();
-  const res = await fetch(freshContentsUrl(path), {
+  const res = await fetch(ref ? freshContentsUrl(path, ref) : freshContentsUrl(path), {
     headers: { 'Authorization': auth, 'Accept': 'application/vnd.github.raw' },
     cache: 'no-store',
     signal,
   });
-  if (res.status === 404) return reconcileRead(path, '').content;
+  if (res.status === 404) return ref ? '' : reconcileRead(path, '').content;
   if (!res.ok) throw new Error('GitHub API error: ' + res.status);
-  return reconcileRead(path, await res.text()).content;
+  const text = await res.text();
+  return ref ? text : reconcileRead(path, text).content;
 }
 
 // List a directory's immediate entries via the contents API. Returns an array
@@ -209,4 +212,71 @@ export async function readRepoDataUrl(path, opts) {
     reader.onerror = () => reject(reader.error ?? new Error('Failed to read ' + path));
     reader.readAsDataURL(blob);
   });
+}
+
+// ── Commit history reads ────────────────────────────────────────────────────────
+
+export const COMMITS_PAGE_SIZE = 30;
+
+/** Normalise a list-commits element into a NormCommit (same shape as normalizeWriteCommit). */
+export function normalizeListCommit(raw, path) {
+  const { subject, body, trailers } = parseCommitMessage(raw.commit.message);
+  return {
+    sha: raw.sha,
+    parentSha: raw.parents?.[0]?.sha ?? null,
+    path,
+    subject,
+    body,
+    trailers,
+    date: Date.parse(raw.commit.author?.date),
+    login: raw.author?.login ?? null,
+    name: raw.commit.author?.name ?? '',
+    own: false,
+  };
+}
+
+/** One page of commits touching `path` on the repo branch, newest first. No history -> []. */
+export async function listCommits(path, { page = 1, perPage = COMMITS_PAGE_SIZE, signal } = {}) {
+  const auth = await authHeader();
+  const url = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/commits?sha=${REPO.branch}`
+    + `&path=${encodeURIComponent(path)}&per_page=${perPage}&page=${page}&_cb=${Date.now()}-${++_readNonce}`;
+  const res = await fetch(url, {
+    headers: { 'Authorization': auth, 'Accept': 'application/vnd.github+json' },
+    cache: 'no-store',
+    signal,
+  });
+  if (res.status === 404 || res.status === 409) return [];
+  if (!res.ok) throw new Error('GitHub API error: ' + res.status);
+  const json = await res.json();
+  const result = Array.isArray(json) ? json.map(raw => normalizeListCommit(raw, path)) : [];
+  reconcileCommits(path, result);
+  return result;
+}
+
+// The token owner's login, cached under its own key (form.js's generic save
+// overwrites the whole moreButtonsIntegrations object, so it can't live there).
+// The cache carries the PAT's last 8 chars, so changing the PAT invalidates it.
+export const GITHUB_LOGIN_KEY = 'moreButtonsGithubLogin';
+
+/** Login of the PAT's owner, or null on any failure (nothing cached; retried next call). */
+export async function currentGithubLogin() {
+  try {
+    const store = await chrome.storage.local.get([GITHUB_LOGIN_KEY, 'moreButtonsIntegrations']);
+    const pat = store.moreButtonsIntegrations?.githubPAT;
+    if (!pat) return null;
+    const tokenTail = pat.slice(-8);
+    const cached = store[GITHUB_LOGIN_KEY];
+    if (cached?.login && cached.tokenTail === tokenTail) return cached.login;
+    const res = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': `token ${pat}`, 'Accept': 'application/vnd.github+json' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const login = (await res.json())?.login;
+    if (!login) return null;
+    await chrome.storage.local.set({ [GITHUB_LOGIN_KEY]: { login, tokenTail } });
+    return login;
+  } catch {
+    return null;
+  }
 }
