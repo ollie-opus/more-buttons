@@ -111,6 +111,7 @@
         "scripts/actionLocators.js",
         "scripts/actionsLibrary.js",
         "scripts/actionCards.js",
+        "scripts/editLogView.js",
         "scripts/actionsManage.js",
         "scripts/actionToolbar.js",
         "scripts/actionRecorder.js",
