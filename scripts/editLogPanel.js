@@ -8,13 +8,17 @@ import { sectionRedline, itemRedline } from './textDiff.js';
 import { listCommits, recentCommits, readRepoText, currentGithubLogin } from './repoClient.js';
 import { formLoading } from './loading.js';
 
+/** Adapts listCommits(path, { page }) to the model's fetchPage(path, page). */
+export const makeFetchPage = (list) => (path, page) => list(path, { page });
+export const fetchPage = makeFetchPage(listCommits);
+
 /** Builds and opens a thread. Never rejects: a failure sets thread.error. */
 export async function prefetchEditLog({ paths, itemUuid = null, session = false }) {
   const thread = createThread({ paths, itemUuid, session });
   try {
     const [login] = await Promise.all([
       currentGithubLogin(),
-      openThread(thread, { fetchPage: listCommits, recent: paths.flatMap(p => recentCommits(p)) }),
+      openThread(thread, { fetchPage, recent: paths.flatMap(p => recentCommits(p)) }),
     ]);
     thread.login = login;
   } catch {
@@ -132,14 +136,18 @@ async function onEditLogClick(formEl, e) {
     return;
   }
   if (e.target.closest('[data-editlog-more]')) {
+    if (st.busy) return;
+    st.busy = true;
+    // Cleared before the fetch: the model re-sets it on failure.
+    st.thread.error = false;
     formLoading.show();
     try {
-      await showMore(st.thread, listCommits);
-      st.thread.error = false;
+      await showMore(st.thread, fetchPage);
     } catch {
       st.thread.error = true;
     } finally {
       formLoading.dismiss();
+      st.busy = false;
     }
     renderEditLog(formEl);
   }

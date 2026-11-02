@@ -4441,7 +4441,7 @@ h2[data-edit-media-title] .mb-kb-pills {
   background: color-mix(in srgb, var(--mb-acc-info) 12%, var(--mb-bg));
   border: 1px solid color-mix(in srgb, var(--mb-acc-info) 25%, transparent);
 }
-.mb-editlog__bubble.--muted {
+.mb-editlog__row .mb-editlog__bubble.--muted {
   color: var(--mb-text-muted);
   background: transparent;
   border: 1px dashed var(--mb-border);
