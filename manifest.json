@@ -112,6 +112,7 @@
         "scripts/actionsLibrary.js",
         "scripts/actionCards.js",
         "scripts/editLogView.js",
+        "scripts/editLogPanel.js",
         "scripts/actionsManage.js",
         "scripts/actionToolbar.js",
         "scripts/actionRecorder.js",

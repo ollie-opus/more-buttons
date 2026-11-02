@@ -15,6 +15,7 @@
 import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton, reorderButtonGating } from './form.js';
 import { formLoading } from './loading.js';
+import { prefetchEditLog, mountEditLog, renderEditLog } from './editLogPanel.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl, publishedUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
@@ -217,8 +218,12 @@ async function renderGuideEntryContent(formEl) {
 
   formLoading.show();
   let draftMarkdown = '';
+  let thread;
   try {
-    draftMarkdown = await readRepoText(formEl.dataset.draftPath);
+    [draftMarkdown, thread] = await Promise.all([
+      readRepoText(formEl.dataset.draftPath),
+      prefetchEditLog({ paths: [formEl.dataset.draftPath, formEl.dataset.livePath], session: true }),
+    ]);
   } catch {
     contentEl.innerHTML = `<p class="more-buttons-description">Failed to load draft.</p>`;
     return;
@@ -238,6 +243,7 @@ async function renderGuideEntryContent(formEl) {
       ${dockSep}
       <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">plus</span>Create draft</button>
       <button type="button" class="more-buttons-button red" data-guide-action="delete"><span class="more-buttons-icon">trash-2</span>Delete guide</button>`;
+    mountEditLog(formEl, thread, { container: contentEl });
     return;
   }
 
@@ -245,6 +251,7 @@ async function renderGuideEntryContent(formEl) {
   // working copy without a re-fetch, then render the tree + actions.
   formEl._draftMd = draftMarkdown;
   renderGuideDraftView(formEl, draftMarkdown);
+  mountEditLog(formEl, thread, { container: contentEl });
 }
 
 // Renders the "draft exists" view (section tree + action group) from a given
@@ -264,6 +271,7 @@ function renderGuideDraftView(formEl, draftMarkdown) {
   // reordering since sections, not page settings, are the focus.
   contentEl.innerHTML = (guideReorderMode ? '' : renderPageSettingsNode()) + treeHtml;
   actionsEl.innerHTML = guideReorderMode ? reorderActionsHtml(reorderDirty) : normalActionsHtml(title);
+  if (!guideReorderMode) renderEditLog(formEl);
 }
 
 // The reorder-mode toggle button — present whenever a draft exists, in both

@@ -4419,6 +4419,121 @@ h2[data-edit-media-title] .mb-kb-pills {
   margin-right: 4px;
 }
 
+/* ── Edit log (editLogPanel.js / editLogView.js) ──────────────────────────── */
+
+.mb-editlog { display: flex; flex-direction: column; gap: 6px; }
+.mb-editlog__row { display: flex; }
+.mb-editlog__row.--mine { justify-content: flex-end; }
+.mb-editlog__row.--theirs { justify-content: flex-start; }
+.mb-editlog__bubble {
+  max-width: 78%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+  color: var(--mb-text);
+  box-sizing: border-box;
+}
+.mb-editlog__row.--theirs .mb-editlog__bubble {
+  background: var(--mb-bg-subtle);
+  border: 1px solid var(--mb-border-subtle);
+}
+.mb-editlog__row.--mine .mb-editlog__bubble {
+  background: color-mix(in srgb, var(--mb-acc-info) 12%, var(--mb-bg));
+  border: 1px solid color-mix(in srgb, var(--mb-acc-info) 25%, transparent);
+}
+.mb-editlog__bubble.--muted {
+  color: var(--mb-text-muted);
+  background: transparent;
+  border: 1px dashed var(--mb-border);
+}
+.mb-editlog__name {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  color: var(--mb-text-muted);
+}
+.mb-editlog__text { overflow-wrap: anywhere; }
+.mb-editlog__time { font-size: 0.75rem; color: var(--mb-text-muted); }
+.mb-editlog__more {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--mb-acc-info);
+  cursor: pointer;
+}
+.mb-editlog__more:hover { text-decoration: underline; }
+.mb-editlog__detail { margin-top: 6px; }
+.mb-editlog__detail[hidden] { display: none; }
+.mb-editlog__rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--mb-text-muted);
+  text-align: center;
+}
+.mb-editlog__rule::before,
+.mb-editlog__rule::after {
+  content: "";
+  flex-grow: 1;
+  border-top: 1px dotted var(--mb-border);
+}
+button.mb-editlog__rule.--action {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+button.mb-editlog__rule.--action:hover { color: var(--mb-text); }
+.mb-editlog__day {
+  text-align: center;
+  font-size: 0.6875rem;
+  color: var(--mb-text-muted);
+}
+.mb-editlog__empty { margin: 0; }
+.mb-editlog__changed {
+  font-size: 0.75rem;
+  color: var(--mb-text-muted);
+  margin-bottom: 6px;
+}
+.mb-editlog__error { color: var(--mb-acc-danger); margin: 0; }
+.mb-editlog__body {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font-size: 0.75rem;
+  color: var(--mb-text-muted);
+}
+.mb-editlog__diff { display: flex; flex-direction: column; gap: 8px; }
+.mb-editlog__diff-section { display: flex; flex-direction: column; gap: 4px; }
+.mb-editlog__diff-title { font-weight: 600; font-size: 0.8125rem; }
+.mb-editlog__diff-body {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  background: var(--mb-bg-input);
+  border: 1px solid var(--mb-border-subtle);
+  border-radius: 6px;
+  padding: 8px;
+  overflow-wrap: anywhere;
+}
+.mb-editlog__diff-section.--added .mb-editlog__diff-title { color: var(--mb-col-green); }
+.mb-editlog__diff-section.--removed .mb-editlog__diff-title { color: var(--mb-acc-danger); }
+.mb-editlog__diff-body ins {
+  background: color-mix(in srgb, var(--mb-col-green) 18%, transparent);
+  text-decoration: none;
+  color: var(--mb-col-green);
+}
+.mb-editlog__diff-body del {
+  background: color-mix(in srgb, var(--mb-acc-danger) 14%, transparent);
+  color: var(--mb-acc-danger);
+}
+
 .mb-conflict__foot {
   display: flex;
   justify-content: flex-end;
