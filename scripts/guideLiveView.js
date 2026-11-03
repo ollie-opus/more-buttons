@@ -3,6 +3,7 @@
 // write reachable from here is the banner's Create draft via writeGuideDraft.
 import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, setCrumbLabel, navigateBack, snapshotButton, restoreButton } from './form.js';
+import { markRequiredFields } from './formValidation.js';
 import { formLoading } from './loading.js';
 import { readRepoText } from './repoClient.js';
 import { migrateGuideIdentity } from './github.js';
@@ -128,6 +129,7 @@ registerFormAction('openGuideSectionLiveView', async ({ file, index }) => {
   if (!formEl) return;
   formEl.removeAttribute('data-dirty-guard');
   formEl.querySelector('[name="sectionTitle"]').required = false;
+  markRequiredFields(formEl); // createForm already painted the star; this removes it
   formEl.dataset.viewOnly = '';
   formEl.dataset.mode = 'view';
   formEl.dataset.editUuid = model.uuid;
