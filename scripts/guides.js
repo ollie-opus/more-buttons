@@ -19,6 +19,7 @@ import { prefetchEditLog, mountEditLog, renderEditLog } from './editLogPanel.js'
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl, publishedUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
+import { componentKindLabel, componentCommit, reorderCommit, sectionParentTitle, isReorderOnly } from './editLogDescribe.js';
 import { parseNavBlock, replaceNavBlock, insertPath, removeByValue, removeByValueSlug, findPathOfValue, findPathByValueSlug, valueSlug, renameByValue, renameByValueSlug, slugify, setPathByValueSlug } from './navToml.js';
 import {
   ensureSectionUUIDs, parseSections, buildSectionTree,
@@ -108,6 +109,12 @@ function adoptGuideFromDraftPath(draftPath) {
 // Title from a path's filename, e.g., 'pages/adding-a-new-employee.md' → 'adding-a-new-employee'
 function guideBaseName(livePath) {
   return livePath.split('/').pop().replace(/\.md$/, '');
+}
+
+// The guide's display title (the entry heading's expression) — the commit
+// subject suffix for the Create/Publish/Discard rule-lines in the edit log.
+function guideDisplayTitle(formEl) {
+  return formEl?.dataset?.guideLabel || guideBaseName(formEl?.dataset?.livePath || '');
 }
 
 // Nav leaf value for the current guide, e.g. 'pages/foo.md' (drops leading docs/).
@@ -544,7 +551,8 @@ async function saveSectionOrder(formEl) {
   try {
     // Keep the COMMITTED text (github.js may have migrated identity into it)
     // so the pane's local copy never drifts from GitHub.
-    const committed = await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(saveBtn, s), () => reorderWorkingMd);
+    const committed = await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(saveBtn, s), () => reorderWorkingMd,
+      { commit: 'Reordered sections' });
     reorderWorkingMd = committed;
     reorderBaseMd = committed;
     formEl._draftMd = committed;
@@ -583,7 +591,8 @@ async function createGuideDraft(formEl) {
     // Search-exclude the draft copy so it doesn't shadow the live page in the
     // site search bar; publishGuideDraft strips the flag on promotion.
     await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s),
-      () => writeFrontmatterSearchExclude(migrated, true));
+      () => writeFrontmatterSearchExclude(migrated, true),
+      { commit: `Create draft: ${guideDisplayTitle(formEl)}` });
     // Mirror the page's nav location into draft_nav so it shows a Drafting pill.
     setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
@@ -644,9 +653,11 @@ async function publishGuideDraft(formEl) {
     // Public pages: strip the draft-only search exclusion — published verbatim,
     // the live page would inherit it and vanish from the search index.
     await githubFetchAndPushFile(currentGuide.livePath, s => setButtonBusy(btn, s),
-      () => writeFrontmatterSearchExclude(draftMarkdown, unlisted));
+      () => writeFrontmatterSearchExclude(draftMarkdown, unlisted),
+      { commit: `Publish: ${guideDisplayTitle(formEl)}` });
     setButtonBusy(btn, 'Deleting draft…');
-    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
+    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s),
+      { commit: `Publish: ${guideDisplayTitle(formEl)}` });
     // Promote into nav (mirroring its draft_nav location) and drop from draft_nav.
     setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
@@ -702,7 +713,8 @@ async function discardGuideDraft(formEl) {
   setButtonBusy(btn, 'Deleting draft…');
 
   try {
-    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
+    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s),
+      { commit: `Discard draft: ${guideDisplayTitle(formEl)}` });
     setButtonBusy(btn, 'Updating navigation…');
     const value = navValueOf(currentGuide.livePath);
     await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
@@ -841,7 +853,8 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
           tags: composeTags(settings.writtenFor, freeTags),
           hide: settings.hide,
         },
-      ));
+      ),
+      { commit: `Create guide: ${title}` });
     draftWritten = true;
 
     // Add to draft_nav — and, for an Unlisted page, mirror the placement into
@@ -1146,13 +1159,15 @@ export function makeContainerHandler(readComponents, writeBody, exists) {
     readComponents,
     writeBody,
     exists,
-    mutate: async (container, transform, onProgress) => {
+    // `commit` (optional) is forwarded as opts.commit; omitted → a reorder
+    // descriptor for the container (callers that insert/delete pass their own).
+    mutate: async (container, transform, onProgress, commit) => {
       await githubFetchAndPushFile(container.file, onProgress || (() => {}), md => {
         if (!exists(md, container.uuid)) throw new Error('Parent container no longer exists.');
         const { description, components } = readComponents(md, container.uuid);
         const next = transform(components, description) || components;
         return writeBody(md, container.uuid, description, next);
-      });
+      }, { commit: commit || (({ before }) => reorderCommit(before, container.uuid)) });
       await rerenderOpenComponentEditor();
     },
   };
@@ -1180,6 +1195,9 @@ export async function spliceIntoContainer(container, insertAt, items, onProgress
     const next = existing.slice();
     next.splice(idx, 0, ...items);
     return writeContainerBody(md, container, description, next);
+  }, {
+    commit: ({ before }) => componentCommit('Added',
+      items.length === 1 ? componentKindLabel(items[0]) : `${items.length} components`, before, container.uuid),
   });
 }
 
@@ -1811,7 +1829,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       const result = insertSectionUnderParent(md, parentUuid || null, level, title, newBody);
       newUuid = result.uuid;
       return result.markdown;
-    });
+    }, { commit: ({ before }) => `Added section '${title}' under '${sectionParentTitle(before, parentUuid)}'` });
     await transitionSectionCreateToEdit(formEl, newUuid, level, title, description, parentUuid, hideSectionTitle);
     return { container: { kind: 'guide-section', uuid: newUuid, file: currentGuide.draftPath }, formEl };
   }
@@ -1894,6 +1912,13 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
       return updated;
     },
+    // In-editor component reorders persist through the componentOrder field, so
+    // a reorder-only save is logged here (mergeSave appends `Changed:`).
+    commit: ({ before, resolved, changedLabels }) => isReorderOnly(changedLabels)
+      ? `Reordered components in '${resolved.sectionTitle.trim()}'`
+      : parentChanged
+        ? `Moved section '${resolved.sectionTitle.trim()}' under '${sectionParentTitle(before, requestedParent)}'`
+        : `Edited section '${resolved.sectionTitle.trim()}'`,
   });
 
   if (!resolved) return null; // resolver cancelled — nothing was saved
@@ -2065,7 +2090,7 @@ async function applyPageVisibility(visibility, onProgress) {
   // unlisted_nav when the page first goes live.
   if (await readRepoText(currentGuide.livePath)) {
     await githubFetchAndPushFile(currentGuide.livePath, onProgress,
-      md => writeFrontmatterSearchExclude(md, unlisted));
+      md => writeFrontmatterSearchExclude(md, unlisted), { commit: 'Edited page settings' });
   }
 }
 
@@ -2112,6 +2137,7 @@ registerFormAction('submitEditPageSettings', async ({ formEl, content }) => {
           hide: { navigation: resolved.hideNavigation, toc: resolved.hideToc, path: resolved.hidePath, writtenFor: resolved.hideWrittenFor },
         });
       },
+      commit: 'Edited page settings',
     });
     if (!resolved) { formEl._refreshSaveState?.(); return; }
 
@@ -2144,7 +2170,8 @@ registerFormAction('deleteGuideSection', async ({ formEl, content, cleanup }) =>
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
   try {
-    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s), md => deleteSectionByUUID(md, editUuid, { cascade: true }));
+    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s), md => deleteSectionByUUID(md, editUuid, { cascade: true }),
+      { commit: `Deleted section '${section.title}'` });
     await chrome.storage.local.remove('moreButtonsEditGuideSection');
     await navigateBack();
   } catch (e) {
@@ -2461,6 +2488,9 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
       const body = buildComponentBody(editUuid, resolved.admonitionDescription, ordered);
       return replaceAdmonitionByUUID(md, editUuid, buildAdmonition(collapsibleToPrefix(resolved.admonitionCollapsible), resolved.admonitionType, mergedTitle, body));
     },
+    commit: ({ before, changedLabels }) => isReorderOnly(changedLabels)
+      ? reorderCommit(before, editUuid)
+      : componentCommit('Edited', componentKindLabel({ kind: 'admonition', adm: locateGuideAdmonition(before, editUuid) }), before, editUuid),
   });
   return { editUuid, file };
 }
@@ -2533,7 +2563,9 @@ registerFormAction('deleteGuideAdmonition', async ({ formEl, content, cleanup })
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…');
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteAdmonitionByUUID(md, editUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteAdmonitionByUUID(md, editUuid), {
+      commit: ({ before }) => componentCommit('Deleted', componentKindLabel({ kind: 'admonition', adm: locateGuideAdmonition(before, editUuid) }), before, editUuid),
+    });
     await chrome.storage.local.remove('moreButtonsEditGuideAdmonition');
     await navigateBack();
   } catch (e) {
