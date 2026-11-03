@@ -191,6 +191,12 @@ function onGuideEntryClick(e, formEl) {
   // Section cards bypass form.js's data-action dispatcher, so arm the loading
   // tile here; createForm drops it when the section form renders, the .finally
   // mops up failures (the dispatch itself stays fire-and-forget).
+  if (e.target.closest('[data-guide-view-live]')) {
+    formLoading.show();
+    Promise.resolve(getFormAction('openGuideLiveView')?.({ file: formEl.dataset.livePath, label: formEl.dataset.guideLabel }))
+      .finally(() => formLoading.dismiss());
+    return;
+  }
   const editSec = e.target.closest('[data-edit-guide-section]');
   if (editSec) {
     formLoading.show();
@@ -245,7 +251,8 @@ async function renderGuideEntryContent(formEl) {
         No draft yet. Creating a draft duplicates the live page to
         <code>${escapeHtml(formEl.dataset.draftPath)}</code>; the live page is
         left untouched until you publish.
-      </p>`;
+      </p>
+      <button type="button" class="more-buttons-button" data-guide-view-live><span class="more-buttons-icon">eye</span>View this page's live content</button>`;
     actionsEl.innerHTML = `
       ${viewLinksHtml({ draft: false })}
       ${dockSep}

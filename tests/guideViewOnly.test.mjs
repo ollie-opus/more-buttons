@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 globalThis.MutationObserver = class { constructor() {} observe(t) { if (!t || typeof t !== 'object') throw new TypeError('observe: parameter 1 is not of type Node'); } disconnect() {} };
 const store = new Map();
@@ -130,6 +131,31 @@ await test('writeGuideDraft: an existing draft is never overwritten', async () =
 await test('writeGuideDraft: a missing live page writes nothing', async () => {
   const calls = stubFetch({});
   assert.equal(await writeGuideDraft('docs/pages/y.md', () => {}, { title: 'Y' }), 'missing-live');
+  assert.ok(calls.every(c => c.method === 'GET'));
+});
+
+const live = await import('../scripts/guideLiveView.js');
+const { registerFormAction, getFormAction } = await import('../scripts/formActions.js');
+
+await test('guideLiveView registers the page opener and never imports a writer', () => {
+  assert.ok(getFormAction('openGuideLiveView'));
+  const src = readFileSync(new URL('../scripts/guideLiveView.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /githubFetchAndPushFile|fetchFileMigratingIdentity|githubDeleteFile|mergeSave/);
+});
+
+await test('liveBannerHtml: Create draft only on the page banner, text exact', () => {
+  const text = 'Viewing the live page. Nothing here can be edited. Create a draft to make changes.';
+  assert.ok(live.liveBannerHtml({ createDraft: true }).includes('data-guide-live-create'));
+  assert.ok(!live.liveBannerHtml().includes('data-guide-live-create'));
+  assert.ok(live.liveBannerHtml().includes(text) && live.liveBannerHtml().includes('>eye</span>'));
+});
+
+await test('openGuideLiveView: a drafted page redirects to the normal draft entry before any form mounts', async () => {
+  const calls = stubFetch({ 'docs/drafts/x.md': '# X\n' });
+  const seen = [];
+  registerFormAction('openGuideEntry', async args => { seen.push(args); });
+  await getFormAction('openGuideLiveView')({ file: 'docs/pages/x.md', label: 'X' });
+  assert.deepEqual(seen, [{ filePath: 'pages/x.md', label: 'X' }]);
   assert.ok(calls.every(c => c.method === 'GET'));
 });
 

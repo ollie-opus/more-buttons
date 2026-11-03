@@ -7,6 +7,7 @@ export { publishSystemStatus, publishNewIncident, publishUpdatedIncident,
 import './captures.js';
 import './systemUpdates.js';
 import './guides.js';
+import './guideLiveView.js';
 import './mediaLibrary.js';
 import './captureEntry.js';
 import './captureNew.js';
