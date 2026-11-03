@@ -41,7 +41,7 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml, stripNonCopyFootButtons } from './cardRenderer.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
 import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
@@ -1338,14 +1338,14 @@ function codeBlockComponentCardFor(cb) {
 // "+ Insert Component" triggers. Step admonitions are numbered in document order
 // when `numberSteps` is set (section level only — sub-admonition steps aren't
 // numbered, matching the published site). Captures never affect numbering.
-export function renderComponents(listEl, components, numberSteps = true, { viewOnly = !!listEl?.closest?.('form')?.hasAttribute?.('data-view-only') } = {}) {
+export function renderComponents(listEl, components, numberSteps = true, { viewOnly = !!listEl?.closest?.('form')?.hasAttribute?.('data-view-only'), emptyText = 'No components in this section.' } = {}) {
   if (!listEl) return;
   // Keep the form's hidden order field in lockstep with what's rendered.
   const orderField = listEl.closest('form')?.querySelector('[name="componentOrder"]');
   if (orderField) orderField.value = components.map(uuidOfComponent).join(',');
 
   if (components.length === 0) {
-    if (viewOnly) { listEl.innerHTML = '<p class="more-buttons-description">No components in this section.</p>'; return; }
+    if (viewOnly) { listEl.innerHTML = `<p class="more-buttons-description">${escapeHtml(emptyText)}</p>`; return; }
     listEl.innerHTML = `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
@@ -1380,7 +1380,7 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
       card = captureComponentCardFor(c.cap);
     }
     parts.push(viewOnly
-      ? `<div class="mb-component-row" data-component-uuid="${escapeHtml(uuidOfComponent(c))}">${stripNonCopyFootButtons(card)}</div>`
+      ? `<div class="mb-component-row" data-component-uuid="${escapeHtml(uuidOfComponent(c))}">${viewOnlyCard(c, card, i)}</div>`
       : componentRow(uuidOfComponent(c), i === 0, i === last, card));
   });
   if (!viewOnly) parts.push(insertComponentTrigger(components.length));
@@ -1390,6 +1390,17 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
   // Re-mark any Shift+click Copy selection (uuid-keyed, so it survives rail
   // moves and child-form round trips) and the Copy buttons' Shift labels.
   paintCopySelection(listEl, components.map(uuidOfComponent));
+}
+
+// View-only card: Copy is the only foot button kept; the container kinds
+// (admonition, tabs, grid) also get View, keyed by list index because
+// in-memory uuids are random per read (openComponentLiveView walks the path).
+const VIEWABLE_KINDS = new Set(['admonition', 'tabs', 'grid']);
+function viewOnlyCard(c, card, i) {
+  const stripped = stripNonCopyFootButtons(card);
+  return VIEWABLE_KINDS.has(c.kind)
+    ? appendFootButton(stripped, `<button type="button" class="mb-incident-card__edit" data-view-component="${i}">View</button>`)
+    : stripped;
 }
 
 // Wraps a component card with a vertical up/down reorder rail on its left edge.

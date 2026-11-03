@@ -377,6 +377,15 @@ export function stripNonCopyFootButtons(cardHtml) {
   return cardHtml.replace(/<button type="button" class="mb-incident-card__edit"(?![^>]*data-copy-component-md)[^>]*>[\s\S]*?<\/button>/g, '');
 }
 
+/**
+ * Appends `buttonHtml` at the end of a card's foot (after its existing
+ * buttons). Feet hold only buttons/spans, so the foot's first closing </div>
+ * is its own. Used by view-only lists to add View next to Copy.
+ */
+export function appendFootButton(cardHtml, buttonHtml) {
+  return cardHtml.replace(/(<div class="mb-incident-card__foot[^"]*">[\s\S]*?)(\s*<\/div>)/, (_, foot, close) => foot + buttonHtml + close);
+}
+
 export function fileExtOf(path) {
   return /\.([a-z0-9]+)$/i.exec(path || '')?.[1]?.toLowerCase() ?? '';
 }

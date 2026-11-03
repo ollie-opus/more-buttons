@@ -31,14 +31,15 @@ function fakeList(viewOnly) {
 }
 const count = (s, re) => (s.match(re) || []).length;
 
-await test('view-only renderComponents: no insert triggers, no rail, Copy is the only foot button, rows keep the copySelection shape', () => {
+await test('view-only renderComponents: no insert triggers, no rail, Copy and (containers) View are the only foot buttons, rows keep the copySelection shape', () => {
   const list = fakeList(true);
   renderComponents(list, TWO, true, { viewOnly: true });
   const html = list.innerHTML;
   assert.ok(!html.includes('data-insert-component-at'));
   assert.ok(!html.includes('mb-component-rail'));
   assert.equal(count(html, /data-copy-component-md="U-[12]"/g), 2);
-  assert.equal(count(html, /class="mb-incident-card__edit"/g), 2);
+  assert.equal(count(html, /data-view-component="[01]"/g), 2);
+  assert.equal(count(html, /class="mb-incident-card__edit"/g), 4);
   assert.equal(count(html, /data-edit-guide-admonition/g), 0);
   assert.equal(count(html, /class="mb-component-row" data-component-uuid="U-[12]"/g), 2);
   assert.equal(count(html, /data-card-expand/g), 2, 'Show more survives');
@@ -63,6 +64,7 @@ await test('editable renderComponents output is unchanged', () => {
   assert.equal(count(html, /data-insert-component-at="[012]"/g), 3);
   assert.equal(count(html, /mb-component-rail"/g), 2);
   assert.equal(count(html, /data-edit-guide-admonition="U-[12]"/g), 2);
+  assert.ok(!html.includes('data-view-component'));
 });
 
 function moveClick(formEl) {
