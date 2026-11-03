@@ -10,6 +10,7 @@ import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
 import { parseComponents, buildComponentBody, uuidOfComponent, reorderComponents, cardPreviewModel } from './components.js';
 import { mergeSave } from './mergeSave.js';
+import { itemCommit, reorderCommit, isReorderOnly } from './editLogDescribe.js';
 import { formLoading } from './loading.js';
 import {
   makeContainerHandler, GUIDE_ADMONITION_TYPES_RE,
@@ -132,6 +133,9 @@ function writeUpdateBody(md, uuid, description, components) {
   );
 }
 
+// Edit-log subject lookup for deletes (null-safe: a save never fails on a label).
+const titleOf = (md, uuid) => parseUpdateBlocks(md ?? '').find(u => u.uuid === uuid)?.title ?? '';
+
 // Not-found disambiguator: readUpdateComponents returns an empty result for a
 // vanished block too, so inserts check this first (see containerExists).
 const updateBlockExists = (md, uuid) => parseUpdateBlocks(md).some(u => u.uuid === uuid);
@@ -250,6 +254,9 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
         ? replaceUpdateInMarkdown(md, uuid, upd, [])
         : replaceDraftInMarkdown(md, uuid, upd, []);
     },
+    commit: ({ before, resolved, changedLabels }) => isReorderOnly(changedLabels)
+      ? reorderCommit(before, uuid)
+      : itemCommit(kind === 'system-update' ? `Edited update '${resolved?.updateTitle ?? ''}'` : `Edited draft update '${resolved?.updateTitle ?? ''}'`, uuid),
   });
   return { container: { kind, uuid, file }, formEl };
 }
@@ -465,39 +472,48 @@ export function renderPublishedUpdates(markdown, panel) {
 
 export async function publishNewUpdate(update, captures, onProgress) {
   await pushCaptures(captures, onProgress);
-  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, update, captures));
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, update, captures),
+    { commit: itemCommit(`Logged update '${update.title}'`, update.uuid) });
 }
 
 export async function publishUpdatedUpdate(uuid, update, captures, onProgress) {
   await pushCaptures(captures, onProgress);
-  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => replaceUpdateInMarkdown(md, uuid, update, captures));
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => replaceUpdateInMarkdown(md, uuid, update, captures),
+    { commit: itemCommit(`Edited update '${update.title}'`, uuid) });
 }
 
 export async function publishDeleteUpdate(uuid, onProgress) {
-  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, uuid));
+  return githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, uuid),
+    { commit: ({ before }) => itemCommit(`Deleted update '${titleOf(before, uuid)}'`, uuid) });
 }
 
 // ── Draft persistence ─────────────────────────────────────────────────────────
 
 export async function saveNewDraft(update, captures, onProgress) {
   await pushCaptures(captures, onProgress);
-  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => insertDraftIntoMarkdown(md, update, captures));
+  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => insertDraftIntoMarkdown(md, update, captures),
+    { commit: itemCommit(`Saved draft update '${update.title}'`, update.uuid) });
 }
 
 export async function saveExistingDraft(uuid, update, captures, onProgress) {
   await pushCaptures(captures, onProgress);
-  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => replaceDraftInMarkdown(md, uuid, update, captures));
+  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => replaceDraftInMarkdown(md, uuid, update, captures),
+    { commit: itemCommit(`Edited draft update '${update.title}'`, uuid) });
 }
 
 export async function publishDraft(uuid, update, captures, onProgress) {
   await pushCaptures(captures, onProgress);
-  const updatedPublished = await githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, { ...update, uuid }, captures));
-  await githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid));
+  // Both writes carry the same rule-line subject + Item trailer so the item's
+  // edit log collapses them into one "Published to live" rule.
+  const publishCommit = itemCommit(`Publish update: '${update.title}'`, uuid);
+  const updatedPublished = await githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, { ...update, uuid }, captures), { commit: publishCommit });
+  await githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid), { commit: publishCommit });
   return updatedPublished;
 }
 
 export async function deleteDraft(uuid, onProgress) {
-  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid));
+  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid),
+    { commit: ({ before }) => itemCommit(`Deleted draft update '${titleOf(before, uuid)}'`, uuid) });
 }
 
 // ── Form action registrations ─────────────────────────────────────────────────
@@ -609,7 +625,7 @@ registerFormAction('deleteSystemUpdate', async ({ formEl, content, cleanup }) =>
 
     await githubFetchAndPushFile(UPDATES_FILE, s => setButtonBusy(btn, s), md => {
       return deleteUpdateFromMarkdown(md, _uuid);
-    });
+    }, { commit: ({ before }) => itemCommit(`Deleted update '${titleOf(before, _uuid)}'`, _uuid) });
     await chrome.storage.local.remove('moreButtonsEditSystemUpdate');
     await navigateBack();
   } catch (e) {

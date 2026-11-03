@@ -47,4 +47,21 @@ await test('media library inserts commit as Added', () => {
   }
 });
 
+await test('systemUpdates.js: every item save carries itemCommit with the spec subject', () => {
+  const s = src('systemUpdates.js');
+  for (const re of [/Logged update '/, /Edited update '/, /Deleted update '/, /Saved draft update '/, /Edited draft update '/, /Deleted draft update '/]) assert.match(s, re);
+  assert.ok(count(s, /Publish update: '\$\{update\.title\}'/g) >= 1, 'publish rule-line prefix (shared by live PUT and draft PUT)');
+  assert.match(s, /\{ commit: publishCommit \}\);\n\s*await githubFetchAndPushFile\(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown\(md, uuid\), \{ commit: publishCommit \}\)/, 'both publish PUTs carry the publish commit');
+  assert.match(s, /isReorderOnly\(changedLabels\)\s*\? reorderCommit\(before, uuid\)/);
+});
+
+await test('systemStatus.js: incident/maintenance saves carry itemCommit; services-only save and banner do not', () => {
+  const s = src('systemStatus.js');
+  for (const re of [/Reported incident '/, /Updated incident '/, /Edited past incident '/, /Deleted incident '/, /Scheduled maintenance '/, /Updated maintenance '/, /Completed maintenance '/, /Deleted maintenance '/]) assert.match(s, re);
+  assert.match(s, /incident\.uuid \?\?= generateUUID\(\)/);
+  assert.match(s, /evt\.uuid \?\?= generateUUID\(\)/);
+  assert.match(s, /return githubFetchAndPush\(onProgress, currentMarkdown => updateMarkdownServices\(currentMarkdown, serviceUpdates\)\);/);
+  assert.match(s, /toml => writeMaintenanceKeys\(writeStatusBanner\(toml, value\), win\)\);/);
+});
+
 console.log(`\n${passed} passed`);

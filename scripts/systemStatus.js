@@ -14,6 +14,8 @@ import {
   deriveBannerStatus, deriveMaintenanceWindow, maintenancePhase, toIsoWithOffset,
   ALL_SERVICES, normalizeServiceSelection, servicesToSelectionArray,
 } from './statusEvents.js';
+import { generateUUID } from './admonitions.js';
+import { itemCommit } from './editLogDescribe.js';
 
 // All the markdown grammar/mutation logic lives in statusEvents.js (a pure
 // leaf module, shared with github.js's migrate-on-fetch hook); this file owns
@@ -24,6 +26,9 @@ const STATUS_FILE = 'docs/pages/system-status.md';
 
 const MAINTENANCE_STATUS_LABEL = { 'upcoming': 'Upcoming', 'in progress': 'In progress', 'completed': 'Completed' };
 const MAINTENANCE_STATUS_RANK  = { 'upcoming': 0, 'in progress': 1, 'completed': 2 };
+
+// Edit-log subject lookup for deletes: the card title (services string). Null-safe.
+const servicesOf = (md, uuid) => parseEventBlocks(md ?? '').find(e => e.uuid === uuid)?.services ?? '';
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -133,11 +138,14 @@ export async function publishSystemStatus(formEl, onProgress) {
 }
 
 export async function publishNewIncident(incident, onProgress) {
+  // Assign the uuid up front so the Item trailer names the block's real uuid
+  // (buildIncidentBlock honours a provided uuid).
+  incident.uuid ??= generateUUID();
   let finalMarkdown = '';
   await githubFetchAndPush(onProgress, currentMarkdown => {
     finalMarkdown = updateMarkdownIncidents(currentMarkdown, {}, incident);
     return finalMarkdown;
-  });
+  }, { commit: itemCommit(`Reported incident '${incident.services}'`, incident.uuid) });
   return syncStatusBanner(finalMarkdown, onProgress);
 }
 
@@ -146,7 +154,7 @@ export async function publishUpdatedIncident(uuid, update, onProgress) {
   await githubFetchAndPush(onProgress, currentMarkdown => {
     finalMarkdown = updateMarkdownIncidents(currentMarkdown, { [uuid]: update }, null);
     return finalMarkdown;
-  });
+  }, { commit: itemCommit(`Updated incident '${update.services}'`, uuid) });
   return syncStatusBanner(finalMarkdown, onProgress);
 }
 
@@ -155,7 +163,7 @@ export async function publishUpdatedPastIncident(uuid, update, onProgress) {
   await githubFetchAndPush(onProgress, currentMarkdown => {
     finalMarkdown = updateMarkdownPastIncident(currentMarkdown, uuid, update);
     return finalMarkdown;
-  });
+  }, { commit: itemCommit(`Edited past incident '${update.services}'`, uuid) });
   return syncStatusBanner(finalMarkdown, onProgress);
 }
 
@@ -164,16 +172,19 @@ export async function publishDeleteIncident(uuid, onProgress) {
   await githubFetchAndPush(onProgress, currentMarkdown => {
     finalMarkdown = deleteMarkdownEvent(currentMarkdown, uuid);
     return finalMarkdown;
-  });
+  }, { commit: ({ before }) => itemCommit(`Deleted incident '${servicesOf(before, uuid)}'`, uuid) });
   return syncStatusBanner(finalMarkdown, onProgress);
 }
 
 export async function publishNewMaintenance(evt, onProgress) {
+  // Assign the uuid up front so the Item trailer names the block's real uuid
+  // (buildMaintenanceBlock honours a provided uuid).
+  evt.uuid ??= generateUUID();
   let finalMarkdown = '';
   await githubFetchAndPush(onProgress, currentMarkdown => {
     finalMarkdown = recalculateServiceStatuses(insertMaintenanceBlock(currentMarkdown, evt));
     return finalMarkdown;
-  });
+  }, { commit: itemCommit(`Scheduled maintenance '${evt.services}'`, evt.uuid) });
   return syncStatusBanner(finalMarkdown, onProgress);
 }
 
@@ -182,7 +193,7 @@ export async function publishUpdatedMaintenance(uuid, update, onProgress) {
   await githubFetchAndPush(onProgress, currentMarkdown => {
     finalMarkdown = updateMarkdownMaintenance(currentMarkdown, uuid, update);
     return finalMarkdown;
-  });
+  }, { commit: itemCommit(update.currentStatus === 'completed' ? `Completed maintenance '${update.services}'` : `Updated maintenance '${update.services}'`, uuid) });
   return syncStatusBanner(finalMarkdown, onProgress);
 }
 
@@ -191,7 +202,7 @@ export async function publishDeleteMaintenance(uuid, onProgress) {
   await githubFetchAndPush(onProgress, currentMarkdown => {
     finalMarkdown = deleteMarkdownEvent(currentMarkdown, uuid);
     return finalMarkdown;
-  });
+  }, { commit: ({ before }) => itemCommit(`Deleted maintenance '${servicesOf(before, uuid)}'`, uuid) });
   return syncStatusBanner(finalMarkdown, onProgress);
 }
 
@@ -404,15 +415,17 @@ registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) 
     };
     // UUID-based: try active incidents first, then past incidents
     let finalMarkdown = '';
+    let isOpen = false; // set by the builder; read by the commit callback (runs after the build)
     await githubFetchAndPush(
       status => setButtonBusy(btn, status),
       currentMarkdown => {
-        const isOpen = parseIncidentBlocks(sectionBodies(currentMarkdown).active).some(i => i.uuid === _uuid);
+        isOpen = parseIncidentBlocks(sectionBodies(currentMarkdown).active).some(i => i.uuid === _uuid);
         finalMarkdown = isOpen
           ? updateMarkdownIncidents(currentMarkdown, { [_uuid]: update }, null)
           : updateMarkdownPastIncident(currentMarkdown, _uuid, update);
         return finalMarkdown;
-      }
+      },
+      { commit: () => itemCommit(isOpen ? `Updated incident '${update.services}'` : `Edited past incident '${update.services}'`, _uuid) }
     );
     await syncStatusBanner(finalMarkdown, status => setButtonBusy(btn, status));
     await chrome.storage.local.remove('moreButtonsUpdateIncident');
