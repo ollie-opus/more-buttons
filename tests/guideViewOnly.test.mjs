@@ -14,7 +14,8 @@ async function test(name, fn) { await fn(); passed++; console.log('  ok -', name
 // loadLabelPalette fetches the preset file; answer it with an empty palette.
 globalThis.fetch = async () => ({ ok: true, json: async () => ({}) });
 
-const { renderComponents, onComponentEditorClick, setOpenComponentEditor } = await import('../scripts/guides.js');
+const { renderComponents, onComponentEditorClick, setOpenComponentEditor, renderGuideSectionTree, liveLinkHtml, guideStatusPillHtml, writeGuideDraft } = await import('../scripts/guides.js');
+const { ensureSectionUUIDs } = await import('../scripts/sections.js');
 const { parseComponents } = await import('../scripts/components.js');
 const { GUIDE_ADMONITION_TYPES_RE } = await import('../scripts/admonitions.js');
 
@@ -85,6 +86,51 @@ await test('onComponentEditorClick: the same move on an editable form re-renders
   onComponentEditorClick(moveClick(formEl));
   assert.equal(list.sets, 1);
   assert.ok(list.innerHTML.indexOf('U-2') < list.innerHTML.indexOf('U-1'));
+});
+
+await test('renderGuideSectionTree viewOnly: rows keyed by document ordinal, no edit keys, no controls', () => {
+  // Real guides always carry section UUIDs (children are matched to parents by them).
+  const html = renderGuideSectionTree(ensureSectionUUIDs(['# T', '', '## A', '', '### A.1', '', '## B', ''].join('\n')), { viewOnly: true });
+  const ords = [...html.matchAll(/data-view-guide-section="(\d+)"/g)].map(m => m[1]);
+  assert.deepEqual(ords, ['0', '1', '2', '3']);
+  assert.ok(!html.includes('data-edit-guide-section'));
+  assert.ok(!html.includes('mb-kb-row-controls'));
+});
+
+await test('renderGuideSectionTree default: edit keys, no ordinals', () => {
+  const html = renderGuideSectionTree(['# T', '', '## A', ''].join('\n'));
+  assert.equal(count(html, /data-edit-guide-section=/g), 2);
+  assert.ok(!html.includes('data-view-guide-section'));
+});
+
+await test('guideStatusPillHtml / liveLinkHtml', () => {
+  assert.equal(guideStatusPillHtml('live'), '<span class="mb-kb-pills"><span class="mb-kb-pill --live">Live</span></span>');
+  assert.equal(guideStatusPillHtml('drafting'), '<span class="mb-kb-pills"><span class="mb-kb-pill --drafting">Drafting</span></span>');
+  const a = liveLinkHtml('docs/pages/x.md');
+  assert.ok(a.includes('/pages/x/"') && a.includes('>globe</span>View live</a>'));
+});
+
+// Repo reads go through fetch; record every call so the no-write assertions are exact.
+function stubFetch(byPath) {
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), method: init.method ?? 'GET' });
+    for (const [p, text] of Object.entries(byPath)) if (String(url).includes(p)) return { ok: true, status: 200, text: async () => text, json: async () => ({}) };
+    return { ok: false, status: 404, text: async () => '' };
+  };
+  return calls;
+}
+
+await test('writeGuideDraft: an existing draft is never overwritten', async () => {
+  const calls = stubFetch({ 'docs/drafts/x.md': '# X\n' });
+  assert.equal(await writeGuideDraft('docs/pages/x.md', () => {}, { title: 'X' }), 'exists');
+  assert.ok(calls.every(c => c.method === 'GET'));
+});
+
+await test('writeGuideDraft: a missing live page writes nothing', async () => {
+  const calls = stubFetch({});
+  assert.equal(await writeGuideDraft('docs/pages/y.md', () => {}, { title: 'Y' }), 'missing-live');
+  assert.ok(calls.every(c => c.method === 'GET'));
 });
 
 console.log(`\n${passed} passed`);

@@ -11,7 +11,8 @@ const count = (s, re) => (s.match(re) || []).length;
 await test('guides.js: the rule-line prefixes and section/settings subjects are written by the right flows', () => {
   const g = src('guides.js');
   assert.match(g, /commit: `Create guide: \$\{title\}`/);
-  assert.match(g, /commit: `Create draft: \$\{guideDisplayTitle\(formEl\)\}`/);
+  assert.match(g, /commit: `Create draft: \$\{title\}`/);
+  assert.match(g, /export async function writeGuideDraft\(livePath, onProgress, \{ title \}\)/);
   assert.ok(count(g, /commit: `Publish: \$\{guideDisplayTitle\(formEl\)\}`/g) >= 2, 'live PUT and draft DELETE');
   assert.match(g, /commit: `Discard draft: \$\{guideDisplayTitle\(formEl\)\}`/);
   assert.match(g, /commit: 'Reordered sections'/);

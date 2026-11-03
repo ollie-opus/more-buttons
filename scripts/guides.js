@@ -295,9 +295,20 @@ function reorderToggleHtml() {
 // The route is read from the nav value (navValueOf / draftNavValueOf), never
 // reconstructed, so a rename/move in zensical.toml follows automatically. The
 // draft page only exists once a draft has been created.
+export function liveLinkHtml(livePath) {
+  const live = publishedUrl(navValueOf(livePath));
+  return `<a class="more-buttons-button" href="${live}" target="_blank" rel="noopener" title="View live page"><span class="more-buttons-icon">globe</span>View live</a>`;
+}
+
+// Status pill for the guide header: the live page vs one with a draft in flight.
+export function guideStatusPillHtml(status) {
+  return status === 'drafting'
+    ? '<span class="mb-kb-pills"><span class="mb-kb-pill --drafting">Drafting</span></span>'
+    : '<span class="mb-kb-pills"><span class="mb-kb-pill --live">Live</span></span>';
+}
+
 function viewLinksHtml({ draft } = {}) {
-  const live = publishedUrl(navValueOf(currentGuide.livePath));
-  let html = `<a class="more-buttons-button" href="${live}" target="_blank" rel="noopener" title="View live page"><span class="more-buttons-icon">globe</span>View live</a>`;
+  let html = liveLinkHtml(currentGuide.livePath);
   if (draft) {
     const d = publishedUrl(draftNavValueOf(currentGuide.livePath));
     html += `<a class="more-buttons-button" href="${d}" target="_blank" rel="noopener" title="View draft page"><span class="more-buttons-icon">file-pen</span>View draft</a>`;
@@ -360,8 +371,8 @@ function sectionControlsHtml(uuid, level, isFirst, isLast) {
     </span>`;
 }
 
-function renderGuideSectionTree(markdown, { reorderable = false } = {}) {
-  const { title } = buildSectionTree(markdown);
+export function renderGuideSectionTree(markdown, { reorderable = false, viewOnly = false } = {}) {
+  const { title, sections } = buildSectionTree(markdown);
   if (!title) {
     return `<p class="more-buttons-description">Empty file — no sections found.</p>`;
   }
@@ -371,11 +382,11 @@ function renderGuideSectionTree(markdown, { reorderable = false } = {}) {
   // the controls read as sitting inside the row); the controls are a SIBLING of
   // the button, never nested, preserving click-isolation. Off-reorder the output
   // is byte-identical to the original render.
-  const rowLine = (button, controls, fixed = false) => reorderable
+  const rowLine = (button, controls, fixed = false) => reorderable && !viewOnly
     ? `<div class="mb-kb-row-line${fixed ? ' --fixed' : ''}">${button}${controls}</div>`
     : button;
   const sectionButton = (node) => `
-        <button class="mb-kb-node-row" type="button" data-edit-guide-section="${escapeHtml(node.uuid ?? '')}">
+        <button class="mb-kb-node-row" type="button" ${viewOnly ? `data-view-guide-section="${sections.indexOf(node)}"` : `data-edit-guide-section="${escapeHtml(node.uuid ?? '')}"`}>
           <span class="mb-kb-node-icon more-buttons-icon">text</span>
           ${nodeLabel(node)}
         </button>`;
@@ -570,6 +581,45 @@ async function saveSectionOrder(formEl) {
 
 // ── Draft create / publish / discard ──────────────────────────────────────────
 
+// The write half of Create draft (no DOM): resolves 'created', 'missing-live'
+// (nothing written) or 'exists' (an existing draft is never overwritten).
+export async function writeGuideDraft(livePath, onProgress, { title }) {
+  if (await readRepoText(draftPathOf(livePath))) return 'exists';
+  const liveMarkdown = await readRepoText(livePath);
+  if (!liveMarkdown) return 'missing-live';
+
+  const migrated = ensureCaptureUUIDs(
+    ensureAdmonitionUUIDs(
+      ensureSectionUUIDs(liveMarkdown),
+      GUIDE_ADMONITION_TYPES_RE,
+    ),
+  );
+
+  // Search-exclude the draft copy so it doesn't shadow the live page in the
+  // site search bar; publishGuideDraft strips the flag on promotion.
+  await githubFetchAndPushFile(draftPathOf(livePath), onProgress,
+    () => writeFrontmatterSearchExclude(migrated, true),
+    { commit: `Create draft: ${title}` });
+  // Mirror the page's nav location into draft_nav so it shows a Drafting pill.
+  onProgress('Updating navigation…');
+  const value = navValueOf(livePath);
+  await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+    const navItems = parseNavBlock(md, 'nav').items;
+    const draftItems = parseNavBlock(md, 'draft_nav').items;
+    // Clear any stale draft entry by slug, then mirror the live nav location with
+    // the draft file's value (drafts/<slug>.md) — a draft_nav entry references the
+    // draft, not the live page. An unlisted page has no nav entry, so fall back
+    // to its unlisted_nav location — without this its draft would land at the
+    // top level of the tree, losing its section.
+    removeByValueSlug(draftItems, valueSlug(value));
+    const unlistedItems = parseNavBlock(md, 'unlisted_nav').items;
+    const loc = findPathOfValue(navItems, value) ?? findPathByValueSlug(unlistedItems, valueSlug(value));
+    insertPath(draftItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(livePath), draftNavValueOf(livePath));
+    return replaceNavBlock(md, 'draft_nav', draftItems);
+  });
+  return 'created';
+}
+
 async function createGuideDraft(formEl) {
   if (!currentGuide) return;
   const btn = formEl.parentElement?.querySelector('[data-guide-action="create"]');
@@ -577,42 +627,13 @@ async function createGuideDraft(formEl) {
   setButtonBusy(btn, 'Fetching live page…');
 
   try {
-    const liveMarkdown = await readRepoText(currentGuide.livePath);
-    if (!liveMarkdown) {
+    const result = await writeGuideDraft(currentGuide.livePath, s => setButtonBusy(btn, s),
+      { title: guideDisplayTitle(formEl) });
+    if (result === 'missing-live') {
       restoreButton(btn, snap);
       alert('Live page not found at ' + currentGuide.livePath);
       return;
     }
-
-    const migrated = ensureCaptureUUIDs(
-      ensureAdmonitionUUIDs(
-        ensureSectionUUIDs(liveMarkdown),
-        GUIDE_ADMONITION_TYPES_RE,
-      ),
-    );
-
-    // Search-exclude the draft copy so it doesn't shadow the live page in the
-    // site search bar; publishGuideDraft strips the flag on promotion.
-    await githubFetchAndPushFile(currentGuide.draftPath, s => setButtonBusy(btn, s),
-      () => writeFrontmatterSearchExclude(migrated, true),
-      { commit: `Create draft: ${guideDisplayTitle(formEl)}` });
-    // Mirror the page's nav location into draft_nav so it shows a Drafting pill.
-    setButtonBusy(btn, 'Updating navigation…');
-    const value = navValueOf(currentGuide.livePath);
-    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
-      const navItems = parseNavBlock(md, 'nav').items;
-      const draftItems = parseNavBlock(md, 'draft_nav').items;
-      // Clear any stale draft entry by slug, then mirror the live nav location with
-      // the draft file's value (drafts/<slug>.md) — a draft_nav entry references the
-      // draft, not the live page. An unlisted page has no nav entry, so fall back
-      // to its unlisted_nav location — without this its draft would land at the
-      // top level of the tree, losing its section.
-      removeByValueSlug(draftItems, valueSlug(value));
-      const unlistedItems = parseNavBlock(md, 'unlisted_nav').items;
-      const loc = findPathOfValue(navItems, value) ?? findPathByValueSlug(unlistedItems, valueSlug(value));
-      insertPath(draftItems, loc?.segments ?? [], loc?.leafName ?? guideBaseName(currentGuide.livePath), draftNavValueOf(currentGuide.livePath));
-      return replaceNavBlock(md, 'draft_nav', draftItems);
-    });
     await renderGuideEntryContent(formEl);
   } catch (e) {
     restoreButton(btn, snap);
