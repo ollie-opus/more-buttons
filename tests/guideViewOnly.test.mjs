@@ -213,4 +213,132 @@ await test('openGuideSectionLiveView: a missing section alerts and mounts nothin
   assert.deepEqual(alerts, ['Section not found.']);
 });
 
+// ── Nested drill-down (spec section 6) ──────────────────────────────────────
+
+const NEST = [
+  '# T', '', '## A', '',
+  '=== "One"', '', '    Tab one text.', '',
+  '    <div class="grid" markdown>', '',
+  '    <div markdown>', '', '    Cell text.', '',
+  '    !!! note "Deep"', '', '        Deep body.', '',
+  '    </div>', '',
+  '    <div markdown>', '', '    Second.', '',
+  '    </div>', '',
+  '    </div>', '',
+  '=== "Two"', '', '    Two text.', '',
+  '!!! tip "Outer"', '', '    Outer desc.', '', '    ```bash', '    echo hi', '    ```', '',
+  '| a | b |', '| - | - |', '| 1 | 2 |', '',
+].join('\n');
+
+await test('liveComponentModel: admonition with a nested code block, both with uuids', () => {
+  const m = live.liveComponentModel(NEST, [1, 1]);
+  assert.equal(m.kind, 'admonition');
+  assert.equal(m.title, 'Outer');
+  assert.ok(m.uuid);
+  assert.equal(m.description.trim(), 'Outer desc.');
+  assert.equal(m.components.length, 1);
+  assert.equal(m.components[0].kind, 'codeblock');
+  assert.ok(m.components[0].cb.uuid);
+});
+
+await test('liveComponentModel: tabs group, tab, grid, cell, and a deep admonition all resolve with uuids', () => {
+  const g = live.liveComponentModel(NEST, [1, 0]);
+  assert.equal(g.kind, 'tabs');
+  assert.deepEqual(g.tabs.map(t => t.title), ['One', 'Two']);
+  assert.ok(g.uuid && g.tabs.every(t => t.uuid));
+  assert.equal(g.tabs[0].description.trim(), 'Tab one text.');
+  const t = live.liveComponentModel(NEST, [1, 0, 1]);
+  assert.equal(t.kind, 'tab');
+  assert.equal(t.title, 'Two');
+  assert.deepEqual(t.components, []);
+  const grid = live.liveComponentModel(NEST, [1, 0, 0, 0]);
+  assert.equal(grid.kind, 'grid');
+  assert.equal(grid.cells.length, 2);
+  assert.ok(grid.uuid && grid.cells.every(c => c.uuid));
+  assert.equal(grid.cells[0].nComponents, 1);
+  assert.equal(grid.cells[1].nComponents, 0);
+  const cell = live.liveComponentModel(NEST, [1, 0, 0, 0, 0]);
+  assert.equal(cell.kind, 'grid-cell');
+  assert.equal(cell.index, 0);
+  assert.equal(cell.description.trim(), 'Cell text.');
+  assert.equal(cell.components[0].kind, 'admonition');
+  assert.ok(cell.components[0].adm.uuid, 'admonition inside a cell inside a tab has a uuid');
+  const deep = live.liveComponentModel(NEST, [1, 0, 0, 0, 0, 0]);
+  assert.equal(deep.kind, 'admonition');
+  assert.equal(deep.title, 'Deep');
+});
+
+await test('liveComponentModel: leaf, missing, out-of-range and malformed paths are null', () => {
+  assert.equal(live.liveComponentModel(NEST, [1, 2]), null, 'table leaf');
+  assert.equal(live.liveComponentModel(NEST, [1, 1, 0]), null, 'code block leaf inside the admonition');
+  assert.equal(live.liveComponentModel(NEST, [1, 9]), null);
+  assert.equal(live.liveComponentModel(NEST, [1, 0, 5]), null, 'tab index out of range');
+  assert.equal(live.liveComponentModel(NEST, [1, 0, 0, 0, 7]), null, 'cell index out of range');
+  assert.equal(live.liveComponentModel(NEST, [9, 0]), null, 'section out of range');
+  assert.equal(live.liveComponentModel(NEST, [1]), null, 'a section is not a component');
+  assert.equal(live.liveComponentModel(NEST, [1, -1]), null);
+  assert.equal(live.liveComponentModel(NEST, [1, '0']), null);
+  assert.equal(live.liveComponentModel(NEST, null), null);
+});
+
+await test('liveComponentHeading: wording per kind', () => {
+  assert.equal(live.liveComponentHeading({ kind: 'admonition', title: 'Outer', type: 'tip' }).crumb, 'Outer');
+  assert.equal(live.liveComponentHeading({ kind: 'admonition', title: '', type: 'note' }).crumb, 'Note');
+  assert.equal(live.liveComponentHeading({ kind: 'admonition', title: '', type: 'zzz' }).crumb, 'Admonition');
+  assert.equal(live.liveComponentHeading({ kind: 'tabs' }).crumb, 'Content tabs');
+  assert.equal(live.liveComponentHeading({ kind: 'tab', title: 'Two' }).crumb, 'Two');
+  assert.equal(live.liveComponentHeading({ kind: 'grid' }).crumb, 'Grid');
+  assert.equal(live.liveComponentHeading({ kind: 'grid-cell', index: 2 }).crumb, 'Cell 3');
+});
+
+await test('view-only renderComponents: View only on container cards, keyed by list index, never Edit', () => {
+  const m = live.liveSectionModel(NEST, 1);
+  assert.deepEqual(m.components.map(c => c.kind), ['tabs', 'admonition', 'table']);
+  const list = fakeList(true);
+  renderComponents(list, m.components, true, { viewOnly: true });
+  const html = list.innerHTML;
+  assert.deepEqual([...html.matchAll(/data-view-component="(\d+)"/g)].map(x => x[1]), ['0', '1']);
+  assert.equal(count(html, /data-copy-component-md=/g), 3);
+  assert.equal(count(html, />Edit</g), 0);
+  assert.equal(count(html, /data-edit-/g), 0);
+  // View sits inside the foot, after Copy.
+  const foot = html.slice(html.indexOf('mb-incident-card__foot'));
+  assert.ok(foot.indexOf('data-copy-component-md') < foot.indexOf('data-view-component="0"'));
+  const grid = live.liveComponentModel(NEST, [1, 0, 0]);
+  const gl = fakeList(true);
+  renderComponents(gl, grid.components, false, { viewOnly: true });
+  assert.ok(gl.innerHTML.includes('data-view-component="0"'), 'grid card gets View');
+});
+
+await test('grid cell copy text: cell blocks with no uuid spans', () => {
+  const grid = live.liveComponentModel(NEST, [1, 0, 0, 0]);
+  assert.ok(grid.cells[0].body.includes('data-uuid'), 'fixture body carries in-memory spans');
+  const one = live.liveGridCellsText(grid.flavor, [grid.cells[0]]);
+  assert.ok(!one.includes('data-uuid'));
+  assert.match(one, /^<div markdown>\n\nCell text\.\n\n!!! note "Deep"/);
+  assert.ok(one.trimEnd().endsWith('</div>'));
+  const both = live.liveGridCellsText(grid.flavor, grid.cells);
+  assert.equal(count(both, /<div markdown>/g), 2);
+  assert.ok(!both.includes('data-uuid'));
+});
+
+await test('openComponentLiveView: registered; a null model alerts "Component not found." without mounting or writing', async () => {
+  assert.ok(getFormAction('openComponentLiveView'));
+  const calls = stubFetch({ 'docs/pages/x.md': NEST });
+  const alerts = [];
+  globalThis.alert = m => alerts.push(m);
+  await getFormAction('openComponentLiveView')({ file: 'docs/pages/x.md', path: [1, 2], label: 'X' });
+  assert.deepEqual(alerts, ['Component not found.']);
+  assert.ok(calls.every(c => c.method === 'GET'));
+});
+
+await test('openComponentLiveView / openGuideSectionLiveView: a drafted page redirects to the draft entry', async () => {
+  stubFetch({ 'docs/drafts/x.md': '# X\n', 'docs/pages/x.md': NEST });
+  const seen = [];
+  registerFormAction('openGuideEntry', async args => { seen.push(args); });
+  await getFormAction('openComponentLiveView')({ file: 'docs/pages/x.md', path: [1, 1], label: 'X' });
+  await getFormAction('openGuideSectionLiveView')({ file: 'docs/pages/x.md', index: 1, label: 'X' });
+  assert.deepEqual(seen, [{ filePath: 'docs/pages/x.md', label: 'X' }, { filePath: 'docs/pages/x.md', label: 'X' }]);
+});
+
 console.log(`\n${passed} passed`);

@@ -3541,7 +3541,8 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
 h2[data-capture-entry-title],
 h2[data-edit-media-title],
 h2[data-guide-title],
-h2[data-guide-section-heading] {
+h2[data-guide-section-heading],
+h2[data-view-component-heading] {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3549,7 +3550,8 @@ h2[data-guide-section-heading] {
 h2[data-capture-entry-title] .mb-kb-pills,
 h2[data-edit-media-title] .mb-kb-pills,
 h2[data-guide-title] .mb-kb-pills,
-h2[data-guide-section-heading] .mb-kb-pills {
+h2[data-guide-section-heading] .mb-kb-pills,
+h2[data-view-component-heading] .mb-kb-pills {
   margin-left: auto;
 }
 
@@ -3820,6 +3822,20 @@ h2[data-guide-section-heading] .mb-kb-pills {
 /* View-only forms (live page view): no toolbar, and keep the surface readable
    and selectable (the disabled rule's pointer-events:none would block that). */
 form[data-view-only] .mb-rte__toolbar { display: none; }
+/* Component view screens (live drill-down): the description reads like the
+   section screen's view-only surface; the tab strip is navigation only. */
+form[data-view-only] .mb-view-description {
+  padding: 8px 12px;
+  border: 1px solid var(--mb-border);
+  border-radius: 6px;
+  background-color: var(--mb-bg-input);
+  color: var(--mb-text);
+}
+form[data-view-only] .mb-view-tabs .more-buttons-tab { white-space: nowrap; }
+/* View lists have no insert bars to space the rows, so gap them here. */
+form[data-view-only] [data-section-components],
+form[data-view-only] [data-view-components],
+form[data-view-only] [data-view-grid-cells] { display: flex; flex-direction: column; gap: 8px; }
 form[data-view-only] .mb-rte--disabled .mb-rte__surface {
   pointer-events: auto;
   cursor: text;
