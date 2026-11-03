@@ -23,6 +23,7 @@ import {
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { generateUUID } from './admonitions.js';
 import { mergeSave } from './mergeSave.js';
+import { componentKindLabel, componentCommit } from './editLogDescribe.js';
 import { spliceIntoContainer } from './guides.js';
 import {
   locateDiagramByUUID, replaceDiagramByUUID, deleteDiagramByUUID, diagramDimFields,
@@ -154,6 +155,7 @@ async function persistDiagramEdit(formEl, onProgress = () => {}) {
       if (!locateDiagramByUUID(md, editUuid)) throw new Error('Diagram no longer exists.');
       return replaceDiagramByUUID(md, editUuid, resolved.diagramCode);
     },
+    commit: ({ before }) => componentCommit('Edited', componentKindLabel({ kind: 'diagram', dia: locateDiagramByUUID(before, editUuid) }), before, editUuid),
   });
   return { editUuid, file };
 }
@@ -188,7 +190,9 @@ registerFormAction('deleteDiagram', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…');
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteDiagramByUUID(md, editUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteDiagramByUUID(md, editUuid), {
+      commit: ({ before }) => componentCommit('Deleted', componentKindLabel({ kind: 'diagram', dia: locateDiagramByUUID(before, editUuid) }), before, editUuid),
+    });
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {

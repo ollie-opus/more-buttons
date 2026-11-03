@@ -25,6 +25,7 @@ import {
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { generateUUID } from './admonitions.js';
 import { mergeSave } from './mergeSave.js';
+import { componentKindLabel, componentCommit } from './editLogDescribe.js';
 import { spliceIntoContainer } from './guides.js';
 import { attachSuggestCombobox } from './suggestCombobox.js';
 import {
@@ -229,6 +230,7 @@ async function persistCodeBlockEdit(formEl, onProgress = () => {}) {
       if (!locateCodeBlockByUUID(md, editUuid)) throw new Error('Code block no longer exists.');
       return replaceCodeBlockByUUID(md, editUuid, codeBlockFromDimFields(res));
     },
+    commit: ({ before }) => componentCommit('Edited', componentKindLabel({ kind: 'codeblock', cb: locateCodeBlockByUUID(before, editUuid) }), before, editUuid),
   });
   if (!resolved) return null; // resolver cancelled
   return { editUuid, file };
@@ -264,7 +266,9 @@ registerFormAction('deleteCodeBlock', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…');
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteCodeBlockByUUID(md, editUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteCodeBlockByUUID(md, editUuid), {
+      commit: ({ before }) => componentCommit('Deleted', componentKindLabel({ kind: 'codeblock', cb: locateCodeBlockByUUID(before, editUuid) }), before, editUuid),
+    });
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {

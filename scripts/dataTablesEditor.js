@@ -57,6 +57,7 @@ import { placeCaret } from './richEditorMapping.js';
 import { renderDocHtml } from './markdownInline.js';
 import { escapeHtml } from './cardRenderer.js';
 import { assetCdnUrl } from './repoClient.js';
+import { componentCommit } from './editLogDescribe.js';
 
 const STORAGE_KEY = 'moreButtonsEditDataTable';
 
@@ -932,7 +933,7 @@ async function persistDataTableEdit(formEl, onProgress = () => {}) {
   await githubFetchAndPushFile(file, onProgress, md => {
     if (!getDataTableByUUID(md, uuid)) { found = false; return md; }
     return replaceDataTableByUUID(md, uuid, buildDataTable(uuid, st.align, st.header, st.rows, st.wrap));
-  });
+  }, { commit: ({ before }) => componentCommit('Edited', 'Data table', before, uuid) });
   if (!found) {
     alert(`This data table was deleted in another session — your changes can't be saved.`);
     return null;
@@ -1035,12 +1036,17 @@ registerComponentContainer('data-table-cell', {
   readComponents: readCellComponents,
   writeBody: writeCellBody,
   exists: cellExists,
-  mutate: async (container, transform, onProgress) => {
+  // `commit` mirrors makeContainerHandler.mutate's 4th param; omitted → an
+  // edit of the table (a cell ref is `<tableUuid>@<row>,<col>`, not a span
+  // uuid, so the section is located from the table's uuid).
+  mutate: async (container, transform, onProgress, commit) => {
     await githubFetchAndPushFile(container.file, onProgress || (() => {}), md => {
       if (!cellExists(md, container.uuid)) throw new Error('Parent table no longer exists.');
       const { description, components } = readCellComponents(md, container.uuid);
       const next = transform(components, description) || components;
       return writeCellBody(md, container.uuid, description, next);
+    }, {
+      commit: commit || (({ before }) => componentCommit('Edited', 'Data table', before, parseCellRef(container.uuid).tableUuid)),
     });
     await refreshLiveGridFromFile(parseCellRef(container.uuid));
   },
@@ -1069,7 +1075,8 @@ registerFormAction('deleteDataTable', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteDataTableByUUID(md, uuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteDataTableByUUID(md, uuid),
+      { commit: ({ before }) => componentCommit('Deleted', 'Data table', before, uuid) });
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {

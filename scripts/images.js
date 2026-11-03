@@ -14,6 +14,7 @@ import { snapshotFormStack, replayFormStack } from './form.js';
 import { formLoading } from './loading.js';
 import { generateUUID } from './admonitions.js';
 import { getComponentContainer } from './componentContainers.js';
+import { componentKindLabel, componentCommit } from './editLogDescribe.js';
 
 // Corner-rounding radius (px) applied to a rounded image's inline style. Single
 // knob; the parser only detects `border-radius` presence so this can change
@@ -70,7 +71,8 @@ async function commitImagesIntoContainer(container, insertAt, imgList) {
     const next = components.slice();
     next.splice(idx, 0, ...inserted);
     return next;
-  });
+  }, undefined, ({ before }) => componentCommit('Added',
+    inserted.length === 1 ? componentKindLabel(inserted[0]) : `${inserted.length} components`, before, container.uuid));
   return inserted;
 }
 

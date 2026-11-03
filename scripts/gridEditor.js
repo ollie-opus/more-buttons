@@ -55,6 +55,7 @@ import {
 } from './cardRenderer.js';
 import { openPopupMenu } from './insertMenu.js';
 import { showFieldError } from './formValidation.js';
+import { componentCommit } from './editLogDescribe.js';
 
 const STORAGE_KEY = 'moreButtonsEditGrid';
 
@@ -612,7 +613,7 @@ async function persistGridEdit(formEl, onProgress = () => {}) {
       return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered), spill: c.spill, valign: c.valign };
     });
     return replaceGridByUUID(md, gridUuid, buildGrid(gridUuid, st.flavor, gridCells));
-  });
+  }, { commit: ({ before }) => componentCommit('Edited', 'Grid', before, gridUuid) });
   if (!found) {
     alert('This grid was deleted in another session — your changes can’t be saved.');
     return null;
@@ -690,7 +691,7 @@ async function spliceGridCells(file, gridUuid, insertAt, newCells, onProgress = 
     landed = idx;
     after = { flavor: grid.flavor, cells };
     return replaceGridByUUID(md, gridUuid, gridWithCells(grid, cells));
-  });
+  }, { commit: ({ before }) => componentCommit('Edited', 'Grid', before, gridUuid) });
   if (after) await seedStorage(after.flavor, cellsFromGrid(after));
   return landed;
 }
@@ -775,7 +776,7 @@ registerFormAction('deleteGridCell', async ({ formEl, content }) => {
       if (cells.length === grid.cells.length) throw new Error('This cell no longer exists.');
       after = { flavor: grid.flavor, cells };
       return replaceGridByUUID(md, gridUuid, gridWithCells(grid, cells));
-    });
+    }, { commit: ({ before }) => componentCommit('Edited', 'Grid', before, gridUuid) });
     if (after) await seedStorage(after.flavor, cellsFromGrid(after));
     await navigateBack();
   } catch (e) {
@@ -821,7 +822,8 @@ registerFormAction('deleteGrid', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteGridByUUID(md, gridUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteGridByUUID(md, gridUuid),
+      { commit: ({ before }) => componentCommit('Deleted', 'Grid', before, gridUuid) });
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {

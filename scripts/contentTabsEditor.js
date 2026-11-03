@@ -42,6 +42,7 @@ import { getTabGroupByUUID, buildTabGroup, replaceTabGroupByUUID, deleteTabGroup
 import { makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
 import { escapeHtml } from './cardRenderer.js';
+import { componentCommit } from './editLogDescribe.js';
 
 const STORAGE_KEY = 'moreButtonsEditContentTabs';
 
@@ -418,7 +419,7 @@ async function persistTabsEdit(formEl, onProgress = () => {}) {
       return { uuid: t.uuid, title: t.title.trim(), body: buildComponentBody(t.uuid, t.description, ordered) };
     });
     return replaceTabGroupByUUID(md, groupUuid, buildTabGroup(groupUuid, grpTabs));
-  });
+  }, { commit: ({ before }) => componentCommit('Edited', 'Content tabs', before, groupUuid) });
   if (!found) {
     alert('This tab group was deleted in another session — your changes can’t be saved.');
     return null;
@@ -475,7 +476,8 @@ registerFormAction('deleteContentTabs', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…'); // disable immediately — no double-click window
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteTabGroupByUUID(md, groupUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteTabGroupByUUID(md, groupUuid),
+      { commit: ({ before }) => componentCommit('Deleted', 'Content tabs', before, groupUuid) });
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {

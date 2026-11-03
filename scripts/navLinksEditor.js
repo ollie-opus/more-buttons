@@ -29,6 +29,7 @@ import {
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { generateUUID } from './admonitions.js';
 import { mergeSave } from './mergeSave.js';
+import { componentKindLabel, componentCommit } from './editLogDescribe.js';
 import { spliceIntoContainer } from './guides.js';
 import { readRepoText } from './repoClient.js';
 import { parseNavBlock, slugify } from './navToml.js';
@@ -281,6 +282,7 @@ async function persistNavLinksEdit(formEl, onProgress = () => {}) {
       });
       return replaceNavLinksByUUID(md, editUuid, line);
     },
+    commit: ({ before }) => componentCommit('Edited', componentKindLabel({ kind: 'navlinks', nav: locateNavLinksByUUID(before, editUuid) }), before, editUuid),
   });
   return { editUuid, file };
 }
@@ -315,7 +317,9 @@ registerFormAction('deleteNavLinks', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…');
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteNavLinksByUUID(md, editUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteNavLinksByUUID(md, editUuid), {
+      commit: ({ before }) => componentCommit('Deleted', componentKindLabel({ kind: 'navlinks', nav: locateNavLinksByUUID(before, editUuid) }), before, editUuid),
+    });
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {

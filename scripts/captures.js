@@ -23,6 +23,7 @@ import { OCC_DIR, SU_DIR, isSystemUpdateContainer, isSystemUpdateCapturePath, sh
 import { showConflictResolver, ResolveCancelled } from './conflictResolver.js';
 import { generateUUID } from './admonitions.js';
 import { getComponentContainer } from './componentContainers.js';
+import { componentKindLabel, componentCommit } from './editLogDescribe.js';
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
 
@@ -242,7 +243,8 @@ async function commitCapturesIntoContainer(container, insertAt, capList) {
     const next = components.slice();
     next.splice(idx, 0, ...inserted);
     return next;
-  });
+  }, undefined, ({ before }) => componentCommit('Added',
+    inserted.length === 1 ? componentKindLabel(inserted[0]) : `${inserted.length} components`, before, container.uuid));
   return inserted;
 }
 

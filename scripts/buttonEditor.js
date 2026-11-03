@@ -33,6 +33,7 @@ import {
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { generateUUID } from './admonitions.js';
 import { mergeSave } from './mergeSave.js';
+import { componentKindLabel, componentCommit } from './editLogDescribe.js';
 import { spliceIntoContainer } from './guides.js';
 import { attachIconPicker, getLucideSvgMarkup } from './iconPicker.js';
 import { renderButtonPreview } from './buttonPreview.js';
@@ -459,6 +460,7 @@ async function persistButtonEdit(formEl, onProgress = () => {}) {
       });
       return replaceButtonByUUID(md, editUuid, line);
     },
+    commit: ({ before }) => componentCommit('Edited', componentKindLabel({ kind: 'button', btn: locateButtonByUUID(before, editUuid) }), before, editUuid),
   });
   return { editUuid, file };
 }
@@ -493,7 +495,9 @@ registerFormAction('deleteButton', async ({ formEl, content }) => {
   const snap = snapshotButton(btn);
   setButtonBusy(btn, 'Deleting…');
   try {
-    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteButtonByUUID(md, editUuid));
+    await githubFetchAndPushFile(file, s => setButtonBusy(btn, s), md => deleteButtonByUUID(md, editUuid), {
+      commit: ({ before }) => componentCommit('Deleted', componentKindLabel({ kind: 'button', btn: locateButtonByUUID(before, editUuid) }), before, editUuid),
+    });
     await chrome.storage.local.remove(STORAGE_KEY);
     await navigateBack();
   } catch (e) {

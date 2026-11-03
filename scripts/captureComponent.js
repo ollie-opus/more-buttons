@@ -19,6 +19,17 @@ import { fileExtOf } from './cardRenderer.js';
 import { captureDimFields, videoDimFields, imageDimFields, uuidOfComponent } from './components.js';
 import { mergeSave } from './mergeSave.js';
 import { formLoading } from './loading.js';
+import { componentKindLabel, componentCommit } from './editLogDescribe.js';
+
+// The component `uuid` as parsed from `md` (null when absent) — only feeds the
+// commit subject's kind label, so a parse failure must never fail the save.
+function componentIn(handler, container, md, uuid) {
+  try {
+    return handler.readComponents(md, container.uuid).components.find(c => uuidOfComponent(c) === uuid) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function openEditCaptureComponent({ container, uuid, cap } = {}) {
   return openEditMediaComponent({ kind: 'capture', container, uuid, media: cap });
@@ -232,6 +243,7 @@ registerFormAction('submitEditCaptureComponent', async ({ formEl, content }) => 
         });
         return handler.writeBody(md, container.uuid, description, next);
       },
+      commit: ({ before }) => componentCommit('Edited', componentKindLabel(componentIn(handler, container, before, uuid)), before, uuid),
     });
     formEl._refreshSaveState?.();
   } catch (e) {
@@ -251,7 +263,8 @@ registerFormAction('deleteCaptureComponent', async ({ formEl, content }) => {
   try {
     await handler.mutate(container, (components) =>
       components.filter(c => uuidOfComponent(c) !== uuid),
-      s => setButtonBusy(btn, s));
+      s => setButtonBusy(btn, s),
+      ({ before }) => componentCommit('Deleted', componentKindLabel(componentIn(handler, container, before, uuid)), before, uuid));
     await chrome.storage.local.remove('moreButtonsEditCaptureComponent');
     await navigateBack();
   } catch (e) {
