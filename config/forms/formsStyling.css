@@ -3535,13 +3535,17 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
 /* Form titles that carry a format pill (capture entry, edit capture/video):
    flex the row so the pill sits at the right edge, on the title's level. */
 h2[data-capture-entry-title],
-h2[data-edit-media-title] {
+h2[data-edit-media-title],
+h2[data-guide-title],
+h2[data-guide-section-heading] {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 h2[data-capture-entry-title] .mb-kb-pills,
-h2[data-edit-media-title] .mb-kb-pills {
+h2[data-edit-media-title] .mb-kb-pills,
+h2[data-guide-title] .mb-kb-pills,
+h2[data-guide-section-heading] .mb-kb-pills {
   margin-left: auto;
 }
 

@@ -260,6 +260,10 @@ async function renderGuideEntryContent(formEl) {
   // Draft exists. Stash the loaded markdown so entering reorder mode can seed its
   // working copy without a re-fetch, then render the tree + actions.
   formEl._draftMd = draftMarkdown;
+  if (titleEl) {
+    titleEl.querySelector('.mb-kb-pills')?.remove();
+    titleEl.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
+  }
   renderGuideDraftView(formEl, draftMarkdown);
   mountEditLog(formEl, thread);
 }
@@ -970,7 +974,11 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid, file }) => {
 
   // Heading text.
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) heading.textContent = 'Add section';
+  if (heading) {
+    heading.textContent = 'Add section';
+    heading.querySelector('.mb-kb-pills')?.remove();
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
+  }
 
   // Hide Delete (lives in the moved form-actions) in create mode.
   formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.setProperty('display', 'none');
@@ -1025,7 +1033,11 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   // Heading + visible controls based on level.
   const treeMatch = buildSectionTree(draftMarkdown).sections.find(s => s.uuid === uuid);
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) heading.textContent = treeMatch ? `Edit ${treeMatch.label.toLowerCase()}` : 'Edit section';
+  if (heading) {
+    heading.textContent = treeMatch ? `Edit ${treeMatch.label.toLowerCase()}` : 'Edit section';
+    heading.querySelector('.mb-kb-pills')?.remove();
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
+  }
   // Breadcrumb shows the section's identity, e.g. "Section 1: Manager Steps".
   if (treeMatch?.visualLabel) setCrumbLabel(treeMatch.visualLabel);
 
@@ -1827,7 +1839,11 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   const refreshed = await readRepoText(currentGuide.draftPath);
   const newTreeMatch = buildSectionTree(refreshed).sections.find(s => s.uuid === newUuid);
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) heading.textContent = newTreeMatch ? `Edit ${newTreeMatch.label.toLowerCase()}` : 'Edit section';
+  if (heading) {
+    heading.textContent = newTreeMatch ? `Edit ${newTreeMatch.label.toLowerCase()}` : 'Edit section';
+    heading.querySelector('.mb-kb-pills')?.remove();
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
+  }
   if (newTreeMatch?.visualLabel) setCrumbLabel(newTreeMatch.visualLabel);
   populateParentDropdown(formEl, refreshed, newUuid, level);
   await chrome.storage.local.set({
