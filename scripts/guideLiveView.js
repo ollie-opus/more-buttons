@@ -26,7 +26,7 @@ export function liveIdentity(md) {
 }
 
 export function liveBannerHtml({ createDraft = false } = {}) {
-  return '<div class="mb-live-banner" data-live-banner><span class="more-buttons-icon">eye</span>'
+  return '<div class="mb-live-banner" data-live-banner>'
     + '<span class="mb-live-banner__text">Viewing the live page. Nothing here can be edited. Create a draft to make changes.</span>'
     + (createDraft ? '<button type="button" class="more-buttons-button mb-live-banner__btn" data-guide-live-create><span class="more-buttons-icon">plus</span>Create draft</button>' : '')
     + '</div>';

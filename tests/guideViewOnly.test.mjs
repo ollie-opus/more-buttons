@@ -147,7 +147,7 @@ await test('liveBannerHtml: Create draft only on the page banner, text exact', (
   const text = 'Viewing the live page. Nothing here can be edited. Create a draft to make changes.';
   assert.ok(live.liveBannerHtml({ createDraft: true }).includes('data-guide-live-create'));
   assert.ok(!live.liveBannerHtml().includes('data-guide-live-create'));
-  assert.ok(live.liveBannerHtml().includes(text) && live.liveBannerHtml().includes('>eye</span>'));
+  assert.ok(live.liveBannerHtml().includes(text) && !live.liveBannerHtml().includes('more-buttons-icon'));
 });
 
 await test('openGuideLiveView: a drafted page redirects to the normal draft entry before any form mounts', async () => {
