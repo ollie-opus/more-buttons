@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { migrateComponentIdentity } from '../scripts/github.js';
+import { migrateComponentIdentity, migrateGuideIdentity } from '../scripts/github.js';
+import { parseSections } from '../scripts/sections.js';
 import { locateCaptureLines, locateImageLines } from '../scripts/components.js';
 
 let passed = 0;
@@ -116,6 +117,26 @@ test('system-status.md: legacy event cards migrate to the pill format, idempoten
   // Ongoing outage on Server flips the tile via the recalc that ends the hook.
   assert.ok(once.includes('!!! status-outage "Server"'));
   assert.equal(migrateComponentIdentity('docs/pages/system-status.md', once, now), once);
+});
+
+test('migrateGuideIdentity: every section of a uuid-less page gets a uuid', () => {
+  const md = ['# T', '', '## A', '', '### A.1', '', '## B', ''].join('\n');
+  const out = migrateGuideIdentity(md);
+  const secs = parseSections(out);
+  assert.equal(secs.length, 4);
+  assert.ok(secs.every(s => s.uuid), 'all four sections carry a uuid');
+});
+
+test('migrateGuideIdentity: idempotent (a migrated page reads through unchanged)', () => {
+  const md = ['# T', '', '## A', '', capture('h'), ''].join('\n');
+  const once = migrateGuideIdentity(md);
+  assert.equal(migrateGuideIdentity(once), once);
+});
+
+test('migrateComponentIdentity (guide branch) and migrateGuideIdentity share one chain', () => {
+  const md = ['# T', '', '## A', '', capture('i'), ''].join('\n');
+  const norm = s => s.replace(/data-uuid="[^"]+"/g, 'data-uuid="X"');
+  assert.equal(norm(migrateComponentIdentity('docs/pages/p.md', md)), norm(migrateGuideIdentity(md)));
 });
 
 console.log(`\n${passed} passed`);

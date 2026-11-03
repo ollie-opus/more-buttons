@@ -100,6 +100,23 @@ function isGuideMarkdown(filePath) {
   return base !== 'system-updates.md' && base !== 'system-status.md';
 }
 
+// The guide identity chain, pure and I/O-free (also used to give a live page
+// UUIDs in memory without writing). Idempotent.
+export function migrateGuideIdentity(markdown) {
+  // Mirror createGuideDraft: sections + component admonitions + tabs + grids + tables + captures.
+  // ensureTabUUIDs + ensureGridUUIDs must run BEFORE tables/captures: a span
+  // injected as a tab's or grid cell's first body line would be misread as
+  // that container's own identity.
+  const withIds = ensureImageUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
+    ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
+  )))));
+  // Hide-page-title moved from a page-level setting to a per-section toggle:
+  // fold any legacy preamble marker into the H1 section's own hide flag. Runs
+  // last (after ensureSectionUUIDs has given the H1 a UUID span). Idempotent —
+  // a no-op once the legacy marker is gone.
+  return migrateHideTitleToSection(withIds);
+}
+
 // Backfill missing component-identity UUIDs (sections / admonitions / captures)
 // for any file that carries components, BEFORE the caller's build runs — so every
 // save and merge sees stable UUIDs and self-heals. This is the single place that
@@ -130,17 +147,7 @@ export function migrateComponentIdentity(filePath, markdown, now = new Date()) {
     }
     return filePath.includes('system-updates.md') ? ensureImageUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(withAdm))))) : withAdm;
   }
-  if (isGuideMarkdown(filePath)) {
-    // Mirror createGuideDraft: sections + component admonitions + tabs + tables + captures.
-    const withIds = ensureImageUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(
-      ensureAdmonitionUUIDs(ensureSectionUUIDs(markdown), GUIDE_ADMONITION_TYPES_RE),
-    )))));
-    // Hide-page-title moved from a page-level setting to a per-section toggle:
-    // fold any legacy preamble marker into the H1 section's own hide flag. Runs
-    // last (after ensureSectionUUIDs has given the H1 a UUID span). Idempotent —
-    // a no-op once the legacy marker is gone.
-    return migrateHideTitleToSection(withIds);
-  }
+  if (isGuideMarkdown(filePath)) return migrateGuideIdentity(markdown);
   return markdown;
 }
 
