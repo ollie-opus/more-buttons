@@ -150,6 +150,12 @@ await test('liveBannerHtml: Create draft only on the page banner, text exact', (
   assert.ok(live.liveBannerHtml().includes(text) && !live.liveBannerHtml().includes('more-buttons-icon'));
 });
 
+await test('liveDockHtml: View live then Create draft, separated, on both view-only docks', () => {
+  const dock = live.liveDockHtml('docs/pages/x.md');
+  assert.ok(dock.indexOf('View live') < dock.indexOf('mb-dock-sep') && dock.indexOf('mb-dock-sep') < dock.indexOf('data-guide-live-create'));
+  assert.equal(count(dock, /data-guide-live-create/g), 1);
+});
+
 await test('openGuideLiveView: a drafted page redirects to the normal draft entry before any form mounts', async () => {
   const calls = stubFetch({ 'docs/drafts/x.md': '# X\n' });
   const seen = [];

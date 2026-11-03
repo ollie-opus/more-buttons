@@ -32,14 +32,28 @@ export function liveBannerHtml({ createDraft = false } = {}) {
     + '</div>';
 }
 
-async function createDraftFromBanner(btn, livePath, title) {
+// Dock for both view-only screens: View live plus Create draft (the page
+// banner carries a second Create draft; both share the click delegate below).
+export function liveDockHtml(livePath) {
+  return liveLinkHtml(livePath)
+    + '<span class="mb-dock-sep" aria-hidden="true"></span>'
+    + '<button type="button" class="more-buttons-button" data-guide-live-create><span class="more-buttons-icon">plus</span>Create draft</button>';
+}
+
+// Shared by the banner and dock Create draft buttons. Every sibling
+// [data-guide-live-create] under `root` is disabled while the write runs so a
+// second click on the other button cannot start a second draft write.
+async function createDraftFromView(btn, root, livePath, title) {
   const snap = snapshotButton(btn);
+  const siblings = [...root.querySelectorAll('[data-guide-live-create]')].filter(b => b !== btn);
+  const restore = () => { restoreButton(btn, snap); siblings.forEach(b => { b.disabled = false; }); };
+  siblings.forEach(b => { b.disabled = true; });
   btn.disabled = true;
   btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">refresh-cw</span>Creating draft…';
   try {
     const r = await writeGuideDraft(livePath, () => {}, { title });
     if (r === 'missing-live') {
-      restoreButton(btn, snap);
+      restore();
       alert('Live page not found at ' + livePath);
       return;
     }
@@ -47,11 +61,11 @@ async function createDraftFromBanner(btn, livePath, title) {
     // draft screen directly so the button never sticks on "Creating draft…".
     const wentBack = await navigateBack();
     if (!wentBack) {
-      restoreButton(btn, snap);
+      restore();
       await getFormAction('openGuideEntry')({ filePath: livePath, label: title });
     }
   } catch (e) {
-    restoreButton(btn, snap);
+    restore();
     alert('Failed to create draft: ' + e.message);
   }
 }
@@ -77,7 +91,7 @@ registerFormAction('openGuideLiveView', async ({ file, label }) => {
   setCrumbLabel(`${title} (live)`);
 
   const contentEl = formEl.querySelector('[data-guide-content]');
-  formEl.parentElement.querySelector('[data-guide-actions]').innerHTML = liveLinkHtml(file);
+  formEl.parentElement.querySelector('[data-guide-actions]').innerHTML = liveDockHtml(file);
 
   formLoading.show();
   let md;
@@ -97,12 +111,12 @@ registerFormAction('openGuideLiveView', async ({ file, label }) => {
     const sec = e.target.closest('[data-view-guide-section]');
     if (sec) {
       formLoading.show();
-      Promise.resolve(getFormAction('openGuideSectionLiveView')?.({ file, index: Number(sec.dataset.viewGuideSection) }))
+      Promise.resolve(getFormAction('openGuideSectionLiveView')?.({ file, index: Number(sec.dataset.viewGuideSection), label: title }))
         .finally(() => formLoading.dismiss());
       return;
     }
     const btn = e.target.closest('[data-guide-live-create]');
-    if (btn) createDraftFromBanner(btn, file, title);
+    if (btn) createDraftFromView(btn, formEl.parentElement, file, title);
   });
 });
 
@@ -115,7 +129,7 @@ export function liveSectionModel(markdown, index) {
   return { uuid: node.uuid, title: node.title, visualLabel: node.visualLabel, description, components };
 }
 
-registerFormAction('openGuideSectionLiveView', async ({ file, index }) => {
+registerFormAction('openGuideSectionLiveView', async ({ file, index, label }) => {
   let model;
   try { model = liveSectionModel(await readRepoText(file), index); }
   catch { alert('Failed to load live page.'); return; }
@@ -148,7 +162,12 @@ registerFormAction('openGuideSectionLiveView', async ({ file, index }) => {
   formEl.querySelectorAll('.mb-title-row .more-buttons-radio-btn').forEach(el => { el.style.display = 'none'; });
   setRteDisabled(formEl.querySelector('[name="sectionDescription"]'), true);
 
-  formEl.parentElement.querySelector('.more-buttons-form-actions').innerHTML = liveLinkHtml(file);
+  formEl.parentElement.querySelector('.more-buttons-form-actions').innerHTML = liveDockHtml(file);
+  const pageTitle = label || file.split('/').pop().replace(/\.md$/, '');
+  formEl.parentElement.addEventListener('click', e => {
+    const btn = e.target.closest('[data-guide-live-create]');
+    if (btn) createDraftFromView(btn, formEl.parentElement, file, pageTitle);
+  });
 
   const listEl = formEl.querySelector('[data-section-components]');
   renderComponents(listEl, model.components, true, { viewOnly: true });
