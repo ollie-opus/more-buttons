@@ -386,7 +386,10 @@ registerFormAction('openComponentLiveView', async ({ file, path, label }) => {
         b.classList.toggle('--active', on);
         b.setAttribute('aria-selected', String(on));
       });
-      if (model.tabs[i]) mountContainer(formEl, panel, model.tabs[i], 'content-tab', file);
+      if (model.tabs[i]) {
+        formEl.dataset.editUuid = model.tabs[i].uuid ?? ''; // keep the form's container id on the active tab
+        mountContainer(formEl, panel, model.tabs[i], 'content-tab', file);
+      }
       else panel.innerHTML = '<p class="more-buttons-description">No tabs.</p>';
     };
     showTab(0);
