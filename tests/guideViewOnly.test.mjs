@@ -155,7 +155,7 @@ await test('openGuideLiveView: a drafted page redirects to the normal draft entr
   const seen = [];
   registerFormAction('openGuideEntry', async args => { seen.push(args); });
   await getFormAction('openGuideLiveView')({ file: 'docs/pages/x.md', label: 'X' });
-  assert.deepEqual(seen, [{ filePath: 'pages/x.md', label: 'X' }]);
+  assert.deepEqual(seen, [{ filePath: 'docs/pages/x.md', label: 'X' }]);
   assert.ok(calls.every(c => c.method === 'GET'));
 });
 
@@ -170,6 +170,17 @@ await test('liveSectionModel: ordinal index on a uuid-less page, components pars
   assert.equal(m.components.length, 1);
   assert.ok(m.components[0].adm.uuid);
   assert.equal(live.liveSectionModel(md, 0).visualLabel, 'Title: T');
+});
+
+await test('liveSectionModel: code block and button get uuids, and view-only cards carry Copy', () => {
+  const md = ['# T', '', '## A', '', '```bash', 'echo hi', '```', '', '[Label](x.md){ .md-button }', ''].join('\n');
+  const m = live.liveSectionModel(md, 1);
+  assert.equal(m.components.length, 2);
+  const uuids = m.components.map(c => Object.values(c).find(v => v && typeof v === 'object' && v.uuid)?.uuid);
+  assert.ok(uuids.every(Boolean), JSON.stringify(m.components));
+  const list = fakeList(true);
+  renderComponents(list, m.components, true, { viewOnly: true });
+  assert.equal(count(list.innerHTML, /data-copy-component-md=/g), 2);
 });
 
 await test('liveSectionModel: an out-of-range ordinal is null', () => {

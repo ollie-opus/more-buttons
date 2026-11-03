@@ -2,16 +2,27 @@
 // never the reverse (guides.js dispatches here by registry name). The only
 // write reachable from here is the banner's Create draft via writeGuideDraft.
 import { registerFormAction, getFormAction } from './formActions.js';
-import { createForm, setCrumbLabel, navigateBack, isFormReplay, snapshotButton, restoreButton } from './form.js';
+import { createForm, setCrumbLabel, navigateBack, snapshotButton, restoreButton } from './form.js';
 import { formLoading } from './loading.js';
 import { readRepoText } from './repoClient.js';
 import { migrateGuideIdentity } from './github.js';
 import { buildSectionTree, readSectionDescription } from './sections.js';
-import { parseComponents } from './components.js';
+import { parseComponents, ensureVideoUUIDs } from './components.js';
+import { ensureButtonUUIDs } from './mdButtons.js';
+import { ensureDiagramUUIDs } from './mdDiagrams.js';
+import { ensureCodeBlockUUIDs } from './mdCodeBlocks.js';
+import { ensureNavLinksUUIDs } from './navLinks.js';
 import { GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
 import { setRteDisabled } from './richTextEditor.js';
 import { escapeHtml } from './cardRenderer.js';
-import { renderGuideSectionTree, liveLinkHtml, guideStatusPillHtml, writeGuideDraft, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
+import { renderGuideSectionTree, liveLinkHtml, guideStatusPillHtml, writeGuideDraft, draftPathOf, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
+
+// Live pages carry no uuid spans for most component kinds; mint them in memory
+// (same chain order as mintPastedMarkdown) so every card gets its Copy button.
+// migrateGuideIdentity alone is left untouched since pushes use it.
+export function liveIdentity(md) {
+  return ensureCodeBlockUUIDs(ensureDiagramUUIDs(ensureNavLinksUUIDs(ensureButtonUUIDs(ensureVideoUUIDs(migrateGuideIdentity(md))))));
+}
 
 export function liveBannerHtml({ createDraft = false } = {}) {
   return '<div class="mb-live-banner" data-live-banner><span class="more-buttons-icon">eye</span>'
@@ -36,7 +47,7 @@ async function createDraftFromBanner(btn, livePath, title) {
     const wentBack = await navigateBack();
     if (!wentBack) {
       restoreButton(btn, snap);
-      await getFormAction('openGuideEntry')({ filePath: livePath.replace(/^docs\//, ''), label: title });
+      await getFormAction('openGuideEntry')({ filePath: livePath, label: title });
     }
   } catch (e) {
     restoreButton(btn, snap);
@@ -45,13 +56,13 @@ async function createDraftFromBanner(btn, livePath, title) {
 }
 
 registerFormAction('openGuideLiveView', async ({ file, label }) => {
-  const draftPath = file.replace(/^docs\/pages\//, 'docs/drafts/');
+  const draftPath = draftPathOf(file);
   // A failed probe is treated as "no draft" and falls through to the live
   // view; the live read below reports its own failure in the content area.
   let hasDraft = false;
   try { hasDraft = !!(await readRepoText(draftPath)); } catch { /* treat as no draft */ }
   if (hasDraft) {
-    return getFormAction('openGuideEntry')({ filePath: file.replace(/^docs\//, ''), label });
+    return getFormAction('openGuideEntry')({ filePath: file, label });
   }
 
   const { formEl } = await createForm('guideEntry');
@@ -79,7 +90,7 @@ registerFormAction('openGuideLiveView', async ({ file, label }) => {
     return;
   }
   contentEl.innerHTML = liveBannerHtml({ createDraft: true })
-    + renderGuideSectionTree(migrateGuideIdentity(md), { viewOnly: true });
+    + renderGuideSectionTree(liveIdentity(md), { viewOnly: true });
 
   formEl.parentElement.addEventListener('click', e => {
     const sec = e.target.closest('[data-view-guide-section]');
@@ -95,7 +106,7 @@ registerFormAction('openGuideLiveView', async ({ file, label }) => {
 });
 
 export function liveSectionModel(markdown, index) {
-  const md = migrateGuideIdentity(markdown);
+  const md = liveIdentity(markdown);
   const node = buildSectionTree(md).sections[index];
   if (!node) return null;
   const body = readSectionDescription(md, node.uuid).descriptionMarkdown;
@@ -110,12 +121,13 @@ registerFormAction('openGuideSectionLiveView', async ({ file, index }) => {
   if (!model) { alert('Section not found.'); return; }
 
   // Same seeding as openEditGuideSection so a replay paints the same content.
-  if (!isFormReplay()) {
-    await chrome.storage.local.set({ moreButtonsEditGuideSection: {
-      sectionTitle: model.title, sectionDescription: model.description, sectionParent: '', hideSectionTitle: false } });
-  }
+  // Seeded every time: view mode has no edits to preserve.
+  await chrome.storage.local.set({ moreButtonsEditGuideSection: {
+    sectionTitle: model.title, sectionDescription: model.description, sectionParent: '', hideSectionTitle: false } });
   const { formEl } = await createForm('editGuideSection');
   if (!formEl) return;
+  formEl.removeAttribute('data-dirty-guard');
+  formEl.querySelector('[name="sectionTitle"]').required = false;
   formEl.dataset.viewOnly = '';
   formEl.dataset.mode = 'view';
   formEl.dataset.editUuid = model.uuid;

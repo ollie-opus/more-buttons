@@ -90,7 +90,7 @@ function livePathFromNav(filePath) {
   return 'docs/' + (rel.startsWith('pages/') ? rel : 'pages/' + rel);
 }
 
-function draftPathOf(livePath) {
+export function draftPathOf(livePath) {
   return livePath.replace(/^docs\/pages\//, 'docs/drafts/');
 }
 

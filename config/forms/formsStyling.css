@@ -3825,6 +3825,7 @@ form[data-view-only] .mb-rte--disabled .mb-rte__surface {
   cursor: text;
   color: var(--mb-text);
   background-color: var(--mb-bg-input);
+  border-top: 1px solid var(--mb-border);
   border-radius: 6px;
 }
 /* Nested lists: drop the outer vertical margin so each level only adds indent,
