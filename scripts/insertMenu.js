@@ -95,45 +95,83 @@ function buildItems(host, items) {
   }
 }
 
-// Position the menu: `anchor` is either a trigger element (menu opens under
-// it, left-aligned — flipping above when it would overflow the viewport
-// bottom) or a {x, y} client point (contextmenu), clamped to the viewport.
+const EDGE = 4;   // viewport inset the menu never crosses
+const GAP = 4;    // gap between a trigger element and the menu
+
+/**
+ * Where a menu goes. Pure, so the rule is testable: `anchor` is a trigger's
+ * client rect ({top, bottom, left}) or a client point ({x, y}); `menu` is its
+ * measured {width, height}; `viewport` is {width, height}.
+ *
+ * Below the trigger when that fits, else above when that fits, else as far
+ * down as the viewport allows (the menu may then cover its trigger — a menu
+ * is never left hanging off the edge). Horizontally it is left-aligned and
+ * clamped. `maxHeight` is set only when the menu is taller than the viewport
+ * itself; it then scrolls.
+ */
+export function resolveMenuPlacement(anchor, menu, viewport) {
+  const point = !('bottom' in anchor);
+  const x0 = point ? anchor.x : anchor.left;
+  const yBelow = point ? anchor.y : anchor.bottom + GAP;
+  const yAbove = point ? anchor.y - menu.height : anchor.top - GAP - menu.height;
+  const room = viewport.height - 2 * EDGE;
+  const maxHeight = menu.height > room ? room : null;
+  const h = maxHeight ?? menu.height;
+  let y;
+  if (yBelow + h <= viewport.height - EDGE) y = yBelow;
+  else if (yAbove >= EDGE) y = yAbove;
+  else y = Math.max(EDGE, viewport.height - EDGE - h);
+  const x = Math.max(EDGE, Math.min(x0, viewport.width - menu.width - EDGE));
+  return { x: Math.round(x), y: Math.round(y), maxHeight };
+}
+
+/**
+ * Which way a submenu flies out of its parent row. Pure. `parent` is the
+ * row's client rect, `sub` the submenu's measured {width, height}, `menu`
+ * the open menu's placed {x, width}. Rightward unless that leaves the
+ * viewport and leftward fits; hanging from the row's top unless that runs
+ * past the bottom and hanging from its bottom fits.
+ */
+export function resolveSubmenuFlip(parent, sub, menu, viewport) {
+  const overflowsRight = menu.x + menu.width + 6 + sub.width > viewport.width - EDGE;
+  const fitsLeft = menu.x - 6 - sub.width >= EDGE;
+  const overflowsBottom = parent.top - 4 + sub.height > viewport.height - EDGE;
+  const fitsUp = parent.bottom + 4 - sub.height >= EDGE;
+  return { left: overflowsRight && fitsLeft, up: overflowsBottom && fitsUp };
+}
+
+// Measure a hidden flyout: display:none reports 0, so show it invisibly.
+function measureHidden(el) {
+  el.style.display = 'flex';
+  el.style.visibility = 'hidden';
+  const size = { width: el.offsetWidth, height: el.offsetHeight };
+  el.style.display = '';
+  el.style.visibility = '';
+  return size;
+}
+
+// Position the menu (resolveMenuPlacement) and orient every submenu
+// (resolveSubmenuFlip) against the viewport. `anchor` is the trigger element
+// or a {x, y} client point (contextmenu).
 function positionMenu(menu, anchor) {
   menu.style.position = 'fixed';
-  const menuW = menu.offsetWidth;
-  const menuH = menu.offsetHeight;
-  let x, yBelow, yAbove;
-  if (anchor instanceof HTMLElement) {
-    const rect = anchor.getBoundingClientRect();
-    x = rect.left;
-    yBelow = rect.bottom + 4;
-    yAbove = rect.top - menuH - 4;
-  } else {
-    x = anchor.x;
-    yBelow = anchor.y;
-    yAbove = anchor.y - menuH;
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const anchorBox = anchor instanceof HTMLElement ? anchor.getBoundingClientRect() : anchor;
+  const place = resolveMenuPlacement(anchorBox, { width: menu.offsetWidth, height: menu.offsetHeight }, viewport);
+  menu.style.left = `${place.x}px`;
+  menu.style.top = `${place.y}px`;
+  if (place.maxHeight != null) {
+    menu.style.maxHeight = `${place.maxHeight}px`;
+    menu.style.overflowY = 'auto';
   }
-  x = Math.max(4, Math.min(x, window.innerWidth - menuW - 4));
-  const y = (yBelow + menuH > window.innerHeight && yAbove > 0) ? yAbove : yBelow;
-  menu.style.left = `${Math.round(x)}px`;
-  menu.style.top = `${Math.round(y)}px`;
 
-  // Submenus fly out to the right by default (CSS `left:100%`). When the menu
-  // sits near the right viewport edge (e.g. the column menu of a right-side
-  // datatable column) that flyout would open off-screen — flip it leftward.
-  // Width is measured with the submenu invisibly shown, since display:none
-  // reports 0.
+  const placed = { x: place.x, width: menu.offsetWidth };
   for (const parent of menu.querySelectorAll('.mb-popup-menu__item--has-sub')) {
     const sub = parent.querySelector('.mb-popup-submenu');
     if (!sub) continue;
-    sub.style.display = 'flex';
-    sub.style.visibility = 'hidden';
-    const subW = sub.offsetWidth;
-    sub.style.display = '';
-    sub.style.visibility = '';
-    const overflowsRight = x + menuW + 6 + subW > window.innerWidth - 4;
-    const fitsLeft = x - 6 - subW >= 4;
-    parent.classList.toggle('--flip-left', overflowsRight && fitsLeft);
+    const flip = resolveSubmenuFlip(parent.getBoundingClientRect(), measureHidden(sub), placed, viewport);
+    parent.classList.toggle('--flip-left', flip.left);
+    parent.classList.toggle('--flip-up', flip.up);
   }
 }
 

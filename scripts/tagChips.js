@@ -89,15 +89,17 @@ export function resolveRestricted(known, typed) {
  * @param {HTMLInputElement} input   the backing input (kept in the DOM, hidden)
  * @param {{getItems?: () => Promise<string[]>, placeholder?: string, addLabel?: string,
  *          restrict?: boolean, removable?: boolean, onChipClick?: (tag: string, chip: HTMLElement) => void,
- *          getColour?: (tag: string) => string|null, emptyText?: string|null}} [opts]
+ *          getColour?: (tag: string) => string|null, emptyText?: string|null, readOnly?: boolean}} [opts]
  * @returns {{host: HTMLElement, render: () => void, add: (t: string) => void, remove: (t: string) => void}|undefined}
  */
 export function attachTagChips(input, {
   getItems = null, placeholder = 'Type a tag…', addLabel = '+ Add tag',
   restrict = false, removable = true, onChipClick = null, getColour = null,
-  emptyText = null,
+  emptyText = null, readOnly = false,
 } = {}) {
   if (!input) return undefined;
+  // Read-only (live view screens): chips only, no remove and no add control.
+  if (readOnly) removable = false;
   if (input._tagChips) return input._tagChips;
   if (restrict && emptyText === null) emptyText = NO_TAGS_TEXT;
 
@@ -115,6 +117,7 @@ export function attachTagChips(input, {
   addBtn.type = 'button';
   addBtn.className = 'mb-tag-chips__add';
   addBtn.textContent = addLabel;
+  if (readOnly) { addBtn.hidden = true; addBtn.style.display = 'none'; }
 
   const editor = doc.createElement('span');
   editor.className = 'mb-tag-chips__editor';

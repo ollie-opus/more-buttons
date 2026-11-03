@@ -47,6 +47,7 @@
         "scripts/systemUpdates.js",
         "scripts/guides.js",
         "scripts/guideLiveView.js",
+        "scripts/guideSideSwitch.js",
         "scripts/markdownInline.js",
         "scripts/markdownToolbarActions.js",
         "scripts/richTextEditor.js",

@@ -50,9 +50,12 @@ function makeTab(text, active) {
  * Upgrade the code textarea. Idempotent. `langInput` drives comment styling +
  * the hint; `annotationsInput` is the hidden ANNOTATION_SEP-joined scalar.
  * Also installs `formEl._mbCodeFinalize` — the save paths call it to drop
- * empty-text markers before values are read.
+ * empty-text markers before values are read. `readOnly` (the live page's
+ * view screen) keeps the surface, chips and popover for reading but drops
+ * every control that edits: no typing, no Add / Delete annotation, no orphan
+ * Insert / Remove (the popover's shared RTE is frozen by its form).
  */
-export function upgradeCodeTextarea(textarea, { langInput, annotationsInput } = {}) {
+export function upgradeCodeTextarea(textarea, { langInput, annotationsInput, readOnly = false } = {}) {
   if (!textarea || textarea.dataset.creReady === '1') return;
   textarea.dataset.creReady = '1';
   const formEl = textarea.closest('form');
@@ -108,8 +111,9 @@ export function upgradeCodeTextarea(textarea, { langInput, annotationsInput } = 
 
   const surface = document.createElement('div');
   surface.className = 'mb-cre__surface';
-  surface.contentEditable = 'true';
+  surface.contentEditable = readOnly ? 'false' : 'true';
   surface.setAttribute('role', 'textbox');
+  if (readOnly) { surface.setAttribute('aria-readonly', 'true'); textarea.readOnly = true; addBtn.style.display = 'none'; }
   surface.setAttribute('aria-multiline', 'true');
   surface.spellcheck = false;
   surface.setAttribute('autocapitalize', 'off');
@@ -138,6 +142,7 @@ export function upgradeCodeTextarea(textarea, { langInput, annotationsInput } = 
     </div>
     <div class="mb-codeann-popover__body" data-codeann-body></div>`;
   wrapper.append(orphansEl, hintEl, pop);
+  if (readOnly) pop.querySelector('[data-codeann-delete]').style.display = 'none';
 
   // Validation paints the wrapper, not the (hidden-in-Rich) textarea.
   textarea._validationHost = wrapper;
@@ -466,7 +471,8 @@ export function upgradeCodeTextarea(textarea, { langInput, annotationsInput } = 
         syncInputs();
         renderOrphans();
       });
-      row.append(preview, insert, remove);
+      if (readOnly) row.append(preview);
+      else row.append(preview, insert, remove);
       orphansEl.appendChild(row);
     });
   }

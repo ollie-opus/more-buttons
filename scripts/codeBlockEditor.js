@@ -53,7 +53,8 @@ function emptyFields() {
 }
 
 // A short, single-line crumb label: title → language → first code line.
-function crumbFor({ title, language, code }) {
+// Exported for the live page's read-only code block screen (guideLiveView.js).
+export function crumbFor({ title, language, code }) {
   const t = (title ?? '').trim();
   if (t) return t.slice(0, 40);
   const l = (language ?? '').trim();
@@ -72,17 +73,19 @@ function seedStorage(fields) {
  * One-time per-form wiring: language combobox, line-numbers start seeding, and
  * the rich code surface over the codeSource + hidden codeAnnotations pair.
  * Runs before storage hydration lands — both inputs' `_mbSyncView` hooks
- * re-render the surface when hydration writes the values.
+ * re-render the surface when hydration writes the values. Shared with the
+ * live page's read-only screen (guideLiveView.js): `viewOnly` skips the
+ * combobox and the line-numbers seeding and opens the surface read-only.
  */
-function wireCodeBlockForm(formEl) {
+export function wireCodeBlockForm(formEl, { viewOnly = false } = {}) {
   const langInput = formEl.querySelector('[name="codeLanguage"]');
-  if (langInput) attachSuggestCombobox(langInput, { getItems: () => Promise.resolve(LANGUAGES) });
+  if (langInput && !viewOnly) attachSuggestCombobox(langInput, { getItems: () => Promise.resolve(LANGUAGES) });
 
   // Turning line numbers on seeds an empty start with 1; turning them off
   // clears it (a hidden-but-filled start would false-dirty the form against
   // codeBlockDimFields' '' for an off block).
   const startInput = formEl.querySelector('[name="codeLinenumsStart"]');
-  formEl.querySelectorAll('input[name="codeLinenumsMode"]').forEach(r => {
+  if (!viewOnly) formEl.querySelectorAll('input[name="codeLinenumsMode"]').forEach(r => {
     r.addEventListener('change', () => {
       if (!startInput) return;
       const on = formEl.querySelector('input[name="codeLinenumsMode"]:checked')?.value === 'on';
@@ -97,7 +100,7 @@ function wireCodeBlockForm(formEl) {
   const hidden = formEl.querySelector('[name="codeAnnotations"]');
   const codeTa = formEl.querySelector('[name="codeSource"]');
   if (!hidden || !codeTa) return;
-  upgradeCodeTextarea(codeTa, { langInput, annotationsInput: hidden });
+  upgradeCodeTextarea(codeTa, { langInput, annotationsInput: hidden, readOnly: viewOnly });
 }
 
 // ── Openers ──────────────────────────────────────────────────────────────────

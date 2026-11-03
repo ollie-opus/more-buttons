@@ -350,10 +350,72 @@ async function navigateTo(index) {
   }
 }
 
+// The breadcrumb's virtual house (a trail whose root isn't the Knowledge Base
+// page): that page opened as a fresh root. Its opener is a registered action
+// (so the dispatcher arms the loading veil) and creates its form with
+// rootEntry, which clears the history and starts the breadcrumb over.
+// Resolves false when the action isn't registered.
+const HOME_FORM = 'knowledgeBaseManagement';
+const HOME_ACTION = 'openKnowledgeBaseManagement';
+async function navigateHome() {
+  const open = getFormAction(HOME_ACTION);
+  if (!open) return false;
+  await open();
+  return true;
+}
+
 // Resolves true when it navigated, false when already at the first entry.
 function navigateBack() {
   if (cursor > 0) return navigateTo(cursor - 1).then(() => true);
   return Promise.resolve(false);
+}
+
+// Jump back to the nearest earlier view of `formName` (e.g. a deep screen
+// returning to its guide entry). Resolves true when it navigated, false when
+// no earlier entry has that form.
+export function navigateBackTo(formName) {
+  for (let i = cursor - 1; i >= 0; i--) {
+    if (history[i]?.formName === formName) return navigateTo(i).then(() => true);
+  }
+  return Promise.resolve(false);
+}
+
+// Swap the whole trail for a parallel one (the guide Live/Draft switch: the
+// same place on the other side). Every entry but the last is seeded as an
+// unrendered history slot — like replayFormStack — and the last opens as an
+// ordinary push, so it seeds its storage from the file (a replay would not).
+// When the target never mounts (its opener bailed), the old trail comes back.
+// Entries are { name, args, label, formName }. Resolves true when it mounted.
+export async function openWithTrail(entries) {
+  if (!entries?.length) return false;
+  const target = entries[entries.length - 1];
+  const fn = getFormAction(target.name);
+  if (!fn || entries.some(e => !getFormAction(e.name))) return false;
+  const saved = history.slice();
+  const savedCursor = cursor;
+  history.length = 0;
+  for (const e of entries.slice(0, -1)) {
+    history.push({
+      opener: () => getFormAction(e.name)(e.args),
+      label: e.label || '',
+      labelLocked: !!e.label,
+      formName: e.formName,
+      descriptor: { name: e.name, args: e.args },
+    });
+  }
+  cursor = history.length - 1;
+  const seeded = history.length;
+  try {
+    await fn(target.args);
+  } catch (err) {
+    console.error('openWithTrail: target failed', target.name, err);
+  }
+  if (history.length > seeded) return true;
+  history.length = 0;
+  history.push(...saved);
+  cursor = savedCursor;
+  activeNavbarRefresh?.();
+  return false;
 }
 
 function navigateForward() {
@@ -615,15 +677,44 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
         arrows.appendChild(btn);
       });
 
+      // The breadcrumb always opens with a house: the Knowledge Base page is
+      // the top of every trail. When that page IS the trail's root (the usual
+      // case) the house is that entry — an ordinary crumb jump, current while
+      // it's the view. When the trail started elsewhere (a guide opened from
+      // the page dock) the house is a virtual anchor that opens the Knowledge
+      // Base as a fresh root (data-nav-action="home").
       const crumbs = document.createElement('nav');
       crumbs.className = 'more-buttons-breadcrumb';
       crumbs.setAttribute('aria-label', 'Breadcrumb');
+      const sepEl = () => {
+        const sep = document.createElement('span');
+        sep.className = 'more-buttons-crumb-sep';
+        sep.textContent = '›';
+        return sep;
+      };
+      const houseCrumb = (current) => {
+        const el = document.createElement(current ? 'span' : 'button');
+        el.className = 'more-buttons-crumb more-buttons-crumb--home' + (current ? ' --current' : '');
+        if (!current) el.type = 'button';
+        if (current) el.setAttribute('aria-current', 'page');
+        el.setAttribute('aria-label', 'Knowledge Base');
+        el.title = 'Knowledge Base';
+        el.innerHTML = '<span class="more-buttons-icon">house</span>';
+        return el;
+      };
+      const rootIsHome = history[0]?.formName === HOME_FORM;
+      if (!rootIsHome && getFormAction(HOME_ACTION)) {
+        const home = houseCrumb(false);
+        home.dataset.navAction = 'home';
+        crumbs.append(home, sepEl());
+      }
       for (let i = 0; i <= cursor; i++) {
-        if (i > 0) {
-          const sep = document.createElement('span');
-          sep.className = 'more-buttons-crumb-sep';
-          sep.textContent = '›';
-          crumbs.appendChild(sep);
+        if (i > 0) crumbs.appendChild(sepEl());
+        if (i === 0 && rootIsHome) {
+          const home = houseCrumb(cursor === 0);
+          if (cursor !== 0) home.dataset.crumbIndex = '0';
+          crumbs.appendChild(home);
+          continue;
         }
         const text = labelFor(history[i]);
         if (i === cursor) {
@@ -697,6 +788,7 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
         if (!confirmDiscardIfDirty(formEl)) return;
         if (action === 'back') await navigateBack();
         else if (action === 'forward') await navigateForward();
+        else if (action === 'home') await navigateHome();
         else if (action === 'close') { resetHistory(); cleanup(); }
         return;
       }

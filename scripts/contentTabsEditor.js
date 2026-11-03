@@ -305,7 +305,8 @@ registerFormAction('openCreateContentTabs', async ({ container, insertAtIndex } 
   resetDirtyBaseline(formEl);
 });
 
-registerFormAction('openEditContentTabs', async ({ uuid, file } = {}) => {
+// `tab` (optional) opens on that tab instead of the first (the Live/Draft switch).
+registerFormAction('openEditContentTabs', async ({ uuid, file, tab } = {}) => {
   if (!uuid || !file) return;
   let md;
   try {
@@ -334,6 +335,7 @@ registerFormAction('openEditContentTabs', async ({ uuid, file } = {}) => {
   setCrumbLabel('Content tabs');
 
   await initStateFromStorage(formEl, mdTabs, file, uuid);
+  if (Number.isInteger(tab)) formEl._ct.active = Math.max(0, Math.min(tab, formEl._ct.tabs.length - 1));
   formEl._componentSaver = () => saveTabsForComponent(formEl);
   wireTabsEditor(formEl);
   loadActiveTabFields(formEl);

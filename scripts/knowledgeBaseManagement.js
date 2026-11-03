@@ -1,5 +1,5 @@
 import { createForm, syncDockTag, setButtonBusy, snapshotButton, restoreButton } from './form.js';
-import { readRepoText } from './repoClient.js';
+import { readRepoText, readRepoDir } from './repoClient.js';
 import { getFormAction, registerFormAction } from './formActions.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { parseNavBlock, slugify, replaceNavBlock } from './navToml.js';
@@ -122,13 +122,18 @@ function collectValues(nodes, set) {
   return set;
 }
 
-// Tag each tree leaf with Live / Drafting / Unlisted pills. navFiles/draftFiles/
-// unlistedFiles are sets of leaf *filenames* (e.g. "foo.md") — keyed on basename
-// so a node merged from a pages/ nav entry and a drafts/ draft_nav entry matches
-// all the sets. The same verdicts are stamped as data-kb-drafting /
-// data-kb-unlisted boolean attributes, which the filter row's predicate reads —
-// one source of truth for what the pills say and what the filters match.
-function decorateKbPills(panel, draftFiles, navFiles, unlistedFiles = new Set()) {
+// Tag each tree leaf with its state pills. Two independent axes:
+//   Live / Drafting — a docs/pages/ file / a docs/drafts/ file exists (any
+//     combination; a page can be both).
+//   Public / Unlisted — unlisted iff the page has an unlisted_nav entry, else
+//     public. Every leaf carries exactly one of the two.
+// liveFiles/draftFiles/unlistedFiles are sets of leaf *filenames* (e.g. "foo.md")
+// — keyed on basename so a node merged from a pages/ nav entry and a drafts/
+// draft_nav entry matches all the sets. The same verdicts are stamped as
+// data-kb-drafting / data-kb-unlisted boolean attributes, which the filter row's
+// predicate reads — one source of truth for what the pills say and what the
+// filters match.
+function decorateKbPills(panel, draftFiles, liveFiles, unlistedFiles = new Set()) {
   panel.querySelectorAll('[data-kb-leaf]').forEach(leaf => {
     const file = leaf.dataset.kbFile || '';
     const base = baseOf(file);
@@ -141,15 +146,13 @@ function decorateKbPills(panel, draftFiles, navFiles, unlistedFiles = new Set())
     if (drafting) {
       pills.push('<span class="mb-kb-pill --drafting">Drafting</span>');
     }
-    if (navFiles.has(base)) {
+    if (liveFiles.has(base)) {
       pills.push('<span class="mb-kb-pill --live">Live</span>');
     }
-    if (unlisted) {
-      pills.push('<span class="mb-kb-pill --unlisted">Unlisted</span>');
-    }
-    if (pills.length) {
-      leaf.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills">${pills.join('')}</span>`);
-    }
+    pills.push(unlisted
+      ? '<span class="mb-kb-pill --unlisted">Unlisted</span>'
+      : '<span class="mb-kb-pill --public">Public</span>');
+    leaf.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills">${pills.join('')}</span>`);
   });
 }
 
@@ -368,16 +371,23 @@ async function renderKnowledgeBaseManagement() {
 
     formLoading.show();
     try {
-      // One fetch of zensical.toml drives everything: the tree is the union of
-      // nav (live) and draft_nav (in-progress), and pills come from membership
-      // in each set of leaf values — no per-folder listing needed.
-      const tomlText = await readRepoText('zensical.toml');
+      // zensical.toml drives the tree shape (nav ∪ unlisted_nav ∪ draft_nav)
+      // and visibility (unlisted_nav membership). Live/Drafting come from the
+      // folders themselves — a docs/pages/ or docs/drafts/ file — since the nav
+      // arrays don't say it: an unlisted page leaves `nav`, and a never-
+      // published page can already hold an unlisted_nav entry. Two listing
+      // requests total; a failed listing falls back to the nav arrays.
+      const [tomlText, pagesDir, draftsDir] = await Promise.all([
+        readRepoText('zensical.toml'),
+        readRepoDir('docs/pages').catch(() => null),
+        readRepoDir('docs/drafts').catch(() => null),
+      ]);
       const nav = parseNavBlock(tomlText, 'nav').items;
       const draftNav = parseNavBlock(tomlText, 'draft_nav').items;
       const unlistedNav = parseNavBlock(tomlText, 'unlisted_nav').items;
-      const navFiles = collectValues(nav, new Set());
-      const draftFiles = collectValues(draftNav, new Set());
       const unlistedFiles = collectValues(unlistedNav, new Set());
+      const liveFiles = pagesDir ? new Set(pagesDir) : collectValues(nav, new Set());
+      const draftFiles = draftsDir ? new Set(draftsDir) : collectValues(draftNav, new Set());
 
       if (livePanel) {
         // Strip only live leaves whose draft MOVED them to another section, so
@@ -396,12 +406,12 @@ async function renderKnowledgeBaseManagement() {
         resetReorder = () => { reorder = seedReorder(); };
         livePanel.innerHTML =
           renderTree(merged.map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
-        decorateKbPills(livePanel, draftFiles, navFiles, unlistedFiles);
+        decorateKbPills(livePanel, draftFiles, liveFiles, unlistedFiles);
         applyKbFilters(livePanel);
         rerenderGuides = () => {
           livePanel.innerHTML =
             renderTree(reorder.getTree().map(navNodeToKbNode), { emptyMessage: 'No articles found.', reorderable: reorderMode });
-          decorateKbPills(livePanel, draftFiles, navFiles, unlistedFiles);
+          decorateKbPills(livePanel, draftFiles, liveFiles, unlistedFiles);
           applyKbFilters(livePanel);   // the rebuild drops the search/filter classes
           updateReorderUi();
           applySelection();   // re-pin selection by stable id after the rebuild
@@ -412,7 +422,7 @@ async function renderKnowledgeBaseManagement() {
         const systemEntry = nav.find(n => n.name === 'System' && n.children);
         if (systemEntry) {
           systemPanel.innerHTML = renderKbHierarchy([systemEntry]);
-          decorateKbPills(systemPanel, draftFiles, navFiles, unlistedFiles);
+          decorateKbPills(systemPanel, draftFiles, liveFiles, unlistedFiles);
           applyKbFilters(systemPanel);
         } else {
           systemPanel.innerHTML = '<p class="more-buttons-description">No system pages found.</p>';

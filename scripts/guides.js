@@ -41,7 +41,7 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
 import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
@@ -145,7 +145,10 @@ function isUnlistedInToml(tomlText, livePath) {
 
 // ── Entry form: open + re-render ──────────────────────────────────────────────
 
-registerFormAction('openGuideEntry', async ({ filePath, label }) => {
+// `mode: 'live'` opens a drafted guide on its live view (the header switch
+// records it via replaceCurrentOpener so Back/replay land on the same side).
+// A guide with no draft always opens live; one with no live page, draft.
+registerFormAction('openGuideEntry', async ({ filePath, label, mode }) => {
   const livePath = livePathFromNav(filePath);
   const draftPath = draftPathOf(livePath);
   currentGuide = { livePath, draftPath };
@@ -156,6 +159,7 @@ registerFormAction('openGuideEntry', async ({ filePath, label }) => {
   formEl.dataset.livePath = livePath;
   formEl.dataset.draftPath = draftPath;
   if (label) formEl.dataset.guideLabel = label;
+  if (mode === 'live') formEl.dataset.guideMode = 'live';
 
   // form.js moves `.more-buttons-form-actions` out of the <form> to keep it
   // below the scroll area; delegate from the parent (`content`) so clicks on
@@ -165,6 +169,13 @@ registerFormAction('openGuideEntry', async ({ filePath, label }) => {
 });
 
 function onGuideEntryClick(e, formEl) {
+  // Live/Draft header switch (only rendered when both pages exist). Reorder
+  // mode disables it, and handleReorderClick below would swallow it anyway.
+  const modeSwitch = e.target.closest('[data-guide-mode-toggle]');
+  if (modeSwitch) {
+    if (!modeSwitch.disabled) switchGuideMode(formEl);
+    return;
+  }
   // The reorder-mode toggle is present in both modes (whenever a draft exists).
   if (e.target.closest('[data-guide-reorder-toggle]')) {
     toggleReorderMode(formEl);
@@ -180,7 +191,7 @@ function onGuideEntryClick(e, formEl) {
   const guideAction = e.target.closest('[data-guide-action]');
   if (guideAction) {
     const action = guideAction.dataset.guideAction;
-    if (action === 'create')   { createGuideDraft(formEl);   return; }
+    if (action === 'create')   { createGuideDraft(formEl, guideAction); return; }
     if (action === 'publish')  { publishGuideDraft(formEl);  return; }
     if (action === 'discard')  { discardGuideDraft(formEl);  return; }
     if (action === 'delete')   { deleteGuide(formEl);        return; }
@@ -191,9 +202,10 @@ function onGuideEntryClick(e, formEl) {
   // Section cards bypass form.js's data-action dispatcher, so arm the loading
   // tile here; createForm drops it when the section form renders, the .finally
   // mops up failures (the dispatch itself stays fire-and-forget).
-  if (e.target.closest('[data-guide-view-live]')) {
+  const viewSec = e.target.closest('[data-view-guide-section]');
+  if (viewSec) {
     formLoading.show();
-    Promise.resolve(getFormAction('openGuideLiveView')?.({ file: formEl.dataset.livePath, label: formEl.dataset.guideLabel }))
+    Promise.resolve(getFormAction('openGuideSectionLiveView')?.({ file: formEl.dataset.livePath, index: Number(viewSec.dataset.viewGuideSection), label: guideDisplayTitle(formEl) }))
       .finally(() => formLoading.dismiss());
     return;
   }
@@ -208,6 +220,13 @@ function onGuideEntryClick(e, formEl) {
   if (createSec) {
     formLoading.show();
     Promise.resolve(getFormAction('openCreateGuideSection')?.({ parentUuid: createSec.dataset.createGuideSection, file: formEl.dataset.draftPath }))
+      .finally(() => formLoading.dismiss());
+    return;
+  }
+  const viewSettings = e.target.closest('[data-view-page-settings]');
+  if (viewSettings) {
+    formLoading.show();
+    Promise.resolve(getFormAction('openPageSettingsLiveView')?.({ file: formEl.dataset.livePath, label: guideDisplayTitle(formEl) }))
       .finally(() => formLoading.dismiss());
     return;
   }
@@ -230,49 +249,85 @@ async function renderGuideEntryContent(formEl) {
 
   actionsEl.innerHTML = '';
 
+  // Both pages load up front: the live one decides whether the header gets the
+  // Live/Draft switch, and switching sides never re-fetches.
   formLoading.show();
   let draftMarkdown = '';
+  let liveMarkdown = '';
   let thread;
   try {
-    [draftMarkdown, thread] = await Promise.all([
+    [draftMarkdown, liveMarkdown, thread] = await Promise.all([
       readRepoText(formEl.dataset.draftPath),
+      readRepoText(formEl.dataset.livePath),
       prefetchEditLog({ paths: [formEl.dataset.draftPath, formEl.dataset.livePath], session: true }),
     ]);
   } catch {
-    contentEl.innerHTML = `<p class="more-buttons-description">Failed to load draft.</p>`;
+    contentEl.innerHTML = `<p class="more-buttons-description">Failed to load guide.</p>`;
     return;
   } finally {
     formLoading.dismiss();
   }
 
-  if (!draftMarkdown) {
-    contentEl.innerHTML = `
-      <p class="more-buttons-description">
-        No draft yet. Creating a draft duplicates the live page to
-        <code>${escapeHtml(formEl.dataset.draftPath)}</code>; the live page is
-        left untouched until you publish.
-      </p>
-      <button type="button" class="more-buttons-button" data-guide-view-live>View this page's live content</button>`;
-    actionsEl.innerHTML = `
-      ${viewLinksHtml({ draft: false })}
+  // Stash both so entering reorder mode can seed its working copy and the mode
+  // switch can re-render either side without a GitHub round-trip.
+  formEl._draftMd = draftMarkdown || null;
+  formEl._liveMd = liveMarkdown || null;
+  // Prefetched as a session (draft unknown at the time); a live page shows full history.
+  if (!draftMarkdown) endSession(thread);
+  await renderGuideMode(formEl);
+  mountEditLog(formEl, thread);
+}
+
+// Which side of the guide the entry shows. No draft → live; no live page →
+// draft; both → whatever the header switch last chose (draft by default).
+function guideModeOf(formEl) {
+  if (!formEl._draftMd) return 'live';
+  if (!formEl._liveMd) return 'draft';
+  return formEl.dataset.guideMode === 'live' ? 'live' : 'draft';
+}
+
+// Header pill + content + dock for the current mode, from the stashed markdown.
+async function renderGuideMode(formEl) {
+  const mode = guideModeOf(formEl);
+  const both = !!(formEl._draftMd && formEl._liveMd);
+  const titleEl = formEl.querySelector('[data-guide-title]');
+  if (titleEl) {
+    titleEl.querySelector('.mb-kb-pills')?.remove();
+    titleEl.insertAdjacentHTML('beforeend', both ? guideModeToggleHtml(mode) : guideStatusPillHtml(mode));
+  }
+  if (mode === 'draft') {
+    delete formEl.dataset.viewOnly;
+    renderGuideDraftView(formEl, formEl._draftMd);
+    return;
+  }
+  // Live side: guideLiveView owns the read-only content (dispatched by name,
+  // it imports from here); the dock and every click stay with this form.
+  formEl.dataset.viewOnly = '';
+  const actionsEl = formEl.parentElement?.querySelector('[data-guide-actions]');
+  await getFormAction('renderGuideLiveContent')?.({ formEl, hasDraft: both });
+  if (actionsEl) actionsEl.innerHTML = both ? liveLinkHtml(currentGuide.livePath) : noDraftActionsHtml();
+}
+
+// Flip the drafted guide between its live and draft sides in place, and record
+// the side on the history slot so Back / a stack replay reopens it.
+async function switchGuideMode(formEl) {
+  formEl.dataset.guideMode = guideModeOf(formEl) === 'live' ? 'draft' : 'live';
+  replaceCurrentOpener('openGuideEntry', {
+    filePath: formEl.dataset.livePath,
+    label: formEl.dataset.guideLabel,
+    ...(formEl.dataset.guideMode === 'live' ? { mode: 'live' } : {}),
+  });
+  await renderGuideMode(formEl);
+  formEl.querySelector('[data-guide-mode-toggle]')?.focus();
+}
+
+// Live guide with no draft yet: [view live] | [create draft, delete guide].
+function noDraftActionsHtml() {
+  return `
+      ${liveLinkHtml(currentGuide.livePath)}
       ${dockSep}
       <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">plus</span>Create draft</button>
       <button type="button" class="more-buttons-button red" data-guide-action="delete"><span class="more-buttons-icon">trash-2</span>Delete guide</button>`;
-    // Prefetched as a session (draft unknown at the time); a live page shows full history.
-    endSession(thread);
-    mountEditLog(formEl, thread);
-    return;
-  }
-
-  // Draft exists. Stash the loaded markdown so entering reorder mode can seed its
-  // working copy without a re-fetch, then render the tree + actions.
-  formEl._draftMd = draftMarkdown;
-  if (titleEl) {
-    titleEl.querySelector('.mb-kb-pills')?.remove();
-    titleEl.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
-  }
-  renderGuideDraftView(formEl, draftMarkdown);
-  mountEditLog(formEl, thread);
 }
 
 // Renders the "draft exists" view (section tree + action group) from a given
@@ -293,6 +348,9 @@ function renderGuideDraftView(formEl, draftMarkdown) {
   contentEl.innerHTML = (guideReorderMode ? '' : renderPageSettingsNode()) + treeHtml;
   actionsEl.innerHTML = guideReorderMode ? reorderActionsHtml(reorderDirty) : normalActionsHtml(title);
   if (!guideReorderMode) renderEditLog(formEl);
+  // A side switch mid-reorder would strand the working copy.
+  const modeSwitch = formEl.querySelector('[data-guide-mode-toggle]');
+  if (modeSwitch) modeSwitch.disabled = guideReorderMode;
 }
 
 // The reorder-mode toggle button — present whenever a draft exists, in both
@@ -311,58 +369,74 @@ export function liveLinkHtml(livePath) {
   return `<a class="more-buttons-button" href="${live}" target="_blank" rel="noopener" title="View live page"><span class="more-buttons-icon">globe</span>View live</a>`;
 }
 
-// Status pill for the guide header: the live page vs one with a draft in flight.
+// Static status pill for guide headers: 'live' or 'draft'.
+// `data-guide-side` marks it for guideSideSwitch.js to upgrade to the switch.
 export function guideStatusPillHtml(status) {
-  return status === 'drafting'
-    ? '<span class="mb-kb-pills"><span class="mb-kb-pill --drafting">Drafting</span></span>'
-    : '<span class="mb-kb-pills"><span class="mb-kb-pill --live">Live</span></span>';
+  return status === 'draft'
+    ? '<span class="mb-kb-pills" data-guide-side><span class="mb-kb-pill --drafting">Draft</span></span>'
+    : '<span class="mb-kb-pills" data-guide-side><span class="mb-kb-pill --live">Live</span></span>';
 }
 
-function viewLinksHtml({ draft } = {}) {
-  let html = liveLinkHtml(currentGuide.livePath);
-  if (draft) {
-    const d = publishedUrl(draftNavValueOf(currentGuide.livePath));
-    html += `<a class="more-buttons-button" href="${d}" target="_blank" rel="noopener" title="View draft page"><span class="more-buttons-icon">file-pen</span>View draft</a>`;
-  }
-  return html;
+// Guide entry header when both a live page and a draft exist: [Live][switch]
+// [Draft]. The active side keeps its colour, the other greys (--off). Only
+// the switch is interactive; the pills are labels for its two positions.
+// `attr` names the switch's hook: the entry delegates data-guide-mode-toggle;
+// deeper screens (guideSideSwitch.js) wire their own.
+export function guideModeToggleHtml(mode, { attr = 'data-guide-mode-toggle' } = {}) {
+  const live = mode === 'live';
+  return '<span class="mb-kb-pills mb-mode-toggle" data-guide-side>'
+    + `<span class="mb-kb-pill --live${live ? '' : ' --off'}">Live</span>`
+    + `<button type="button" class="mb-mode-switch" role="switch" aria-checked="${!live}" aria-label="Show draft" title="Switch to ${live ? 'draft' : 'live'}" ${attr}><span class="mb-mode-switch__thumb"></span></button>`
+    + `<span class="mb-kb-pill --drafting${live ? ' --off' : ''}">Draft</span>`
+    + '</span>';
+}
+
+// Published-draft link for the dock. The entry shows it in draft mode; the
+// Live/Draft switch module adds it to every draft screen below the entry.
+export function draftLinkHtml(livePath) {
+  const d = publishedUrl(draftNavValueOf(livePath));
+  return `<a class="more-buttons-button" href="${d}" target="_blank" rel="noopener" title="View draft page" data-view-draft-link><span class="more-buttons-icon">file-pen</span>View draft</a>`;
 }
 
 // A macOS-dock-style vertical divider between logical button groups in the bar.
 const dockSep = '<span class="mb-dock-sep" aria-hidden="true"></span>';
 
-// Dock groups, left→right: [add section, reorder toggle] | [view live, view draft]
-// | [publish, discard]. Create leads its group (same convention as the KB bar).
+// Dock groups, left→right: [add section, reorder toggle] | [view draft]
+// | [publish, discard]. (Live mode shows View live alone.) Create leads its group (same convention as the KB bar).
 function normalActionsHtml(title) {
   return `
     <button type="button" class="more-buttons-button" data-create-guide-section="${escapeHtml(title?.uuid ?? '')}"><span class="more-buttons-icon">plus</span>Add new section</button>
     ${reorderToggleHtml()}
     ${dockSep}
-    ${viewLinksHtml({ draft: true })}
+    ${draftLinkHtml(currentGuide.livePath)}
     ${dockSep}
     <button type="button" class="more-buttons-button blue" data-guide-action="publish"><span class="more-buttons-icon">badge-check</span>Publish draft to live</button>
     <button type="button" class="more-buttons-button red" data-guide-action="discard"><span class="more-buttons-icon">trash-2</span>Discard draft</button>`;
 }
 
 // Reorder-mode groups mirror the normal bar (minus create): [reorder toggle] |
-// [view live, view draft] | [discard, save].
+// [view draft] | [discard, save].
 export function reorderActionsHtml(dirty = reorderDirty) {
   const { dis, saveClass } = reorderButtonGating(dirty);
   return `
     ${reorderToggleHtml()}
     ${dockSep}
-    ${viewLinksHtml({ draft: true })}
+    ${draftLinkHtml(currentGuide.livePath)}
     ${dockSep}
     <button type="button" class="more-buttons-button${saveClass}" data-guide-reorder-save${dis}><span class="more-buttons-icon">save</span>Save changes</button>
     <button type="button" class="more-buttons-button" data-guide-reorder-discard${dis}><span class="more-buttons-icon">x</span>Discard changes</button>`;
 }
 
 // A standalone tree block (separate from the section tree) for page-level
-// settings. One node today — opens the Page settings form.
-function renderPageSettingsNode() {
+// settings. One node today — opens the Page settings form. `disabled` keeps
+// the node on the live side so both sides share one layout.
+// `view` (the live side) keys the row for the read-only settings screen instead.
+export function renderPageSettingsNode({ view = false } = {}) {
+  const key = view ? 'data-view-page-settings' : 'data-edit-page-settings';
   return `
     <div class="mb-kb-tree mb-kb-tree--page-settings">
       <div class="mb-kb-node">
-        <button class="mb-kb-node-row" type="button" data-edit-page-settings>
+        <button class="mb-kb-node-row" type="button" ${key}>
           <span class="mb-kb-node-icon more-buttons-icon">sliders-horizontal</span>
           <strong>Page settings</strong>
         </button>
@@ -631,23 +705,32 @@ export async function writeGuideDraft(livePath, onProgress, { title }) {
   return 'created';
 }
 
-async function createGuideDraft(formEl) {
+// `btn` is the clicked Create draft (the live banner and the dock both carry
+// one); the other is disabled for the write so a second click can't race it.
+async function createGuideDraft(formEl, btn) {
   if (!currentGuide) return;
-  const btn = formEl.parentElement?.querySelector('[data-guide-action="create"]');
+  const root = formEl.parentElement;
+  btn ??= root?.querySelector('[data-guide-action="create"]');
+  const others = [...(root?.querySelectorAll('[data-guide-action="create"]') ?? [])].filter(b => b !== btn);
   const snap = snapshotButton(btn);
+  const restore = () => { restoreButton(btn, snap); others.forEach(b => { b.disabled = false; }); };
+  others.forEach(b => { b.disabled = true; });
   setButtonBusy(btn, 'Fetching live page…');
 
   try {
     const result = await writeGuideDraft(currentGuide.livePath, s => setButtonBusy(btn, s),
       { title: guideDisplayTitle(formEl) });
     if (result === 'missing-live') {
-      restoreButton(btn, snap);
+      restore();
       alert('Live page not found at ' + currentGuide.livePath);
       return;
     }
+    delete formEl.dataset.guideMode; // land on the new draft
+    // Drop the recorded live side too, or Back / a stack replay reopens it.
+    replaceCurrentOpener('openGuideEntry', { filePath: formEl.dataset.livePath, label: formEl.dataset.guideLabel });
     await renderGuideEntryContent(formEl);
   } catch (e) {
-    restoreButton(btn, snap);
+    restore();
     alert('Failed to create draft: ' + e.message);
   }
 }
@@ -926,7 +1009,7 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
 
 // ── Section editor ────────────────────────────────────────────────────────────
 
-function parentOptionsForSection(markdown, editingUuid /* null when creating */, editingLevel) {
+export function parentOptionsForSection(markdown, editingUuid /* null when creating */, editingLevel) {
   // Returns [{ value: uuid|'', label }] for the parent select. Empty value = Title.
   const all = parseSections(markdown);
   const title = all.find(s => s.level === 1);
@@ -984,7 +1067,7 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid, file }) => {
   if (heading) {
     heading.textContent = 'Add section';
     heading.querySelector('.mb-kb-pills')?.remove();
-    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
   }
 
   // Hide Delete (lives in the moved form-actions) in create mode.
@@ -1043,7 +1126,7 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   if (heading) {
     heading.textContent = treeMatch ? `Edit ${treeMatch.label.toLowerCase()}` : 'Edit section';
     heading.querySelector('.mb-kb-pills')?.remove();
-    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
   }
   // Breadcrumb shows the section's identity, e.g. "Section 1: Manager Steps".
   if (treeMatch?.visualLabel) setCrumbLabel(treeMatch.visualLabel);
@@ -1338,22 +1421,28 @@ function codeBlockComponentCardFor(cb) {
 // "+ Insert Component" triggers. Step admonitions are numbered in document order
 // when `numberSteps` is set (section level only — sub-admonition steps aren't
 // numbered, matching the published site). Captures never affect numbering.
-export function renderComponents(listEl, components, numberSteps = true, { viewOnly = !!listEl?.closest?.('form')?.hasAttribute?.('data-view-only'), emptyText = 'No components in this section.' } = {}) {
+// View-only lists (live guide screens) keep the draft list's shape — the
+// empty tile, the dashed insert rules and the reorder rail — with every
+// control inert; `insertHint` is the empty tile's label (why nothing can be
+// inserted here). Edit keys are never emitted on a view-only list.
+export const VIEW_ONLY_INSERT_HINT = 'Switch to draft to insert components';
+export function renderComponents(listEl, components, numberSteps = true, { viewOnly = !!listEl?.closest?.('form')?.hasAttribute?.('data-view-only'), insertHint = VIEW_ONLY_INSERT_HINT } = {}) {
   if (!listEl) return;
   // Keep the form's hidden order field in lockstep with what's rendered.
   const orderField = listEl.closest('form')?.querySelector('[name="componentOrder"]');
   if (orderField) orderField.value = components.map(uuidOfComponent).join(',');
 
   if (components.length === 0) {
-    if (viewOnly) { listEl.innerHTML = `<p class="more-buttons-description">${escapeHtml(emptyText)}</p>`; return; }
-    listEl.innerHTML = `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
+    listEl.innerHTML = viewOnly
+      ? `<button type="button" class="mb-insert-component__empty" disabled><span class="mb-adm-empty__icon">+</span> ${escapeHtml(insertHint)}</button>`
+      : `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
   const parts = [];
   let stepN = 0;
   const last = components.length - 1;
   components.forEach((c, i) => {
-    if (!viewOnly) parts.push(insertComponentTrigger(i));
+    parts.push(viewOnly ? insertSpacerHtml() : insertComponentTrigger(i));
     let card;
     if (c.kind === 'admonition') {
       const n = (numberSteps && c.adm.type === 'step') ? ++stepN : null;
@@ -1380,10 +1469,10 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
       card = captureComponentCardFor(c.cap);
     }
     parts.push(viewOnly
-      ? `<div class="mb-component-row" data-component-uuid="${escapeHtml(uuidOfComponent(c))}">${viewOnlyCard(c, card, i)}</div>`
+      ? componentRow(uuidOfComponent(c), i === 0, i === last, viewOnlyCard(c, card, i), true)
       : componentRow(uuidOfComponent(c), i === 0, i === last, card));
   });
-  if (!viewOnly) parts.push(insertComponentTrigger(components.length));
+  parts.push(viewOnly ? insertSpacerHtml() : insertComponentTrigger(components.length));
   listEl.innerHTML = parts.join('');
   paintInlineAtoms(listEl); // colour label pills + inline icons in admonition card titles/bodies
   applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp
@@ -1392,10 +1481,11 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
   paintCopySelection(listEl, components.map(uuidOfComponent));
 }
 
-// View-only card: Copy is the only foot button kept; the container kinds
-// (admonition, tabs, grid) also get View, keyed by list index because
-// in-memory uuids are random per read (openComponentLiveView walks the path).
-const VIEWABLE_KINDS = new Set(['admonition', 'tabs', 'grid']);
+// View-only card: Copy is the only foot button kept; every kind with a live
+// screen also gets View (containers, media and the leaf editors: table, code
+// block, button, nav links, diagram), keyed by list index because in-memory
+// uuids are random per read (openComponentLiveView walks the path).
+const VIEWABLE_KINDS = new Set(['admonition', 'tabs', 'grid', 'capture', 'video', 'image', 'table', 'codeblock', 'button', 'navlinks', 'diagram']);
 function viewOnlyCard(c, card, i) {
   const stripped = stripNonCopyFootButtons(card);
   return VIEWABLE_KINDS.has(c.kind)
@@ -1404,8 +1494,8 @@ function viewOnlyCard(c, card, i) {
 }
 
 // Wraps a component card with a vertical up/down reorder rail on its left edge.
-function componentRow(uuid, isFirst, isLast, cardHtml) {
-  return railRowHtml({ rowAttrs: `data-component-uuid="${escapeHtml(uuid)}"`, isFirst, isLast, moveAttr: 'data-move-component', cardHtml });
+function componentRow(uuid, isFirst, isLast, cardHtml, disabled = false) {
+  return railRowHtml({ rowAttrs: `data-component-uuid="${escapeHtml(uuid)}"`, isFirst, isLast, moveAttr: 'data-move-component', cardHtml, disabled });
 }
 
 // ── The component save-gate ──────────────────────────────────────────────────
@@ -1860,7 +1950,7 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   if (heading) {
     heading.textContent = newTreeMatch ? `Edit ${newTreeMatch.label.toLowerCase()}` : 'Edit section';
     heading.querySelector('.mb-kb-pills')?.remove();
-    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('drafting'));
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
   }
   if (newTreeMatch?.visualLabel) setCrumbLabel(newTreeMatch.visualLabel);
   populateParentDropdown(formEl, refreshed, newUuid, level);
@@ -2050,30 +2140,8 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
   const draftMarkdown = await readRepoText(currentGuide.draftPath);
 
   if (!isFormReplay()) {
-    // Reflect the current `hide:` frontmatter list onto the four checkboxes
-    // (navigation / toc / path are zensical's; written-for tells the KB build
-    // not to render the "Written for" pill line under the H1).
-    // (Hiding a title is now a per-section toggle, not a page setting.)
-    const hide = readFrontmatterHide(draftMarkdown);
-    // Visibility lives in zensical.toml, not the draft file: unlisted iff the
-    // page has an unlisted_nav entry. Pages in neither array (never-published
-    // new guides) seed as public.
     const tomlText = await readRepoText('zensical.toml');
-    // The three audience tags ride in the same frontmatter list but are driven
-    // by the "Written for" radios; the Tags chips only ever see the rest.
-    const { audience, rest } = splitAudience(readFrontmatterTags(draftMarkdown));
-    await chrome.storage.local.set({
-      moreButtonsEditPageSettings: {
-        icon: readFrontmatterIcon(draftMarkdown),
-        writtenFor: audience,
-        tags: rest.join(', '),
-        hideNavigation: hide.includes('navigation'),
-        hideToc: hide.includes('toc'),
-        hidePath: hide.includes('path'),
-        hideWrittenFor: hide.includes('written-for'),
-        visibility: isUnlistedInToml(tomlText, currentGuide.livePath) ? 'unlisted' : 'public',
-      },
-    });
+    await chrome.storage.local.set({ moreButtonsEditPageSettings: pageSettingsDimFields(draftMarkdown, tomlText, currentGuide.livePath) });
   }
 
   const { formEl } = await createForm('editPageSettings');
@@ -2083,17 +2151,48 @@ registerFormAction('openEditPageSettings', async ({ file }) => {
   attachPageSettingsWidgets(formEl);
 });
 
+/**
+ * The editPageSettings field values for a page's markdown + zensical.toml.
+ * Pure; shared by openEditPageSettings (the draft) and the live page's
+ * read-only settings screen (the live file).
+ */
+export function pageSettingsDimFields(markdown, tomlText, livePath) {
+  // Reflect the current `hide:` frontmatter list onto the four checkboxes
+  // (navigation / toc / path are zensical's; written-for tells the KB build
+  // not to render the "Written for" pill line under the H1).
+  // (Hiding a title is now a per-section toggle, not a page setting.)
+  const hide = readFrontmatterHide(markdown);
+  // The three audience tags ride in the same frontmatter list but are driven
+  // by the "Written for" radios; the Tags chips only ever see the rest.
+  const { audience, rest } = splitAudience(readFrontmatterTags(markdown));
+  return {
+    icon: readFrontmatterIcon(markdown),
+    writtenFor: audience,
+    tags: rest.join(', '),
+    hideNavigation: hide.includes('navigation'),
+    hideToc: hide.includes('toc'),
+    hidePath: hide.includes('path'),
+    hideWrittenFor: hide.includes('written-for'),
+    // Visibility lives in zensical.toml, not the page file: unlisted iff the
+    // page has an unlisted_nav entry. Pages in neither array (never-published
+    // new guides) seed as public.
+    visibility: isUnlistedInToml(tomlText, livePath) ? 'unlisted' : 'public',
+  };
+}
+
 // The page-settings widgets shared with Create guide: lucide icon combobox +
 // tag chips (pick-only from the tag registry minus the three audience tags,
 // which the "Written for" radios own; new tags are created in Knowledge Base
 // Settings). Both attach synchronously after createForm; the chips repaint on
 // storage hydration via `_mbSyncView` and paint in their registry colour.
-function attachPageSettingsWidgets(formEl) {
-  attachIconPicker(formEl.querySelector('[name="icon"]')); // fire-and-forget; degrades to plain input
+// `viewOnly` (the live settings screen): no icon picker, read-only chips.
+export function attachPageSettingsWidgets(formEl, { viewOnly = false } = {}) {
+  if (!viewOnly) attachIconPicker(formEl.querySelector('[name="icon"]')); // fire-and-forget; degrades to plain input
   attachTagChips(formEl.querySelector('[name="tags"]'), {
     getItems: () => loadCreatedTags().then(withoutAudienceTags),
     restrict: true,
     getColour: getTagColour,
+    readOnly: viewOnly,
   });
 }
 

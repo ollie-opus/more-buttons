@@ -44,7 +44,8 @@ function readDiagramFields(formEl) {
 }
 
 // A short, single-line crumb label for an otherwise unnamed diagram.
-function crumbFor(code) {
+// Exported for the live page's read-only diagram screen (guideLiveView.js).
+export function crumbFor(code) {
   const first = (code ?? '').split('\n').map(l => l.trim()).find(Boolean);
   return first ? first.slice(0, 40) : 'Diagram';
 }

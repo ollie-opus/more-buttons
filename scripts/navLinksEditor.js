@@ -98,12 +98,24 @@ async function loadNavSections() {
 // created in Knowledge Base Settings). This is the consumer side, so the three
 // "Written for" audience tags ARE offered ("list every page written for
 // users" is a natural block). Chips paint in their registry colour.
-function attachTagSuggest(formEl) {
+function attachTagSuggest(formEl, { viewOnly = false } = {}) {
   attachTagChips(formEl.querySelector('[name="navTag"]'), {
     getItems: () => loadCreatedTags().then(list => splitTagList([...AUDIENCE_TAG_NAMES, ...list].join(','))),
     restrict: true,
     getColour: getTagColour,
+    readOnly: viewOnly,
   });
+}
+
+/**
+ * The openers' widgets over the createForm'd editNavLinks form: the path
+ * check against zensical.toml (a GET) and the tag chips. Shared with the live
+ * page's read-only screen (guideLiveView.js), where `viewOnly` makes the
+ * chips read-only (no add, no remove).
+ */
+export function paintNavLinksFields(formEl, { viewOnly = false } = {}) {
+  attachNavPathValidation(formEl);
+  attachTagSuggest(formEl, { viewOnly });
 }
 
 /** Walks the nav tree to the SECTION node named by a `/`-delimited slug path, or
@@ -179,8 +191,7 @@ registerFormAction('openCreateNavLinks', async ({ container, insertAtIndex } = {
   // Delete (lives in the moved form-actions) only applies once the block exists.
   formEl.parentElement?.querySelector('[data-delete-nav-links-btn]')?.style.setProperty('display', 'none');
 
-  attachNavPathValidation(formEl);
-  attachTagSuggest(formEl);
+  paintNavLinksFields(formEl);
   resetDirtyBaseline(formEl);
 });
 
@@ -208,8 +219,7 @@ registerFormAction('openEditNavLinks', async ({ uuid, file } = {}) => {
   if (heading) heading.textContent = 'Edit nav links';
   setCrumbLabel(block.path || block.tag || 'Nav links');
 
-  attachNavPathValidation(formEl);
-  attachTagSuggest(formEl);
+  paintNavLinksFields(formEl);
   resetDirtyBaseline(formEl);
 });
 

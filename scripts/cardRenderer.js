@@ -357,15 +357,24 @@ export function insertTriggerHtml(idx, { attr, label }) {
  * `data-component-uuid="…"`); `moveAttr` is the data attribute the rail buttons
  * carry ("up" / "down"), delegated by the host form.
  */
-export function railRowHtml({ rowAttrs, isFirst, isLast, moveAttr, cardHtml }) {
+export function railRowHtml({ rowAttrs, isFirst, isLast, moveAttr, cardHtml, disabled = false }) {
+  // `disabled` (view-only lists) keeps the rail's footprint so the live and
+  // draft screens line up, with both buttons inert.
   return `
     <div class="mb-component-row" ${rowAttrs}>
       <div class="mb-component-rail">
-        <button type="button" class="mb-component-rail__btn" ${moveAttr}="up" ${isFirst ? 'disabled' : ''} aria-label="Move up">↑</button>
-        <button type="button" class="mb-component-rail__btn" ${moveAttr}="down" ${isLast ? 'disabled' : ''} aria-label="Move down">↓</button>
+        <button type="button" class="mb-component-rail__btn" ${moveAttr}="up" ${disabled || isFirst ? 'disabled' : ''} aria-label="Move up">↑</button>
+        <button type="button" class="mb-component-rail__btn" ${moveAttr}="down" ${disabled || isLast ? 'disabled' : ''} aria-label="Move down">↓</button>
       </div>
       ${cardHtml}
     </div>`;
+}
+
+// The resting look of an insert trigger with nothing to trigger: the dashed
+// rule that spaces a draft list's rows, so a view-only list keeps the same
+// rhythm. Not a control.
+export function insertSpacerHtml() {
+  return '<div class="mb-insert-component" aria-hidden="true"></div>';
 }
 
 /**

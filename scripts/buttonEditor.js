@@ -167,7 +167,7 @@ function attachButtonPreview(formEl, flat) {
 // this handler owns everything value-shaped: hiding the text input, the tree's
 // selection ↔ input sync, the support '#'+onclick stash, and pointing required-
 // error painting at the tree while the input is hidden.
-function attachDestinationPicker(formEl, seeded) {
+function attachDestinationPicker(formEl, seeded, { viewOnly = false } = {}) {
   const destInput = formEl.querySelector('[name="buttonDestination"]');
   const onclickInput = formEl.querySelector('[name="buttonOnclick"]');
   const treeHost = formEl.querySelector('[data-dest-tree]');
@@ -225,7 +225,7 @@ function attachDestinationPicker(formEl, seeded) {
     const section = e.target.closest('[data-kb-section]');
     if (section) { section.closest('.mb-kb-node').classList.toggle('--collapsed'); return; }
     const leaf = e.target.closest('[data-kb-leaf]');
-    if (leaf) {
+    if (leaf && !viewOnly) { // view-only: the tree shows the pick, never changes it
       for (const n of treeHost.querySelectorAll('.mb-kb-node.--selected')) n.classList.remove('--selected');
       leaf.closest('.mb-kb-node').classList.add('--selected');
       setField(destInput, leaf.dataset.kbFile); // also clears a painted required error
@@ -314,6 +314,22 @@ function seedStorage(fields) {
   return chrome.storage.local.set({ [STORAGE_KEY]: fields });
 }
 
+/**
+ * Everything the openers build over the createForm'd editButton form: colour
+ * swatches, icon picker, Destination picker, Advanced auto-open and the live
+ * preview tiles. MUST run synchronously after createForm resolves (storage
+ * hydration is a later macrotask). Shared with the live page's read-only
+ * screen (guideLiveView.js): `viewOnly` skips the icon picker and keeps the
+ * Destination tree from changing the pick; the preview paints as usual.
+ */
+export function paintButtonFields(formEl, seeded, { groups, flat }, { viewOnly = false } = {}) {
+  buildColourSwatches(formEl, groups);
+  if (!viewOnly) attachIconPicker(formEl.querySelector('[name="icon"]'));
+  attachDestinationPicker(formEl, seeded, { viewOnly });
+  autoOpenAdvanced(formEl, seeded);
+  attachButtonPreview(formEl, flat);
+}
+
 // ── Openers ──────────────────────────────────────────────────────────────────
 
 registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {}) => {
@@ -336,11 +352,7 @@ registerFormAction('openCreateButton', async ({ container, insertAtIndex } = {})
   // Delete (lives in the moved form-actions) only applies once the button exists.
   formEl.parentElement?.querySelector('[data-delete-button-btn]')?.style.setProperty('display', 'none');
 
-  buildColourSwatches(formEl, groups);
-  attachIconPicker(formEl.querySelector('[name="icon"]'));
-  attachDestinationPicker(formEl, seeded);
-  autoOpenAdvanced(formEl, seeded);
-  attachButtonPreview(formEl, flat);
+  paintButtonFields(formEl, seeded, { groups, flat });
   resetDirtyBaseline(formEl);
 });
 
@@ -370,11 +382,7 @@ registerFormAction('openEditButton', async ({ uuid, file } = {}) => {
   if (heading) heading.textContent = 'Edit button';
   setCrumbLabel(btn.label || 'Button');
 
-  buildColourSwatches(formEl, groups);
-  attachIconPicker(formEl.querySelector('[name="icon"]'));
-  attachDestinationPicker(formEl, seeded);
-  autoOpenAdvanced(formEl, seeded);
-  attachButtonPreview(formEl, flat);
+  paintButtonFields(formEl, seeded, { groups, flat });
   resetDirtyBaseline(formEl);
 });
 

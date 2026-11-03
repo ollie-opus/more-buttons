@@ -50,10 +50,13 @@ async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
   if (!container || !media) return;
   const isVideo = kind === 'video';
   const isImage = kind === 'image';
-  const fieldsFn = isVideo ? videoDimFields : isImage ? imageDimFields : captureDimFields;
-  const opener = () => openEditMediaComponent({ kind, container, uuid, media });
+  // Through the registry so a Back/crumb reopen runs the form-action hooks
+  // (the guide Live/Draft switch) like the first open did.
+  const action = isVideo ? 'openEditVideoComponent' : isImage ? 'openEditImageComponent' : 'openEditCaptureComponent';
+  const mediaKey = isVideo ? 'vid' : isImage ? 'img' : 'cap';
+  const opener = () => getFormAction(action)({ container, uuid, [mediaKey]: media });
 
-  await chrome.storage.local.set({ moreButtonsEditCaptureComponent: fieldsFn(media) });
+  await chrome.storage.local.set({ moreButtonsEditCaptureComponent: mediaDimFields(kind, media) });
 
   const { formEl } = await createForm('editCaptureComponent', opener);
   if (!formEl) return;
@@ -61,21 +64,6 @@ async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
   formEl.dataset.containerUuid = container.uuid;
   formEl.dataset.containerFile = container.file;
   formEl.dataset.componentUuid = uuid;
-  formEl.dataset.mediaKind = kind;
-
-  // Repo paths + display label for the "Manage this …" jump to the library
-  // entry form. The editor only opens for already-saved components, so the
-  // referenced library files always exist.
-  const toRepo = (f) => (f ? 'docs/assets/' + f : '');
-  if (isImage) {
-    formEl.dataset.mediaSingle = toRepo(media.filename);
-  } else if (isVideo && media.single) {
-    formEl.dataset.mediaSingle = toRepo(media.lightFilename);
-  } else {
-    formEl.dataset.mediaLight = toRepo(media.lightFilename);
-    formEl.dataset.mediaDark = toRepo(media.darkFilename);
-  }
-  formEl.dataset.mediaLabel = mediaLeafLabel(media.filename ?? media.lightFilename);
 
   const titleEl = formEl.querySelector('[data-edit-media-title]');
   if (titleEl) {
@@ -84,9 +72,63 @@ async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
     // library tree and component cards), pushed to the row's right edge by
     // the h2 flex rules in formsStyling.css — e.g. an .svg capture can only
     // be replaced by uploading SVGs, so the format matters here.
-    const ext = fileExtOf(media.filename ?? media.lightFilename);
-    if (ext) titleEl.insertAdjacentHTML('beforeend', `<span class="mb-kb-pills"><span class="mb-kb-pill --format">.${ext}</span></span>`);
+    titleEl.insertAdjacentHTML('beforeend', mediaFormatPillHtml(media));
   }
+
+  await paintMediaFields(formEl, kind, media);
+  resetDirtyBaseline(formEl);
+}
+
+// The file-format pill for a media component's heading ('' when unknown).
+export function mediaFormatPillHtml(media) {
+  const ext = fileExtOf(media?.filename ?? media?.lightFilename);
+  return ext ? `<span class="mb-kb-pills"><span class="mb-kb-pill --format">.${ext}</span></span>` : '';
+}
+
+// The canonical field values a media kind's form hydrates from.
+export function mediaDimFields(kind, media) {
+  return (kind === 'video' ? videoDimFields : kind === 'image' ? imageDimFields : captureDimFields)(media);
+}
+
+// Repo paths the preview reads: the single file (image / single video) or the
+// light + dark pair ('' when absent).
+export function mediaPreviewPaths(media) {
+  const toRepo = (f) => (f ? 'docs/assets/' + f : '');
+  return { light: toRepo(media?.filename ?? media?.lightFilename), dark: toRepo(media?.darkFilename) };
+}
+
+// The editor's light + dark preview grid from already-resolved object URLs.
+// Pure; a missing url drops its card.
+export function mediaPreviewHtml(kind, media, { lightUrl = '', darkUrl = '' } = {}) {
+  const card = kind === 'video' ? videoCard : captureCard;
+  return captureGrid([
+    card({ theme: 'light', title: media?.darkFilename ? 'Light mode' : 'Preview', src: lightUrl, alt: 'light mode' }),
+    card({ theme: 'dark', title: 'Dark mode', src: darkUrl, alt: 'dark mode' }),
+  ]);
+}
+
+/**
+ * Everything the edit-capture form shows for a media component, shared by the
+ * draft editor and the live view (guideLiveView.js): the "Manage this …"
+ * route's datasets and label, Playback / Theme visibility, the preview (read
+ * via readRepoBlob, GET only) and the Dimension field. Writes nothing.
+ */
+export async function paintMediaFields(formEl, kind, media) {
+  const isVideo = kind === 'video';
+  const isImage = kind === 'image';
+  formEl.dataset.mediaKind = kind;
+
+  // Repo paths + display label for the "Manage this …" jump to the library
+  // entry form. The editor only opens for already-saved components, so the
+  // referenced library files always exist.
+  const { light, dark } = mediaPreviewPaths(media);
+  if (isImage || (isVideo && media.single)) {
+    formEl.dataset.mediaSingle = light;
+  } else {
+    formEl.dataset.mediaLight = light;
+    formEl.dataset.mediaDark = dark;
+  }
+  formEl.dataset.mediaLabel = mediaLeafLabel(media.filename ?? media.lightFilename);
 
   // The action bar was relocated to the content wrapper by createForm; its
   // MutationObserver re-runs syncDockTag after this rewrite, so the floating
@@ -109,16 +151,13 @@ async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
     formLoading.show();
     try {
       const [lightBlob, darkBlob] = await Promise.all([
-        readRepoBlob('docs/assets/' + (media.filename ?? media.lightFilename)).catch(() => null),
-        media.darkFilename ? readRepoBlob('docs/assets/' + media.darkFilename).catch(() => null) : Promise.resolve(null),
+        light ? readRepoBlob(light).catch(() => null) : Promise.resolve(null),
+        dark ? readRepoBlob(dark).catch(() => null) : Promise.resolve(null),
       ]);
-      const lightUrl = lightBlob ? URL.createObjectURL(lightBlob) : '';
-      const darkUrl = darkBlob ? URL.createObjectURL(darkBlob) : '';
-      const card = isVideo ? videoCard : captureCard;
-      previewEl.innerHTML = captureGrid([
-        card({ theme: 'light', title: media.darkFilename ? 'Light mode' : 'Preview', src: lightUrl, alt: 'light mode' }),
-        card({ theme: 'dark', title: 'Dark mode', src: darkUrl, alt: 'dark mode' }),
-      ]);
+      previewEl.innerHTML = mediaPreviewHtml(kind, media, {
+        lightUrl: lightBlob ? URL.createObjectURL(lightBlob) : '',
+        darkUrl: darkBlob ? URL.createObjectURL(darkBlob) : '',
+      });
     } finally {
       formLoading.dismiss();
     }
@@ -126,11 +165,10 @@ async function openEditMediaComponent({ kind, container, uuid, media } = {}) {
 
   const sizeHost = formEl.querySelector('[data-capture-component-size]');
   if (sizeHost) {
-    const dim = fieldsFn(media);
+    const dim = mediaDimFields(kind, media);
     sizeHost.innerHTML = captureSizeField({ dimMode: dim.dimMode, dimValue: dim.dimValue });
     wireCaptureSizeField(formEl);
   }
-  resetDirtyBaseline(formEl);
 }
 
 // The library's leaf label for a media file: basename with the theme tail

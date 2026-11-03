@@ -161,7 +161,8 @@ function renderGrid(formEl) {
   const colActive = c => (hasRange ? c >= rect.c0 && c <= rect.c1 : sel.col === c);
   const rowActive = r => (hasRange ? r >= rect.r0 && r <= rect.r1 : sel.row === r);
 
-  const menuBtn = label =>
+  // View-only (the live page's screen): no structure menus at all.
+  const menuBtn = label => formEl._dtViewOnly ? '' :
     `<button type="button" class="mb-dt-handle__menu" data-dt-handle-menu tabindex="-1" aria-haspopup="menu" aria-label="${label} options"><span class="more-buttons-icon">chevron-down</span></button>`;
 
   const chromeRow = '<tr>'
@@ -447,7 +448,8 @@ function openCellMenu(formEl, row, col, anchor, opts) {
 
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
-function wireTableEditor(formEl) {
+// Exported for tests (the view-only keyboard guards).
+export function wireTableEditor(formEl) {
   const wrap = formEl.querySelector('[data-dt-grid-wrap]');
   const rte = formEl._dtRte;
 
@@ -587,6 +589,7 @@ function wireTableEditor(formEl) {
   });
 
   formEl.addEventListener('dblclick', e => {
+    if (formEl._dtViewOnly) return; // no edit, no media child navigation
     const cellEl = e.target.closest('[data-dt-cell-at]');
     if (!cellEl) return;
     const [row, col] = cellEl.dataset.dtCellAt.split(':').map(n => parseInt(n, 10));
@@ -608,6 +611,7 @@ function wireTableEditor(formEl) {
   });
 
   formEl.addEventListener('contextmenu', e => {
+    if (formEl._dtViewOnly) return; // the browser's own menu; no structure ops
     const rowHandle = e.target.closest('[data-dt-row-handle]');
     const colHandle = e.target.closest('[data-dt-col-handle]');
     const cellEl = e.target.closest('[data-dt-cell-at]');
@@ -655,12 +659,13 @@ function wireTableEditor(formEl) {
     if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'x')) {
       e.preventDefault();
       navigator.clipboard?.writeText(rangeToTsv(st));
-      if (e.key === 'x') {
+      if (e.key === 'x' && !formEl._dtViewOnly) { // view-only: cut is a copy
         clearRange(st);
         afterStructureChange(formEl);
       }
       return;
     }
+    if (formEl._dtViewOnly) return; // view-only: select, move and copy only
     if (e.key === 'Enter' || e.key === 'F2') {
       e.preventDefault();
       const { capture, image } = mediaOfCell(st, st.selected.row, st.selected.col);
@@ -732,6 +737,7 @@ function wireTableEditor(formEl) {
   // navigator.clipboard.readText, which would prompt).
   wrap?.addEventListener('paste', e => {
     if (formEl._dtEdit) return; // the in-cell RTE owns paste while editing
+    if (formEl._dtViewOnly) return;
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
     e.preventDefault();
@@ -755,6 +761,12 @@ function wireTableEditor(formEl) {
 // initStateFromStorage, whose awaited storage.get sequences us behind
 // form.js's hydration — which is also what upgraded the textarea.
 function initCellEditor(formEl) {
+  // View-only: nothing is edited, so no toolbar and no cell editor (startEditing
+  // and the editing-key handler both no-op without formEl._dtRte).
+  if (formEl._dtViewOnly) {
+    formEl.querySelector('[data-dt-toolbar]')?.style.setProperty('display', 'none');
+    return;
+  }
   const ta = formEl.querySelector('[data-dt-cell-editor]');
   const rte = ta?.closest('.mb-rte')?._rte;
   if (!rte) return;
@@ -809,6 +821,22 @@ function seedStorage(table) {
   return chrome.storage.local.set({ [STORAGE_KEY]: { tableState: JSON.stringify({ align, header, rows, wrap }) } });
 }
 
+/**
+ * State, cell editor, wiring and first render over the createForm'd
+ * editDataTable form (storage already seeded). Shared with the live page's
+ * read-only screen (guideLiveView.js): `viewOnly` keeps cell selection, drag
+ * / Shift ranges, keyboard moves and Cmd/Ctrl+C TSV copy, and drops the
+ * toolbar, the structure menus, editing, paste, cut and clear.
+ */
+export async function paintDataTable(formEl, fallback, { file, uuid, viewOnly = false }) {
+  formEl._dtViewOnly = viewOnly;
+  await initStateFromStorage(formEl, fallback, file, uuid);
+  initCellEditor(formEl);
+  wireTableEditor(formEl);
+  renderGrid(formEl);
+  syncTableState(formEl);
+}
+
 // ── Openers ───────────────────────────────────────────────────────────────────
 
 registerFormAction('openCreateDataTable', async ({ container, insertAtIndex } = {}) => {
@@ -834,11 +862,7 @@ registerFormAction('openCreateDataTable', async ({ container, insertAtIndex } = 
   if (heading) heading.textContent = 'Add data table';
   formEl.parentElement?.querySelector('[data-delete-table-btn]')?.style.setProperty('display', 'none');
 
-  await initStateFromStorage(formEl, initial, container.file, null);
-  initCellEditor(formEl);
-  wireTableEditor(formEl);
-  renderGrid(formEl);
-  syncTableState(formEl);
+  await paintDataTable(formEl, initial, { file: container.file, uuid: null });
   resetDirtyBaseline(formEl);
 });
 
@@ -876,11 +900,7 @@ registerFormAction('openEditDataTable', async ({ uuid, file } = {}) => {
   if (heading) heading.textContent = 'Edit data table';
   setCrumbLabel('Data table');
 
-  await initStateFromStorage(formEl, fallback, file, uuid);
-  initCellEditor(formEl);
-  wireTableEditor(formEl);
-  renderGrid(formEl);
-  syncTableState(formEl);
+  await paintDataTable(formEl, fallback, { file, uuid });
   resetDirtyBaseline(formEl);
 });
 

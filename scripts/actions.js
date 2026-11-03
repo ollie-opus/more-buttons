@@ -8,6 +8,7 @@ import './captures.js';
 import './systemUpdates.js';
 import './guides.js';
 import './guideLiveView.js';
+import './guideSideSwitch.js';
 import './mediaLibrary.js';
 import './captureEntry.js';
 import './captureNew.js';

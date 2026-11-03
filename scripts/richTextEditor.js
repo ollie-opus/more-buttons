@@ -123,6 +123,7 @@ export function upgradeTextarea(textarea, opts = {}) {
   // the step-admonition title, disabled synchronously at form setup while
   // hydration is still in flight) — carry that state onto the surface.
   if (textarea.disabled) applyRteDisabled(rte, true);
+  else if (textarea.readOnly) applyRteDisabled(rte, true, { readOnly: true });
 
   if (inline) {
     // Markdown view: the raw textarea must obey the same single-line rule.
@@ -383,6 +384,9 @@ const NON_CODE_MARK_TAGS = ['strong', 'b', 'em', 'i', 'u', 's', 'strike', 'del',
 // off (the user just clicked to exit it). Also disables buttons that would break
 // the code/label exclusivity rule above.
 function refreshActiveStates(rte) {
+  // A disabled editor keeps every format button off whatever the selection
+  // does (selectionchange and mode switches land here and would re-enable).
+  if (rte.disabled) { rte.buttons.forEach(b => { b.disabled = true; }); return; }
   const rich = rte.mode === 'rich';
   const activeTags = rich ? selectionMarkTags(rte) : new Set();
   const inLabel = rich && selectionInLabel(rte);
@@ -622,19 +626,36 @@ const FORMAT_INPUT_KEYS = {
 
 // Toggle an upgraded editor's disabled state: raw textarea, surface editability
 // and a wrapper class for the dimmed styling.
-function applyRteDisabled(rte, disabled) {
-  rte.textarea.disabled = disabled;
+// `readOnly` is the view-only flavour (live guide screens): the toolbar keeps
+// its shape with every format button disabled, the Rich | Markdown tabs stay
+// live, and both views stay selectable (a readonly textarea, not a disabled
+// one) so the content can still be read and copied.
+function applyRteDisabled(rte, disabled, { readOnly = false } = {}) {
+  const ro = disabled && readOnly;
+  rte.disabled = disabled;
+  rte.textarea.disabled = disabled && !ro;
+  rte.textarea.readOnly = ro;
   rte.surface.contentEditable = String(!disabled);
-  rte.surface.closest('.mb-rte')?.classList.toggle('mb-rte--disabled', disabled);
+  rte.buttons.forEach(b => { b.disabled = disabled; });
+  const wrap = rte.surface.closest('.mb-rte');
+  wrap?.classList.toggle('mb-rte--disabled', disabled);
+  wrap?.classList.toggle('mb-rte--readonly', ro);
+  // Re-enabling switched every button on; restore code/label exclusivity now
+  // rather than at the next selection change.
+  if (!disabled) refreshActiveStates(rte);
 }
 
 // Public disable toggle addressed by the textarea (the form-facing element).
-// Safe to call before the upgrade ran: the plain `disabled` flag is picked up
-// by upgradeTextarea at build time.
-export function setRteDisabled(textarea, disabled) {
+// Safe to call before the upgrade ran: the plain `disabled` / `readOnly` flag
+// is picked up by upgradeTextarea at build time.
+export function setRteDisabled(textarea, disabled, opts = {}) {
   const rte = textarea?.closest?.('.mb-rte')?._rte;
-  if (rte) applyRteDisabled(rte, disabled);
-  else if (textarea) textarea.disabled = disabled;
+  if (rte) applyRteDisabled(rte, disabled, opts);
+  else if (textarea) {
+    const ro = disabled && !!opts.readOnly;
+    textarea.disabled = disabled && !ro;
+    textarea.readOnly = ro;
+  }
 }
 
 function attachSurfaceEvents(rte) {
