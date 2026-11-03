@@ -648,8 +648,18 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
       closeBtn.setAttribute('aria-label', 'Close');
       closeBtn.innerHTML = '<span class="more-buttons-icon">x</span>';
 
-      nav.append(arrows, crumbs, closeBtn);
+      // Right-hand cluster: per-form tools (e.g. the edit log toggle) then Close,
+      // packed like the back/forward arrows. Re-renders carry the mounted tools
+      // over (everything but the previous Close) rather than losing them.
+      const tools = document.createElement('div');
+      tools.className = 'more-buttons-nav-tools';
+      tools.dataset.navTools = '';
       const existing = content.querySelector('.more-buttons-navbar');
+      const prevTools = existing?.querySelector('[data-nav-tools]');
+      if (prevTools) tools.append(...[...prevTools.children].filter(el => !el.classList.contains('more-buttons-nav-close')));
+      tools.appendChild(closeBtn);
+
+      nav.append(arrows, crumbs, tools);
       if (existing) existing.replaceWith(nav);
       else content.prepend(nav);
     };

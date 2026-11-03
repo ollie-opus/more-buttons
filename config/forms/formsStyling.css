@@ -257,8 +257,15 @@
   cursor: default;
 }
 
-.more-buttons-nav-close {
+/* Right-hand cluster (tools + Close): same 2px packing as the arrows. */
+.more-buttons-nav-tools {
+  display: flex;
+  gap: 2px;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.more-buttons-nav-close {
   flex-shrink: 0;
 }
 
@@ -4419,57 +4426,176 @@ h2[data-edit-media-title] .mb-kb-pills {
   margin-right: 4px;
 }
 
-/* ── Edit log (editLogPanel.js / editLogView.js) ──────────────────────────── */
+/* ── Edit log (editLogPanel.js / editLogView.js) ──────────────────────────
+ * A chat-style thread in a slim drawer that slides over the right third of the
+ * form tile, toggled from the history button in the navbar (left of Close).
+ * Own commits sit on the right in green, everyone else's on the left in grey
+ * (WhatsApp). The drawer stacks above in-tile popovers (10) and the floating
+ * action dock (4-6) but below the loading veil (20). */
+
+.mb-editlog-layer {
+  --mb-editlog-mine-bg:     color-mix(in srgb, var(--mb-acc-success) 14%, var(--mb-bg));
+  --mb-editlog-mine-border: color-mix(in srgb, var(--mb-acc-success) 32%, transparent);
+  --mb-editlog-mine-name:   var(--mb-acc-success);
+  --mb-editlog-theirs-bg:   var(--mb-border-subtle);
+  --mb-editlog-theirs-border: color-mix(in srgb, var(--mb-border) 60%, transparent);
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.mb-editlog-layer[hidden] { display: none; }
+@media (prefers-color-scheme: dark) {
+  .mb-editlog-layer {
+    --mb-editlog-mine-bg:     color-mix(in srgb, var(--mb-acc-success) 20%, var(--mb-bg));
+    --mb-editlog-mine-border: color-mix(in srgb, var(--mb-acc-success) 30%, transparent);
+    --mb-editlog-mine-name:   color-mix(in srgb, var(--mb-acc-success) 85%, var(--mb-text));
+    --mb-editlog-theirs-bg:   color-mix(in srgb, var(--mb-border-subtle) 70%, var(--mb-bg));
+    --mb-editlog-theirs-border: var(--mb-border-subtle);
+  }
+}
+
+/* Faint scrim: signals the form is parked without hiding it; click closes. */
+.mb-editlog-scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--mb-text) 6%, transparent);
+  cursor: default;
+}
+
+.mb-editlog-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: max(36%, 250px);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--mb-bg);
+  border-left: 1px solid var(--mb-border-subtle);
+  box-shadow: -14px 0 32px rgba(15, 23, 42, 0.14);
+  outline: none;
+  animation: mb-editlog-slide-in 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+@keyframes mb-editlog-slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mb-editlog-drawer { animation: none; }
+}
+
+/* Header mirrors the navbar exactly: the tile's 18px/20px padding, a 30px
+   control row, 10px to the hairline, so the drawer's Close sits on the same
+   line and x as the navbar's Close and the two rules meet. */
+.mb-editlog__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 18px 20px 10px 20px;
+  border-bottom: 1px solid var(--mb-border-subtle);
+  color: var(--mb-text);
+}
+.mb-editlog__head > .more-buttons-icon {
+  font-size: 1.125rem;
+  color: var(--mb-text-muted);
+}
+.mb-editlog__title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.mb-editlog__close { margin-left: auto; }
+
+.mb-editlog-drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 14px 12px 16px 14px;
+  background: var(--mb-bg-subtle);
+}
+
+/* Navbar toggle: the standard nav-arrow treatment, held "on" while open. */
+.mb-editlog__toggle[aria-expanded="true"] {
+  background: var(--mb-border-subtle);
+  color: var(--mb-text);
+}
 
 .mb-editlog { display: flex; flex-direction: column; gap: 6px; }
 .mb-editlog__row { display: flex; }
 .mb-editlog__row.--mine { justify-content: flex-end; }
 .mb-editlog__row.--theirs { justify-content: flex-start; }
 .mb-editlog__bubble {
-  max-width: 78%;
-  padding: 8px 12px;
+  max-width: 92%;
+  padding: 7px 11px 6px;
   border-radius: 12px;
   font-size: 0.8125rem;
+  line-height: 1.45;
   color: var(--mb-text);
   box-sizing: border-box;
 }
+/* A tighter corner on the speaker's side gives each bubble its direction. */
 .mb-editlog__row.--theirs .mb-editlog__bubble {
-  background: var(--mb-bg-subtle);
-  border: 1px solid var(--mb-border-subtle);
+  border-top-left-radius: 4px;
+  background: var(--mb-editlog-theirs-bg);
+  border: 1px solid var(--mb-editlog-theirs-border);
 }
 .mb-editlog__row.--mine .mb-editlog__bubble {
-  background: color-mix(in srgb, var(--mb-acc-info) 12%, var(--mb-bg));
-  border: 1px solid color-mix(in srgb, var(--mb-acc-info) 25%, transparent);
+  border-top-right-radius: 4px;
+  background: var(--mb-editlog-mine-bg);
+  border: 1px solid var(--mb-editlog-mine-border);
 }
+/* Legacy commits with generic subjects keep their side's colour; only the
+   text softens and the border goes dashed so they read as less informative. */
 .mb-editlog__row .mb-editlog__bubble.--muted {
   color: var(--mb-text-muted);
-  background: transparent;
-  border: 1px dashed var(--mb-border);
+  border-style: dashed;
 }
 .mb-editlog__name {
+  margin-bottom: 1px;
   font-size: 0.6875rem;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--mb-text-muted);
 }
+.mb-editlog__row.--mine .mb-editlog__name {
+  text-align: right;
+  color: var(--mb-editlog-mine-name);
+}
 .mb-editlog__text { overflow-wrap: anywhere; }
-.mb-editlog__time { font-size: 0.75rem; color: var(--mb-text-muted); }
+.mb-editlog__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 3px;
+}
+.mb-editlog__time { font-size: 0.6875rem; color: var(--mb-text-muted); }
 .mb-editlog__more {
   display: inline;
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
   color: var(--mb-acc-info);
   cursor: pointer;
 }
 .mb-editlog__more:hover { text-decoration: underline; }
-.mb-editlog__detail { margin-top: 6px; }
+.mb-editlog__more:focus-visible { outline: 2px solid var(--mb-acc-info); outline-offset: 2px; border-radius: 2px; }
+.mb-editlog__detail { margin-top: 8px; }
 .mb-editlog__detail[hidden] { display: none; }
 .mb-editlog__rule {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin: 4px 0;
   font-size: 0.75rem;
   color: var(--mb-text-muted);
   text-align: center;
@@ -4480,19 +4606,39 @@ h2[data-edit-media-title] .mb-kb-pills {
   flex-grow: 1;
   border-top: 1px dotted var(--mb-border);
 }
-button.mb-editlog__rule.--action {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
+/* Show history / Show more: a centred pill button, kept apart from the rule
+   lines (which are status changes) and from the day pills by its border and
+   hover lift. */
+.mb-editlog__action {
+  align-self: center;
+  margin: 8px 0 2px;
+  padding: 4px 14px;
+  border: 1px solid var(--mb-border);
+  border-radius: 999px;
+  background: var(--mb-bg);
   font: inherit;
   font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--mb-text-muted);
   cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
 }
-button.mb-editlog__rule.--action:hover { color: var(--mb-text); }
+.mb-editlog__action:hover {
+  color: var(--mb-text);
+  border-color: var(--mb-text-label);
+}
+.mb-editlog__action:active { background: var(--mb-bg-subtle); }
+.mb-editlog__action:focus-visible { outline: 2px solid var(--mb-acc-info); outline-offset: 2px; }
+/* Day markers as small centred pills, WhatsApp-style. */
 .mb-editlog__day {
-  text-align: center;
+  align-self: center;
+  margin: 6px 0 2px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--mb-bg);
+  border: 1px solid var(--mb-border-subtle);
   font-size: 0.6875rem;
+  font-weight: 500;
   color: var(--mb-text-muted);
 }
 .mb-editlog__empty { margin: 0; }

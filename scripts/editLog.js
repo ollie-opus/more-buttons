@@ -83,16 +83,19 @@ export async function fetchUntil(thread, fetchPage, wanted) {
   }
 }
 
+/** Display name for a commit's author: login, else the thread login for own writes, else git name. */
+const authorOf = (c, login) => c.login ?? (c.own ? login : null) ?? c.name;
+
 export function classifyCommit(c, { login }) {
   const k = classifySubject(c.subject);
   if (k.kind === 'rule') {
-    return { type: 'rule', rule: k.rule, label: RULE_LABELS[k.rule], sha: c.sha, date: c.date };
+    return { type: 'rule', rule: k.rule, label: RULE_LABELS[k.rule], by: authorOf(c, login), sha: c.sha, date: c.date };
   }
   return {
     type: 'bubble', sha: c.sha, path: c.path, parentSha: c.parentSha,
     text: k.text, muted: k.muted,
     mine: !!c.own || (!!login && c.login === login),
-    nametag: c.login ?? c.name,
+    nametag: authorOf(c, login),
     date: c.date,
     changed: c.trailers?.changed ?? '',
     body: c.body,
@@ -103,7 +106,7 @@ export function collapseRules(items, windowMs = RULE_COLLAPSE_MS) {
   const out = [];
   let last = null; // last kept rule of the current consecutive run
   for (const it of items) {
-    if (it.type === 'rule' && last && last.rule === it.rule && Math.abs(last.date - it.date) < windowMs) continue;
+    if (it.type === 'rule' && last && last.rule === it.rule && last.by === it.by && Math.abs(last.date - it.date) < windowMs) continue;
     out.push(it);
     last = it.type === 'rule' ? it : null;
   }

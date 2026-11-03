@@ -364,7 +364,7 @@ registerFormAction('openUpdateIncident', async ({ uuid }) => {
   if (!updateFormEl) return;
   updateFormEl.dataset.editUuid = uuid;
   injectServiceCheckboxes(updateFormEl, '#update-incident-services', markdown ? parseServiceNames(markdown) : []);
-  mountEditLog(updateFormEl, editLog, { container: updateFormEl, itemTypeRegex: STATUS_BLOCK_TYPE_RE });
+  mountEditLog(updateFormEl, editLog, { itemTypeRegex: STATUS_BLOCK_TYPE_RE });
 });
 
 registerFormAction('openEditPastIncident', async ({ uuid }) => {
@@ -392,7 +392,7 @@ registerFormAction('openEditPastIncident', async ({ uuid }) => {
   if (!updateFormEl) return;
   updateFormEl.dataset.editUuid = uuid;
   injectServiceCheckboxes(updateFormEl, '#update-incident-services', markdown ? parseServiceNames(markdown) : []);
-  mountEditLog(updateFormEl, editLog, { container: updateFormEl, itemTypeRegex: STATUS_BLOCK_TYPE_RE });
+  mountEditLog(updateFormEl, editLog, { itemTypeRegex: STATUS_BLOCK_TYPE_RE });
 });
 
 registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) => {
@@ -539,7 +539,7 @@ registerFormAction('openUpdateMaintenance', async ({ uuid }) => {
   if (!updateFormEl) return;
   updateFormEl.dataset.editUuid = uuid;
   injectServiceCheckboxes(updateFormEl, '#update-maintenance-services', markdown ? parseServiceNames(markdown) : []);
-  mountEditLog(updateFormEl, editLog, { container: updateFormEl, itemTypeRegex: STATUS_BLOCK_TYPE_RE });
+  mountEditLog(updateFormEl, editLog, { itemTypeRegex: STATUS_BLOCK_TYPE_RE });
   // Completing early only makes sense mid-window: an early end for an upcoming
   // event would land before its start, and past events are already done.
   if (maintenancePhase(evt, new Date()) !== 'in progress') {

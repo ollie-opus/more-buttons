@@ -1,9 +1,11 @@
-// Edit log panel: prefetches a thread, mounts the panel into a form, re-renders
-// it and owns its clicks (expand -> redline, Show history, Show more). Every real
-// fetch runs under the formLoading veil; cached expands and collapses never do.
-// Module scope is DOM/chrome-free (import-safe in Node).
+// Edit log panel: prefetches a thread, mounts it as a slim right-hand drawer
+// over the form tile (toggled from a history button in the navbar, left of
+// Close), re-renders it and owns its clicks (toggle/close, expand -> redline,
+// Show history, Show more). Every real fetch runs under the formLoading veil;
+// cached expands and collapses never do. Module scope is DOM/chrome-free
+// (import-safe in Node).
 import { createThread, openThread, revealHistory, showMore, threadView, addCommits, logicalItems } from './editLog.js';
-import { editLogPanelHtml, bubbleDetailHtml, EDIT_LOG_COPY } from './editLogView.js';
+import { editLogPanelHtml, editLogDrawerHtml, editLogToggleHtml, bubbleDetailHtml, EDIT_LOG_COPY } from './editLogView.js';
 import { sectionRedline, itemRedline } from './textDiff.js';
 import { listCommits, recentCommits, readRepoText, currentGithubLogin } from './repoClient.js';
 import { formLoading } from './loading.js';
@@ -45,16 +47,56 @@ export function mergeRecentCommits(thread, recent = recentCommits) {
  */
 export const detailCacheable = (parentSha, after) => !(parentSha && after === '');
 
-export function mountEditLog(formEl, thread, { container, itemTypeRegex = null }) {
+const fromHtml = (html) => { const h = document.createElement('div'); h.innerHTML = html; return h.firstElementChild; };
+
+/**
+ * Mount (or re-mount) the drawer for a form. The drawer and its navbar toggle
+ * live on the overlay tile, outside <form>, so re-rendering the form body never
+ * wipes them and their buttons never dirty the form. Idempotent: a second call
+ * on the same form swaps the thread and re-renders, keeping the open state.
+ */
+export function mountEditLog(formEl, thread, { itemTypeRegex = null } = {}) {
+  const host = formEl.closest('.more-buttons-overlay-content') ?? formEl.parentElement;
+  let layer = host.querySelector('[data-editlog-layer]');
+  if (!layer) { layer = fromHtml(editLogDrawerHtml()); host.appendChild(layer); }
+  const slot = host.querySelector('[data-nav-tools]') ?? host.querySelector('.more-buttons-navbar');
+  if (slot && !slot.querySelector('[data-editlog-toggle]')) {
+    slot.insertBefore(fromHtml(editLogToggleHtml()), slot.querySelector('.more-buttons-nav-close'));
+  }
+
   formEl._editLog = {
-    thread, container, itemTypeRegex,
+    thread, itemTypeRegex, host, layer,
+    container: layer.querySelector('[data-editlog-body]'),
     texts: new Map(), detailHtml: new Map(), expanded: new Set(),
   };
   if (!formEl._editLogWired) {
     formEl._editLogWired = true;
-    formEl.parentElement.addEventListener('click', (e) => onEditLogClick(formEl, e));
+    host.addEventListener('click', (e) => onEditLogClick(formEl, e));
   }
   renderEditLog(formEl);
+}
+
+export function setEditLogOpen(formEl, open) {
+  const st = formEl._editLog;
+  if (!st || st.layer.hidden === !open) return;
+  const toggle = st.host.querySelector('[data-editlog-toggle]');
+  st.layer.hidden = !open;
+  toggle?.setAttribute('aria-expanded', String(open));
+  if (open) {
+    // Escape closes the drawer before the form's own Escape handler sees it.
+    st.onKey = (e) => {
+      if (!st.layer.isConnected) { document.removeEventListener('keydown', st.onKey, true); return; }
+      if (e.key !== 'Escape' || st.layer.hidden) return;
+      e.stopPropagation();
+      setEditLogOpen(formEl, false);
+    };
+    document.addEventListener('keydown', st.onKey, true);
+    st.layer.querySelector('[data-editlog-drawer]')?.focus({ preventScroll: true });
+  } else {
+    if (st.onKey) document.removeEventListener('keydown', st.onKey, true);
+    st.onKey = null;
+    toggle?.focus({ preventScroll: true });
+  }
 }
 
 const cacheKey = (path, sha) => `${path}@${sha}`;
@@ -144,6 +186,8 @@ async function expandBubble(formEl, btn) {
 async function onEditLogClick(formEl, e) {
   const st = formEl._editLog;
   if (!st || !e.target.closest) return;
+  if (e.target.closest('[data-editlog-toggle]')) { setEditLogOpen(formEl, st.layer.hidden); return; }
+  if (e.target.closest('[data-editlog-close]')) { setEditLogOpen(formEl, false); return; }
   const panel = st.container.querySelector('[data-edit-log]');
   if (!panel || !panel.contains(e.target)) return;
 

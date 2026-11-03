@@ -600,7 +600,7 @@ registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   const { formEl: editFormEl } = await createForm('editSystemUpdate');
   if (editFormEl) {
     mountUpdateComponentsEditor(editFormEl, { uuid, file: UPDATES_FILE, kind: 'system-update', components });
-    mountEditLog(editFormEl, editLog, { container: editFormEl, itemTypeRegex: UPDATE_BLOCK_TYPES_RE });
+    mountEditLog(editFormEl, editLog, { itemTypeRegex: UPDATE_BLOCK_TYPES_RE });
   }
 });
 
@@ -706,7 +706,7 @@ registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
   const { formEl: editFormEl } = await createForm('editDraftSystemUpdate');
   if (editFormEl) {
     mountUpdateComponentsEditor(editFormEl, { uuid, file: DRAFTS_FILE, kind: 'system-draft', components });
-    mountEditLog(editFormEl, editLog, { container: editFormEl, itemTypeRegex: UPDATE_BLOCK_TYPES_RE });
+    mountEditLog(editFormEl, editLog, { itemTypeRegex: UPDATE_BLOCK_TYPES_RE });
   }
 });
 

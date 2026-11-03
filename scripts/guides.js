@@ -253,7 +253,7 @@ async function renderGuideEntryContent(formEl) {
       <button type="button" class="more-buttons-button red" data-guide-action="delete"><span class="more-buttons-icon">trash-2</span>Delete guide</button>`;
     // Prefetched as a session (draft unknown at the time); a live page shows full history.
     endSession(thread);
-    mountEditLog(formEl, thread, { container: contentEl });
+    mountEditLog(formEl, thread);
     return;
   }
 
@@ -261,7 +261,7 @@ async function renderGuideEntryContent(formEl) {
   // working copy without a re-fetch, then render the tree + actions.
   formEl._draftMd = draftMarkdown;
   renderGuideDraftView(formEl, draftMarkdown);
-  mountEditLog(formEl, thread, { container: contentEl });
+  mountEditLog(formEl, thread);
 }
 
 // Renders the "draft exists" view (section tree + action group) from a given

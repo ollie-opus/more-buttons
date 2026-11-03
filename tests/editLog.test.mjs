@@ -36,9 +36,12 @@ await test('addCommits: dedupes by sha, sorts newest first, item filter keeps on
 
 await test('classifyCommit: rule kinds + labels; mine by login or own; author:null nametag = name; muted legacy', () => {
   const r = classifyCommit(mk('r', 'a', 'Create draft: X', 5), { login: 'ollie-opus' });
-  assert.deepEqual(r, { type: 'rule', rule: 'draft-created', label: 'New draft created', sha: 'r', date: 5 });
+  assert.deepEqual(r, { type: 'rule', rule: 'draft-created', label: 'New draft created', by: 'N', sha: 'r', date: 5 });
+  assert.equal(classifyCommit(mk('r2', 'a', 'Create draft: X', 5, { own: true }), { login: 'ollie-opus' }).by, 'ollie-opus');
+  assert.equal(classifyCommit(mk('r3', 'a', 'Create draft: X', 5, { login: 'bob' }), { login: 'ollie-opus' }).by, 'bob');
   assert.equal(classifyCommit(mk('p', 'a', 'Publish update: X', 5), {}).label, 'Published to live');
   assert.equal(classifyCommit(mk('o', 'a', 'Edit', 1, { own: true }), { login: null }).mine, true);
+  assert.equal(classifyCommit(mk('o', 'a', 'Edit', 1, { own: true, login: null }), { login: 'ollie-opus' }).nametag, 'ollie-opus');
   const mine = classifyCommit(mk('m', 'a', 'Edit', 1, { login: 'ollie-opus' }), { login: 'ollie-opus' });
   assert.equal(mine.mine, true);
   const theirs = classifyCommit(mk('t', 'a', 'Edit', 1, { login: 'bob' }), { login: 'ollie-opus' });
@@ -59,6 +62,8 @@ await test('collapseRules: two Published rules 30 s apart -> one; 3 min apart ->
   assert.deepEqual(collapseRules([pub('p1', 300000), pub('p2', 120000)]).map(i => i.sha), ['p1', 'p2']);
   const mixed = [pub('p1', 100000), classifyCommit(mk('d1', 'a', 'Create draft: X', 99000), {})];
   assert.equal(collapseRules(mixed).length, 2);
+  const byOther = classifyCommit(mk('p3', 'a', 'Publish: X', 70000, { login: 'bob' }), {});
+  assert.deepEqual(collapseRules([pub('p1', 100000), byOther]).map(i => i.sha), ['p1', 'p3']);
 });
 
 await test('openThread on a draft: visible stops at and includes the first Create draft rule, history hidden; Create guide also starts a session', async () => {
