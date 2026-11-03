@@ -73,4 +73,28 @@ await test('itemRedline: scoped to uuid block; added/removed single colour; miss
   const pt = itemRedline('', pill, 'i3', STATUS_BLOCK_TYPE_RE);
   assert.equal(pt[0].title, 'OUTAGE');
 });
+await test('sectionRedline: a two-section swap yields one "Section order" block (old titles del, new titles ins), no uuid text', () => {
+  const A = `## One\n${span('u2')}\n\nAlpha\n`, B = `## Two\n${span('u3')}\n\nBeta\n`;
+  const before = `# Guide\n${span('u1')}\n\nIntro\n\n${A}\n${B}`;
+  const after = `# Guide\n${span('u1')}\n\nIntro\n\n${B}\n${A}`;
+  const blocks = sectionRedline(before, after);
+  assert.deepEqual(blocks, [{ title: 'Section order', status: 'changed', ops: [
+    { op: 'del', text: 'Guide\nOne\nTwo\n' },
+    { op: 'ins', text: 'Guide\nTwo\nOne\n' },
+  ] }]);
+  assert.ok(!JSON.stringify(blocks).includes('data-uuid'));
+  // a reorder that also edits a section reports the edit, not the order block
+  const edited = sectionRedline(before, after.replace('Beta', 'Gamma'));
+  assert.ok(!edited.some(b => b.title === 'Section order'));
+  assert.ok(edited.some(b => b.title === 'Two' && b.status === 'changed'));
+});
+await test('sectionRedline: the whole-page fallback diffs identity-stripped text', () => {
+  // duplicated uuids collapse in the section map, so no block is found: whole-file fallback
+  const before = `# A\n${span('d1')}\n\nx\n\n# B\n${span('d1')}\n\ny\n`;
+  const after = `# A\n${span('d1')}\n\nx\n\n# B\n${span('d1')}\n\nz\n`;
+  const w = sectionRedline(before, after);
+  assert.equal(w.length, 1); assert.equal(w[0].title, 'Whole page'); assert.equal(w[0].status, 'changed');
+  assert.ok(!JSON.stringify(w).includes('data-uuid'));
+  assert.ok(w[0].ops.some(o => o.op === 'ins' && o.text === 'z'));
+});
 console.log(`${passed} passed`);

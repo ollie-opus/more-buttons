@@ -122,4 +122,19 @@ await test('resolveCommitMessage: string, object, function, fallback', () => {
   assert.equal(resolveCommitMessage(c => c.before + c.after, ctx, 'F'), `ab\n\n${TRAILER}`);
 });
 
+await test('a throwing commit function still commits, with the default subject (Update / Delete)', async () => {
+  const warn = console.warn; const warned = []; console.warn = (...a) => warned.push(a);
+  try {
+    const boom = () => { throw new Error('describer bug'); };
+    script('# Drafts\n');
+    await githubFetchAndPushFile(FILE, undefined, bump, { commit: boom });
+    assert.equal(pw()[0].message, `Update system updates\n\n${TRAILER}`);
+    script('# Drafts\n');
+    await githubDeleteFile(FILE, undefined, { commit: boom });
+    assert.equal(pw()[0].message, `Delete system updates\n\n${TRAILER}`);
+    assert.equal(resolveCommitMessage(boom, { before: '', after: '' }, 'Update x'), `Update x\n\n${TRAILER}`);
+    assert.equal(warned.length, 3);
+  } finally { console.warn = warn; }
+});
+
 console.log(`\n${passed} passed`);

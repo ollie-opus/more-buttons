@@ -73,7 +73,7 @@ function wholeFileBlocks(beforeMd, afterMd) {
   if (beforeMd === afterMd) return [];
   if (beforeMd === '') return [{ title: 'Whole page', status: 'added', ops: [{ op: 'ins', text: stripIdentityLines(afterMd) }] }];
   if (afterMd === '') return [{ title: 'Whole page', status: 'removed', ops: [{ op: 'del', text: stripIdentityLines(beforeMd) }] }];
-  return [{ title: 'Whole page', status: 'changed', ops: tokenDiff(beforeMd, afterMd) }];
+  return [{ title: 'Whole page', status: 'changed', ops: tokenDiff(stripIdentityLines(beforeMd), stripIdentityLines(afterMd)) }];
 }
 
 function scopedBlocks(title, status, beforeText, afterText) {
@@ -123,7 +123,24 @@ export function sectionRedline(beforeMd, afterMd) {
     else if (prev.text !== s.text) blocks.push(scopedBlocks(s.title, 'changed', prev.text, s.text));
     emitRemoved(k);
   }
+  if (!blocks.length) {
+    const order = sectionOrderBlock(b.map, a.map);
+    if (order) return [order];
+  }
   return blocks.length ? blocks : wholeFileBlocks(beforeMd, afterMd);
+}
+
+// Same sections, same text, different order: show the title lists, not a whole-file diff.
+function sectionOrderBlock(bMap, aMap) {
+  const bKeys = [...bMap.keys()], aKeys = [...aMap.keys()];
+  if (bKeys.length !== aKeys.length || !bKeys.every(k => aMap.has(k))) return null;
+  if (bKeys.every((k, i) => k === aKeys[i])) return null;
+  if (!bKeys.every(k => bMap.get(k).text === aMap.get(k).text)) return null;
+  const titles = (keys, map) => keys.map(k => map.get(k).title).join('\n') + '\n';
+  return { title: 'Section order', status: 'changed', ops: [
+    { op: 'del', text: titles(bKeys, bMap) },
+    { op: 'ins', text: titles(aKeys, aMap) },
+  ] };
 }
 
 function findItem(md, uuid, typeRegex) {

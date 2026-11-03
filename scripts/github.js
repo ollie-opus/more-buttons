@@ -165,7 +165,14 @@ function migrateHideTitleToSection(markdown) {
  * function of `{ before, after }` returning either. Absent → `fallbackSubject`.
  */
 export function resolveCommitMessage(spec, ctx, fallbackSubject) {
-  const v = typeof spec === 'function' ? spec(ctx) : spec;
+  let v;
+  try {
+    v = typeof spec === 'function' ? spec(ctx) : spec;
+  } catch (err) {
+    // A describer bug must never fail the save: fall back to the generic subject.
+    console.warn('resolveCommitMessage: commit callback threw; using the default subject', err);
+    v = null;
+  }
   if (v == null) return commitMessage(fallbackSubject);
   if (typeof v === 'string') return commitMessage(v);
   return commitMessage(v.subject, v.bodyLines ?? []);

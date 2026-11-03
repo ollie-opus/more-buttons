@@ -1118,31 +1118,51 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
       const updateBtn = e.target.closest('[data-update-incident]');
       if (updateBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openUpdateIncident')?.({ ...ctx, uuid: updateBtn.dataset.updateIncident });
+        formLoading.show();
+        (async () => {
+          try { await getFormAction('openUpdateIncident')?.({ ...ctx, uuid: updateBtn.dataset.updateIncident }); }
+          finally { formLoading.dismiss(); }
+        })();
         return;
       }
       const editBtn = e.target.closest('[data-edit-past-incident]');
       if (editBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openEditPastIncident')?.({ ...ctx, uuid: editBtn.dataset.editPastIncident });
+        formLoading.show();
+        (async () => {
+          try { await getFormAction('openEditPastIncident')?.({ ...ctx, uuid: editBtn.dataset.editPastIncident }); }
+          finally { formLoading.dismiss(); }
+        })();
         return;
       }
       const maintBtn = e.target.closest('[data-update-maintenance]');
       if (maintBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openUpdateMaintenance')?.({ ...ctx, uuid: maintBtn.dataset.updateMaintenance });
+        formLoading.show();
+        (async () => {
+          try { await getFormAction('openUpdateMaintenance')?.({ ...ctx, uuid: maintBtn.dataset.updateMaintenance }); }
+          finally { formLoading.dismiss(); }
+        })();
         return;
       }
       const editUpdateBtn = e.target.closest('[data-edit-system-update]');
       if (editUpdateBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openEditSystemUpdate')?.({ ...ctx, uuid: editUpdateBtn.dataset.editSystemUpdate });
+        formLoading.show();
+        (async () => {
+          try { await getFormAction('openEditSystemUpdate')?.({ ...ctx, uuid: editUpdateBtn.dataset.editSystemUpdate }); }
+          finally { formLoading.dismiss(); }
+        })();
         return;
       }
       const editDraftBtn = e.target.closest('[data-edit-draft-system-update]');
       if (editDraftBtn) {
         const ctx = { formEl, overlay, content, cleanup, storageKey, validateForm, conditionalEls };
-        getFormAction('openEditDraftSystemUpdate')?.({ ...ctx, uuid: editDraftBtn.dataset.editDraftSystemUpdate });
+        formLoading.show();
+        (async () => {
+          try { await getFormAction('openEditDraftSystemUpdate')?.({ ...ctx, uuid: editDraftBtn.dataset.editDraftSystemUpdate }); }
+          finally { formLoading.dismiss(); }
+        })();
         return;
       }
     });
