@@ -159,4 +159,39 @@ await test('openGuideLiveView: a drafted page redirects to the normal draft entr
   assert.ok(calls.every(c => c.method === 'GET'));
 });
 
+const ADM = ['!!! note "N"', '', '    Body.', ''].join('\n');
+
+await test('liveSectionModel: ordinal index on a uuid-less page, components parsed with in-memory uuids', () => {
+  const md = ['# T', '', '## A', '', ADM, '', '## B', ''].join('\n');
+  const m = live.liveSectionModel(md, 1);
+  assert.equal(m.title, 'A');
+  assert.equal(m.visualLabel, 'Section 1: A');
+  assert.ok(m.uuid);
+  assert.equal(m.components.length, 1);
+  assert.ok(m.components[0].adm.uuid);
+  assert.equal(live.liveSectionModel(md, 0).visualLabel, 'Title: T');
+});
+
+await test('liveSectionModel: an out-of-range ordinal is null', () => {
+  assert.equal(live.liveSectionModel('# T\n\n## A\n', 5), null);
+  assert.equal(live.liveSectionModel('', 0), null);
+});
+
+await test('liveSectionModel: a page that already carries uuids keeps them', () => {
+  const md = ['# T', '', span('SEC-T'), '', '## A', '', span('SEC-A'), '', 'Text.', ''].join('\n');
+  assert.equal(live.liveSectionModel(md, 1).uuid, 'SEC-A');
+});
+
+await test('guideLiveView registers the section opener', () => {
+  assert.ok(getFormAction('openGuideSectionLiveView'));
+});
+
+await test('openGuideSectionLiveView: a missing section alerts and mounts nothing', async () => {
+  stubFetch({ 'docs/pages/x.md': '# T\n\n## A\n' });
+  const alerts = [];
+  globalThis.alert = m => alerts.push(m);
+  await getFormAction('openGuideSectionLiveView')({ file: 'docs/pages/x.md', index: 9 });
+  assert.deepEqual(alerts, ['Section not found.']);
+});
+
 console.log(`\n${passed} passed`);

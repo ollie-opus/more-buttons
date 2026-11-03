@@ -350,9 +350,10 @@ async function navigateTo(index) {
   }
 }
 
+// Resolves true when it navigated, false when already at the first entry.
 function navigateBack() {
-  if (cursor > 0) return navigateTo(cursor - 1);
-  return Promise.resolve();
+  if (cursor > 0) return navigateTo(cursor - 1).then(() => true);
+  return Promise.resolve(false);
 }
 
 function navigateForward() {

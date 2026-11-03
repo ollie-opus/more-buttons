@@ -3817,6 +3817,16 @@ h2[data-guide-section-heading] .mb-kb-pills {
   color: var(--mb-text-disabled);
   pointer-events: none;
 }
+/* View-only forms (live page view): no toolbar, and keep the surface readable
+   and selectable (the disabled rule's pointer-events:none would block that). */
+form[data-view-only] .mb-rte__toolbar { display: none; }
+form[data-view-only] .mb-rte--disabled .mb-rte__surface {
+  pointer-events: auto;
+  cursor: text;
+  color: var(--mb-text);
+  background-color: var(--mb-bg-input);
+  border-radius: 6px;
+}
 /* Nested lists: drop the outer vertical margin so each level only adds indent,
    not extra gaps, and alternate the bullet glyph so depth reads at a glance. */
 .mb-rte__surface li > ul,
