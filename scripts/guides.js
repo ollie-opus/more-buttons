@@ -41,7 +41,7 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml } from './cardRenderer.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml, stripNonCopyFootButtons } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
 import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
@@ -1298,13 +1298,14 @@ function codeBlockComponentCardFor(cb) {
 // "+ Insert Component" triggers. Step admonitions are numbered in document order
 // when `numberSteps` is set (section level only — sub-admonition steps aren't
 // numbered, matching the published site). Captures never affect numbering.
-export function renderComponents(listEl, components, numberSteps = true) {
+export function renderComponents(listEl, components, numberSteps = true, { viewOnly = !!listEl?.closest?.('form')?.hasAttribute?.('data-view-only') } = {}) {
   if (!listEl) return;
   // Keep the form's hidden order field in lockstep with what's rendered.
   const orderField = listEl.closest('form')?.querySelector('[name="componentOrder"]');
   if (orderField) orderField.value = components.map(uuidOfComponent).join(',');
 
   if (components.length === 0) {
+    if (viewOnly) { listEl.innerHTML = '<p class="more-buttons-description">No components in this section.</p>'; return; }
     listEl.innerHTML = `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
@@ -1312,7 +1313,7 @@ export function renderComponents(listEl, components, numberSteps = true) {
   let stepN = 0;
   const last = components.length - 1;
   components.forEach((c, i) => {
-    parts.push(insertComponentTrigger(i));
+    if (!viewOnly) parts.push(insertComponentTrigger(i));
     let card;
     if (c.kind === 'admonition') {
       const n = (numberSteps && c.adm.type === 'step') ? ++stepN : null;
@@ -1338,9 +1339,11 @@ export function renderComponents(listEl, components, numberSteps = true) {
     } else {
       card = captureComponentCardFor(c.cap);
     }
-    parts.push(componentRow(uuidOfComponent(c), i === 0, i === last, card));
+    parts.push(viewOnly
+      ? `<div class="mb-component-row" data-component-uuid="${escapeHtml(uuidOfComponent(c))}">${stripNonCopyFootButtons(card)}</div>`
+      : componentRow(uuidOfComponent(c), i === 0, i === last, card));
   });
-  parts.push(insertComponentTrigger(components.length));
+  if (!viewOnly) parts.push(insertComponentTrigger(components.length));
   listEl.innerHTML = parts.join('');
   paintInlineAtoms(listEl); // colour label pills + inline icons in admonition card titles/bodies
   applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp
@@ -1477,17 +1480,20 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const copyBtn = e.target.closest('[data-copy-component-md]');
+  if (copyBtn) {
+    copyComponentMarkdown(formEl, copyBtn.dataset.copyComponentMd, copyBtn, e.shiftKey);
+    return;
+  }
+
+  // View-only (live page) forms: Expand and Copy above are the only live controls.
+  if (formEl.hasAttribute('data-view-only')) return;
+
   const moveBtn = e.target.closest('[data-move-component]');
   if (moveBtn) {
     if (moveBtn.disabled) return;
     const row = moveBtn.closest('[data-component-uuid]');
     moveComponentInEditor(formEl, row?.dataset.componentUuid, moveBtn.dataset.moveComponent);
-    return;
-  }
-
-  const copyBtn = e.target.closest('[data-copy-component-md]');
-  if (copyBtn) {
-    copyComponentMarkdown(formEl, copyBtn.dataset.copyComponentMd, copyBtn, e.shiftKey);
     return;
   }
 

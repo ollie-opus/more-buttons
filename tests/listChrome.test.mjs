@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { insertTriggerHtml, railRowHtml } from '../scripts/cardRenderer.js';
+import { insertTriggerHtml, railRowHtml, stripNonCopyFootButtons, captureComponentCard } from '../scripts/cardRenderer.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -33,6 +33,22 @@ test('railRowHtml: last row disables down, custom move attribute', () => {
   assert.ok(html.includes('data-grid-move-cell="up"  aria-label'));
   assert.ok(html.includes('data-grid-move-cell="down" disabled'));
   assert.ok(html.includes('data-grid-cell="2"'));
+});
+
+test('stripNonCopyFootButtons: keeps Copy, drops Edit, keeps the foot wrapper', () => {
+  const card = captureComponentCard({ thumbSrc: 'x.png', btnAttr: 'data-edit-component="U"', copyAttr: 'data-copy-component-md="U"' });
+  const out = stripNonCopyFootButtons(card);
+  assert.ok(out.includes('data-copy-component-md="U"'));
+  assert.ok(!out.includes('data-edit-component'));
+  assert.ok(out.includes('mb-incident-card__foot'));
+  assert.equal((out.match(/class="mb-incident-card__edit"/g) || []).length, 1);
+});
+
+test('stripNonCopyFootButtons: a card with only an Edit button ends up with an empty foot', () => {
+  const card = captureComponentCard({ thumbSrc: 'x.png', btnAttr: 'data-edit-component="U"' });
+  const out = stripNonCopyFootButtons(card);
+  assert.equal((out.match(/<button/g) || []).length, 0);
+  assert.ok(out.includes('mb-incident-card__foot'));
 });
 
 console.log(`\n${passed} passed`);

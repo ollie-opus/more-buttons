@@ -368,6 +368,15 @@ export function railRowHtml({ rowAttrs, isFirst, isLast, moveAttr, cardHtml }) {
     </div>`;
 }
 
+/**
+ * View-only cards: drop every foot button except Copy (the Edit / Error
+ * button of each builder), keeping the foot wrapper and Show more intact.
+ * Labels are plain text today; the lazy body match also tolerates markup.
+ */
+export function stripNonCopyFootButtons(cardHtml) {
+  return cardHtml.replace(/<button type="button" class="mb-incident-card__edit"(?![^>]*data-copy-component-md)[^>]*>[\s\S]*?<\/button>/g, '');
+}
+
 export function fileExtOf(path) {
   return /\.([a-z0-9]+)$/i.exec(path || '')?.[1]?.toLowerCase() ?? '';
 }
