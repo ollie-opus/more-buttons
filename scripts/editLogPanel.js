@@ -2,14 +2,14 @@
 // it and owns its clicks (expand -> redline, Show history, Show more). Every real
 // fetch runs under the formLoading veil; cached expands and collapses never do.
 // Module scope is DOM/chrome-free (import-safe in Node).
-import { createThread, openThread, revealHistory, showMore, threadView } from './editLog.js';
+import { createThread, openThread, revealHistory, showMore, threadView, addCommits, logicalItems } from './editLog.js';
 import { editLogPanelHtml, bubbleDetailHtml, EDIT_LOG_COPY } from './editLogView.js';
 import { sectionRedline, itemRedline } from './textDiff.js';
 import { listCommits, recentCommits, readRepoText, currentGithubLogin } from './repoClient.js';
 import { formLoading } from './loading.js';
 
-/** Adapts listCommits(path, { page }) to the model's fetchPage(path, page). */
-export const makeFetchPage = (list) => (path, page) => list(path, { page });
+/** Adapts listCommits(path, { page, perPage }) to the model's fetchPage(path, page, perPage). */
+export const makeFetchPage = (list) => (path, page, perPage) => list(path, { page, perPage });
 export const fetchPage = makeFetchPage(listCommits);
 
 /** Builds and opens a thread. Never rejects: a failure sets thread.error. */
@@ -26,6 +26,24 @@ export async function prefetchEditLog({ paths, itemUuid = null, session = false 
   }
   return thread;
 }
+
+/**
+ * Merge the write memo for each of the thread's paths (a save made while the form is
+ * open, e.g. a reorder) and widen `shown` so it appears. Deduped by sha: idempotent.
+ */
+export function mergeRecentCommits(thread, recent = recentCommits) {
+  let added = 0;
+  for (const p of Object.keys(thread.paths)) added += addCommits(thread, recent(p));
+  if (added) thread.shown = Math.min(thread.shown + added, logicalItems(thread).length);
+  return added;
+}
+
+/**
+ * Whether a redline built from these reads may be cached for the form's life. An
+ * empty read of the commit's own ref with a parent present is most likely GitHub
+ * lag on a just-made commit, not a real deletion; don't pin it.
+ */
+export const detailCacheable = (parentSha, after) => !(parentSha && after === '');
 
 export function mountEditLog(formEl, thread, { container, itemTypeRegex = null }) {
   formEl._editLog = {
@@ -60,6 +78,7 @@ function showDetail(els, html) {
 export function renderEditLog(formEl) {
   const st = formEl._editLog;
   if (!st) return;
+  mergeRecentCommits(st.thread);
   const holder = document.createElement('div');
   holder.innerHTML = editLogPanelHtml(threadView(st.thread));
   const panel = holder.firstElementChild;
@@ -107,7 +126,8 @@ async function expandBubble(formEl, btn) {
       ? itemRedline(before, after, st.thread.itemUuid, st.itemTypeRegex)
       : sectionRedline(before, after);
     html = bubbleDetailHtml({ changed, blocks });
-    st.detailHtml.set(key, html);
+    if (detailCacheable(parentSha, after)) st.detailHtml.set(key, html);
+    else st.texts.delete(cacheKey(path, sha)); // re-read next expand
   } catch {
     html = bubbleDetailHtml({ changed, body, error: EDIT_LOG_COPY.detailError });
   } finally {

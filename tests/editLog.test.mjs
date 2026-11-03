@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {
-  PAGE_SIZE, RULE_COLLAPSE_MS, createThread, addCommits, allExhausted, frontier, renderableCommits,
+  PAGE_SIZE, ITEM_PER_PAGE, RULE_COLLAPSE_MS, createThread, addCommits, allExhausted, frontier, renderableCommits,
   fetchUntil, classifyCommit, collapseRules, logicalItems, addDayDividers, openThread, revealHistory,
-  showMore, threadView,
+  showMore, threadView, endSession,
 } from '../scripts/editLog.js';
 let passed = 0; async function test(name, fn) { await fn(); passed++; console.log('  ok -', name); }
 
@@ -14,10 +14,10 @@ const MIN = 60000;
 // n plain commits for a path, newest first, starting `startAgo` minutes before T0.
 const run = (path, n, startAgo = 0, tag = path) =>
   Array.from({ length: n }, (_, i) => mk(`${tag}-${startAgo + i}`, path, `Edit ${tag} ${i}`, T0 - (startAgo + i) * MIN));
-const pager = (pages, calls = []) => async (path, page) => { calls.push([path, page]); return pages[path]?.[page - 1] ?? []; };
-const chunk = (arr) => { const out = []; for (let i = 0; i < arr.length; i += PAGE_SIZE) out.push(arr.slice(i, i + PAGE_SIZE)); return out; };
+const pager = (pages, calls = []) => async (path, page, perPage) => { calls.push([path, page, perPage]); return pages[path]?.[page - 1] ?? []; };
+const chunk = (arr, size = PAGE_SIZE) => { const out = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out; };
 
-await test('constants', () => { assert.equal(PAGE_SIZE, 30); assert.equal(RULE_COLLAPSE_MS, 120000); });
+await test('constants', () => { assert.equal(PAGE_SIZE, 30); assert.equal(ITEM_PER_PAGE, 100); assert.equal(RULE_COLLAPSE_MS, 120000); });
 
 await test('addCommits: dedupes by sha, sorts newest first, item filter keeps only Item: <uuid> commits', () => {
   const t = createThread({ paths: ['a'] });
@@ -26,10 +26,12 @@ await test('addCommits: dedupes by sha, sorts newest first, item filter keeps on
   assert.deepEqual(t.commits.map(c => c.sha), ['s2', 's3', 's1']);
   assert.equal(t.commits.find(c => c.sha === 's1').subject, 'x');
   const f = createThread({ paths: ['a'], itemUuid: 'U1' });
-  assert.equal(f.maxPagesPerClick, 5);
+  assert.equal(f.maxPagesPerClick, 2);
+  assert.equal(f.perPage, 100);
   addCommits(f, [mk('a', 'a', 'x', 1, { trailers: { item: 'U1' } }), mk('b', 'a', 'x', 2, { trailers: { item: 'U2' } }), mk('c', 'a', 'x', 3)]);
   assert.deepEqual(f.commits.map(c => c.sha), ['a']);
   assert.equal(createThread({ paths: ['a'] }).maxPagesPerClick, 1);
+  assert.equal(createThread({ paths: ['a'] }).perPage, 30);
 });
 
 await test('classifyCommit: rule kinds + labels; mine by login or own; author:null nametag = name; muted legacy', () => {
@@ -154,35 +156,89 @@ await test('frontier with unequal depth (300 vs 3 commits): fetching never surfa
   assert.equal(t.shown, 60);
 });
 
-await test('fetchUntil (guide): at most one page per path per call; fetchUntil (item): up to 5 pages per path, stops when a path is exhausted or 30 matches found', async () => {
-  const mismatch = (path) => chunk(Array.from({ length: 210 }, (_, i) => mk(`${path}${i}`, path, 'x', T0 - i * MIN, { trailers: { item: 'OTHER' } })));
+await test('fetchUntil (guide): one 30-commit page per path per call; fetchUntil (item): 100-commit pages, at most 2 per path per call, stops when exhausted or 30 matches found', async () => {
+  const mismatch = (path) => chunk(Array.from({ length: 210 }, (_, i) => mk(`${path}${i}`, path, 'x', T0 - i * MIN, { trailers: { item: 'OTHER' } })), ITEM_PER_PAGE);
   const calls = [];
   const t = createThread({ paths: ['p', 'q'], itemUuid: 'U' });
   await fetchUntil(t, pager({ p: mismatch('p'), q: mismatch('q') }, calls), PAGE_SIZE);
-  assert.equal(calls.filter(c => c[0] === 'p').length, 5);
-  assert.equal(calls.filter(c => c[0] === 'q').length, 5);
+  assert.equal(calls.filter(c => c[0] === 'p').length, 2);
+  assert.equal(calls.filter(c => c[0] === 'q').length, 2);
+  assert.ok(calls.every(c => c[2] === 100));
   assert.equal(renderableCommits(t).length, 0);
   assert.equal(t.commits.length, 0);
   assert.equal(allExhausted(t), false);
-  // a second click continues from page 6
+  // a second click continues from page 3 (10 commits < 100: exhausted)
   await fetchUntil(t, pager({ p: mismatch('p'), q: mismatch('q') }, calls), PAGE_SIZE);
-  assert.equal(t.paths.p.page, 8); // pages 6, 7 full, page 8 empty
+  assert.equal(t.paths.p.page, 3);
+  assert.equal(calls.length, 6);
   assert.equal(t.paths.p.exhausted, true);
   assert.equal(t.paths.q.exhausted, true);
   assert.equal(allExhausted(t), true);
-  // guide thread: one page per path per call
+  // exhaustion is relative to perPage: a full 30-commit page is NOT the end of an item thread
+  const e = createThread({ paths: ['p'], itemUuid: 'U' });
+  await fetchUntil(e, pager({ p: [run('p', 30).map(c => ({ ...c, trailers: { item: 'OTHER' } }))] }), PAGE_SIZE);
+  assert.equal(e.paths.p.exhausted, true); // 30 < 100
+  const g30 = createThread({ paths: ['p'] });
+  await fetchUntil(g30, pager({ p: [run('p', 30)] }), 1);
+  assert.equal(g30.paths.p.exhausted, false); // 30 == 30
+  // guide thread: one page of 30 per path per call
   const g = createThread({ paths: ['p', 'q'] });
   const gc = [];
   await fetchUntil(g, pager({ p: chunk(run('p', 100)), q: chunk(run('q', 100, 1)) }, gc), 1000);
   assert.equal(gc.filter(c => c[0] === 'p').length, 1);
   assert.equal(gc.filter(c => c[0] === 'q').length, 1);
+  assert.ok(gc.every(c => c[2] === 30));
   // item thread stops early once 30 matches are renderable
   const m = createThread({ paths: ['p'], itemUuid: 'U' });
   const mc = [];
-  const matching = run('p', 90).map(c => ({ ...c, trailers: { item: 'U' } }));
-  await fetchUntil(m, pager({ p: chunk(matching) }, mc), PAGE_SIZE);
+  const matching = run('p', 250).map(c => ({ ...c, trailers: { item: 'U' } }));
+  await fetchUntil(m, pager({ p: chunk(matching, ITEM_PER_PAGE) }, mc), PAGE_SIZE);
   assert.equal(mc.length, 1);
-  assert.equal(renderableCommits(m).length, 30);
+  assert.equal(renderableCommits(m).length, 100);
+});
+
+await test('fetchUntil fetches every non-exhausted path of a round in parallel, then checks the frontier', async () => {
+  let inFlight = 0, maxInFlight = 0;
+  const pages = { p: chunk(run('p', 100), PAGE_SIZE), q: chunk(run('q', 100, 1), PAGE_SIZE) };
+  const slow = async (path, page) => {
+    inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise(r => setTimeout(r, 5));
+    inFlight--;
+    return pages[path][page - 1] ?? [];
+  };
+  const g = createThread({ paths: ['p', 'q'] });
+  await fetchUntil(g, slow, PAGE_SIZE);
+  assert.equal(maxInFlight, 2);
+  assert.equal(g.paths.p.page, 1); assert.equal(g.paths.q.page, 1);
+  // frontier applied after both pages landed: nothing older than the newer path-oldest renders
+  assert.ok(renderableCommits(g).every(c => c.date >= frontier(g)));
+  // an exhausted path drops out of the round
+  const t = createThread({ paths: ['p', 'q'], itemUuid: 'U' });
+  const calls = [];
+  const tag = arr => arr.map(c => ({ ...c, trailers: { item: 'OTHER' } }));
+  await fetchUntil(t, pager({ p: [tag(run('p', 5))], q: chunk(tag(run('q', 300, 1)), ITEM_PER_PAGE) }, calls), PAGE_SIZE);
+  assert.deepEqual(calls.map(c => c.slice(0, 2)), [['p', 1], ['q', 1], ['q', 2]]);
+  // a rejection in a round sets error
+  const r = createThread({ paths: ['p', 'q'] });
+  await fetchUntil(r, async (path) => { if (path === 'q') throw new Error('x'); return []; }, PAGE_SIZE);
+  assert.equal(r.error, true);
+});
+
+await test('endSession re-projects a session-opened live page: newest 30, history not hidden', async () => {
+  const commits = [mk('c1', 'l', 'Edit', T0), mk('c2', 'l', 'Create draft: X', T0 - MIN), ...run('l', 40, 2)];
+  const t = createThread({ paths: ['l'], session: true });
+  await openThread(t, { fetchPage: pager({ l: chunk(commits) }) });
+  assert.equal(t.historyHidden, true); assert.equal(t.shown, 2);
+  endSession(t);
+  assert.equal(t.session, false);
+  assert.equal(t.historyHidden, false);
+  assert.equal(t.shown, 30);
+  const v = threadView(t, { now: T0 });
+  assert.equal(v.showHistory, false); assert.equal(v.showMore, true);
+  const small = createThread({ paths: ['l'], session: true });
+  await openThread(small, { fetchPage: pager({ l: [[mk('a', 'l', 'Edit', T0), mk('b', 'l', 'Create draft: X', T0 - MIN), mk('c', 'l', 'Old', T0 - 2 * MIN)]] }) });
+  endSession(small);
+  assert.equal(small.shown, 3); assert.equal(small.historyHidden, false);
 });
 
 await test('empty history: fetchPage -> [] marks exhausted; threadView.empty true, showMore false', async () => {

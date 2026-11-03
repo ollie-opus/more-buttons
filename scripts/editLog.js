@@ -6,13 +6,20 @@
 import { classifySubject, RULE_LABELS, SESSION_START_RULES } from './editLogGrammar.js';
 
 export const PAGE_SIZE = 30;
+// Item-filtered threads page GitHub 100 commits at a time (pre-feature commits carry
+// no Item: trailer, so most of a page can be filtered out); guide threads keep 30.
+export const ITEM_PER_PAGE = 100;
 export const RULE_COLLAPSE_MS = 120000;
 
-export function createThread({ paths, itemUuid = null, session = false, maxPagesPerClick = itemUuid ? 5 : 1 }) {
+export function createThread({
+  paths, itemUuid = null, session = false,
+  perPage = itemUuid ? ITEM_PER_PAGE : PAGE_SIZE,
+  maxPagesPerClick = itemUuid ? 2 : 1,
+}) {
   const byPath = {};
   for (const p of paths) byPath[p] = { page: 0, exhausted: false, oldest: Infinity };
   return {
-    paths: byPath, commits: [], itemUuid, session, maxPagesPerClick,
+    paths: byPath, commits: [], itemUuid, session, perPage, maxPagesPerClick,
     shown: 0, historyHidden: false, error: false, login: null,
   };
 }
@@ -48,28 +55,31 @@ export function renderableCommits(thread) {
   return thread.commits.filter(c => c.date >= f);
 }
 
+// Rounds: each round fetches the next page of EVERY non-exhausted path (under its
+// per-click cap) in parallel, then re-checks the frontier once all pages have landed.
 export async function fetchUntil(thread, fetchPage, wanted) {
   const taken = {};
   while (renderableCommits(thread).length < wanted) {
-    let pick = null;
-    for (const [path, p] of Object.entries(thread.paths)) {
-      if (p.exhausted || (taken[path] ?? 0) >= thread.maxPagesPerClick) continue;
-      if (!pick || p.oldest > thread.paths[pick].oldest) pick = path;
-    }
-    if (!pick) return;
-    const state = thread.paths[pick];
-    let page;
+    const round = Object.entries(thread.paths)
+      .filter(([path, p]) => !p.exhausted && (taken[path] ?? 0) < thread.maxPagesPerClick)
+      .map(([path]) => path);
+    if (!round.length) return;
+    let pages;
     try {
-      page = await fetchPage(pick, state.page + 1);
+      pages = await Promise.all(round.map(path => fetchPage(path, thread.paths[path].page + 1, thread.perPage)));
     } catch {
       thread.error = true;
       return;
     }
-    taken[pick] = (taken[pick] ?? 0) + 1;
-    state.page += 1;
-    addCommits(thread, page);
-    state.oldest = page.reduce((m, c) => Math.min(m, c.date), state.oldest === Infinity ? Infinity : state.oldest);
-    if (page.length < PAGE_SIZE) state.exhausted = true;
+    round.forEach((path, i) => {
+      const state = thread.paths[path];
+      const page = pages[i];
+      taken[path] = (taken[path] ?? 0) + 1;
+      state.page += 1;
+      addCommits(thread, page);
+      state.oldest = page.reduce((m, c) => Math.min(m, c.date), state.oldest);
+      if (page.length < thread.perPage) state.exhausted = true;
+    });
   }
 }
 
@@ -136,6 +146,13 @@ export async function openThread(thread, { fetchPage, recent = [] }) {
     return;
   }
   thread.shown = Math.min(PAGE_SIZE, items.length);
+}
+
+/** Re-project a session-opened thread as a live page: newest PAGE_SIZE, history not hidden. */
+export function endSession(thread) {
+  thread.session = false;
+  thread.historyHidden = false;
+  thread.shown = Math.min(PAGE_SIZE, logicalItems(thread).length);
 }
 
 export function revealHistory(thread) {

@@ -16,6 +16,7 @@ import { registerFormAction, getFormAction } from './formActions.js';
 import { createForm, replaceCurrentOpener, setCrumbLabel, isFormReplay, navigateBack, isFormDirty, resetDirtyBaseline, setButtonBusy, snapshotButton, restoreButton, reorderButtonGating } from './form.js';
 import { formLoading } from './loading.js';
 import { prefetchEditLog, mountEditLog, renderEditLog } from './editLogPanel.js';
+import { endSession } from './editLog.js';
 import { mergeSave } from './mergeSave.js';
 import { readRepoText, assetCdnUrl, publishedUrl } from './repoClient.js';
 import { githubFetchAndPushFile, githubDeleteFile, fetchFileMigratingIdentity } from './github.js';
@@ -250,6 +251,8 @@ async function renderGuideEntryContent(formEl) {
       ${dockSep}
       <button type="button" class="more-buttons-button" data-guide-action="create"><span class="more-buttons-icon">plus</span>Create draft</button>
       <button type="button" class="more-buttons-button red" data-guide-action="delete"><span class="more-buttons-icon">trash-2</span>Delete guide</button>`;
+    // Prefetched as a session (draft unknown at the time); a live page shows full history.
+    endSession(thread);
     mountEditLog(formEl, thread, { container: contentEl });
     return;
   }
