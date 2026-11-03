@@ -10,7 +10,8 @@ import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
 import { parseComponents, buildComponentBody, uuidOfComponent, reorderComponents, cardPreviewModel } from './components.js';
 import { mergeSave } from './mergeSave.js';
-import { itemCommit, reorderCommit, isReorderOnly } from './editLogDescribe.js';
+import { itemCommit, reorderCommit, isReorderOnly, UPDATE_BLOCK_TYPES_RE } from './editLogDescribe.js';
+import { prefetchEditLog, mountEditLog } from './editLogPanel.js';
 import { formLoading } from './loading.js';
 import {
   makeContainerHandler, GUIDE_ADMONITION_TYPES_RE,
@@ -574,7 +575,10 @@ registerFormAction('submitLogSystemUpdate', async ({ formEl, content }) => {
 registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   // Backfill + persist missing component UUIDs so captures in this update are
   // reorderable/editable on open (system-update captures were never migrated).
-  const markdown = await fetchFileMigratingIdentity(UPDATES_FILE);
+  const [markdown, editLog] = await Promise.all([
+    fetchFileMigratingIdentity(UPDATES_FILE),
+    prefetchEditLog({ paths: [UPDATES_FILE, DRAFTS_FILE], itemUuid: uuid }),
+  ]);
   const update = parseUpdateBlocks(markdown).find(u => u.uuid === uuid);
   if (!update) { alert('Entry not found.'); return; }
 
@@ -596,6 +600,7 @@ registerFormAction('openEditSystemUpdate', async ({ uuid }) => {
   const { formEl: editFormEl } = await createForm('editSystemUpdate');
   if (editFormEl) {
     mountUpdateComponentsEditor(editFormEl, { uuid, file: UPDATES_FILE, kind: 'system-update', components });
+    mountEditLog(editFormEl, editLog, { container: editFormEl, itemTypeRegex: UPDATE_BLOCK_TYPES_RE });
   }
 });
 
@@ -669,9 +674,13 @@ registerFormAction('saveDraftSystemUpdate', async ({ formEl, content }) => {
 
 registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
   let draftsMarkdown = '';
+  let editLog;
   try {
     // Backfill + persist missing component UUIDs first (see openEditSystemUpdate).
-    draftsMarkdown = await fetchFileMigratingIdentity(DRAFTS_FILE);
+    [draftsMarkdown, editLog] = await Promise.all([
+      fetchFileMigratingIdentity(DRAFTS_FILE),
+      prefetchEditLog({ paths: [UPDATES_FILE, DRAFTS_FILE], itemUuid: uuid }),
+    ]);
   } catch {
     alert('Failed to load drafts.');
     return;
@@ -697,6 +706,7 @@ registerFormAction('openEditDraftSystemUpdate', async ({ uuid }) => {
   const { formEl: editFormEl } = await createForm('editDraftSystemUpdate');
   if (editFormEl) {
     mountUpdateComponentsEditor(editFormEl, { uuid, file: DRAFTS_FILE, kind: 'system-draft', components });
+    mountEditLog(editFormEl, editLog, { container: editFormEl, itemTypeRegex: UPDATE_BLOCK_TYPES_RE });
   }
 });
 

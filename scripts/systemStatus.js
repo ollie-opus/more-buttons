@@ -12,10 +12,11 @@ import {
   insertMaintenanceBlock, deleteMarkdownEvent,
   recalculateServiceStatuses, updateMarkdownServices,
   deriveBannerStatus, deriveMaintenanceWindow, maintenancePhase, toIsoWithOffset,
-  ALL_SERVICES, normalizeServiceSelection, servicesToSelectionArray,
+  ALL_SERVICES, normalizeServiceSelection, servicesToSelectionArray, STATUS_BLOCK_TYPE_RE,
 } from './statusEvents.js';
 import { generateUUID } from './admonitions.js';
 import { itemCommit } from './editLogDescribe.js';
+import { prefetchEditLog, mountEditLog } from './editLogPanel.js';
 
 // All the markdown grammar/mutation logic lives in statusEvents.js (a pure
 // leaf module, shared with github.js's migrate-on-fetch hook); this file owns
@@ -339,7 +340,10 @@ registerFormAction('submitReportIncident', async ({ formEl, content, cleanup }) 
 });
 
 registerFormAction('openUpdateIncident', async ({ uuid }) => {
-  const markdown = await readRepoText(STATUS_FILE);
+  const [markdown, editLog] = await Promise.all([
+    readRepoText(STATUS_FILE),
+    prefetchEditLog({ paths: [STATUS_FILE], itemUuid: uuid }),
+  ]);
   const incidents = parseIncidentBlocks(sectionBodies(markdown).active);
   const inc = incidents.find(i => i.uuid === uuid);
   if (!inc) { alert('Incident not found.'); return; }
@@ -360,10 +364,14 @@ registerFormAction('openUpdateIncident', async ({ uuid }) => {
   if (!updateFormEl) return;
   updateFormEl.dataset.editUuid = uuid;
   injectServiceCheckboxes(updateFormEl, '#update-incident-services', markdown ? parseServiceNames(markdown) : []);
+  mountEditLog(updateFormEl, editLog, { container: updateFormEl, itemTypeRegex: STATUS_BLOCK_TYPE_RE });
 });
 
 registerFormAction('openEditPastIncident', async ({ uuid }) => {
-  const markdown = await readRepoText(STATUS_FILE);
+  const [markdown, editLog] = await Promise.all([
+    readRepoText(STATUS_FILE),
+    prefetchEditLog({ paths: [STATUS_FILE], itemUuid: uuid }),
+  ]);
   const incidents = parsePastIncidentBlocks(markdown);
   const inc = incidents.find(i => i.uuid === uuid);
   if (!inc) { alert('Incident not found.'); return; }
@@ -384,6 +392,7 @@ registerFormAction('openEditPastIncident', async ({ uuid }) => {
   if (!updateFormEl) return;
   updateFormEl.dataset.editUuid = uuid;
   injectServiceCheckboxes(updateFormEl, '#update-incident-services', markdown ? parseServiceNames(markdown) : []);
+  mountEditLog(updateFormEl, editLog, { container: updateFormEl, itemTypeRegex: STATUS_BLOCK_TYPE_RE });
 });
 
 registerFormAction('submitUpdateIncident', async ({ formEl, content, cleanup }) => {
@@ -510,7 +519,10 @@ registerFormAction('submitReportMaintenance', async ({ formEl, content, cleanup 
 });
 
 registerFormAction('openUpdateMaintenance', async ({ uuid }) => {
-  const markdown = await readRepoText(STATUS_FILE);
+  const [markdown, editLog] = await Promise.all([
+    readRepoText(STATUS_FILE),
+    prefetchEditLog({ paths: [STATUS_FILE], itemUuid: uuid }),
+  ]);
   const evt = parseMaintenanceBlocks(markdown || '').find(e => e.uuid === uuid);
   if (!evt) { alert('Maintenance period not found.'); return; }
 
@@ -527,6 +539,7 @@ registerFormAction('openUpdateMaintenance', async ({ uuid }) => {
   if (!updateFormEl) return;
   updateFormEl.dataset.editUuid = uuid;
   injectServiceCheckboxes(updateFormEl, '#update-maintenance-services', markdown ? parseServiceNames(markdown) : []);
+  mountEditLog(updateFormEl, editLog, { container: updateFormEl, itemTypeRegex: STATUS_BLOCK_TYPE_RE });
   // Completing early only makes sense mid-window: an early end for an upcoming
   // event would land before its start, and past events are already done.
   if (maintenancePhase(evt, new Date()) !== 'in progress') {
