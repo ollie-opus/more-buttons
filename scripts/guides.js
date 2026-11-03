@@ -252,7 +252,7 @@ async function renderGuideEntryContent(formEl) {
         <code>${escapeHtml(formEl.dataset.draftPath)}</code>; the live page is
         left untouched until you publish.
       </p>
-      <button type="button" class="more-buttons-button" data-guide-view-live><span class="more-buttons-icon">eye</span>View this page's live content</button>`;
+      <button type="button" class="more-buttons-button" data-guide-view-live>View this page's live content</button>`;
     actionsEl.innerHTML = `
       ${viewLinksHtml({ draft: false })}
       ${dockSep}
