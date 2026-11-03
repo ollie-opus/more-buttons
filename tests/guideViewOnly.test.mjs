@@ -11,6 +11,9 @@ globalThis.chrome = { runtime: { getURL: p => p }, storage: { local: { get: asyn
 let passed = 0;
 async function test(name, fn) { await fn(); passed++; console.log('  ok -', name); }
 
+// loadLabelPalette fetches the preset file; answer it with an empty palette.
+globalThis.fetch = async () => ({ ok: true, json: async () => ({}) });
+
 const { renderComponents, onComponentEditorClick, setOpenComponentEditor } = await import('../scripts/guides.js');
 const { parseComponents } = await import('../scripts/components.js');
 const { GUIDE_ADMONITION_TYPES_RE } = await import('../scripts/admonitions.js');
