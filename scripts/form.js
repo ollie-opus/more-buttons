@@ -445,6 +445,10 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
   const descriptor = currentInvocationDescriptor();
   const replaying = navMode === 'replay';
   const deeper = !!activeFormCleanup;
+  // The backdrop's colour before teardown (guide screens tint it by side), so
+  // the replacement overlay can fade from it instead of snapping.
+  const prevOverlay = activeFormCleanup ? document.querySelector('.more-buttons-overlay') : null;
+  const prevBackdrop = prevOverlay ? getComputedStyle(prevOverlay).backgroundColor : null;
   if (activeFormCleanup) {
     // An overlay is already open: tear it down before rendering the new view.
     activeFormCleanup();
@@ -502,6 +506,13 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
 
   overlay.appendChild(content);
   document.body.appendChild(overlay);
+  if (prevBackdrop) {
+    // Seed the old colour inline, commit it with a reflow, then release it on
+    // the next frame so the stylesheet's transition carries it to the new one.
+    overlay.style.backgroundColor = prevBackdrop;
+    overlay.getBoundingClientRect();
+    requestAnimationFrame(() => { overlay.style.backgroundColor = ''; });
+  }
   // Overlay chrome writes icons as lucide-name text; make sure this document's
   // icon painter is running (idempotent — content.js usually started it).
   watchIconSpans(document);

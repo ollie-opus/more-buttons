@@ -43,6 +43,11 @@ test('the tile header is sticky under the navbar: top:-1px (stuck detection), sq
   assert.ok(!/padding-top/.test(form) && !/padding:\s*[1-9]/.test(form), 'the scrolling form has no top padding (sticky inset)');
 });
 
+test('the cell lists render the header only past one cell, like the components list', () => {
+  assert.ok(src('scripts/gridEditor.js').includes('st.cells.length > 1 ? [listTileHeadHtml()]'));
+  assert.ok(src('scripts/guideLiveView.js').includes("if (model.cells.length > 1) cellsEl.insertAdjacentHTML('afterbegin', listTileHeadHtml({ canDelete: false }));"));
+});
+
 test('Escape clears a selection before it closes the overlay', () => {
   assert.ok(src('scripts/form.js').includes('clearSelectionIfSelecting(content)'));
 });

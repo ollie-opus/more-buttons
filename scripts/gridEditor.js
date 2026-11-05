@@ -222,7 +222,7 @@ function renderCellList(formEl) {
   if (!host || !st) return;
   const selectable = inFile(formEl);
   listCountBadge(host.closest('[data-list-row]'), st.cells.length);
-  const parts = selectable && st.cells.length ? [listTileHeadHtml()] : [];
+  const parts = selectable && st.cells.length > 1 ? [listTileHeadHtml()] : [];
   const last = st.cells.length - 1;
   st.cells.forEach((c, i) => {
     parts.push(insertTriggerHtml(i, { attr: CELL_INSERT_ATTR, label: '+ Insert cell' }));

@@ -1450,7 +1450,9 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
       : `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
-  const parts = [listTileHeadHtml({ canDelete: !viewOnly })];
+  // The header (select all · count · actions) only once there is more than
+  // one item to select against.
+  const parts = components.length > 1 ? [listTileHeadHtml({ canDelete: !viewOnly })] : [];
   let stepN = 0;
   const last = components.length - 1;
   components.forEach((c, i) => {

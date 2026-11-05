@@ -86,6 +86,18 @@ await test('editable renderComponents: insert triggers, rails, Copy · Edit · D
   assert.ok(foot.indexOf('data-edit-guide-admonition="U-1"') < foot.indexOf('data-delete-component="U-1"'));
 });
 
+await test('renderComponents: a single component gets no header (nothing to select against), editable or view-only', () => {
+  for (const viewOnly of [false, true]) {
+    const list = fakeList(viewOnly);
+    renderComponents(list, TWO.slice(0, 1));
+    assert.ok(!list.innerHTML.includes('mb-list-tile__head'), `no header with one component (viewOnly=${viewOnly})`);
+    assert.equal(count(list.innerHTML, /class="mb-component-row"/g), 1);
+  }
+  const list = fakeList(false);
+  renderComponents(list, TWO);
+  assert.equal(count(list.innerHTML, /class="mb-list-tile__head"/g), 1, 'two components: header');
+});
+
 await test('renderComponents: an empty editable list is just the insert tile — no bar', () => {
   const list = fakeList(false);
   renderComponents(list, []);

@@ -597,7 +597,7 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
     host.innerHTML = gridBodyHtml(model.flavor);
     const cellsEl = host.querySelector('[data-view-grid-cells]');
     cellsEl.innerHTML = model.cells.length ? gridCellListHtml(model.cells) : '<p class="more-buttons-description">No cells.</p>';
-    if (model.cells.length) cellsEl.insertAdjacentHTML('afterbegin', listTileHeadHtml({ canDelete: false }));
+    if (model.cells.length > 1) cellsEl.insertAdjacentHTML('afterbegin', listTileHeadHtml({ canDelete: false }));
     listCountBadge(cellsEl.closest('[data-list-row]'), model.cells.length);
     paintInlineAtoms(cellsEl);
     applyCardClamps(cellsEl);
