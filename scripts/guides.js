@@ -1062,9 +1062,12 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid, file }) => {
   formEl.dataset.componentContainerKind = 'guide-section';
   formEl.dataset.containerFile = currentGuide.draftPath;
 
-  // The title input is the heading (identity row); the slot only holds the pill.
+  // Heading text + status pill.
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) heading.innerHTML = guideStatusPillHtml('draft');
+  if (heading) {
+    heading.textContent = 'Add section';
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
+  }
   setCrumbLabel('Add section');
 
   // Hide Delete (lives in the moved form-actions) in create mode.
@@ -1117,11 +1120,13 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   formEl.dataset.containerFile = currentGuide.draftPath;
   formEl._componentSaver = () => saveSectionForComponent(formEl);
 
-  // Status pill + visible controls based on level. The title input is the
-  // heading (identity row); the slot only holds the pill.
+  // Heading ("Edit section 2" etc.) + status pill; visible controls by level.
   const treeMatch = buildSectionTree(draftMarkdown).sections.find(s => s.uuid === uuid);
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) heading.innerHTML = guideStatusPillHtml('draft');
+  if (heading) {
+    heading.textContent = treeMatch ? `Edit ${treeMatch.label.toLowerCase()}` : 'Edit section';
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
+  }
   // Breadcrumb shows the section's identity, e.g. "Section 1: Manager Steps".
   if (treeMatch?.visualLabel) setCrumbLabel(treeMatch.visualLabel);
   else setCrumbLabel('Edit section');
@@ -2066,7 +2071,10 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   const refreshed = await readRepoText(currentGuide.draftPath);
   const newTreeMatch = buildSectionTree(refreshed).sections.find(s => s.uuid === newUuid);
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) heading.innerHTML = guideStatusPillHtml('draft');
+  if (heading) {
+    heading.textContent = newTreeMatch ? `Edit ${newTreeMatch.label.toLowerCase()}` : 'Edit section';
+    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
+  }
   if (newTreeMatch?.visualLabel) setCrumbLabel(newTreeMatch.visualLabel);
   else setCrumbLabel('Edit section');
   populateParentDropdown(formEl, refreshed, newUuid, level);

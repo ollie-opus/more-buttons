@@ -285,9 +285,8 @@ async function mount(name, args, formEl) {
   try { [draftMd, liveMd] = await Promise.all([readPageCached(draftPathOf(livePath)), readPageCached(livePath)]); }
   catch { return; }
   if (!draftMd || !liveMd || !formEl.isConnected) return;
-  // The pill lives in the h2, or in the identity row's pill slot on screens
-  // whose title input is the heading (section editor).
-  const heading = formEl.querySelector('h2, .mb-ident__pills');
+  // The pill lives in the h2.
+  const heading = formEl.querySelector('h2');
   if (!heading) return;
   const state = {
     spec, args, formEl, side, livePath,

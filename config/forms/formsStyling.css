@@ -212,66 +212,22 @@
   gap: 6px;
 }
 
-/* ── Identity row ─────────────────────────────────────────────────────────────
-   The title input IS the heading: a borderless 22px Outfit field, the Hide
-   title pill directly beside it and the status pill (Draft/Live, or the side
-   switch) at the row's end. Same 16px rhythm below as a plain h2. */
-.mb-ident {
+/* ── Title row ────────────────────────────────────────────────────────────────
+   The section editor's Title group: the text input beside the Hide title pill,
+   the pill stretched to the input's height. */
+.mb-title-row {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  flex-shrink: 0;        /* a wrapped row collapses to one line otherwise once the form overflows */
-  gap: 10px;
-  min-height: 36px;
-  margin: 0 0 16px;
-}
-/* Beats the generic `.more-buttons-overlay-content input[type="text"]` rule
-   (and its :focus) on specificity, whatever the source order. */
-.more-buttons-overlay-content .mb-ident > .mb-ident__title {
-  flex: 0 1 auto;
-  width: 460px;
-  max-width: 100%;
-  min-width: 0;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-  padding: 4px 0;
-  background: transparent;
-  font-family: OutfitVariable, ui-sans-serif, system-ui, sans-serif,
-    Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
-  font-size: 1.375rem;
-  font-weight: 500;
-  line-height: 1.25;
-  color: var(--mb-heading);
-}
-.more-buttons-overlay-content .mb-ident > .mb-ident__title:focus {
-  border-bottom-color: var(--mb-border);
-  box-shadow: none;
-}
-.more-buttons-overlay-content .mb-ident > .mb-ident__title::placeholder {
-  color: var(--mb-text-placeholder);
-  font-weight: 500;
-}
-.mb-ident__pills {
-  margin-left: auto;
-  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
-/* A validation reason wraps under the whole row, not beside the input. */
-.mb-ident > .more-buttons-field-error {
-  flex: 1 1 100%;
-  margin-top: -4px;
+.mb-title-row > input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
 }
-/* The live twin: the frozen title keeps the heading look, not the disabled
-   input look (no mode accent; the pill says which side this is). */
-.more-buttons-overlay-content form[data-view-only] .mb-ident > .mb-ident__title[readonly] {
-  color: var(--mb-heading);
-  background: transparent;
-  cursor: default;
-}
-.more-buttons-overlay-content form[data-view-only] .mb-ident > .mb-ident__title[readonly]:focus {
-  border-bottom-color: transparent;
+.mb-title-row > .more-buttons-radio-btn {
+  flex: 0 0 auto;
+  align-self: stretch; /* match the input's height exactly, whatever its padding */
+  box-sizing: border-box;
 }
 
 /* ── Inline icon (lucide) ────────────────────────────────────────────────────
