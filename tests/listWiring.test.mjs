@@ -37,7 +37,8 @@ test('the tile header is sticky under the navbar: top:-1px (stuck detection), sq
   const btn = css.match(/\n\.mb-list-tile__btn \{([^}]*)\}/)?.[1] ?? '';
   assert.ok(/padding:\s*5px 10px/.test(btn) && /font-size:\s*0\.75rem/.test(btn) && /line-height:\s*1\b/.test(btn) && /border:\s*1px/.test(btn), 'the button geometry the min-height is derived from');
   assert.ok(/\.mb-list-tile__head\.--stuck \{[^}]*border-radius:\s*0/.test(css), '--stuck squares the corners');
-  assert.ok(/\.mb-list-tile__head:not\(\.--selecting\) > \.mb-list-tile__btn/.test(css), 'actions hidden until something is selected');
+  const hide = css.match(/\.mb-list-tile__head:not\(\.--selecting\) > \.mb-list-tile__btn \{([^}]*)\}/)?.[1] ?? '';
+  assert.ok(/visibility:\s*hidden/.test(hide) && !/display/.test(hide), 'actions invisible (still laid out) until something is selected, so the lid never changes height');
   const form = css.match(/\n\.more-buttons-overlay-content > form \{([^}]*)\}/)?.[1] ?? '';
   assert.ok(!/padding-top/.test(form) && !/padding:\s*[1-9]/.test(form), 'the scrolling form has no top padding (sticky inset)');
 });

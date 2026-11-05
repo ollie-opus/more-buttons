@@ -4538,8 +4538,12 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   border-radius: 9px 9px 0 0;   /* the tile's 10px, inside its 1px border */
 }
 .mb-list-tile__head.--stuck { border-radius: 0; }
+/* At rest the count and buttons are laid out but invisible (not display:none):
+   the lid's height is then the same box in both states by construction,
+   whatever the host page's root size or button rules do to it. Hidden
+   elements take no clicks or focus. */
 .mb-list-tile__head:not(.--selecting) > .mb-list-tile__count,
-.mb-list-tile__head:not(.--selecting) > .mb-list-tile__btn { display: none; }
+.mb-list-tile__head:not(.--selecting) > .mb-list-tile__btn { visibility: hidden; }
 .mb-list-tile__count {
   margin-left: 2px;
   font-size: 0.75rem; font-weight: 500;
