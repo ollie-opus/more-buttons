@@ -387,29 +387,32 @@ button.more-buttons-crumb:hover {
   text-decoration: underline;
 }
 
+/* Every form group is a vertical stack: a caps eyebrow label above its field,
+   6px between them, 18px to the next group. There is no label column anywhere;
+   JS-built groups (captureCards, actionsManage, mediaUpload, usagePanel,
+   guideLiveView, systemStatus) get the same grammar from these two classes. */
 .more-buttons-form-group {
-  display: grid;
-  grid-template-columns: 160px minmax(0, 1fr);
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 22px;
-}
-
-/* Title input + an inline "Hide title" toggle pill sharing one row: the input
-   takes the remaining width, the pill keeps its natural size on the right. */
-.mb-title-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 18px;
 }
-.mb-title-row > input[type="text"] {
-  flex: 1 1 auto;
-  min-width: 0;
+/* `[hidden]` groups (data-show-when, JS toggles) must keep winning over the
+   stack's display: flex. */
+.more-buttons-form-group[hidden] {
+  display: none;
 }
-.mb-title-row > .more-buttons-radio-btn {
+/* A label wrapped with its hint: the hint follows the eyebrow on the same
+   line, in sentence case. */
+.more-buttons-form-group > div:has(> .more-buttons-label) {
+  display: flex;
+  flex-wrap: wrap;       /* a long hint drops under the eyebrow whole, never mid-label */
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.more-buttons-form-group > div:has(> .more-buttons-label) > .more-buttons-label {
   flex: 0 0 auto;
-  align-self: stretch; /* match the input's height exactly, whatever its padding */
-  box-sizing: border-box;
 }
 
 /* Section divider inside a form (e.g. between the grid Style group and its
@@ -420,18 +423,24 @@ button.more-buttons-crumb:hover {
   margin: 6px 0 18px;
 }
 
+/* The eyebrow: 11px / 600 / .06em caps in the label colour. */
 .more-buttons-label {
-  font-weight: 500;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
   color: var(--mb-text-label);
   white-space: nowrap;
-  font-size: 0.875rem;
 }
 
-/* Muted hint shown under a form-group label (e.g. "(optional)"). */
+/* Muted hint after a form-group label (e.g. "(optional)"): sentence case, 12px. */
 .more-buttons-label-hint {
-  margin-top: 2px;
-  color: var(--mb-text-muted);
+  margin: 0;
   font-size: 0.75rem;
+  color: var(--mb-text-placeholder);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .more-buttons-sub-label {
@@ -812,9 +821,9 @@ button.more-buttons-crumb:hover {
 
 /* ── Form layout helpers ──────────────────────────────────────────────────── */
 
-/* Full-width form group (label stacked above content) */
+/* Full-width form group: every group is full width now, so this modifier is
+   inert. Templates still reference it; it goes with them. */
 .more-buttons-form-group--full {
-  grid-template-columns: 1fr;
 }
 
 /* Scrollable checkbox list */
@@ -2203,10 +2212,8 @@ button.more-buttons-crumb:hover {
   font-weight: 600;
 }
 
-/* Inline reason shown under a field on a failed commit. Sits in the control
-   column of the form-group grid (full-width groups span both columns). */
+/* Inline reason shown under a field on a failed commit. */
 .more-buttons-field-error {
-  grid-column: 2;
   margin-top: 5px;
   color: var(--mb-acc-danger);
   font-size: 0.75rem;
@@ -2214,7 +2221,6 @@ button.more-buttons-crumb:hover {
   line-height: 1.3;
 }
 .more-buttons-form-group--full .more-buttons-field-error {
-  grid-column: 1 / -1;
 }
 
 .more-buttons-radio-group-row.--invalid,
@@ -2661,8 +2667,6 @@ details[open] .more-buttons-advanced-toggle::before {
 }
 .mb-capture-bar__popover .more-buttons-form-group {
   margin: 0;
-  grid-template-columns: auto 1fr;
-  align-items: center;
 }
 
 /* Annotation colour popover — compact grid of the 17 chromatic swatches. */
@@ -3050,9 +3054,6 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
     --mb-overlay-pad-top: 16px;
     --mb-overlay-pad-x: 16px;
     padding: 16px;
-  }
-  .more-buttons-form-group {
-    grid-template-columns: 1fr;
   }
   .more-buttons-label {
     white-space: normal;
@@ -4493,11 +4494,10 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
    content is sliding underneath. Interim look — the forms UI overhaul draft
    (2026-11-05) is to replace this section head. */
 .more-buttons-form-group > .mb-list-head {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 160px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
   position: sticky;
   top: -1px;               /* the stuck-detection trick: 1px past the scrollport edge */
   z-index: 3;              /* over cards and their outlines, under popups */
@@ -4511,15 +4511,7 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 .more-buttons-form-group > .mb-list-head.--stuck {
   box-shadow: 0 1px 0 var(--mb-border-subtle), 0 8px 12px -10px rgba(15, 23, 42, 0.35);
 }
-.more-buttons-form-group > .mb-list-head ~ * { grid-column: 2; }
-/* Narrow overlays stack the group's label over its field (see the responsive
-   block): the head follows suit. Lives here, after the rules above, so it wins
-   on source order at equal specificity. */
-@media (max-width: 600px) {
-  .more-buttons-form-group > .mb-list-head { grid-template-columns: 1fr; gap: 4px; }
-  .more-buttons-form-group > .mb-list-head ~ * { grid-column: 1; }
-}
-.mb-list-head > .more-buttons-label { align-self: center; }
+.mb-list-head > .more-buttons-label { align-self: flex-start; }
 .mb-list-head__bar { min-width: 0; }
 .mb-list-head__bar:empty { min-height: 28px; }
 .mb-component-select { display: flex; align-items: center; flex: 0 0 auto; }
