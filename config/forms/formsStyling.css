@@ -1912,6 +1912,16 @@ button.more-buttons-crumb:hover {
 }
 
 /* Empty-state: a single, always-visible prominent insert button. */
+/* The list's terminal trigger is always visible: a full-width dashed button
+   under the last row, no rule behind it. */
+.mb-insert-component.--end { height: auto; margin-top: 6px; }
+.mb-insert-component.--end::before { display: none; }
+.mb-insert-component.--end .mb-insert-component__btn {
+  opacity: 1; transform: none;
+  width: 100%; border-radius: 8px; border-style: dashed;
+  padding: 11px; font-size: 0.8125rem;
+}
+
 .mb-insert-component__empty {
   appearance: none;
   width: 100%;

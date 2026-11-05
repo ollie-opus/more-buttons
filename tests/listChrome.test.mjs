@@ -9,6 +9,12 @@ test('insertTriggerHtml: component defaults match the historical guides.js liter
   assert.equal(html, `<div class="mb-insert-component" data-insert-component-at="3"><button type="button" class="mb-insert-component__btn">+ Insert Component</button></div>`);
 });
 
+test('insertTriggerHtml: end:true adds the --end modifier and nothing else changes', () => {
+  const html = insertTriggerHtml(6, { attr: 'data-insert-component-at', label: '+ Insert component', end: true });
+  assert.ok(html.startsWith('<div class="mb-insert-component --end" data-insert-component-at="6">'));
+  assert.ok(html.endsWith('<button type="button" class="mb-insert-component__btn">+ Insert component</button></div>'));
+});
+
 test('insertTriggerHtml: grid cells use their own attribute + label', () => {
   const html = insertTriggerHtml(0, { attr: 'data-insert-cell-at', label: '+ Insert cell' });
   assert.ok(html.includes('data-insert-cell-at="0"'));

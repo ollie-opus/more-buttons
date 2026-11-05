@@ -1345,8 +1345,8 @@ function sectionStepNumber(markdown, uuid) {
 
 // ── Component list rendering ─────────────────────────────────────────────────
 
-function insertComponentTrigger(idx) {
-  return insertTriggerHtml(idx, { attr: 'data-insert-component-at', label: '+ Insert Component' });
+function insertComponentTrigger(idx, { end = false } = {}) {
+  return insertTriggerHtml(idx, { attr: 'data-insert-component-at', label: '+ Insert Component', end });
 }
 
 function captureComponentCardFor(cap) {
@@ -1481,7 +1481,7 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
       ? componentRow(uuidOfComponent(c), i === 0, i === last, viewOnlyCard(c, card, i), true)
       : componentRow(uuidOfComponent(c), i === 0, i === last, card));
   });
-  parts.push(viewOnly ? insertSpacerHtml() : insertComponentTrigger(components.length));
+  parts.push(viewOnly ? insertSpacerHtml() : insertComponentTrigger(components.length, { end: true }));
   listEl.innerHTML = parts.join('');
   paintInlineAtoms(listEl); // colour label pills + inline icons in admonition card titles/bodies
   applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp

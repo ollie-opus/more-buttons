@@ -235,7 +235,7 @@ function renderCellList(formEl) {
       selectable,
     }));
   });
-  parts.push(insertTriggerHtml(st.cells.length, { attr: CELL_INSERT_ATTR, label: '+ Insert cell' }));
+  parts.push(insertTriggerHtml(st.cells.length, { attr: CELL_INSERT_ATTR, label: '+ Insert cell', end: true }));
   host.innerHTML = parts.join('');
   paintInlineAtoms(host); // colour label pills + inline icons in the rich previews
   applyCardClamps(host);  // reveal Show more on previews that overflow the clamp

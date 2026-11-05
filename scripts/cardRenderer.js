@@ -345,10 +345,11 @@ export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', cop
 /**
  * The hover-revealed "+ Insert" bar rendered between list items. `attr` is the
  * data attribute carrying the insert index (delegated by the host form's click
- * handler); `label` is the bar's button text.
+ * handler); `label` is the bar's button text. `end` marks the list's terminal
+ * trigger, which the CSS keeps always visible as a dashed button.
  */
-export function insertTriggerHtml(idx, { attr, label }) {
-  return `<div class="mb-insert-component" ${attr}="${idx}"><button type="button" class="mb-insert-component__btn">${label}</button></div>`;
+export function insertTriggerHtml(idx, { attr, label, end = false }) {
+  return `<div class="mb-insert-component${end ? ' --end' : ''}" ${attr}="${idx}"><button type="button" class="mb-insert-component__btn">${label}</button></div>`;
 }
 
 // The per-row checkbox (a direct child of the row so the painter can find it
