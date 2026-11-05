@@ -4545,7 +4545,7 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 .mb-list-tile__head:not(.--selecting) > .mb-list-tile__count,
 .mb-list-tile__head:not(.--selecting) > .mb-list-tile__btn { visibility: hidden; }
 .mb-list-tile__count {
-  margin-left: 2px;
+  margin-left: 6px;         /* clear of the box, where the row boxes' cards begin */
   font-size: 0.75rem; font-weight: 500;
   color: var(--mb-text-placeholder);
   white-space: nowrap;
@@ -4563,12 +4563,10 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 .mb-list-tile__btn.--danger { border-color: var(--mb-acc-danger); color: var(--mb-acc-danger); }
 .mb-list-tile__btn.--danger:hover { background: var(--mb-acc-danger); border-color: var(--mb-acc-danger); color: var(--mb-acc-on); }
 .mb-list-tile__all {
-  display: inline-flex; align-items: center; gap: 12px;
+  display: inline-flex; align-items: center;
   padding-left: 6px;       /* (28px gutter - 16px box) / 2: lines up with the row boxes */
-  font-size: 0.75rem; font-weight: 500; color: var(--mb-text-label);
-  cursor: pointer; user-select: none;
+  cursor: pointer;
 }
-.mb-list-tile__all:hover { color: var(--mb-text); }
 .mb-component-row {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
