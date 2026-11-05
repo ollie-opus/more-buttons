@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  createListSelection, listSelectionOf, selectionSummary, paintListSelection, listCountBadge, selectionBarHtml, dockOf,
+  createListSelection, listSelectionOf, selectionSummary, paintListSelection, listCountBadge, selectionBarHtml, dockOf, clearSelectionIfSelecting,
 } from '../scripts/listSelection.js';
 
 let passed = 0;
@@ -205,6 +205,14 @@ test('listCountBadge: appends one count span to the group label, updates it, rem
 
 test('listCountBadge: no group (a list outside a form group) is a no-op', () => {
   assert.equal(listCountBadge(null, 3), null);
+});
+
+test('clearSelectionIfSelecting: clicks the dock bar\'s clear button while selecting, else does nothing', () => {
+  let clicks = 0;
+  const content = { querySelector: s => (s === ':scope > .more-buttons-form-actions.--selecting [data-clear-selection]' ? { click() { clicks++; } } : null) };
+  assert.equal(clearSelectionIfSelecting(content), true); assert.equal(clicks, 1);
+  assert.equal(clearSelectionIfSelecting({ querySelector: () => null }), false);
+  assert.equal(clearSelectionIfSelecting(null), false);
 });
 
 console.log(`\n${passed} passed`);

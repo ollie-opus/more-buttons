@@ -639,6 +639,7 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
     if (openChildView(e, file, path, label)) return;
     onComponentEditorClick(e);
   });
+  wireSelectionBar(formEl);
 });
 
 

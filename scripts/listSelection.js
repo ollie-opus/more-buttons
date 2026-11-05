@@ -101,6 +101,16 @@ function ensureSelectionBar(dock, canDelete) {
   return bar;
 }
 
+// Escape while anything is picked clears the selection instead of closing the
+// overlay (form.js's key handler asks first). `content` is the overlay content
+// holding the relocated dock. True when a selection was cleared.
+export function clearSelectionIfSelecting(content) {
+  const clear = content?.querySelector?.(':scope > .more-buttons-form-actions.--selecting [data-clear-selection]');
+  if (!clear) return false;
+  clear.click();
+  return true;
+}
+
 // Called by the list renderers after every render and by the click handlers
 // after a change. Index-aligned: the renderers emit exactly one
 // `.mb-component-row` per item of the order array (the tile head and the

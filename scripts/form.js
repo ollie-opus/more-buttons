@@ -6,6 +6,7 @@ import { upgradeTextarea } from './richTextEditor.js';
 import { applyCardClamps, toggleCardExpand } from './cardRenderer.js';
 import { formLoading, syncDockTag } from './loading.js';
 import { watchIconSpans } from './lucideIcons.js';
+import { clearSelectionIfSelecting } from './listSelection.js';
 import {
   markRequiredFields,
   validateFields,
@@ -512,6 +513,8 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
   // Utility: close overlay + cleanup
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
+      // A list selection is the nearer thing to back out of: clear it first.
+      if (clearSelectionIfSelecting(content)) return;
       const guarded = activeGuardedForm();
       if (guarded && !confirmDiscardIfDirty(guarded)) return;
       resetHistory();
