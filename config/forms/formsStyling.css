@@ -4505,14 +4505,14 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
    gutter (the select box above the move rail, both top-aligned to the card)
    beside the card. The tile's lid is the list header: Select all in that same
    gutter, and — while anything is picked — the count, Copy and Delete to its
-   right. It sits on the base surface (not a tint) with a hairline under it,
-   bled to the tile's border, and is sticky: as the list scrolls it glues to
+   right. The tile is the base surface; the lid is the offset tone (the
+   navbar's), with a hairline under it, bled to the tile's border, and sticky: as the list scrolls it glues to
    the bottom of the navbar (the form starts right under the navbar's rule and
    has no padding-top). At top:-1px the stuck watcher in listSelection.js sees
    it lose a pixel and sets `--stuck`, which squares the lid's corners so it
    meets the rule flush. The tile's own side borders run beside it throughout. */
 [data-list-row] > div:not(.more-buttons-label) {
-  background: var(--mb-bg-subtle);
+  background: var(--mb-bg);
   border: 1px solid var(--mb-border-subtle);
   border-radius: 10px;
   padding: 12px 14px 14px;
@@ -4533,7 +4533,7 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   min-height: calc(0.75rem + 12px); /* = a .mb-list-tile__btn (5px+1px each side around a 0.75rem line): the lid never grows when the buttons appear */
   margin: -12px -14px 0;        /* the first insert slot (36px) spaces the first card, like every card */
   padding: 8px 14px;
-  background: var(--mb-bg);
+  background: var(--mb-bg-subtle);
   border-bottom: 1px solid var(--mb-border-subtle);
   border-radius: 9px 9px 0 0;   /* the tile's 10px, inside its 1px border */
 }
@@ -4559,7 +4559,7 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   cursor: pointer; white-space: nowrap;
 }
 .mb-list-tile__btn:first-of-type { margin-left: 4px; }
-.mb-list-tile__btn:hover { background: var(--mb-bg-subtle); border-color: var(--mb-text-label); color: var(--mb-text); }
+.mb-list-tile__btn:hover { background: var(--mb-bg); border-color: var(--mb-text-label); color: var(--mb-text); }
 .mb-list-tile__btn.--danger { border-color: var(--mb-acc-danger); color: var(--mb-acc-danger); }
 .mb-list-tile__btn.--danger:hover { background: var(--mb-acc-danger); border-color: var(--mb-acc-danger); color: var(--mb-acc-on); }
 .mb-list-tile__all {
@@ -4597,9 +4597,9 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 .mb-component-rail__btn:hover:not(:disabled) { background: var(--mb-bg-subtle); }
 .mb-component-rail__btn:disabled { opacity: 0.35; cursor: default; }
 /* Insert triggers sit in the card column, past the gutter; the hover pill's
-   background matches the tile, not the page. */
+   background matches the tile (the base surface). */
 .mb-insert-component { margin-left: 36px; width: auto; }
-.mb-insert-component__btn { background: var(--mb-bg-subtle); }
+.mb-insert-component__btn { background: var(--mb-bg); }
 
 /* ── Conflict resolver (mergeSave) ────────────────────────────────────────────
  * Shown between the navbar and the form when a save hits concurrent edits.
