@@ -933,6 +933,34 @@ button.more-buttons-crumb:hover {
   backdrop-filter: blur(12px) saturate(1.4);
 }
 
+/* While anything in the form's list is selected the island swaps to the
+   selection bar (listSelection.js sets `--selecting` and builds the bar as the
+   dock's last child): the dock's buttons (and the KB bar's group, the live
+   dock's separators) hide, the bar shows. */
+.more-buttons-overlay-content > .more-buttons-form-actions.--selecting > .more-buttons-button,
+.more-buttons-overlay-content > .more-buttons-form-actions.--selecting > .mb-kb-actions,
+.more-buttons-overlay-content > .more-buttons-form-actions.--selecting > .mb-dock-sep { display: none; }
+.more-buttons-overlay-content > .more-buttons-form-actions:not(.--selecting) > .mb-selection-bar { display: none; }
+.mb-selection-bar { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.mb-selection-bar__count { font-size: 0.75rem; font-weight: 600; color: var(--mb-text); padding: 0 6px 0 8px; }
+.mb-selection-bar__sep { width: 1px; height: 22px; background: var(--mb-border-subtle); margin: 0 2px; }
+.mb-selection-bar__btn {
+  --mb-accent: var(--mb-acc-default);
+  border: 1px solid var(--mb-accent); color: var(--mb-accent); background: transparent;
+  border-radius: 8px; padding: 7px 12px;
+  font: inherit; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; line-height: 1;
+  cursor: pointer;
+}
+.mb-selection-bar__btn:hover { background: var(--mb-accent); color: var(--mb-acc-on); }
+.mb-selection-bar__btn.--danger { --mb-accent: var(--mb-acc-danger); }
+.mb-selection-bar__btn.--icon {
+  width: 30px; height: 30px; padding: 0; border: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--mb-text-muted);
+}
+.mb-selection-bar__btn.--icon:hover { background: var(--mb-bg-subtle); color: var(--mb-text); }
+.mb-selection-bar__btn.--icon .more-buttons-icon { font-size: 1rem; }
+
 /* Give the scroll area room so its final content settles above the floating dock
    instead of hiding behind it. Scoped via :has to bodies that actually have the
    relocated dock as a following sibling — bodies without one keep their padding.

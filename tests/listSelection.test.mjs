@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  createListSelection, listSelectionOf, selectionSummary, paintListSelection, listCountBadge,
+  createListSelection, listSelectionOf, selectionSummary, paintListSelection, listCountBadge, selectionBarHtml, dockOf,
 } from '../scripts/listSelection.js';
 
 let passed = 0;
@@ -21,17 +21,14 @@ function stubRow({ withBox = true } = {}) {
   };
   return row;
 }
+// The tile head: just the select-all box.
 function stubBar() {
   const bar = {
     all: { checked: false, indeterminate: false },
-    summary: { textContent: '' },
-    copy: { hidden: true }, del: { hidden: true },
     querySelector(sel) {
       if (sel === '[data-select-all]') return bar.all;
-      if (sel === '[data-select-summary]') return bar.summary;
       throw new Error('unexpected ' + sel);
     },
-    querySelectorAll(sel) { assert.equal(sel, '[data-copy-selected], [data-delete-selected]'); return [bar.copy, bar.del]; },
   };
   return bar;
 }
@@ -44,6 +41,28 @@ function stubList(n, { withBar = true } = {}) {
     querySelector(sel) { assert.equal(sel, ':scope > .mb-list-tile__head'); return bar; },
   };
 }
+// The form's actions dock (outside the form): the selection bar is created in
+// it on first use. Each inserted bar remembers the elements it hands out.
+function fakeDock() {
+  const dock = {
+    classList: new Set(), children: [],
+    querySelector(s) { return s.includes('mb-selection-bar') ? this.children[0] ?? null : null; },
+    insertAdjacentHTML(where, html) {
+      assert.equal(where, 'beforeend');
+      const els = {};
+      this.children.push({ html, querySelector: sel => (els[sel] ??= { textContent: '', hidden: false, sel }) });
+    },
+  };
+  dock.classList.toggle = (c, on) => on ? dock.classList.add(c) : dock.classList.delete(c);
+  return dock;
+}
+// A list of n rows inside a form whose overlay content holds `dock`.
+function fakeList(n, dock) {
+  const list = stubList(n);
+  list.closest = sel => (sel === 'form' ? { parentElement: { querySelector: s => (s === ':scope > .more-buttons-form-actions' ? dock : null) } } : null);
+  return list;
+}
+const barSummary = dock => dock.children[0].querySelector('[data-select-summary]').textContent;
 
 test('set/toggle/add/delete: a Set of uuids; empty uuids are never added', () => {
   const sel = createListSelection();
@@ -73,10 +92,9 @@ test('clear: empties the selection', () => {
   assert.equal(sel.size, 0);
 });
 
-test('selectionSummary: invitation at rest, a count once anything is picked', () => {
-  assert.equal(selectionSummary(0), 'Select all');
-  assert.equal(selectionSummary(1), '1 selected');
-  assert.equal(selectionSummary(4), '4 selected');
+test('selectionSummary counts against the total', () => {
+  assert.equal(selectionSummary(2, 6), '2 of 6 selected');
+  assert.equal(selectionSummary(1, 1), '1 of 1 selected');
 });
 
 test('paint: checks rows by index, toggles --selected, and follows a swap', () => {
@@ -91,30 +109,73 @@ test('paint: checks rows by index, toggles --selected, and follows a swap', () =
   assert.deepEqual(list.rows.map(r => r.box.checked), [true, false, false]);
 });
 
-test('paint: the bar reads nothing / partial (indeterminate) / all, and its actions only show once something is picked', () => {
+test('paint: the tile head box reads nothing / partial (indeterminate) / all', () => {
   const sel = createListSelection();
   const list = stubList(2);
   sel.paint(list, ['a', 'b']);
-  assert.equal(list.bar.summary.textContent, 'Select all');
   assert.deepEqual([list.bar.all.checked, list.bar.all.indeterminate], [false, false]);
-  assert.deepEqual([list.bar.copy.hidden, list.bar.del.hidden], [true, true]);
   sel.toggle('a');
   sel.paint(list, ['a', 'b']);
-  assert.equal(list.bar.summary.textContent, '1 selected');
   assert.deepEqual([list.bar.all.checked, list.bar.all.indeterminate], [false, true]);
-  assert.deepEqual([list.bar.copy.hidden, list.bar.del.hidden], [false, false]);
   sel.toggle('b');
   sel.paint(list, ['a', 'b']);
-  assert.equal(list.bar.summary.textContent, '2 selected');
   assert.deepEqual([list.bar.all.checked, list.bar.all.indeterminate], [true, false]);
 });
 
 test('paint: a stale uuid (deleted component) counts for nothing', () => {
+  const dock = fakeDock();
   const sel = createListSelection();
-  const list = stubList(1);
+  const list = fakeList(1, dock);
   sel.toggle('gone'); sel.toggle('a');
   sel.paint(list, ['a']);
-  assert.equal(list.bar.summary.textContent, '1 selected');
+  assert.equal(barSummary(dock), '1 of 1 selected');
+});
+
+// ── The selection bar in the actions dock ────────────────────────────────────
+
+test('dockOf: the form\'s relocated actions dock, or null for a list outside a form', () => {
+  const dock = fakeDock();
+  assert.equal(dockOf(fakeList(1, dock)), dock);
+  assert.equal(dockOf(stubList(1)), null);
+  assert.equal(dockOf({ closest: () => null }), null);
+});
+
+test('paint with a selection creates the bar in the dock and flags --selecting; with none it unflags', () => {
+  const dock = fakeDock();
+  const list = fakeList(3, dock);
+  const sel = createListSelection(); sel.add('u1');
+  paintListSelection(list, ['u0', 'u1', 'u2'], sel);
+  assert.equal(dock.children.length, 1); assert.ok(dock.classList.has('--selecting'));
+  assert.equal(barSummary(dock), '1 of 3 selected');
+  sel.clear(); paintListSelection(list, ['u0', 'u1', 'u2'], sel);
+  assert.ok(!dock.classList.has('--selecting')); assert.equal(dock.children.length, 1, 'bar node kept');
+});
+
+test('bar is recreated when the dock was rebuilt (live dock replaces innerHTML)', () => {
+  const dock = fakeDock(); const list = fakeList(2, dock); const sel = createListSelection(); sel.add('u0');
+  paintListSelection(list, ['u0', 'u1'], sel); dock.children.length = 0;
+  paintListSelection(list, ['u0', 'u1'], sel); assert.equal(dock.children.length, 1);
+});
+
+test('paint: the bar is built without Delete when the caller says canDelete: false', () => {
+  const dock = fakeDock(); const list = fakeList(2, dock); const sel = createListSelection(); sel.add('u0');
+  paintListSelection(list, ['u0', 'u1'], sel, { canDelete: false });
+  assert.ok(!dock.children[0].html.includes('data-delete-selected'));
+});
+
+test('paint: no dock (a list outside an overlay form) paints the rows and stops', () => {
+  const list = stubList(1);
+  const sel = createListSelection(); sel.add('a');
+  paintListSelection(list, ['a'], sel);
+  assert.ok(list.rows[0].classes.has('--selected'));
+});
+
+test('selectionBarHtml: canDelete false drops Delete; no .more-buttons-button inside', () => {
+  const html = selectionBarHtml({ canDelete: false });
+  assert.ok(!html.includes('data-delete-selected')); assert.ok(!html.includes('more-buttons-button'));
+  assert.ok(selectionBarHtml({ canDelete: true }).includes('data-delete-selected'));
+  for (const hook of ['data-select-summary', 'data-select-all-btn', 'data-copy-selected', 'data-clear-selection']) assert.ok(html.includes(hook), hook);
+  assert.ok(html.includes('<span class="more-buttons-icon">x</span>'), 'the clear button is a lucide x');
 });
 
 test('paintListSelection: no selection yet, no bar, rows without a box — all tolerated', () => {

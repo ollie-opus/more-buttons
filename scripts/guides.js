@@ -1078,6 +1078,7 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid, file }) => {
   populateParentDropdown(formEl, draftMarkdown, null /* editing uuid */, parent ? parent.level + 1 : 2);
 
   formEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(formEl);
 });
 
 registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
@@ -1142,6 +1143,7 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   attachReorderState(formEl);
 
   formEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(formEl);
 });
 
 function populateParentDropdown(formEl, draftMarkdown, editingUuid, editingLevel) {
@@ -1484,8 +1486,8 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
   paintInlineAtoms(listEl); // colour label pills + inline icons in admonition card titles/bodies
   applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp
   // Re-check the list's selection (uuid-keyed, so it survives rail moves and
-  // child-form round trips) and sync the bar's count + button states.
-  paintListSelection(listEl, components.map(uuidOfComponent));
+  // child-form round trips) and sync the tile head + the dock's selection bar.
+  paintListSelection(listEl, components.map(uuidOfComponent), undefined, { canDelete: !viewOnly });
 }
 
 // View-only card: Copy is the only foot button kept; every kind with a live
@@ -1635,8 +1637,10 @@ export function onComponentEditorClick(e) {
     return;
   }
 
-  // Selection bar + row checkboxes (listSelection.js). A checkbox's `checked`
-  // already reflects the click when its click event is delegated.
+  // Row checkboxes + the tile head's select-all box (listSelection.js). A
+  // checkbox's `checked` already reflects the click when its click event is
+  // delegated. The selection bar's buttons live in the dock, outside the
+  // form: wireSelectionBar.
   const selectRow = e.target.closest('[data-select-row]');
   if (selectRow) {
     selectComponentRow(formEl, selectRow);
@@ -1649,21 +1653,9 @@ export function onComponentEditorClick(e) {
     return;
   }
 
-  const copySelected = e.target.closest('[data-copy-selected]');
-  if (copySelected) {
-    copySelectedComponents(formEl, copySelected);
-    return;
-  }
-
   // View-only (live page) forms: Expand, Copy and the selection above are the
   // only live controls.
   if (formEl.hasAttribute('data-view-only')) return;
-
-  const deleteSelected = e.target.closest('[data-delete-selected]');
-  if (deleteSelected) {
-    deleteComponentsFromEditor(formEl, selectedComponentUuids(formEl));
-    return;
-  }
 
   const deleteOne = e.target.closest('[data-delete-component]');
   if (deleteOne) {
@@ -1844,6 +1836,29 @@ function editorFor(formEl) {
   return (ed?.formEl === formEl && Array.isArray(ed.components)) ? ed : null;
 }
 
+// The selection bar lives in the form's actions dock, a sibling of the form
+// (form.js relocates it), so its clicks never reach the form's own listener:
+// every list-owning editor delegates them on the overlay content instead.
+// Select all / clear repaint through the open editor; Copy and Delete act on
+// the selection (Delete only off a view-only form).
+export function wireSelectionBar(formEl) {
+  formEl.parentElement?.addEventListener('click', e => onSelectionBarClick(e, formEl));
+}
+function onSelectionBarClick(e, formEl) {
+  const btn = e.target.closest('[data-select-all-btn], [data-clear-selection], [data-copy-selected], [data-delete-selected]');
+  if (!btn || !btn.closest('.mb-selection-bar')) return;
+  if (btn.hasAttribute('data-select-all-btn')) selectAllComponents(formEl, true);
+  else if (btn.hasAttribute('data-clear-selection')) selectAllComponents(formEl, false);
+  else if (btn.hasAttribute('data-copy-selected')) copySelectedComponents(formEl, btn);
+  else if (!formEl.hasAttribute('data-view-only')) deleteComponentsFromEditor(formEl, selectedComponentUuids(formEl));
+}
+
+// Repaint an open editor's list from its selection; the bar gets Delete only
+// off a view-only form.
+function paintEditorSelection(ed) {
+  paintListSelection(ed.listEl, ed.components.map(uuidOfComponent), undefined, { canDelete: !ed.formEl?.hasAttribute?.('data-view-only') });
+}
+
 function selectedComponentUuids(formEl) {
   const ed = editorFor(formEl);
   return ed ? listSelectionOf(ed.listEl).ordered(ed.components.map(uuidOfComponent)) : [];
@@ -1853,7 +1868,7 @@ function selectComponentRow(formEl, box) {
   const ed = editorFor(formEl);
   if (!ed) return;
   listSelectionOf(ed.listEl).set(box.closest('[data-component-uuid]')?.dataset.componentUuid, box.checked);
-  paintListSelection(ed.listEl, ed.components.map(uuidOfComponent));
+  paintEditorSelection(ed);
 }
 
 function selectAllComponents(formEl, on) {
@@ -1862,7 +1877,7 @@ function selectAllComponents(formEl, on) {
   const sel = listSelectionOf(ed.listEl);
   const order = ed.components.map(uuidOfComponent);
   if (on) order.forEach(u => sel.add(u)); else sel.clear();
-  paintListSelection(ed.listEl, order);
+  paintEditorSelection(ed);
 }
 
 // Copy one component's markdown (uuid spans stripped) to the clipboard. Reads
@@ -2520,6 +2535,7 @@ registerFormAction('openCreateGuideAdmonition', async ({ container, insertAtInde
   formEl._componentSaver = () => saveAdmonitionForComponent(formEl);
 
   formEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(formEl);
   wireAdmonitionTypeToggle(formEl, 'step');
 });
 
@@ -2621,6 +2637,7 @@ registerFormAction('openEditGuideAdmonition', async ({ uuid, file }) => {
   setCrumbLabel(crumb);
 
   formEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(formEl);
   wireAdmonitionTypeToggle(formEl, adm.type);
 
   // Render the unified component list (sub-admonitions + captures, in order).

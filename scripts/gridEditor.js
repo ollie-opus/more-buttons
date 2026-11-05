@@ -47,7 +47,7 @@ import { formLoading } from './loading.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { getGridByUUID, buildGrid, replaceGridByUUID, deleteGridByUUID } from './grid.js';
 import {
-  makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick,
+  makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick, wireSelectionBar,
   setOpenComponentEditor, beginChildNavigation, ensureContainerReady, flashButtonLabel,
 } from './guides.js';
 import { syncSurfaceFromTextarea, paintInlineAtoms } from './richTextEditor.js';
@@ -240,8 +240,8 @@ function renderCellList(formEl) {
   paintInlineAtoms(host); // colour label pills + inline icons in the rich previews
   applyCardClamps(host);  // reveal Show more on previews that overflow the clamp
   // Re-check the list's selection (uuid-keyed, so it follows rail moves) and
-  // sync the bar's count + button states.
-  paintListSelection(host, st.cells.map(c => c.uuid));
+  // sync the tile head + the dock's selection bar.
+  paintCellSelection(formEl);
 }
 
 function renderFlavor(formEl) {
@@ -337,7 +337,7 @@ function selectedCellUuids(formEl) {
   return listSelectionOf(cellListHost(formEl)).ordered(formEl._grid.cells.map(c => c.uuid));
 }
 function paintCellSelection(formEl) {
-  paintListSelection(cellListHost(formEl), formEl._grid.cells.map(c => c.uuid));
+  paintListSelection(cellListHost(formEl), formEl._grid.cells.map(c => c.uuid), undefined, { canDelete: inFile(formEl) });
 }
 
 // Parent list → a card's Delete / the bar's Delete selected: confirm (native
@@ -427,8 +427,10 @@ function wireGridEditor(formEl) {
     const copyBtn = e.target.closest('[data-copy-grid-cell]');
     if (copyBtn) { copyGridCells(formEl, [formEl._grid.cells[parseInt(copyBtn.dataset.copyGridCell, 10)]?.uuid], copyBtn); return; }
 
-    // Selection bar + row checkboxes (listSelection.js); a checkbox's `checked`
-    // already reflects the click when its click event is delegated.
+    // Row checkboxes + the tile head's select-all box (listSelection.js); a
+    // checkbox's `checked` already reflects the click when its click event is
+    // delegated. The selection bar's buttons are delegated on the overlay
+    // content below (the dock sits outside the form).
     const selectRow = e.target.closest('[data-select-row]');
     if (selectRow) {
       const i = parseInt(selectRow.closest('[data-grid-cell]')?.dataset.gridCell ?? '-1', 10);
@@ -437,20 +439,7 @@ function wireGridEditor(formEl) {
       return;
     }
     const selectAll = e.target.closest('[data-select-all]');
-    if (selectAll) {
-      const sel = listSelectionOf(cellListHost(formEl));
-      if (selectAll.checked) formEl._grid.cells.forEach(c => sel.add(c.uuid)); else sel.clear();
-      paintCellSelection(formEl);
-      return;
-    }
-    const copySelected = e.target.closest('[data-copy-selected]');
-    if (copySelected) {
-      const uuids = selectedCellUuids(formEl);
-      if (uuids.length) copyGridCells(formEl, uuids, copySelected, `Copied ${uuids.length} ✓`);
-      return;
-    }
-    const deleteSelected = e.target.closest('[data-delete-selected]');
-    if (deleteSelected) { deleteGridCells(formEl, selectedCellUuids(formEl)); return; }
+    if (selectAll) { selectAllCells(formEl, selectAll.checked); return; }
     const deleteBtn = e.target.closest('[data-grid-delete-cell]');
     if (deleteBtn) { deleteGridCells(formEl, [formEl._grid.cells[parseInt(deleteBtn.dataset.gridDeleteCell, 10)]?.uuid].filter(Boolean)); return; }
 
@@ -479,6 +468,26 @@ function wireGridEditor(formEl) {
   });
 }
 
+function selectAllCells(formEl, on) {
+  const sel = listSelectionOf(cellListHost(formEl));
+  if (on) formEl._grid.cells.forEach(c => sel.add(c.uuid)); else sel.clear();
+  paintCellSelection(formEl);
+}
+
+// The cells list's selection bar (in the dock, outside the form).
+function wireCellSelectionBar(formEl) {
+  formEl.parentElement?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-select-all-btn], [data-clear-selection], [data-copy-selected], [data-delete-selected]');
+    if (!btn || !btn.closest('.mb-selection-bar')) return;
+    if (btn.hasAttribute('data-select-all-btn')) selectAllCells(formEl, true);
+    else if (btn.hasAttribute('data-clear-selection')) selectAllCells(formEl, false);
+    else if (btn.hasAttribute('data-copy-selected')) {
+      const uuids = selectedCellUuids(formEl);
+      if (uuids.length) copyGridCells(formEl, uuids, btn, `Copied ${uuids.length} ✓`);
+    } else deleteGridCells(formEl, selectedCellUuids(formEl));
+  });
+}
+
 // Child: rich content edits + the shared component delegation (rails, edit
 // buttons, "+ Insert Component").
 function wireGridCellEditor(formEl) {
@@ -496,6 +505,7 @@ function wireGridCellEditor(formEl) {
     if (spillBtn) setCellSpill(formEl, spillBtn.dataset.gridSpill === 'true');
   });
   formEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(formEl);
 }
 
 // ── State init / storage ───────────────────────────────────────────────────────
@@ -545,6 +555,7 @@ registerFormAction('openCreateGrid', async ({ container, insertAtIndex } = {}) =
   await initStateFromStorage(formEl, initialCells, initialFlavor, container.file, null);
   formEl._componentSaver = () => saveGridForComponent(formEl);
   wireGridEditor(formEl);
+  wireCellSelectionBar(formEl);
   formEl.dataset.editUuid = formEl._grid.cells[0]?.uuid ?? '';
   renderCellList(formEl);
   renderFlavor(formEl);
@@ -581,6 +592,7 @@ registerFormAction('openEditGrid', async ({ uuid, file } = {}) => {
   enrichCellCounts(formEl, md);
   formEl._componentSaver = () => saveGridForComponent(formEl);
   wireGridEditor(formEl);
+  wireCellSelectionBar(formEl);
   formEl.dataset.editUuid = formEl._grid.cells[formEl._grid.active]?.uuid ?? '';
   renderCellList(formEl);
   renderFlavor(formEl);

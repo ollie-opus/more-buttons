@@ -15,7 +15,7 @@ import { prefetchEditLog, mountEditLog } from './editLogPanel.js';
 import { formLoading } from './loading.js';
 import {
   makeContainerHandler, GUIDE_ADMONITION_TYPES_RE,
-  renderComponents, onComponentEditorClick, setOpenComponentEditor,
+  renderComponents, onComponentEditorClick, wireSelectionBar, setOpenComponentEditor,
   reorderOpenComponentEditor,
 } from './guides.js';
 
@@ -157,6 +157,7 @@ function mountUpdateComponentsEditor(formEl, { uuid, file, kind, components }) {
   setOpenComponentEditor({ formEl, listEl, container: { kind, uuid, file }, components });
   formEl._reorderRehydrate = (order) => reorderOpenComponentEditor(order);
   formEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(formEl);
 }
 
 // Save-gate saver for the Log form: persist as a DRAFT, navigate into the draft
@@ -545,6 +546,7 @@ registerFormAction('openLogSystemUpdate', async () => {
   renderComponents(logFormEl.querySelector('[data-update-components]'), [], false);
   logFormEl._componentSaver = () => saveLogUpdateForComponent(logFormEl);
   logFormEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(logFormEl);
 });
 
 registerFormAction('submitLogSystemUpdate', async ({ formEl, content }) => {

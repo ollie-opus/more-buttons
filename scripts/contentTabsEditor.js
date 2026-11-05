@@ -39,7 +39,7 @@ import {
 } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { getTabGroupByUUID, buildTabGroup, replaceTabGroupByUUID, deleteTabGroupByUUID } from './contentTabs.js';
-import { makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick, setOpenComponentEditor } from './guides.js';
+import { makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick, wireSelectionBar, setOpenComponentEditor } from './guides.js';
 import { syncSurfaceFromTextarea } from './richTextEditor.js';
 import { escapeHtml } from './cardRenderer.js';
 import { componentCommit } from './editLogDescribe.js';
@@ -247,6 +247,7 @@ function wireTabsEditor(formEl) {
 
   // Shared component delegation: rails, edit buttons, "+ Insert Component".
   formEl.addEventListener('click', onComponentEditorClick);
+  wireSelectionBar(formEl);
 }
 
 // Initialise state. Storage (seeded by the opener, or carrying in-flight edits
