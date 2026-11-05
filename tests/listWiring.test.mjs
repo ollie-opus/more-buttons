@@ -33,6 +33,9 @@ test('the tile header is sticky under the navbar: top:-1px (stuck detection), sq
   const head = css.match(/\n\.mb-list-tile__head \{([^}]*)\}/)?.[1] ?? '';
   assert.ok(/position:\s*sticky/.test(head), 'sticky');
   assert.ok(/top:\s*-1px/.test(head), 'top: -1px');
+  assert.ok(/min-height:\s*calc\(0\.75rem \+ 12px\)/.test(head), 'resting height equals a button (0.75rem line + 5px/1px each side), so selecting never grows the lid');
+  const btn = css.match(/\n\.mb-list-tile__btn \{([^}]*)\}/)?.[1] ?? '';
+  assert.ok(/padding:\s*5px 10px/.test(btn) && /font-size:\s*0\.75rem/.test(btn) && /line-height:\s*1\b/.test(btn) && /border:\s*1px/.test(btn), 'the button geometry the min-height is derived from');
   assert.ok(/\.mb-list-tile__head\.--stuck \{[^}]*border-radius:\s*0/.test(css), '--stuck squares the corners');
   assert.ok(/\.mb-list-tile__head:not\(\.--selecting\) > \.mb-list-tile__btn/.test(css), 'actions hidden until something is selected');
   const form = css.match(/\n\.more-buttons-overlay-content > form \{([^}]*)\}/)?.[1] ?? '';

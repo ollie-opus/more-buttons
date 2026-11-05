@@ -55,8 +55,8 @@ test('listTileHeadHtml: the tile header — Select all, the count slot, Copy, an
   assert.ok(html.includes('data-select-all'));
   const i = html.indexOf('data-select-all'), c = html.indexOf('data-select-summary'), cp = html.indexOf('data-copy-selected'), d = html.indexOf('data-delete-selected');
   assert.ok(i > -1 && c > i && cp > c && d > cp, 'Select all · count · Copy · Delete, in that order');
-  assert.ok(html.includes('class="mb-list-tile__btn" data-copy-selected'));
-  assert.ok(html.includes('class="mb-list-tile__btn --danger" data-delete-selected'));
+  assert.ok(html.includes('class="mb-list-tile__btn" data-copy-selected>Copy selected</button>'));
+  assert.ok(html.includes('class="mb-list-tile__btn --danger" data-delete-selected>Delete selected</button>'));
   assert.ok(!html.includes('more-buttons-button'), 'never the dock-lifted button class');
   const ro = listTileHeadHtml({ canDelete: false });
   assert.ok(ro.includes('data-copy-selected') && !ro.includes('data-delete-selected'));

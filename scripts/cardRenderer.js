@@ -365,7 +365,7 @@ const SELECT_COLUMN = `
  */
 export function listTileHeadHtml({ canDelete = true } = {}) {
   return `
-    <div class="mb-list-tile__head"><label class="mb-list-tile__all"><input type="checkbox" data-select-all aria-label="Select all" /><span>Select all</span></label><span class="mb-list-tile__count" data-select-summary></span><button type="button" class="mb-list-tile__btn" data-copy-selected title="Copy the selected items">Copy</button>${canDelete ? '<button type="button" class="mb-list-tile__btn --danger" data-delete-selected title="Delete the selected items">Delete</button>' : ''}</div>`;
+    <div class="mb-list-tile__head"><label class="mb-list-tile__all"><input type="checkbox" data-select-all aria-label="Select all" /><span>Select all</span></label><span class="mb-list-tile__count" data-select-summary></span><button type="button" class="mb-list-tile__btn" data-copy-selected>Copy selected</button>${canDelete ? '<button type="button" class="mb-list-tile__btn --danger" data-delete-selected>Delete selected</button>' : ''}</div>`;
 }
 
 /**
