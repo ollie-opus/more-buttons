@@ -357,23 +357,14 @@ const SELECT_COLUMN = `
       <div class="mb-component-select"><input type="checkbox" class="mb-component-select__box" data-select-row aria-label="Select" /></div>`;
 
 /**
- * A selectable list's selection bar, one left-aligned row: the select-all box
- * + summary ("Select all" / "N selected"), then Copy (and, unless `canDelete`
- * is off, Delete) for the selection. Both actions start hidden and only show
- * while something is picked; the painter (paintListSelection) owns that, the
- * summary and the box's checked / indeterminate state. Mounted in the form
- * group's sticky section head beside the group label (listHeadSlot), or, for a
- * list without a group, as the list's first child.
+ * The first row of a selectable list's tile: the select-all box in the gutter
+ * with a small "Select all" label. The painter (paintListSelection) owns the
+ * box's checked / indeterminate state. The selection's actions (count, Copy,
+ * Delete, clear) live in the form's actions dock, not here.
  */
-export function listSelectionBarHtml({ canDelete = true } = {}) {
+export function listTileHeadHtml() {
   return `
-    <div class="mb-list-bar">
-      <label class="mb-list-bar__all"><input type="checkbox" data-select-all aria-label="Select all" /><span data-select-summary>Select all</span></label>
-      <span class="mb-list-bar__actions">
-        <button type="button" class="mb-incident-card__edit" data-copy-selected hidden title="Copy the selected items">Copy</button>${canDelete ? `
-        <button type="button" class="mb-incident-card__edit --danger" data-delete-selected hidden title="Delete the selected items">Delete</button>` : ''}
-      </span>
-    </div>`;
+    <div class="mb-list-tile__head"><label class="mb-list-tile__all"><input type="checkbox" data-select-all aria-label="Select all" /><span>Select all</span></label></div>`;
 }
 
 /**

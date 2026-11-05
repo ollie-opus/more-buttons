@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  createListSelection, listSelectionOf, selectionSummary, paintListSelection, listHeadSlot,
+  createListSelection, listSelectionOf, selectionSummary, paintListSelection, listCountBadge,
 } from '../scripts/listSelection.js';
 
 let passed = 0;
@@ -41,7 +41,7 @@ function stubList(n, { withBar = true } = {}) {
   return {
     rows, bar,
     querySelectorAll(sel) { assert.equal(sel, ':scope > .mb-component-row'); return rows; },
-    querySelector(sel) { assert.equal(sel, ':scope > .mb-list-bar'); return bar; },
+    querySelector(sel) { assert.equal(sel, ':scope > .mb-list-tile__head'); return bar; },
   };
 }
 
@@ -131,45 +131,19 @@ test('listSelectionOf: one instance per element, distinct across elements', () =
   assert.notEqual(listSelectionOf(el1), listSelectionOf(el2));
 });
 
-// ── listHeadSlot: the form group's sticky section head ───────────────────────
+// ── listCountBadge: the "· n" count after the group's eyebrow label ──────────
 
-function el(cls = '') { const e = { className: cls, children: [], append(...k) { e.children.push(...k); }, prepend(...k) { e.children.unshift(...k); }, querySelector(sel) { return e.children.find(c => c.className === sel.replace(/^:scope > \./, '')) ?? null; }, closest() { return null; } }; return e; }
-globalThis.document = { createElement: () => el() };
-
-test('listHeadSlot: no form group → null (the bar then renders inside the list)', () => {
-  assert.equal(listHeadSlot({ closest: () => null }), null);
-  assert.equal(listHeadSlot({}), null);
+test('listCountBadge: appends one count span to the group label, updates it, removes at 0', () => {
+  const label = { children: [], textContent: 'Components', querySelector: s => label.children.find(c => c.className === 'mb-eyebrow-count') ?? null, appendChild(c) { label.children.push(c); } };
+  const group = { querySelector: s => (s === ':scope > .more-buttons-label' ? label : null), ownerDocument: { createElement: () => ({ className: '', textContent: '', remove() { label.children = label.children.filter(c => c !== this); } }) } };
+  const span = listCountBadge(group, 6);
+  assert.equal(span.className, 'mb-eyebrow-count'); assert.equal(span.textContent, '· 6');
+  assert.equal(listCountBadge(group, 2), span); assert.equal(span.textContent, '· 2');
+  assert.equal(listCountBadge(group, 0), null); assert.equal(label.children.length, 0);
 });
 
-test('listHeadSlot: first call moves the group label into a new head + bar slot, prepended to the group; later calls reuse it', () => {
-  const label = el('more-buttons-label');
-  const group = el('more-buttons-form-group');
-  group.children.push(label, el('list-wrap'));
-  group.querySelector = sel => {
-    if (sel === ':scope > .mb-list-head') return group.children.find(c => c.className === 'mb-list-head') ?? null;
-    if (sel === ':scope > .more-buttons-label') return label;
-    return null;
-  };
-  const list = { closest: sel => (sel === '.more-buttons-form-group' ? group : null) };
-  const slot = listHeadSlot(list);
-  assert.equal(slot.className, 'mb-list-head__bar');
-  const head = group.children[0];
-  assert.equal(head.className, 'mb-list-head');
-  assert.deepEqual(head.children.map(c => c.className), ['more-buttons-label', 'mb-list-head__bar']);
-  assert.equal(group.children.length, 3, 'head prepended; the label is now inside it (the stub keeps its old slot)');
-  assert.equal(listHeadSlot(list), slot, 'idempotent');
-});
-
-test('paint: the bar is looked up in the group head first, then at the top of the list', () => {
-  const sel = createListSelection();
-  const list = stubList(1);
-  const headBar = stubBar();
-  const group = { querySelector: s => (s === ':scope > .mb-list-head > .mb-list-head__bar .mb-list-bar' ? headBar : null) };
-  list.closest = s => (s === '.more-buttons-form-group' ? group : null);
-  sel.toggle('a');
-  sel.paint(list, ['a']);
-  assert.equal(headBar.summary.textContent, '1 selected');
-  assert.equal(list.bar.summary.textContent, '', 'the in-list bar is ignored when a head exists');
+test('listCountBadge: no group (a list outside a form group) is a no-op', () => {
+  assert.equal(listCountBadge(null, 3), null);
 });
 
 console.log(`\n${passed} passed`);

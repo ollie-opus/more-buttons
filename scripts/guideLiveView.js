@@ -17,8 +17,8 @@ import { ensureCodeBlockUUIDs } from './mdCodeBlocks.js';
 import { ensureNavLinksUUIDs } from './navLinks.js';
 import { GUIDE_ADMONITION_TYPES_RE, ADMONITION_TYPE_LABELS, splitTitleMeta, stripInlineAtoms } from './admonitions.js';
 import { setRteDisabled, paintInlineAtoms, upgradeTextarea, loadLabelPalette } from './richTextEditor.js';
-import { escapeHtml, titleWithLabelsHtml, cardBodyBlock, applyCardClamps, railRowHtml, insertSpacerHtml, listSelectionBarHtml } from './cardRenderer.js';
-import { listSelectionOf, paintListSelection, listHeadSlot } from './listSelection.js';
+import { escapeHtml, titleWithLabelsHtml, cardBodyBlock, applyCardClamps, railRowHtml, insertSpacerHtml, listTileHeadHtml } from './cardRenderer.js';
+import { listSelectionOf, paintListSelection, listCountBadge } from './listSelection.js';
 import { paintMediaFields, mediaDimFields, mediaFormatPillHtml } from './captureComponent.js';
 import { renderGuideSectionTree, liveLinkHtml, guideStatusPillHtml, writeGuideDraft, draftPathOf, renderComponents, onComponentEditorClick, setOpenComponentEditor, flashButtonLabel, renderPageSettingsNode, parentOptionsForSection, pageSettingsDimFields, attachPageSettingsWidgets } from './guides.js';
 // Leaf editors: their shared paint functions build the same fields over the
@@ -308,7 +308,7 @@ export function liveGridCellsText(flavor, cells) {
 
 const groupHtml = (label, inner, attrs = '') => `<div class="more-buttons-form-group"${attrs}><label class="more-buttons-label">${label}</label>${inner}</div>`;
 const textInputHtml = value => `<input type="text" readonly value="${escapeHtml(value ?? '')}" />`;
-const componentsGroupHtml = () => groupHtml('Components', '<div><div data-view-components></div></div>', ' data-components-row');
+const componentsGroupHtml = () => groupHtml('Components', '<div><div data-view-components></div></div>', ' data-components-row data-list-row');
 
 // A read-only rich text editor over `markdown`; upgradeRtes builds it once the
 // markup is in the document (the readonly flag carries into the editor).
@@ -338,7 +338,7 @@ export function gridCellBodyHtml(cell) {
 }
 // editGrid: Style, Cells.
 export function gridBodyHtml(flavor) {
-  return groupHtml('Style', pillsHtml([['generic', 'Plain'], ['card', 'Cards']], flavor)) + groupHtml('Cells', '<div><div data-view-grid-cells></div></div>');
+  return groupHtml('Style', pillsHtml([['generic', 'Plain'], ['card', 'Cards']], flavor)) + groupHtml('Cells', '<div><div data-view-grid-cells></div></div>', ' data-list-row');
 }
 
 function mountContainer(formEl, host, html, { components, uuid }, kind, file, drafted) {
@@ -595,9 +595,8 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
     host.innerHTML = gridBodyHtml(model.flavor);
     const cellsEl = host.querySelector('[data-view-grid-cells]');
     cellsEl.innerHTML = model.cells.length ? gridCellListHtml(model.cells) : '<p class="more-buttons-description">No cells.</p>';
-    const cellsBar = model.cells.length ? listSelectionBarHtml({ canDelete: false }) : '';
-    const cellsSlot = listHeadSlot(cellsEl);
-    if (cellsSlot) cellsSlot.innerHTML = cellsBar; else cellsEl.insertAdjacentHTML('afterbegin', cellsBar);
+    if (model.cells.length) cellsEl.insertAdjacentHTML('afterbegin', listTileHeadHtml());
+    listCountBadge(cellsEl.closest('[data-list-row]'), model.cells.length);
     paintInlineAtoms(cellsEl);
     applyCardClamps(cellsEl);
     const cellOrder = () => model.cells.map(c => c.uuid);

@@ -4536,82 +4536,65 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   border-left: 1px dashed var(--mb-border);
 }
 
-/* Component reorder rail (Plan 2) — vertical up/down arrows on each card's left edge. */
-.mb-component-row { display: flex; align-items: stretch; gap: 6px; }
-.mb-component-row > .mb-incident-card { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
+/* ── List tile + gutter (listSelection.js, railRowHtml) ───────────────────────
+   A list group (`data-list-row`: Components / Cells) is an ordinary eyebrow
+   group whose field wrapper is a quiet tile. Inside, every row is a 28px
+   gutter (the select box above the move rail, both top-aligned to the card)
+   beside the card; the tile's first row is the select-all box in that same
+   gutter. The selection's actions live in the form's dock, not here. */
+[data-list-row] > div:not(.more-buttons-label) {
+  background: var(--mb-bg-subtle);
+  border: 1px solid var(--mb-border-subtle);
+  border-radius: 10px;
+  padding: 12px 14px 14px;
+}
+.mb-eyebrow-count {
+  margin-left: 4px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--mb-text-placeholder);
+}
+.mb-list-tile__head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.mb-list-tile__all {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding-left: 6px;       /* (28px gutter - 16px box) / 2: lines up with the row boxes */
+  font-size: 0.75rem; font-weight: 500; color: var(--mb-text-label);
+  cursor: pointer; user-select: none;
+}
+.mb-list-tile__all:hover { color: var(--mb-text); }
+.mb-component-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  column-gap: 8px;
+}
+.mb-component-row > .mb-incident-card { grid-area: 1 / 2 / 3 / 3; min-width: 0; margin-bottom: 0; }
 /* Checked rows take the info-accent outline (same as .mb-kb-node.--selected), so a
    long list shows what is picked without reading each checkbox. */
 .mb-component-row.--selected > .mb-incident-card { outline: 2px solid var(--mb-acc-info); outline-offset: 2px; }
-
-/* ── List selection (listSelection.js) ─────────────────────────────────────────
-   A checkbox column left of the rail, centred on the card, and a section head
-   for the list's form group: the group label ("Components" / "Cells") in the
-   label column, the selection bar in the list column — so the bar's box and
-   the rows' boxes share one left edge. The head spans both grid columns and
-   sticks to the top of the scrolling form, flush under the navbar's rule (the
-   form carries no top padding: sticky is inset by it); the rest of the
-   group's children stay in the list column. `--stuck` (set by an
-   IntersectionObserver in listHeadSlot) adds the hairline + shadow only while
-   content is sliding underneath. Interim look — the forms UI overhaul draft
-   (2026-11-05) is to replace this section head. */
-.more-buttons-form-group > .mb-list-head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: stretch;
-  position: sticky;
-  top: -1px;               /* the stuck-detection trick: 1px past the scrollport edge */
-  z-index: 3;              /* over cards and their outlines, under popups */
-  min-height: 36px;
-  margin: 0 0 2px;
-  padding: 1px 0 4px;
-  background: var(--mb-bg);
-  box-shadow: 0 1px 0 transparent, 0 8px 12px -10px transparent;
-  transition: box-shadow 0.15s ease-out;
-}
-.more-buttons-form-group > .mb-list-head.--stuck {
-  box-shadow: 0 1px 0 var(--mb-border-subtle), 0 8px 12px -10px rgba(15, 23, 42, 0.35);
-}
-.mb-list-head > .more-buttons-label { align-self: flex-start; }
-.mb-list-head__bar { min-width: 0; }
-.mb-list-head__bar:empty { min-height: 28px; }
-.mb-component-select { display: flex; align-items: center; flex: 0 0 auto; }
+.mb-component-select { grid-area: 1 / 1; justify-self: center; padding-top: 9px; display: flex; }
 .mb-component-select__box,
-.mb-list-bar__all input {
+.mb-list-tile__all input {
   width: 16px; height: 16px; margin: 0; flex: 0 0 auto;
   accent-color: var(--mb-acc-info);
   cursor: pointer;
 }
-/* One left-aligned row: the select-all box + summary, then (only while
-   something is picked) Copy / Delete for the selection. Also the first child
-   of a list that has no form group to host a head. */
-.mb-list-bar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
-  min-height: 28px;
-}
-.mb-list-bar__all {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em;
-  color: var(--mb-text-label); cursor: pointer; user-select: none;
-}
-.mb-list-bar__all:hover { color: var(--mb-text); }
-.mb-list-bar__actions { display: flex; align-items: center; gap: 8px; }
-.mb-list-bar__actions:not(:has(> :not([hidden]))) { display: none; }
-/* Outside a card the ghost buttons have no card accent to borrow: slate ink. */
-.mb-list-bar .mb-incident-card__edit { --mb-accent: var(--mb-acc-default); --mb-card-edit-fg-hover: var(--mb-acc-on); }
-.mb-list-bar .mb-incident-card__edit[hidden] { display: none; }
-/* Destructive ghost button (a card's Delete, the bar's Delete selected): the red
-   every other Delete in these forms uses, filling on hover like its siblings. */
+/* Destructive ghost button (a card's Delete): the red every other Delete in
+   these forms uses, filling on hover like its siblings. */
 .mb-incident-card__edit.--danger { --mb-accent: var(--mb-acc-danger); --mb-card-edit-fg-hover: var(--mb-acc-on); }
-.mb-component-rail { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 0 0 auto; }
+.mb-component-rail { grid-area: 2 / 1; justify-self: center; display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; padding-top: 6px; }
 .mb-component-rail__btn {
-  width: 28px; height: 28px; padding: 0; line-height: 1;
-  border: 1px solid var(--mb-border, #d0d5dd); border-radius: 6px;
-  background: var(--mb-bg-input); cursor: pointer; color: var(--mb-text-muted); font-size: 16px;
+  width: 24px; height: 20px; padding: 0; line-height: 1;
+  border: 1px solid var(--mb-border-subtle); border-radius: 6px;
+  background: var(--mb-bg-input); cursor: pointer; color: var(--mb-text-muted); font-size: 14px;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .mb-component-rail__btn:hover:not(:disabled) { background: var(--mb-bg-subtle); }
 .mb-component-rail__btn:disabled { opacity: 0.35; cursor: default; }
+/* Insert triggers sit in the card column, past the gutter; the hover pill's
+   background matches the tile, not the page. */
+.mb-insert-component { margin-left: 36px; width: auto; }
+.mb-insert-component__btn { background: var(--mb-bg-subtle); }
 
 /* ── Conflict resolver (mergeSave) ────────────────────────────────────────────
  * Shown between the navbar and the form when a save hits concurrent edits.

@@ -41,14 +41,13 @@ await test('view-only renderComponents: the draft list shape with inert chrome �
   assert.equal(count(html, /mb-component-rail__btn" data-move-component="(?:up|down)" disabled/g), 4, 'every rail button inert');
   assert.equal(count(html, /data-copy-component-md="U-[12]"/g), 2);
   assert.equal(count(html, /data-view-component="[01]"/g), 2);
-  assert.equal(count(html, /class="mb-incident-card__edit"/g), 5, "2× Copy, 2× View, the bar's Copy selected");
+  assert.equal(count(html, /class="mb-incident-card__edit"/g), 4, '2× Copy, 2× View; the selection actions live in the dock');
   assert.equal(count(html, /data-edit-guide-admonition/g), 0);
   assert.equal(count(html, /data-delete-component/g), 0, 'no Delete on a view-only card');
   assert.equal(count(html, /class="mb-component-row" data-component-uuid="U-[12]"/g), 2);
   assert.equal(count(html, /data-select-row/g), 2, 'each row keeps its checkbox (Copy selected works live)');
-  assert.equal(count(html, /class="mb-list-bar"/g), 1);
-  assert.ok(html.includes('data-copy-selected'));
-  assert.ok(!html.includes('data-delete-selected'), 'the bar has no Delete selected on a view-only list');
+  assert.equal(count(html, /class="mb-list-tile__head"/g), 1, 'the tile head (select all) is the first row');
+  assert.ok(!html.includes('data-copy-selected') && !html.includes('data-delete-selected'), 'no actions in the list; they live in the dock');
   assert.equal(count(html, /data-card-expand/g), 2, 'Show more survives');
 });
 
@@ -78,9 +77,8 @@ await test('editable renderComponents: insert triggers, rails, Copy · Edit · D
   assert.equal(count(html, /data-edit-guide-admonition="U-[12]"/g), 2);
   assert.equal(count(html, /class="mb-incident-card__edit --danger" data-delete-component="U-[12]"/g), 2);
   assert.equal(count(html, /data-select-row/g), 2);
-  assert.ok(html.indexOf('class="mb-list-bar"') < html.indexOf('data-insert-component-at="0"'), 'the bar comes first');
-  assert.ok(html.includes('data-copy-selected hidden'), 'actions start hidden; the painter reveals them');
-  assert.ok(html.includes('data-delete-selected hidden'));
+  assert.equal(count(html, /class="mb-list-tile__head"/g), 1);
+  assert.ok(html.indexOf('class="mb-list-tile__head"') < html.indexOf('data-insert-component-at="0"'), 'the tile head comes first');
   assert.ok(!html.includes('data-view-component'));
   // Foot order on an admonition card: Copy, Edit, Delete.
   const foot = html.slice(html.indexOf('data-copy-component-md="U-1"'));
@@ -91,7 +89,7 @@ await test('renderComponents: an empty editable list is just the insert tile —
   const list = fakeList(false);
   renderComponents(list, []);
   assert.ok(list.innerHTML.startsWith('<button type="button" class="mb-insert-component__empty"'));
-  assert.ok(!list.innerHTML.includes('mb-list-bar'));
+  assert.ok(!list.innerHTML.includes('mb-list-tile__head'), 'no select-all row on an empty list');
 });
 
 function moveClick(formEl) {

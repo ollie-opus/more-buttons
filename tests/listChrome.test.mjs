@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { insertTriggerHtml, railRowHtml, listSelectionBarHtml, deleteButtonHtml, stripNonCopyFootButtons, captureComponentCard } from '../scripts/cardRenderer.js';
+import { insertTriggerHtml, railRowHtml, listTileHeadHtml, deleteButtonHtml, stripNonCopyFootButtons, captureComponentCard } from '../scripts/cardRenderer.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -43,15 +43,11 @@ test('railRowHtml: selectable adds the checkbox column as the first child of the
   assert.ok(!railRowHtml({ rowAttrs: '', isFirst: true, isLast: true, moveAttr: 'm', cardHtml: '' }).includes('data-select-row'), 'off by default (Actions timeline)');
 });
 
-test('listSelectionBarHtml: select-all + summary, Copy, Delete (red) — both hidden at rest; canDelete:false drops Delete', () => {
-  const html = listSelectionBarHtml();
-  assert.ok(html.includes('class="mb-list-bar"'));
-  assert.ok(html.includes('<input type="checkbox" data-select-all aria-label="Select all" /><span data-select-summary>Select all</span>'));
-  assert.ok(html.includes('<button type="button" class="mb-incident-card__edit" data-copy-selected hidden title="Copy the selected items">Copy</button>'));
-  assert.ok(html.includes('<button type="button" class="mb-incident-card__edit --danger" data-delete-selected hidden title="Delete the selected items">Delete</button>'));
-  const copyOnly = listSelectionBarHtml({ canDelete: false });
-  assert.ok(copyOnly.includes('data-copy-selected'));
-  assert.ok(!copyOnly.includes('data-delete-selected'));
+test('listTileHeadHtml: a select-all row only; actions live in the dock now', () => {
+  const html = listTileHeadHtml();
+  assert.ok(html.includes('class="mb-list-tile__head"'));
+  assert.ok(html.includes('data-select-all'));
+  assert.ok(!html.includes('data-copy-selected') && !html.includes('data-delete-selected'));
 });
 
 test('deleteButtonHtml: a red ghost button carrying the attribute, or nothing without one', () => {

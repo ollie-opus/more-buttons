@@ -42,7 +42,7 @@ import {
   readGridCellComponents, writeGridCellBody, gridCellExists,
   gridCellsMarkdown, parsePastedGridCells,
 } from './components.js';
-import { listSelectionOf, paintListSelection, listHeadSlot } from './listSelection.js';
+import { listSelectionOf, paintListSelection, listCountBadge } from './listSelection.js';
 import { formLoading } from './loading.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { getGridByUUID, buildGrid, replaceGridByUUID, deleteGridByUUID } from './grid.js';
@@ -53,7 +53,7 @@ import {
 import { syncSurfaceFromTextarea, paintInlineAtoms } from './richTextEditor.js';
 import {
   cardBodyBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml,
-  listSelectionBarHtml, deleteButtonHtml,
+  listTileHeadHtml, deleteButtonHtml,
 } from './cardRenderer.js';
 import { openPopupMenu } from './insertMenu.js';
 import { showFieldError } from './formValidation.js';
@@ -212,18 +212,17 @@ function cellCard(formEl, c, i) {
 // selection bar all read or write the file, so create mode goes without them.
 function inFile(formEl) { return formEl.dataset.mode !== 'create'; }
 
-// Render the vertical cell list: the selection bar, then an insert bar before
-// every card and after the last, each card wrapped in the shared checkbox +
-// up/down rail. Same chrome as the component list (renderComponents in guides.js).
+// Render the vertical cell list: the tile head (Select all), then an insert bar
+// before every card and after the last, each card wrapped in the shared
+// checkbox + up/down rail. Same chrome as the component list (renderComponents
+// in guides.js). The "Cells" eyebrow carries the count.
 function renderCellList(formEl) {
   const host = formEl.querySelector('[data-grid-cells]');
   const st = formEl._grid;
   if (!host || !st) return;
   const selectable = inFile(formEl);
-  const headSlot = listHeadSlot(host); // the "Cells" group's sticky section head
-  const barHtml = selectable && st.cells.length ? listSelectionBarHtml() : '';
-  if (headSlot) headSlot.innerHTML = barHtml;
-  const parts = headSlot || !barHtml ? [] : [barHtml];
+  listCountBadge(host.closest('[data-list-row]'), st.cells.length);
+  const parts = selectable && st.cells.length ? [listTileHeadHtml()] : [];
   const last = st.cells.length - 1;
   st.cells.forEach((c, i) => {
     parts.push(insertTriggerHtml(i, { attr: CELL_INSERT_ATTR, label: '+ Insert cell' }));

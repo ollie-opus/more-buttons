@@ -41,9 +41,9 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, listSelectionBarHtml, deleteButtonHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, listTileHeadHtml, deleteButtonHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, deleteConfirmMessage, parsePastedComponents, cardPreviewModel } from './components.js';
-import { listSelectionOf, paintListSelection, listHeadSlot } from './listSelection.js';
+import { listSelectionOf, paintListSelection, listCountBadge } from './listSelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 import { readFrontmatterIcon, readFrontmatterHide, readFrontmatterTags, splitTagList, writeFrontmatterSearchExclude, applyPageSettingsFrontmatter } from './frontmatter.js';
@@ -1427,9 +1427,9 @@ function codeBlockComponentCardFor(cb) {
 // empty tile, the dashed insert rules and the reorder rail — with every
 // control inert; `insertHint` is the empty tile's label (why nothing can be
 // inserted here). Edit and Delete keys are never emitted on a view-only list.
-// Every non-empty list gets the selection bar (select all · N selected ·
-// Copy · Delete) in its group's sticky section head and a checkbox per row;
-// view-only lists keep the checkboxes and Copy (listSelection.js).
+// Every non-empty list starts with the tile head (Select all) and has a
+// checkbox per row; the selection's actions live in the form's dock
+// (listSelection.js). The group's eyebrow carries the count ("COMPONENTS · n").
 export const VIEW_ONLY_INSERT_HINT = 'Switch to draft to insert components';
 export function renderComponents(listEl, components, numberSteps = true, { viewOnly = !!listEl?.closest?.('form')?.hasAttribute?.('data-view-only'), insertHint = VIEW_ONLY_INSERT_HINT } = {}) {
   if (!listEl) return;
@@ -1437,11 +1437,7 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
   const orderField = listEl.closest('form')?.querySelector('[name="componentOrder"]');
   if (orderField) orderField.value = components.map(uuidOfComponent).join(',');
 
-  // The selection bar sits in the form group's sticky section head beside the
-  // "Components" label (listHeadSlot); a list without a group hosts it itself.
-  const headSlot = listHeadSlot(listEl);
-  const barHtml = components.length ? listSelectionBarHtml({ canDelete: !viewOnly }) : '';
-  if (headSlot) headSlot.innerHTML = barHtml;
+  listCountBadge(listEl.closest?.('[data-list-row]') ?? null, components.length);
 
   if (components.length === 0) {
     listEl.innerHTML = viewOnly
@@ -1449,7 +1445,7 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
       : `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
-  const parts = headSlot ? [] : [barHtml];
+  const parts = [listTileHeadHtml()];
   let stepN = 0;
   const last = components.length - 1;
   components.forEach((c, i) => {
