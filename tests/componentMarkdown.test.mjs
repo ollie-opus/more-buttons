@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseComponents, stripUUIDSpans, componentMarkdown, componentsMarkdown, parsePastedComponents, uuidOfComponent, buildComponentBody } from '../scripts/components.js';
+import { parseComponents, stripUUIDSpans, componentMarkdown, componentsMarkdown, parsePastedComponents, uuidOfComponent, buildComponentBody, deleteConfirmMessage } from '../scripts/components.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -220,6 +220,46 @@ test('componentsMarkdown: round-trips through parsePastedComponents in order', (
   const pasted = parsePastedComponents(componentsMarkdown(components));
   assert.equal(pasted.error, null);
   assert.deepEqual(pasted.components.map(c => c.adm.type), ['note', 'tip']);
+});
+
+// ── deleteConfirmMessage ─────────────────────────────────────────────────────
+
+test('deleteConfirmMessage: one component → the exact prompt its edit form uses', () => {
+  assert.equal(deleteConfirmMessage([{ kind: 'admonition', adm: { type: 'note', title: 'A', uuid: 'U' } }]), 'Delete this admonition? This also removes any sub-admonitions inside it.');
+  assert.equal(deleteConfirmMessage([{ kind: 'capture', cap: {} }]), 'Delete this capture? This removes it from the page (the file stays in the library).');
+  assert.equal(deleteConfirmMessage([{ kind: 'video', vid: {} }]), 'Delete this video? This removes it from the page (the file stays in the library).');
+  assert.equal(deleteConfirmMessage([{ kind: 'image', img: {} }]), 'Delete this image? This removes it from the page (the file stays in the library).');
+  assert.equal(deleteConfirmMessage([{ kind: 'grid', grid: {} }]), 'Delete this grid? All of its cells and their contents are removed.');
+  assert.equal(deleteConfirmMessage([{ kind: 'tabs', grp: {} }]), 'Delete this tab group? All of its tabs and their contents are removed.');
+  assert.equal(deleteConfirmMessage([{ kind: 'table', tbl: {} }]), 'Delete this data table?');
+  assert.equal(deleteConfirmMessage([{ kind: 'button', btn: {} }]), 'Delete this button?');
+  assert.equal(deleteConfirmMessage([{ kind: 'navlinks', nav: {} }]), 'Delete these nav links?');
+  assert.equal(deleteConfirmMessage([{ kind: 'diagram', dia: {} }]), 'Delete this diagram?');
+  assert.equal(deleteConfirmMessage([{ kind: 'codeblock', cb: {} }]), 'Delete this code block?');
+  assert.equal(deleteConfirmMessage([{ kind: 'mystery' }]), 'Delete this component?');
+});
+
+test('deleteConfirmMessage: several → a count, a labelled list, and only the caveats that apply', () => {
+  const msg = deleteConfirmMessage([
+    { kind: 'admonition', adm: { type: 'note', title: 'Widget setup', uuid: 'U' } },
+    { kind: 'capture', cap: { lightFilename: 'docs/assets/shot-light-mode.png' } },
+    { kind: 'button', btn: { label: 'Go' } },
+  ]);
+  assert.ok(msg.startsWith('Delete these 3 components?\n\n'));
+  assert.ok(msg.includes("• Note admonition 'Widget setup'\n• Capture 'docs/assets/shot'\n• Button 'Go'"));
+  assert.ok(msg.includes('They are removed from the page.'));
+  assert.ok(msg.includes('Admonitions take their sub-admonitions with them.'));
+  assert.ok(msg.includes('Media files stay in the library.'));
+  assert.ok(!msg.includes('Grids and tab groups'));
+  const plain = deleteConfirmMessage([{ kind: 'button', btn: { label: 'A' } }, { kind: 'diagram', dia: {} }]);
+  assert.equal(plain, "Delete these 2 components?\n\n• Button 'A'\n• Diagram\n\nThey are removed from the page.");
+});
+
+test('deleteConfirmMessage: the list is capped at 8 with an "and N more" line', () => {
+  const many = Array.from({ length: 11 }, (_, i) => ({ kind: 'button', btn: { label: `B${i}` } }));
+  const msg = deleteConfirmMessage(many);
+  assert.equal((msg.match(/^• Button/gm) || []).length, 8);
+  assert.ok(msg.includes('• and 3 more'));
 });
 
 console.log(`\n${passed} passed`);

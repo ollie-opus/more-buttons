@@ -28,6 +28,7 @@ import { locateTabGroups, buildTabGroup, locateTabByUUID, ensureTabUUIDs } from 
 import { locateDataTables, buildDataTable, ensureDataTableUUIDs } from './dataTables.js';
 import { locateGrids, buildGrid, ensureGridUUIDs, locateGridCellByUUID, parseGridCellBlocks, cellOpenTag } from './grid.js';
 import { locateButtonLines, buildButtonLines, ensureButtonUUIDs, isSupportOnclick } from './mdButtons.js';
+import { componentKindLabel } from './editLogDescribe.js';
 import { locateDiagramLines, buildDiagramLines, ensureDiagramUUIDs } from './mdDiagrams.js';
 import { locateCodeBlockLines, buildCodeBlockLines, ensureCodeBlockUUIDs } from './mdCodeBlocks.js';
 import { locateNavLinksLines, buildNavLinksLines, ensureNavLinksUUIDs } from './navLinks.js';
@@ -700,6 +701,37 @@ export function componentMarkdown(component) {
  * (buildComponentBody's own separator), identity spans stripped — the Shift+click
  * multi-select Copy payload. parsePastedComponents accepts it as-is.
  */
+// The native-confirm text for deleting components from a list. One component
+// → the exact prompt its edit form's Delete uses (kept in lockstep with those
+// registerFormAction handlers). Several → the list of what goes, capped, plus
+// the caveats that apply to the kinds present.
+const DELETE_PROMPTS = {
+  admonition: 'Delete this admonition? This also removes any sub-admonitions inside it.',
+  capture: 'Delete this capture? This removes it from the page (the file stays in the library).',
+  video: 'Delete this video? This removes it from the page (the file stays in the library).',
+  image: 'Delete this image? This removes it from the page (the file stays in the library).',
+  grid: 'Delete this grid? All of its cells and their contents are removed.',
+  tabs: 'Delete this tab group? All of its tabs and their contents are removed.',
+  table: 'Delete this data table?',
+  button: 'Delete this button?',
+  navlinks: 'Delete these nav links?',
+  diagram: 'Delete this diagram?',
+  codeblock: 'Delete this code block?',
+};
+const DELETE_LIST_CAP = 8;
+export function deleteConfirmMessage(components) {
+  const comps = (components ?? []).filter(Boolean);
+  if (comps.length === 1) return DELETE_PROMPTS[comps[0].kind] ?? 'Delete this component?';
+  const kinds = new Set(comps.map(c => c.kind));
+  const lines = comps.slice(0, DELETE_LIST_CAP).map(c => `• ${componentKindLabel(c)}`);
+  if (comps.length > DELETE_LIST_CAP) lines.push(`• and ${comps.length - DELETE_LIST_CAP} more`);
+  const caveats = ['They are removed from the page.'];
+  if (kinds.has('admonition')) caveats.push('Admonitions take their sub-admonitions with them.');
+  if (kinds.has('grid') || kinds.has('tabs')) caveats.push('Grids and tab groups take their contents with them.');
+  if (kinds.has('capture') || kinds.has('video') || kinds.has('image')) caveats.push('Media files stay in the library.');
+  return `Delete these ${comps.length} components?\n\n${lines.join('\n')}\n\n${caveats.join(' ')}`;
+}
+
 export function componentsMarkdown(components) {
   return stripUUIDSpans(buildComponentBody(null, '', components))
     .replace(/^\n+/, '')

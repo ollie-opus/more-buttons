@@ -25,13 +25,13 @@ const TWO = parseComponents(['!!! note "A"', '', span('U-1', '    '), '', '    A
 
 function fakeList(viewOnly) {
   const form = { hasAttribute: n => viewOnly && n === 'data-view-only', querySelector: () => null };
-  const l = { _html: '', sets: 0, querySelectorAll: () => [], closest: () => form,
+  const l = { _html: '', sets: 0, querySelectorAll: () => [], querySelector: () => null, closest: sel => (sel === 'form' ? form : null),
     get innerHTML() { return l._html; }, set innerHTML(v) { l._html = v; l.sets++; } };
   return l;
 }
 const count = (s, re) => (s.match(re) || []).length;
 
-await test('view-only renderComponents: the draft list shape with inert chrome — insert rules without a trigger, rails fully disabled; Copy and (containers) View are the only foot buttons; rows keep the copySelection shape', () => {
+await test('view-only renderComponents: the draft list shape with inert chrome — insert rules without a trigger, rails fully disabled; Copy and (containers) View are the only foot buttons; rows keep their checkboxes', () => {
   const list = fakeList(true);
   renderComponents(list, TWO, true, { viewOnly: true });
   const html = list.innerHTML;
@@ -41,9 +41,14 @@ await test('view-only renderComponents: the draft list shape with inert chrome �
   assert.equal(count(html, /mb-component-rail__btn" data-move-component="(?:up|down)" disabled/g), 4, 'every rail button inert');
   assert.equal(count(html, /data-copy-component-md="U-[12]"/g), 2);
   assert.equal(count(html, /data-view-component="[01]"/g), 2);
-  assert.equal(count(html, /class="mb-incident-card__edit"/g), 4);
+  assert.equal(count(html, /class="mb-incident-card__edit"/g), 5, "2× Copy, 2× View, the bar's Copy selected");
   assert.equal(count(html, /data-edit-guide-admonition/g), 0);
+  assert.equal(count(html, /data-delete-component/g), 0, 'no Delete on a view-only card');
   assert.equal(count(html, /class="mb-component-row" data-component-uuid="U-[12]"/g), 2);
+  assert.equal(count(html, /data-select-row/g), 2, 'each row keeps its checkbox (Copy selected works live)');
+  assert.equal(count(html, /class="mb-list-bar"/g), 1);
+  assert.ok(html.includes('data-copy-selected'));
+  assert.ok(!html.includes('data-delete-selected'), 'the bar has no Delete selected on a view-only list');
   assert.equal(count(html, /data-card-expand/g), 2, 'Show more survives');
 });
 
@@ -64,14 +69,29 @@ await test('view-only renderComponents: an empty list keeps the insert tile, dis
   assert.ok(!list.innerHTML.includes('data-insert-component-at'));
 });
 
-await test('editable renderComponents output is unchanged', () => {
+await test('editable renderComponents: insert triggers, rails, Copy · Edit · Delete per card, checkbox per row, and the full selection bar', () => {
   const list = fakeList(false);
   renderComponents(list, TWO);
   const html = list.innerHTML;
   assert.equal(count(html, /data-insert-component-at="[012]"/g), 3);
   assert.equal(count(html, /mb-component-rail"/g), 2);
   assert.equal(count(html, /data-edit-guide-admonition="U-[12]"/g), 2);
+  assert.equal(count(html, /class="mb-incident-card__edit --danger" data-delete-component="U-[12]"/g), 2);
+  assert.equal(count(html, /data-select-row/g), 2);
+  assert.ok(html.indexOf('class="mb-list-bar"') < html.indexOf('data-insert-component-at="0"'), 'the bar comes first');
+  assert.ok(html.includes('data-copy-selected hidden'), 'actions start hidden; the painter reveals them');
+  assert.ok(html.includes('data-delete-selected hidden'));
   assert.ok(!html.includes('data-view-component'));
+  // Foot order on an admonition card: Copy, Edit, Delete.
+  const foot = html.slice(html.indexOf('data-copy-component-md="U-1"'));
+  assert.ok(foot.indexOf('data-edit-guide-admonition="U-1"') < foot.indexOf('data-delete-component="U-1"'));
+});
+
+await test('renderComponents: an empty editable list is just the insert tile — no bar', () => {
+  const list = fakeList(false);
+  renderComponents(list, []);
+  assert.ok(list.innerHTML.startsWith('<button type="button" class="mb-insert-component__empty"'));
+  assert.ok(!list.innerHTML.includes('mb-list-bar'));
 });
 
 function moveClick(formEl) {

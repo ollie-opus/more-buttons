@@ -17,8 +17,8 @@ import { ensureCodeBlockUUIDs } from './mdCodeBlocks.js';
 import { ensureNavLinksUUIDs } from './navLinks.js';
 import { GUIDE_ADMONITION_TYPES_RE, ADMONITION_TYPE_LABELS, splitTitleMeta, stripInlineAtoms } from './admonitions.js';
 import { setRteDisabled, paintInlineAtoms, upgradeTextarea, loadLabelPalette } from './richTextEditor.js';
-import { escapeHtml, titleWithLabelsHtml, cardBodyBlock, applyCardClamps, railRowHtml, insertSpacerHtml } from './cardRenderer.js';
-import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
+import { escapeHtml, titleWithLabelsHtml, cardBodyBlock, applyCardClamps, railRowHtml, insertSpacerHtml, listSelectionBarHtml } from './cardRenderer.js';
+import { listSelectionOf, paintListSelection, listHeadSlot } from './listSelection.js';
 import { paintMediaFields, mediaDimFields, mediaFormatPillHtml } from './captureComponent.js';
 import { renderGuideSectionTree, liveLinkHtml, guideStatusPillHtml, writeGuideDraft, draftPathOf, renderComponents, onComponentEditorClick, setOpenComponentEditor, flashButtonLabel, renderPageSettingsNode, parentOptionsForSection, pageSettingsDimFields, attachPageSettingsWidgets } from './guides.js';
 // Leaf editors: their shared paint functions build the same fields over the
@@ -66,10 +66,10 @@ function markViewOnly(formEl, { uuid, kind, file }) {
 // disabled), selects / pills disabled, rich text editors read-only with their
 // toolbar kept (format buttons off, Rich | Markdown still switchable), plain
 // textareas (diagram / code source) read-only. The view's own controls (Copy,
-// View, tab strip, Show more) are buttons, untouched.
+// View, tab strip, Show more, the lists' selection checkboxes) stay live.
 function freezeFields(root) {
   root.querySelectorAll('input[type="text"], input[type="number"], textarea:not([data-richtext])').forEach(i => { i.readOnly = true; });
-  root.querySelectorAll('select, input[type="radio"], input[type="checkbox"]').forEach(i => { i.disabled = true; });
+  root.querySelectorAll('select, input[type="radio"], input[type="checkbox"]:not([data-select-row]):not([data-select-all])').forEach(i => { i.disabled = true; });
   root.querySelectorAll('textarea[data-richtext]').forEach(ta => setRteDisabled(ta, true, { readOnly: true }));
 }
 
@@ -379,33 +379,28 @@ function gridCellCardHtml(c, i) {
 }
 
 // The draft grid's vertical cell list (gridEditor renderCellList): an insert
-// rule before every card and after the last, each card on the shared rail.
+// rule before every card and after the last, each card on the shared checkbox
+// + rail (rail inert). The selection bar (Copy only) is mounted by the caller
+// into the Cells group's section head.
 export function gridCellListHtml(cells) {
   const last = cells.length - 1;
   const parts = [];
   cells.forEach((c, i) => {
     parts.push(insertSpacerHtml());
-    parts.push(railRowHtml({ rowAttrs: `data-grid-cell="${i}"`, isFirst: i === 0, isLast: i === last, moveAttr: 'data-grid-move-cell', cardHtml: gridCellCardHtml(c, i), disabled: true }));
+    parts.push(railRowHtml({ rowAttrs: `data-grid-cell="${i}"`, isFirst: i === 0, isLast: i === last, moveAttr: 'data-grid-move-cell', cardHtml: gridCellCardHtml(c, i), disabled: true, selectable: true }));
   });
   parts.push(insertSpacerHtml());
   return parts.join('');
 }
 
-// Mirrors gridEditor's copyGridCell (plain click = this cell, Shift = toggle
-// and copy the selection in order) but from the in-memory model, never a read.
-async function copyLiveGridCell(host, model, i, btn, multi) {
+// Mirrors gridEditor's copyGridCells (a card's Copy = that cell; the bar's Copy
+// selected = the checked cells in order) but from the in-memory model, never a read.
+async function copyLiveGridCells(model, uuids, btn, doneLabel = 'Copied ✓') {
   try {
-    const order = model.cells.map(c => c.uuid);
-    const uuid = order[i];
-    if (!uuid) throw new Error('cell not found');
-    setShiftHeld(multi);
-    const sel = copySelectionOf(host);
-    if (multi) sel.toggle(uuid); else sel.clear();
-    let uuids = multi ? sel.ordered(order) : [uuid];
-    if (!uuids.length) uuids = [uuid];
-    sel.paint(host, order);
-    await navigator.clipboard.writeText(liveGridCellsText(model.flavor, uuids.map(u => model.cells.find(c => c.uuid === u))));
-    if (!multi) flashButtonLabel(btn, 'Copied ✓');
+    const cells = uuids.map(u => model.cells.find(c => c.uuid === u));
+    if (!cells.length || cells.some(c => !c)) throw new Error('cell not found');
+    await navigator.clipboard.writeText(liveGridCellsText(model.flavor, cells));
+    flashButtonLabel(btn, doneLabel);
   } catch (err) {
     console.warn('[MB] copy grid cell failed:', err);
     flashButtonLabel(btn, 'Copy failed');
@@ -600,12 +595,38 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
     host.innerHTML = gridBodyHtml(model.flavor);
     const cellsEl = host.querySelector('[data-view-grid-cells]');
     cellsEl.innerHTML = model.cells.length ? gridCellListHtml(model.cells) : '<p class="more-buttons-description">No cells.</p>';
+    const cellsBar = model.cells.length ? listSelectionBarHtml({ canDelete: false }) : '';
+    const cellsSlot = listHeadSlot(cellsEl);
+    if (cellsSlot) cellsSlot.innerHTML = cellsBar; else cellsEl.insertAdjacentHTML('afterbegin', cellsBar);
     paintInlineAtoms(cellsEl);
     applyCardClamps(cellsEl);
-    paintCopySelection(cellsEl, model.cells.map(c => c.uuid));
+    const cellOrder = () => model.cells.map(c => c.uuid);
+    paintListSelection(cellsEl, cellOrder());
     formEl.addEventListener('click', e => {
       const copy = e.target.closest('[data-copy-grid-cell]');
-      if (copy) { copyLiveGridCell(cellsEl, model, Number(copy.dataset.copyGridCell), copy, e.shiftKey); return; }
+      if (copy) { copyLiveGridCells(model, [model.cells[Number(copy.dataset.copyGridCell)]?.uuid], copy); return; }
+      // Selection bar + row checkboxes (listSelection.js) — this screen has no
+      // open component editor, so it paints its own list.
+      const selectRow = e.target.closest('[data-select-row]');
+      if (selectRow) {
+        const i = Number(selectRow.closest('[data-grid-cell]')?.dataset.gridCell ?? -1);
+        listSelectionOf(cellsEl).set(model.cells[i]?.uuid, selectRow.checked);
+        paintListSelection(cellsEl, cellOrder());
+        return;
+      }
+      const selectAll = e.target.closest('[data-select-all]');
+      if (selectAll) {
+        const sel = listSelectionOf(cellsEl);
+        if (selectAll.checked) cellOrder().forEach(u => sel.add(u)); else sel.clear();
+        paintListSelection(cellsEl, cellOrder());
+        return;
+      }
+      const copySelected = e.target.closest('[data-copy-selected]');
+      if (copySelected) {
+        const uuids = listSelectionOf(cellsEl).ordered(cellOrder());
+        if (uuids.length) copyLiveGridCells(model, uuids, copySelected, `Copied ${uuids.length} ✓`);
+        return;
+      }
       if (openChildView(e, file, path, label)) return;
       onComponentEditorClick(e); // Show more on cell descriptions
     });

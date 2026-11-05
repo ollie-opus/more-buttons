@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "More Buttons",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "More buttons and automations!",
   "minimum_chrome_version": "138",
   "permissions": ["storage", "activeTab", "tabs", "debugger"],
@@ -41,7 +41,7 @@
         "scripts/navToml.js",
         "scripts/staleSuppression.js",
         "scripts/cardRenderer.js",
-        "scripts/copySelection.js",
+        "scripts/listSelection.js",
         "scripts/systemStatus.js",
         "scripts/statusEvents.js",
         "scripts/systemUpdates.js",

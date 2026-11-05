@@ -42,16 +42,18 @@ import {
   readGridCellComponents, writeGridCellBody, gridCellExists,
   gridCellsMarkdown, parsePastedGridCells,
 } from './components.js';
-import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
+import { listSelectionOf, paintListSelection, listHeadSlot } from './listSelection.js';
+import { formLoading } from './loading.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
 import { getGridByUUID, buildGrid, replaceGridByUUID, deleteGridByUUID } from './grid.js';
 import {
   makeContainerHandler, spliceIntoContainer, renderComponents, onComponentEditorClick,
-  setOpenComponentEditor, beginChildNavigation, flashButtonLabel,
+  setOpenComponentEditor, beginChildNavigation, ensureContainerReady, flashButtonLabel,
 } from './guides.js';
 import { syncSurfaceFromTextarea, paintInlineAtoms } from './richTextEditor.js';
 import {
   cardBodyBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml,
+  listSelectionBarHtml, deleteButtonHtml,
 } from './cardRenderer.js';
 import { openPopupMenu } from './insertMenu.js';
 import { showFieldError } from './formValidation.js';
@@ -184,11 +186,12 @@ function enrichCellCounts(formEl, md) {
 const CELL_INSERT_ATTR = 'data-insert-cell-at';
 
 // One cell card: rich description preview (clamp + Show more), a component-count
-// meta, and Copy / Edit. Copy reads the cell from the file, so it is omitted in
-// create mode (the grid isn't in the file yet and its cells are empty anyway).
+// meta, and Copy / Edit / Delete. Copy reads the cell from the file and Delete
+// commits to it, so both are omitted in create mode (the grid isn't in the file
+// yet and its cells are empty anyway).
 function cellCard(formEl, c, i) {
   const n = c.nComponents ?? 0;
-  const canCopy = formEl.dataset.mode !== 'create';
+  const canCopy = inFile(formEl);
   return `
     <div class="mb-incident-card --teal">
       <div class="mb-incident-card__head">
@@ -199,20 +202,28 @@ function cellCard(formEl, c, i) {
         ${n ? `<span class="mb-incident-card__meta">${n} component${n === 1 ? '' : 's'}</span>` : ''}
         <span class="mb-incident-card__foot-actions">
           ${canCopy ? `<button type="button" class="mb-incident-card__edit" data-copy-grid-cell="${i}">Copy</button>` : ''}
-          <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>
+          <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>${canCopy ? deleteButtonHtml(`data-grid-delete-cell="${i}"`) : ''}
         </span>
       </div>
     </div>`;
 }
 
-// Render the vertical cell list: an insert bar before every card and after the
-// last, each card wrapped in the shared up/down rail. Same chrome as the
-// component list (renderComponents in guides.js).
+// True once the grid exists in the file (edit mode): Copy / Delete / the
+// selection bar all read or write the file, so create mode goes without them.
+function inFile(formEl) { return formEl.dataset.mode !== 'create'; }
+
+// Render the vertical cell list: the selection bar, then an insert bar before
+// every card and after the last, each card wrapped in the shared checkbox +
+// up/down rail. Same chrome as the component list (renderComponents in guides.js).
 function renderCellList(formEl) {
   const host = formEl.querySelector('[data-grid-cells]');
   const st = formEl._grid;
   if (!host || !st) return;
-  const parts = [];
+  const selectable = inFile(formEl);
+  const headSlot = listHeadSlot(host); // the "Cells" group's sticky section head
+  const barHtml = selectable && st.cells.length ? listSelectionBarHtml() : '';
+  if (headSlot) headSlot.innerHTML = barHtml;
+  const parts = headSlot || !barHtml ? [] : [barHtml];
   const last = st.cells.length - 1;
   st.cells.forEach((c, i) => {
     parts.push(insertTriggerHtml(i, { attr: CELL_INSERT_ATTR, label: '+ Insert cell' }));
@@ -222,15 +233,16 @@ function renderCellList(formEl) {
       isLast: i === last,
       moveAttr: 'data-grid-move-cell',
       cardHtml: cellCard(formEl, c, i),
+      selectable,
     }));
   });
   parts.push(insertTriggerHtml(st.cells.length, { attr: CELL_INSERT_ATTR, label: '+ Insert cell' }));
   host.innerHTML = parts.join('');
   paintInlineAtoms(host); // colour label pills + inline icons in the rich previews
   applyCardClamps(host);  // reveal Show more on previews that overflow the clamp
-  // Re-mark any Shift+click Copy selection (uuid-keyed, so it follows rail
-  // moves) and the Copy buttons' Shift labels.
-  paintCopySelection(host, st.cells.map(c => c.uuid));
+  // Re-check the list's selection (uuid-keyed, so it follows rail moves) and
+  // sync the bar's count + button states.
+  paintListSelection(host, st.cells.map(c => c.uuid));
 }
 
 function renderFlavor(formEl) {
@@ -299,36 +311,86 @@ function moveCell(formEl, i, dir) {
   formEl._refreshSaveState?.();
 }
 
-// Copy cell markdown (`<div … markdown>` blocks, spans stripped). A plain click
-// copies the clicked cell alone and clears any multi-selection; a Shift+click
-// (`multi`) toggles the cell in the list's selection and copies the WHOLE
-// selection in current on-screen order (see copySelection.js), falling back to
-// the clicked cell when the toggle empties it. Bodies are read from the file:
-// the parent never edits cell content, only flavor and order, and an unsaved
-// flavor only changes the `card` class, which paste ignores. Order comes from
-// state so an unsaved reorder still copies the cards you see.
-async function copyGridCell(formEl, i, btn, multi = false) {
+// Copy cells (`<div … markdown>` blocks, spans stripped) by uuid, in the order
+// given. Bodies are read from the file: the parent never edits cell content,
+// only flavor and order, and an unsaved flavor only changes the `card` class,
+// which paste ignores. Order comes from state so an unsaved reorder still
+// copies the cards you see.
+async function copyGridCells(formEl, uuids, btn, doneLabel = 'Copied ✓') {
   try {
     const st = formEl._grid;
-    const host = formEl.querySelector('[data-grid-cells]');
-    const order = st.cells.map(c => c.uuid);
-    const uuid = order[i];
-    if (!uuid) throw new Error('cell not found');
-    setShiftHeld(multi); // resync the label tracker from the click itself
-    const sel = copySelectionOf(host);
-    if (multi) sel.toggle(uuid); else sel.clear();
-    let uuids = multi ? sel.ordered(order) : [uuid];
-    if (!uuids.length) uuids = [uuid];
-    sel.paint(host, order); // before the await: instant feedback
+    if (!uuids.length || uuids.some(u => !u)) throw new Error('cell not found');
     const md = await readRepoText(formEl.dataset.containerFile);
     const grid = getGridByUUID(md, formEl.dataset.gridUuid);
     const cells = uuids.map(u => grid?.cells.find(c => c.uuid === u));
     if (cells.some(c => !c)) throw new Error('cell not found');
     await navigator.clipboard.writeText(gridCellsMarkdown(st.flavor, cells));
-    if (!multi) flashButtonLabel(btn, 'Copied ✓'); // multi: the painted label persists
+    flashButtonLabel(btn, doneLabel);
   } catch (err) {
     console.warn('[MB] copy grid cell failed:', err);
     flashButtonLabel(btn, 'Copy failed');
+  }
+}
+
+// The parent list's selection (listSelection.js), in current on-screen order.
+function cellListHost(formEl) { return formEl.querySelector('[data-grid-cells]'); }
+function selectedCellUuids(formEl) {
+  return listSelectionOf(cellListHost(formEl)).ordered(formEl._grid.cells.map(c => c.uuid));
+}
+function paintCellSelection(formEl) {
+  paintListSelection(cellListHost(formEl), formEl._grid.cells.map(c => c.uuid));
+}
+
+// Parent list → a card's Delete / the bar's Delete selected: confirm (native
+// dialog, like the child form's Delete cell), remove the cells from the grid as
+// ONE commit and refresh the list in place. A grid keeps at least one cell. The
+// save-gate runs first so an unsaved flavor / reorder isn't lost to the re-read.
+async function deleteGridCells(formEl, uuids) {
+  const st = formEl._grid;
+  const gridUuid = formEl.dataset.gridUuid;
+  const file = formEl.dataset.containerFile;
+  if (!st || !gridUuid || !file || !uuids.length) return;
+  const idx = uuids.map(u => st.cells.findIndex(c => c.uuid === u)).filter(i => i >= 0).sort((a, b) => a - b);
+  if (!idx.length) return;
+  if (st.cells.length - idx.length < 1) {
+    alert('A grid needs at least one cell — delete the whole grid instead.');
+    return;
+  }
+  const ready = await ensureContainerReady(formEl);
+  if (!ready) return;
+  const msg = idx.length === 1
+    ? `Delete cell ${idx[0] + 1}? Its text and components are removed from the grid.`
+    : `Delete cells ${idx.map(i => i + 1).join(', ')}? Their text and components are removed from the grid.`;
+  if (!confirm(msg)) return;
+  const gone = new Set(uuids);
+  formLoading.show();
+  try {
+    let after = null;
+    await githubFetchAndPushFile(file, () => {}, md => {
+      const grid = getGridByUUID(md, gridUuid);
+      if (!grid) throw new Error('This grid no longer exists.');
+      const cells = grid.cells.filter(c => !gone.has(c.uuid));
+      if (cells.length === grid.cells.length) throw new Error(idx.length === 1 ? 'This cell no longer exists.' : 'These cells no longer exist.');
+      if (!cells.length) throw new Error('A grid needs at least one cell.');
+      after = { flavor: grid.flavor, cells };
+      return replaceGridByUUID(md, gridUuid, gridWithCells(grid, cells));
+    }, { commit: ({ before }) => componentCommit('Edited', 'Grid', before, gridUuid) });
+    if (after) {
+      st.cells = cellsFromGrid(after);
+      st.flavor = after.flavor;
+      formEl.dataset.editUuid = st.cells[0]?.uuid ?? '';
+      const sel = listSelectionOf(cellListHost(formEl));
+      gone.forEach(u => sel.delete(u));
+      renderCellList(formEl);
+      renderFlavor(formEl);
+      syncGridState(formEl);
+      await seedStorage(st.flavor, st.cells);
+      resetDirtyBaseline(formEl);
+    }
+  } catch (e) {
+    alert('Failed to delete: ' + e.message);
+  } finally {
+    formLoading.dismiss();
   }
 }
 
@@ -343,8 +405,9 @@ function setFlavor(formEl, flavor) {
 
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
-// Parent: flavor toggle, rail reorder, Copy / Edit on a card, and the insert bar
-// (a two-item menu: Add cell / Paste cell markdown — both via the save-gate).
+// Parent: flavor toggle, rail reorder, Copy / Edit / Delete on a card, the
+// selection bar (Copy selected / Delete selected), and the insert bar (a two-item
+// menu: Add cell / Paste cell markdown — both via the save-gate).
 function wireGridEditor(formEl) {
   formEl.addEventListener('change', e => {
     if (e.target.name === 'gridFlavor') setFlavor(formEl, e.target.value);
@@ -363,7 +426,34 @@ function wireGridEditor(formEl) {
     }
 
     const copyBtn = e.target.closest('[data-copy-grid-cell]');
-    if (copyBtn) { copyGridCell(formEl, parseInt(copyBtn.dataset.copyGridCell, 10), copyBtn, e.shiftKey); return; }
+    if (copyBtn) { copyGridCells(formEl, [formEl._grid.cells[parseInt(copyBtn.dataset.copyGridCell, 10)]?.uuid], copyBtn); return; }
+
+    // Selection bar + row checkboxes (listSelection.js); a checkbox's `checked`
+    // already reflects the click when its click event is delegated.
+    const selectRow = e.target.closest('[data-select-row]');
+    if (selectRow) {
+      const i = parseInt(selectRow.closest('[data-grid-cell]')?.dataset.gridCell ?? '-1', 10);
+      listSelectionOf(cellListHost(formEl)).set(formEl._grid.cells[i]?.uuid, selectRow.checked);
+      paintCellSelection(formEl);
+      return;
+    }
+    const selectAll = e.target.closest('[data-select-all]');
+    if (selectAll) {
+      const sel = listSelectionOf(cellListHost(formEl));
+      if (selectAll.checked) formEl._grid.cells.forEach(c => sel.add(c.uuid)); else sel.clear();
+      paintCellSelection(formEl);
+      return;
+    }
+    const copySelected = e.target.closest('[data-copy-selected]');
+    if (copySelected) {
+      const uuids = selectedCellUuids(formEl);
+      if (uuids.length) copyGridCells(formEl, uuids, copySelected, `Copied ${uuids.length} ✓`);
+      return;
+    }
+    const deleteSelected = e.target.closest('[data-delete-selected]');
+    if (deleteSelected) { deleteGridCells(formEl, selectedCellUuids(formEl)); return; }
+    const deleteBtn = e.target.closest('[data-grid-delete-cell]');
+    if (deleteBtn) { deleteGridCells(formEl, [formEl._grid.cells[parseInt(deleteBtn.dataset.gridDeleteCell, 10)]?.uuid].filter(Boolean)); return; }
 
     const editBtn = e.target.closest('[data-grid-edit-cell]');
     if (editBtn) {

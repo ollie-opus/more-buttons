@@ -138,8 +138,10 @@
 }
 
 .more-buttons-overlay-content {
+  --mb-overlay-pad-top: 18px;
+  --mb-overlay-pad-x: 20px;
   background: var(--mb-bg);
-  padding: 18px 20px 20px;
+  padding: var(--mb-overlay-pad-top) var(--mb-overlay-pad-x) 20px;
   border: 1px solid var(--mb-border);
   border-radius: 12px;
   width: 100%;
@@ -237,15 +239,32 @@
 }
 .more-buttons-icon:not(:has(> svg)) { visibility: hidden; }
 
-/* ── Navigation bar (back/forward + breadcrumb) ───────────────────────────── */
+/* ── Navigation bar (back/forward + breadcrumb) ─────────────────────────────
+   A header band flush with the overlay's edges (negative margins eat the
+   overlay padding; the rounded corners clip it) on the second neutral layer,
+   closed by a hairline. Equal 14px above and below the 30px control row (the
+   same 58px the bar took inside the tile's padding) — the geometry
+   .mb-editlog__head mirrors so the drawer's Close and rule line up with the
+   navbar's.
+   The scrolling <form> starts right under the rule. The 14px that spaces the
+   first field is a flex spacer (::before), NOT padding on the form: Chrome
+   insets sticky positioning by the scroll container's own padding, so padding
+   here would park the list section heads 14px under the rule instead of flush
+   against it. */
 
 .more-buttons-navbar {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 0 14px 0;
-  padding-bottom: 10px;
+  margin: calc(-1 * var(--mb-overlay-pad-top)) calc(-1 * var(--mb-overlay-pad-x)) 0;
+  padding: 14px calc(var(--mb-overlay-pad-x) - 6px);
+  background: var(--mb-bg-subtle);
   border-bottom: 1px solid var(--mb-border-subtle);
+  flex-shrink: 0;
+}
+.more-buttons-navbar + form::before {
+  content: "";
+  flex: 0 0 14px;
 }
 
 .more-buttons-nav-arrows {
@@ -1684,9 +1703,10 @@ button.more-buttons-crumb:hover {
 .mb-card-expand[hidden] { display: none; }
 .mb-incident-card__foot {
   display: flex;
+  flex-wrap: wrap; /* meta + Copy · Edit · Delete may not fit a narrow column */
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   margin-top: 2px;
 }
 .mb-incident-card__foot.--end {
@@ -3027,6 +3047,8 @@ html.mb-annotate-mode .mb-capture-bar [data-bar-annotate-colour] {
 
 @media (max-width: 600px) {
   .more-buttons-overlay-content {
+    --mb-overlay-pad-top: 16px;
+    --mb-overlay-pad-x: 16px;
     padding: 16px;
   }
   .more-buttons-form-group {
@@ -4454,9 +4476,80 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 
 /* Component reorder rail (Plan 2) — vertical up/down arrows on each card's left edge. */
 .mb-component-row { display: flex; align-items: stretch; gap: 6px; }
-.mb-component-row > .mb-incident-card { flex: 1 1 auto; margin-bottom: 0; }
-/* Shift+click multi-select Copy: selected cards take the info-accent outline (same as .mb-kb-node.--selected). */
+.mb-component-row > .mb-incident-card { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
+/* Checked rows take the info-accent outline (same as .mb-kb-node.--selected), so a
+   long list shows what is picked without reading each checkbox. */
 .mb-component-row.--selected > .mb-incident-card { outline: 2px solid var(--mb-acc-info); outline-offset: 2px; }
+
+/* ── List selection (listSelection.js) ─────────────────────────────────────────
+   A checkbox column left of the rail, centred on the card, and a section head
+   for the list's form group: the group label ("Components" / "Cells") in the
+   label column, the selection bar in the list column — so the bar's box and
+   the rows' boxes share one left edge. The head spans both grid columns and
+   sticks to the top of the scrolling form, flush under the navbar's rule (the
+   form carries no top padding: sticky is inset by it); the rest of the
+   group's children stay in the list column. `--stuck` (set by an
+   IntersectionObserver in listHeadSlot) adds the hairline + shadow only while
+   content is sliding underneath. Interim look — the forms UI overhaul draft
+   (2026-11-05) is to replace this section head. */
+.more-buttons-form-group > .mb-list-head {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  position: sticky;
+  top: -1px;               /* the stuck-detection trick: 1px past the scrollport edge */
+  z-index: 3;              /* over cards and their outlines, under popups */
+  min-height: 36px;
+  margin: 0 0 2px;
+  padding: 1px 0 4px;
+  background: var(--mb-bg);
+  box-shadow: 0 1px 0 transparent, 0 8px 12px -10px transparent;
+  transition: box-shadow 0.15s ease-out;
+}
+.more-buttons-form-group > .mb-list-head.--stuck {
+  box-shadow: 0 1px 0 var(--mb-border-subtle), 0 8px 12px -10px rgba(15, 23, 42, 0.35);
+}
+.more-buttons-form-group > .mb-list-head ~ * { grid-column: 2; }
+/* Narrow overlays stack the group's label over its field (see the responsive
+   block): the head follows suit. Lives here, after the rules above, so it wins
+   on source order at equal specificity. */
+@media (max-width: 600px) {
+  .more-buttons-form-group > .mb-list-head { grid-template-columns: 1fr; gap: 4px; }
+  .more-buttons-form-group > .mb-list-head ~ * { grid-column: 1; }
+}
+.mb-list-head > .more-buttons-label { align-self: center; }
+.mb-list-head__bar { min-width: 0; }
+.mb-list-head__bar:empty { min-height: 28px; }
+.mb-component-select { display: flex; align-items: center; flex: 0 0 auto; }
+.mb-component-select__box,
+.mb-list-bar__all input {
+  width: 16px; height: 16px; margin: 0; flex: 0 0 auto;
+  accent-color: var(--mb-acc-info);
+  cursor: pointer;
+}
+/* One left-aligned row: the select-all box + summary, then (only while
+   something is picked) Copy / Delete for the selection. Also the first child
+   of a list that has no form group to host a head. */
+.mb-list-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  min-height: 28px;
+}
+.mb-list-bar__all {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--mb-text-label); cursor: pointer; user-select: none;
+}
+.mb-list-bar__all:hover { color: var(--mb-text); }
+.mb-list-bar__actions { display: flex; align-items: center; gap: 8px; }
+.mb-list-bar__actions:not(:has(> :not([hidden]))) { display: none; }
+/* Outside a card the ghost buttons have no card accent to borrow: slate ink. */
+.mb-list-bar .mb-incident-card__edit { --mb-accent: var(--mb-acc-default); --mb-card-edit-fg-hover: var(--mb-acc-on); }
+.mb-list-bar .mb-incident-card__edit[hidden] { display: none; }
+/* Destructive ghost button (a card's Delete, the bar's Delete selected): the red
+   every other Delete in these forms uses, filling on hover like its siblings. */
+.mb-incident-card__edit.--danger { --mb-accent: var(--mb-acc-danger); --mb-card-edit-fg-hover: var(--mb-acc-on); }
 .mb-component-rail { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 0 0 auto; }
 .mb-component-rail__btn {
   width: 28px; height: 28px; padding: 0; line-height: 1;
@@ -4650,16 +4743,18 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   .mb-editlog-drawer { animation: none; }
 }
 
-/* Header mirrors the navbar exactly: the tile's 18px/20px padding, a 30px
-   control row, 10px to the hairline, so the drawer's Close sits on the same
-   line and x as the navbar's Close and the two rules meet. */
+/* Header mirrors the navbar exactly: 14px above and below a 30px control row,
+   the tile's 20px side padding, on the same neutral layer, so the drawer's
+   Close sits on the same line and x as the navbar's Close and the two bands
+   and rules meet. */
 .mb-editlog__head {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
   min-height: 30px;
-  padding: 18px 20px 10px 20px;
+  padding: 14px 20px;
+  background: var(--mb-bg-subtle);
   border-bottom: 1px solid var(--mb-border-subtle);
   color: var(--mb-text);
 }

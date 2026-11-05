@@ -41,9 +41,9 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
-import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, parsePastedComponents, cardPreviewModel } from './components.js';
-import { copySelectionOf, paintCopySelection, setShiftHeld } from './copySelection.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, listSelectionBarHtml, deleteButtonHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
+import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, deleteConfirmMessage, parsePastedComponents, cardPreviewModel } from './components.js';
+import { listSelectionOf, paintListSelection, listHeadSlot } from './listSelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
 import { readFrontmatterIcon, readFrontmatterHide, readFrontmatterTags, splitTagList, writeFrontmatterSearchExclude, applyPageSettingsFrontmatter } from './frontmatter.js';
@@ -1357,6 +1357,7 @@ function captureComponentCardFor(cap) {
     thumbSrc: assetCdnUrl('docs/assets/' + cap.lightFilename),
     btnAttr: `data-edit-component="${escapeHtml(cap.uuid ?? '')}"`,
     copyAttr: cap.uuid ? `data-copy-component-md="${escapeHtml(cap.uuid)}"` : '',
+    deleteAttr: cap.uuid ? `data-delete-component="${escapeHtml(cap.uuid)}"` : '',
     ext: fileExtOf(cap.lightFilename),
   });
 }
@@ -1366,6 +1367,7 @@ function videoComponentCardFor(vid) {
     thumbSrc: assetCdnUrl('docs/assets/' + vid.lightFilename),
     btnAttr: `data-edit-video-component="${escapeHtml(vid.uuid ?? '')}"`,
     copyAttr: vid.uuid ? `data-copy-component-md="${escapeHtml(vid.uuid)}"` : '',
+    deleteAttr: vid.uuid ? `data-delete-component="${escapeHtml(vid.uuid)}"` : '',
     ext: fileExtOf(vid.lightFilename),
   });
 }
@@ -1375,6 +1377,7 @@ function imageComponentCardFor(img) {
     thumbSrc: assetCdnUrl('docs/assets/' + img.filename),
     btnAttr: `data-edit-image-component="${escapeHtml(img.uuid ?? '')}"`,
     copyAttr: img.uuid ? `data-copy-component-md="${escapeHtml(img.uuid)}"` : '',
+    deleteAttr: img.uuid ? `data-delete-component="${escapeHtml(img.uuid)}"` : '',
     ext: fileExtOf(img.filename),
   });
 }
@@ -1390,6 +1393,7 @@ function buttonComponentCardFor(btn) {
     onclick: btn.onclick,
     btnAttr: `data-edit-button-component="${escapeHtml(btn.uuid ?? '')}"`,
     copyAttr: btn.uuid ? `data-copy-component-md="${escapeHtml(btn.uuid)}"` : '',
+    deleteAttr: btn.uuid ? `data-delete-component="${escapeHtml(btn.uuid)}"` : '',
   });
 }
 
@@ -1398,6 +1402,7 @@ function navLinksComponentCardFor(nav) {
     path: nav.tag != null ? `${nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${nav.tag}` : nav.path,
     btnAttr: `data-edit-nav-links-component="${escapeHtml(nav.uuid ?? '')}"`,
     copyAttr: nav.uuid ? `data-copy-component-md="${escapeHtml(nav.uuid)}"` : '',
+    deleteAttr: nav.uuid ? `data-delete-component="${escapeHtml(nav.uuid)}"` : '',
   });
 }
 
@@ -1405,6 +1410,7 @@ function diagramComponentCardFor(dia) {
   return diagramComponentCard({
     btnAttr: `data-edit-diagram-component="${escapeHtml(dia.uuid ?? '')}"`,
     copyAttr: dia.uuid ? `data-copy-component-md="${escapeHtml(dia.uuid)}"` : '',
+    deleteAttr: dia.uuid ? `data-delete-component="${escapeHtml(dia.uuid)}"` : '',
   });
 }
 
@@ -1414,6 +1420,7 @@ function codeBlockComponentCardFor(cb) {
     language: cb.language,
     btnAttr: `data-edit-codeblock-component="${escapeHtml(cb.uuid ?? '')}"`,
     copyAttr: cb.uuid ? `data-copy-component-md="${escapeHtml(cb.uuid)}"` : '',
+    deleteAttr: cb.uuid ? `data-delete-component="${escapeHtml(cb.uuid)}"` : '',
   });
 }
 
@@ -1424,7 +1431,10 @@ function codeBlockComponentCardFor(cb) {
 // View-only lists (live guide screens) keep the draft list's shape — the
 // empty tile, the dashed insert rules and the reorder rail — with every
 // control inert; `insertHint` is the empty tile's label (why nothing can be
-// inserted here). Edit keys are never emitted on a view-only list.
+// inserted here). Edit and Delete keys are never emitted on a view-only list.
+// Every non-empty list gets the selection bar (select all · N selected ·
+// Copy · Delete) in its group's sticky section head and a checkbox per row;
+// view-only lists keep the checkboxes and Copy (listSelection.js).
 export const VIEW_ONLY_INSERT_HINT = 'Switch to draft to insert components';
 export function renderComponents(listEl, components, numberSteps = true, { viewOnly = !!listEl?.closest?.('form')?.hasAttribute?.('data-view-only'), insertHint = VIEW_ONLY_INSERT_HINT } = {}) {
   if (!listEl) return;
@@ -1432,13 +1442,19 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
   const orderField = listEl.closest('form')?.querySelector('[name="componentOrder"]');
   if (orderField) orderField.value = components.map(uuidOfComponent).join(',');
 
+  // The selection bar sits in the form group's sticky section head beside the
+  // "Components" label (listHeadSlot); a list without a group hosts it itself.
+  const headSlot = listHeadSlot(listEl);
+  const barHtml = components.length ? listSelectionBarHtml({ canDelete: !viewOnly }) : '';
+  if (headSlot) headSlot.innerHTML = barHtml;
+
   if (components.length === 0) {
     listEl.innerHTML = viewOnly
       ? `<button type="button" class="mb-insert-component__empty" disabled><span class="mb-adm-empty__icon">+</span> ${escapeHtml(insertHint)}</button>`
       : `<button type="button" class="mb-insert-component__empty" data-insert-component-at="0"><span class="mb-adm-empty__icon">+</span> Insert Component</button>`;
     return;
   }
-  const parts = [];
+  const parts = headSlot ? [] : [barHtml];
   let stepN = 0;
   const last = components.length - 1;
   components.forEach((c, i) => {
@@ -1476,9 +1492,9 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
   listEl.innerHTML = parts.join('');
   paintInlineAtoms(listEl); // colour label pills + inline icons in admonition card titles/bodies
   applyCardClamps(listEl); // reveal Show more on card bodies that overflow the clamp
-  // Re-mark any Shift+click Copy selection (uuid-keyed, so it survives rail
-  // moves and child-form round trips) and the Copy buttons' Shift labels.
-  paintCopySelection(listEl, components.map(uuidOfComponent));
+  // Re-check the list's selection (uuid-keyed, so it survives rail moves and
+  // child-form round trips) and sync the bar's count + button states.
+  paintListSelection(listEl, components.map(uuidOfComponent));
 }
 
 // View-only card: Copy is the only foot button kept; every kind with a live
@@ -1493,9 +1509,10 @@ function viewOnlyCard(c, card, i) {
     : stripped;
 }
 
-// Wraps a component card with a vertical up/down reorder rail on its left edge.
+// Wraps a component card with the selection checkbox and the vertical up/down
+// reorder rail on its left edge.
 function componentRow(uuid, isFirst, isLast, cardHtml, disabled = false) {
-  return railRowHtml({ rowAttrs: `data-component-uuid="${escapeHtml(uuid)}"`, isFirst, isLast, moveAttr: 'data-move-component', cardHtml, disabled });
+  return railRowHtml({ rowAttrs: `data-component-uuid="${escapeHtml(uuid)}"`, isFirst, isLast, moveAttr: 'data-move-component', cardHtml, disabled, selectable: true });
 }
 
 // ── The component save-gate ──────────────────────────────────────────────────
@@ -1531,7 +1548,7 @@ function containerFromForm(formEl) {
 
 // Ensure the form's container is persisted before navigating to a child.
 // Returns { container, formEl } or null (user cancelled / validation failed).
-async function ensureContainerReady(formEl) {
+export async function ensureContainerReady(formEl) {
   const needsSave = formEl.dataset.mode === 'create' || isFormDirty(formEl);
   if (!needsSave) return { container: containerFromForm(formEl), formEl };
   const noun = componentNoun(formEl);
@@ -1623,12 +1640,45 @@ export function onComponentEditorClick(e) {
 
   const copyBtn = e.target.closest('[data-copy-component-md]');
   if (copyBtn) {
-    copyComponentMarkdown(formEl, copyBtn.dataset.copyComponentMd, copyBtn, e.shiftKey);
+    copyComponentMarkdown(formEl, copyBtn.dataset.copyComponentMd, copyBtn);
     return;
   }
 
-  // View-only (live page) forms: Expand and Copy above are the only live controls.
+  // Selection bar + row checkboxes (listSelection.js). A checkbox's `checked`
+  // already reflects the click when its click event is delegated.
+  const selectRow = e.target.closest('[data-select-row]');
+  if (selectRow) {
+    selectComponentRow(formEl, selectRow);
+    return;
+  }
+
+  const selectAll = e.target.closest('[data-select-all]');
+  if (selectAll) {
+    selectAllComponents(formEl, selectAll.checked);
+    return;
+  }
+
+  const copySelected = e.target.closest('[data-copy-selected]');
+  if (copySelected) {
+    copySelectedComponents(formEl, copySelected);
+    return;
+  }
+
+  // View-only (live page) forms: Expand, Copy and the selection above are the
+  // only live controls.
   if (formEl.hasAttribute('data-view-only')) return;
+
+  const deleteSelected = e.target.closest('[data-delete-selected]');
+  if (deleteSelected) {
+    deleteComponentsFromEditor(formEl, selectedComponentUuids(formEl));
+    return;
+  }
+
+  const deleteOne = e.target.closest('[data-delete-component]');
+  if (deleteOne) {
+    deleteComponentsFromEditor(formEl, [deleteOne.dataset.deleteComponent]);
+    return;
+  }
 
   const moveBtn = e.target.closest('[data-move-component]');
   if (moveBtn) {
@@ -1786,8 +1836,8 @@ async function openImageComponentEditor(container, uuid) {
 }
 
 // Briefly swap a button's label as click feedback ("Copied ✓" / "Copy failed").
-// Restores to `data-rest-label` when a painter owns the resting label (the
-// multi-copy Shift labels, see copySelection.js), else to the pre-flash text.
+// Restores to `data-rest-label` when a painter owns the resting label, else to
+// the pre-flash text.
 export function flashButtonLabel(btn, label) {
   if (!btn || btn.dataset.flashing) return;
   btn.dataset.flashing = '1';
@@ -1796,41 +1846,112 @@ export function flashButtonLabel(btn, label) {
   setTimeout(() => { delete btn.dataset.flashing; btn.textContent = btn.dataset.restLabel ?? original; }, 1500);
 }
 
-// Copy component markdown (uuid spans stripped) to the clipboard. A plain click
-// copies the clicked card alone and clears any multi-selection; a Shift+click
-// (`multi`) toggles the card in the list's selection and copies the WHOLE
-// selection in current document order (see copySelection.js). Toggling the last
-// card off falls back to the clicked card so the clipboard never goes empty.
-// Multi copies don't flash: the painted "Copied ✓" label persists on every
-// selected card until it is unselected or Shift is released.
-// Reads from the open editor's in-memory list (which already reflects unsaved
-// rail reorders); falls back to a fresh single-component repo read when the
-// click arrives outside the tracked editor (defensive — shouldn't happen).
-async function copyComponentMarkdown(formEl, uuid, btn, multi = false) {
+// The open component editor when it belongs to `formEl` (its in-memory list
+// already reflects unsaved rail reorders); null otherwise.
+function editorFor(formEl) {
+  const ed = openComponentEditor;
+  return (ed?.formEl === formEl && Array.isArray(ed.components)) ? ed : null;
+}
+
+function selectedComponentUuids(formEl) {
+  const ed = editorFor(formEl);
+  return ed ? listSelectionOf(ed.listEl).ordered(ed.components.map(uuidOfComponent)) : [];
+}
+
+function selectComponentRow(formEl, box) {
+  const ed = editorFor(formEl);
+  if (!ed) return;
+  listSelectionOf(ed.listEl).set(box.closest('[data-component-uuid]')?.dataset.componentUuid, box.checked);
+  paintListSelection(ed.listEl, ed.components.map(uuidOfComponent));
+}
+
+function selectAllComponents(formEl, on) {
+  const ed = editorFor(formEl);
+  if (!ed) return;
+  const sel = listSelectionOf(ed.listEl);
+  const order = ed.components.map(uuidOfComponent);
+  if (on) order.forEach(u => sel.add(u)); else sel.clear();
+  paintListSelection(ed.listEl, order);
+}
+
+// Copy one component's markdown (uuid spans stripped) to the clipboard. Reads
+// from the open editor's in-memory list; falls back to a fresh single-component
+// repo read when the click arrives outside the tracked editor (defensive —
+// shouldn't happen). Never touches the list's selection.
+async function copyComponentMarkdown(formEl, uuid, btn) {
   try {
-    const ed = (openComponentEditor?.formEl === formEl && Array.isArray(openComponentEditor.components))
-      ? openComponentEditor : null;
-    setShiftHeld(multi); // resync the label tracker from the click itself
-    let comps;
+    const ed = editorFor(formEl);
+    let comp;
     if (ed) {
-      const sel = copySelectionOf(ed.listEl);
-      const order = ed.components.map(uuidOfComponent);
-      if (multi) sel.toggle(uuid); else sel.clear();
-      let uuids = multi ? sel.ordered(order) : [uuid];
-      if (!uuids.length) uuids = [uuid];
-      sel.paint(ed.listEl, order); // before the await: instant feedback
-      comps = uuids.map(u => ed.components.find(c => uuidOfComponent(c) === u));
+      comp = ed.components.find(c => uuidOfComponent(c) === uuid);
     } else {
       const container = containerFromForm(formEl);
       const md = await readRepoText(container.file);
-      comps = [readContainerComponents(md, container).components.find(c => uuidOfComponent(c) === uuid)];
+      comp = readContainerComponents(md, container).components.find(c => uuidOfComponent(c) === uuid);
     }
-    if (!comps.length || comps.some(c => !c)) throw new Error('component not found');
-    await navigator.clipboard.writeText(componentsMarkdown(comps));
-    if (!multi) flashButtonLabel(btn, 'Copied ✓');
+    if (!comp) throw new Error('component not found');
+    await navigator.clipboard.writeText(componentsMarkdown([comp]));
+    flashButtonLabel(btn, 'Copied ✓');
   } catch (err) {
     console.warn('[MB] copy component markdown failed:', err);
     flashButtonLabel(btn, 'Copy failed');
+  }
+}
+
+// Bar → Copy selected: the checked components in current document order, as one
+// blank-line-joined payload the paste flows accept unchanged.
+async function copySelectedComponents(formEl, btn) {
+  const ed = editorFor(formEl);
+  if (!ed) return;
+  const uuids = selectedComponentUuids(formEl);
+  if (!uuids.length) return;
+  try {
+    const comps = uuids.map(u => ed.components.find(c => uuidOfComponent(c) === u));
+    if (comps.some(c => !c)) throw new Error('component not found');
+    await navigator.clipboard.writeText(componentsMarkdown(comps));
+    flashButtonLabel(btn, `Copied ${comps.length} ✓`);
+  } catch (err) {
+    console.warn('[MB] copy selected components failed:', err);
+    flashButtonLabel(btn, 'Copy failed');
+  }
+}
+
+// Card Delete / bar Delete selected: remove `uuids` from the open editor's
+// container as ONE commit through the container's `mutate` (the same path the
+// edit forms' Delete takes), after the same native confirm text those forms
+// use (deleteConfirmMessage). Runs the save-gate first, like a child
+// navigation: a dirty parent (an unsaved title, a pending rail reorder) is
+// saved before the commit, because mutate's re-render re-reads the file and
+// would otherwise drop that work silently. The loading veil covers the form
+// while the commit runs; the deleted uuids leave the selection.
+async function deleteComponentsFromEditor(formEl, uuids) {
+  const ed = editorFor(formEl);
+  if (!ed || !uuids.length) return;
+  const targets = uuids.map(u => ed.components.find(c => uuidOfComponent(c) === u)).filter(Boolean);
+  if (!targets.length) return;
+  const ready = await ensureContainerReady(formEl);
+  if (!ready) return;
+  if (!confirm(deleteConfirmMessage(targets))) return;
+  const handler = getComponentContainer(ready.container.kind);
+  if (typeof handler?.mutate !== 'function') { alert('Components cannot be deleted from this list.'); return; }
+  const gone = new Set(targets.map(uuidOfComponent));
+  const single = targets.length === 1 ? targets[0] : null;
+  formLoading.show();
+  try {
+    await handler.mutate(ready.container, components => {
+      const next = components.filter(c => !gone.has(uuidOfComponent(c)));
+      if (next.length === components.length) throw new Error(single ? 'This component no longer exists.' : 'These components no longer exist.');
+      return next;
+    }, undefined, ({ before }) => componentCommit('Deleted',
+      single ? componentKindLabel(single) : `${targets.length} components`,
+      before, single ? uuidOfComponent(single) : ready.container.uuid));
+    const listEl = (openComponentEditor?.formEl === ready.formEl ? openComponentEditor : ed).listEl;
+    const sel = listSelectionOf(listEl);
+    gone.forEach(u => sel.delete(u));
+  } catch (e) {
+    alert('Failed to delete: ' + e.message);
+  } finally {
+    formLoading.dismiss();
   }
 }
 
@@ -1855,7 +1976,7 @@ function admonitionCard(adm, stepNumber = null) {
       ${cardPreviewBlock(cardPreviewModel(adm.body, GUIDE_ADMONITION_TYPES_RE))}
       <div class="mb-incident-card__foot --end">
         ${adm.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(adm.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(adm.uuid ? `data-delete-component="${escapeHtml(adm.uuid)}"` : '')}
       </div>
     </div>`;
 }
@@ -1876,7 +1997,7 @@ function tabsComponentCard(grp) {
       ${titles ? `<p class="mb-incident-card__body">${escapeHtml(titles)}</p>` : ''}
       <div class="mb-incident-card__foot --end">
         ${grp.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(grp.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grp.uuid ? 'Edit' : 'Error'}</button>
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grp.uuid ? 'Edit' : 'Error'}</button>${deleteButtonHtml(grp.uuid ? `data-delete-component="${escapeHtml(grp.uuid)}"` : '')}
       </div>
     </div>`;
 }
@@ -1899,7 +2020,7 @@ function dataTableCard(tbl) {
       <p class="mb-incident-card__body">${escapeHtml(summary)}</p>
       <div class="mb-incident-card__foot --end">
         ${tbl.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(tbl.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${tbl.uuid ? 'Edit' : 'Error'}</button>
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${tbl.uuid ? 'Edit' : 'Error'}</button>${deleteButtonHtml(tbl.uuid ? `data-delete-component="${escapeHtml(tbl.uuid)}"` : '')}
       </div>
     </div>`;
 }
@@ -1922,7 +2043,7 @@ function gridCard(grid) {
       <p class="mb-incident-card__body">${escapeHtml(summary)}</p>
       <div class="mb-incident-card__foot --end">
         ${grid.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(grid.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grid.uuid ? 'Edit' : 'Error'}</button>
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grid.uuid ? 'Edit' : 'Error'}</button>${deleteButtonHtml(grid.uuid ? `data-delete-component="${escapeHtml(grid.uuid)}"` : '')}
       </div>
     </div>`;
 }
