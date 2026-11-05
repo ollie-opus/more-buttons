@@ -55,7 +55,7 @@ const FORM_LABELS = {
   systemUpdatesEntry: 'System Updates',
   systemStatusEntry: 'System Status',
   guideEntry: 'Guide',
-  editGuideSection: 'Edit Section',
+  editGuideSection: 'Edit section',
   editGuideAdmonition: 'Edit Admonition',
   editCaptureComponent: 'Edit Capture',
   editContentTabs: 'Edit Content Tabs',

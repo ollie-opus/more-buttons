@@ -1,21 +1,13 @@
 <form data-nav data-dirty-guard id="edit-guide-section-form" data-storage-key="moreButtonsEditGuideSection" data-width="90vw" data-height="90vh">
-  <h2 data-guide-section-heading>Edit section</h2>
+  <div class="mb-ident">
+    <input type="text" name="sectionTitle" class="mb-ident__title" required placeholder="Section title" aria-label="Title" />
+    <label class="more-buttons-radio-btn" title="Hide this title in the published guide (the section still appears)"><input type="checkbox" name="hideSectionTitle" /><span class="more-buttons-icon">eye-off</span>Hide title</label>
+    <span class="mb-ident__pills" data-guide-section-heading></span>
+  </div>
 
   <div class="more-buttons-form-group" data-section-parent-row>
     <label class="more-buttons-label">Section parent</label>
     <select name="sectionParent" data-section-parent-select></select>
-  </div>
-
-  <div class="more-buttons-form-group">
-    <label class="more-buttons-label">Title</label>
-    <div class="mb-title-row">
-      <input type="text" name="sectionTitle" required />
-      <label class="more-buttons-radio-btn" title="Hide this title in the published guide (the section still appears)">
-        <input type="checkbox" name="hideSectionTitle" />
-        <span class="more-buttons-icon">eye-off</span>
-        Hide title
-      </label>
-    </div>
   </div>
 
   <div class="more-buttons-form-group">

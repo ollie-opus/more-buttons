@@ -1062,13 +1062,10 @@ registerFormAction('openCreateGuideSection', async ({ parentUuid, file }) => {
   formEl.dataset.componentContainerKind = 'guide-section';
   formEl.dataset.containerFile = currentGuide.draftPath;
 
-  // Heading text.
+  // The title input is the heading (identity row); the slot only holds the pill.
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) {
-    heading.textContent = 'Add section';
-    heading.querySelector('.mb-kb-pills')?.remove();
-    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
-  }
+  if (heading) heading.innerHTML = guideStatusPillHtml('draft');
+  setCrumbLabel('Add section');
 
   // Hide Delete (lives in the moved form-actions) in create mode.
   formEl.parentElement?.querySelector('[data-delete-section-btn]')?.style.setProperty('display', 'none');
@@ -1120,16 +1117,14 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   formEl.dataset.containerFile = currentGuide.draftPath;
   formEl._componentSaver = () => saveSectionForComponent(formEl);
 
-  // Heading + visible controls based on level.
+  // Status pill + visible controls based on level. The title input is the
+  // heading (identity row); the slot only holds the pill.
   const treeMatch = buildSectionTree(draftMarkdown).sections.find(s => s.uuid === uuid);
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) {
-    heading.textContent = treeMatch ? `Edit ${treeMatch.label.toLowerCase()}` : 'Edit section';
-    heading.querySelector('.mb-kb-pills')?.remove();
-    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
-  }
+  if (heading) heading.innerHTML = guideStatusPillHtml('draft');
   // Breadcrumb shows the section's identity, e.g. "Section 1: Manager Steps".
   if (treeMatch?.visualLabel) setCrumbLabel(treeMatch.visualLabel);
+  else setCrumbLabel('Edit section');
 
   // Title sections: hide parent dropdown + Delete. The page icon now lives in
   // the separate Page settings form, not on the H1 section.
@@ -2068,12 +2063,9 @@ async function transitionSectionCreateToEdit(formEl, newUuid, level, title, desc
   const refreshed = await readRepoText(currentGuide.draftPath);
   const newTreeMatch = buildSectionTree(refreshed).sections.find(s => s.uuid === newUuid);
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  if (heading) {
-    heading.textContent = newTreeMatch ? `Edit ${newTreeMatch.label.toLowerCase()}` : 'Edit section';
-    heading.querySelector('.mb-kb-pills')?.remove();
-    heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('draft'));
-  }
+  if (heading) heading.innerHTML = guideStatusPillHtml('draft');
   if (newTreeMatch?.visualLabel) setCrumbLabel(newTreeMatch.visualLabel);
+  else setCrumbLabel('Edit section');
   populateParentDropdown(formEl, refreshed, newUuid, level);
   await chrome.storage.local.set({
     moreButtonsEditGuideSection: { sectionTitle: title, sectionDescription: description, sectionParent: parentUuid, hideSectionTitle: !!hideSectionTitle },

@@ -159,9 +159,9 @@ registerFormAction('openGuideSectionLiveView', async ({ file, index, label }) =>
   if (!formEl) return;
   markViewOnly(formEl, { uuid: model.uuid, kind: 'guide-section', file });
 
+  // The title input is the heading (identity row); the slot only holds the pill.
   const heading = formEl.querySelector('[data-guide-section-heading]');
-  heading.textContent = model.visualLabel;
-  heading.insertAdjacentHTML('beforeend', guideStatusPillHtml('live'));
+  if (heading) heading.innerHTML = guideStatusPillHtml('live');
   setCrumbLabel(model.visualLabel);
 
   // Section parent: the draft's dropdown, frozen on this section's parent.
