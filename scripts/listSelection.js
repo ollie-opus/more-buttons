@@ -9,16 +9,15 @@
 // rail move or a child-form round trip keeps the checks on the same cards.
 //
 // The paint drives three things from (selection, order): each row's checkbox
-// + `--selected` class, the tile head's select-all box (checked /
-// indeterminate), and the selection bar in the form's actions dock ("2 of 6
-// selected · Select all · Copy · Delete · ×"), which replaces the dock's
-// buttons (CSS, via `--selecting`) while anything is picked.
+// + `--selected` class, the tile header's select-all box (checked /
+// indeterminate), and the header's selecting state (`--selecting`): the count
+// ("2 of 6 selected") and the Copy / Delete buttons the header shows to the
+// right of Select all while anything is picked. The header is sticky under the
+// navbar; the paint also attaches the observer that flags it `--stuck`.
 
 const ROW_SEL = ':scope > .mb-component-row';
 const ROW_BOX_SEL = ':scope > .mb-component-select > [data-select-row]';
 const HEAD_SEL = ':scope > .mb-list-tile__head';
-const DOCK_SEL = ':scope > .more-buttons-form-actions';
-const BAR_SEL = ':scope > .mb-selection-bar';
 const COUNT_CLASS = 'mb-eyebrow-count';
 
 // The "· n" count after a list group's eyebrow label ("COMPONENTS · 6"). One
@@ -61,63 +60,46 @@ export function listSelectionOf(listEl) {
   return (listEl._listSel ??= createListSelection());
 }
 
-// The bar's count, against the list's total.
+// The header's count, against the list's total.
 export function selectionSummary(selected, total) {
   return `${selected} of ${total} selected`;
 }
 
-// The selection bar: count, Select all, Copy, Delete (unless `canDelete` is
-// off: view-only lists, a grid not yet in its file), and a clear (×) button.
-// Its controls are deliberately NOT `.more-buttons-button`: form.js lifts
-// every such button in the dock into an icon tile (syncDockTag).
-export function selectionBarHtml({ canDelete = true } = {}) {
-  return '<div class="mb-selection-bar">'
-    + '<span class="mb-selection-bar__count" data-select-summary></span>'
-    + '<button type="button" class="mb-selection-bar__btn" data-select-all-btn>Select all</button>'
-    + '<span class="mb-selection-bar__sep"></span>'
-    + '<button type="button" class="mb-selection-bar__btn" data-copy-selected title="Copy the selected items">Copy</button>'
-    + (canDelete ? '<button type="button" class="mb-selection-bar__btn --danger" data-delete-selected title="Delete the selected items">Delete</button>' : '')
-    + '<span class="mb-selection-bar__sep"></span>'
-    + '<button type="button" class="mb-selection-bar__btn --icon" data-clear-selection aria-label="Clear selection" title="Clear selection"><span class="more-buttons-icon">x</span></button>'
-    + '</div>';
-}
-
-// The actions dock of the form holding `listEl`: form.js relocates
-// `.more-buttons-form-actions` to be a direct child of the overlay content,
-// beside the form. Null for a list outside an overlay form.
-export function dockOf(listEl) {
-  return listEl.closest?.('form')?.parentElement?.querySelector?.(DOCK_SEL) ?? null;
-}
-
-// The dock's selection bar, created as its last child when missing. Missing
-// is normal: the live screens rebuild the dock's innerHTML after render, and
-// the first paint of a fresh form finds no bar either.
-function ensureSelectionBar(dock, canDelete) {
-  let bar = dock.querySelector(BAR_SEL);
-  if (!bar) {
-    dock.insertAdjacentHTML('beforeend', selectionBarHtml({ canDelete }));
-    bar = dock.querySelector(BAR_SEL);
-  }
-  return bar;
+// The tile header is `position: sticky; top: -1px`, so the observer (rooted on
+// the scrolling form) sees it leave full visibility the moment it glues under
+// the navbar: `--stuck` squares its top corners. A head peeking in at the
+// bottom of the viewport also reports < 1, so the top edge decides. One
+// observer per head element (a re-render makes a new head); none without
+// IntersectionObserver (Node tests).
+function watchListHeadStuck(head, listEl) {
+  if (head._stuckObs || typeof IntersectionObserver !== 'function') return;
+  const root = listEl.closest?.('form') ?? null;
+  head._stuckObs = new IntersectionObserver(([e]) => {
+    head.classList.toggle('--stuck', e.intersectionRatio < 1 && e.boundingClientRect.top <= (e.rootBounds?.top ?? 0));
+  }, { root, threshold: [1] });
+  head._stuckObs.observe(head);
 }
 
 // Escape while anything is picked clears the selection instead of closing the
 // overlay (form.js's key handler asks first). `content` is the overlay content
-// holding the relocated dock. True when a selection was cleared.
+// holding the form. True when a selection was cleared.
 export function clearSelectionIfSelecting(content) {
-  const clear = content?.querySelector?.(':scope > .more-buttons-form-actions.--selecting [data-clear-selection]');
-  if (!clear) return false;
-  clear.click();
+  const all = content?.querySelector?.('.mb-list-tile__head.--selecting [data-select-all]');
+  if (!all) return false;
+  // Clearing goes through the owner's own Select-all handler (it repaints from
+  // its list state). A click toggles a checkbox, so arm it checked first: the
+  // click lands unchecked, which the owners read as "clear".
+  all.checked = true;
+  all.click();
   return true;
 }
 
 // Called by the list renderers after every render and by the click handlers
 // after a change. Index-aligned: the renderers emit exactly one
-// `.mb-component-row` per item of the order array (the tile head and the
-// insert triggers are siblings, not rows). Works before any selection exists.
-// `canDelete` shapes the bar on creation (the owner knows whether its list
-// can delete). With nothing picked the bar node stays; CSS hides it.
-export function paintListSelection(listEl, orderUuids, sel = listEl._listSel, { canDelete = true } = {}) {
+// `.mb-component-row` per item of the order array (the tile header and the
+// insert triggers are siblings, not rows). Works before any selection exists
+// and on a list without a header (an empty list renders none).
+export function paintListSelection(listEl, orderUuids, sel = listEl._listSel) {
   const rows = listEl.querySelectorAll(ROW_SEL);
   let n = 0;
   rows.forEach((row, i) => {
@@ -128,16 +110,15 @@ export function paintListSelection(listEl, orderUuids, sel = listEl._listSel, { 
     if (box) box.checked = on;
   });
   const total = rows.length;
-  const all = listEl.querySelector(HEAD_SEL)?.querySelector('[data-select-all]');
+  const head = listEl.querySelector(HEAD_SEL);
+  if (!head) return;
+  const all = head.querySelector('[data-select-all]');
   if (all) {
     all.checked = n > 0 && n === total;
     all.indeterminate = n > 0 && n < total;
   }
-  const dock = dockOf(listEl);
-  if (!dock) return;
-  if (n > 0) {
-    const summary = ensureSelectionBar(dock, canDelete)?.querySelector('[data-select-summary]');
-    if (summary) summary.textContent = selectionSummary(n, total);
-  }
-  dock.classList.toggle('--selecting', n > 0);
+  const summary = head.querySelector('[data-select-summary]');
+  if (summary) summary.textContent = n > 0 ? selectionSummary(n, total) : '';
+  head.classList.toggle('--selecting', n > 0);
+  watchListHeadStuck(head, listEl);
 }

@@ -49,11 +49,17 @@ test('railRowHtml: selectable adds the checkbox column as the first child of the
   assert.ok(!railRowHtml({ rowAttrs: '', isFirst: true, isLast: true, moveAttr: 'm', cardHtml: '' }).includes('data-select-row'), 'off by default (Actions timeline)');
 });
 
-test('listTileHeadHtml: a select-all row only; actions live in the dock now', () => {
+test('listTileHeadHtml: the tile header — Select all, the count slot, Copy, and Delete unless canDelete is off', () => {
   const html = listTileHeadHtml();
   assert.ok(html.includes('class="mb-list-tile__head"'));
   assert.ok(html.includes('data-select-all'));
-  assert.ok(!html.includes('data-copy-selected') && !html.includes('data-delete-selected'));
+  const i = html.indexOf('data-select-all'), c = html.indexOf('data-select-summary'), cp = html.indexOf('data-copy-selected'), d = html.indexOf('data-delete-selected');
+  assert.ok(i > -1 && c > i && cp > c && d > cp, 'Select all · count · Copy · Delete, in that order');
+  assert.ok(html.includes('class="mb-list-tile__btn" data-copy-selected'));
+  assert.ok(html.includes('class="mb-list-tile__btn --danger" data-delete-selected'));
+  assert.ok(!html.includes('more-buttons-button'), 'never the dock-lifted button class');
+  const ro = listTileHeadHtml({ canDelete: false });
+  assert.ok(ro.includes('data-copy-selected') && !ro.includes('data-delete-selected'));
 });
 
 test('deleteButtonHtml: a red ghost button carrying the attribute, or nothing without one', () => {

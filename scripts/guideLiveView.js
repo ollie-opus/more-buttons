@@ -20,7 +20,7 @@ import { setRteDisabled, paintInlineAtoms, upgradeTextarea, loadLabelPalette } f
 import { escapeHtml, titleWithLabelsHtml, cardBodyBlock, applyCardClamps, railRowHtml, insertSpacerHtml, listTileHeadHtml } from './cardRenderer.js';
 import { listSelectionOf, paintListSelection, listCountBadge } from './listSelection.js';
 import { paintMediaFields, mediaDimFields, mediaFormatPillHtml } from './captureComponent.js';
-import { renderGuideSectionTree, liveLinkHtml, guideStatusPillHtml, writeGuideDraft, draftPathOf, renderComponents, onComponentEditorClick, wireSelectionBar, setOpenComponentEditor, flashButtonLabel, renderPageSettingsNode, parentOptionsForSection, pageSettingsDimFields, attachPageSettingsWidgets } from './guides.js';
+import { renderGuideSectionTree, liveLinkHtml, guideStatusPillHtml, writeGuideDraft, draftPathOf, renderComponents, onComponentEditorClick, setOpenComponentEditor, flashButtonLabel, renderPageSettingsNode, parentOptionsForSection, pageSettingsDimFields, attachPageSettingsWidgets } from './guides.js';
 // Leaf editors: their shared paint functions build the same fields over the
 // same templates; none of these is a write.
 import { paintDataTable } from './dataTablesEditor.js';
@@ -185,7 +185,6 @@ registerFormAction('openGuideSectionLiveView', async ({ file, index, label }) =>
     if (openChildView(e, file, [index], label)) return;
     onComponentEditorClick(e);
   });
-  wireSelectionBar(formEl);
 });
 
 // Dock Create draft delegate (dock buttons live outside the <form>).
@@ -557,7 +556,6 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
       if (openChildView(e, file, path, label)) return;
       onComponentEditorClick(e);
     });
-    wireSelectionBar(formEl);
     return;
   }
 
@@ -591,25 +589,24 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
       if (openChildView(e, file, [...path, activeTab], label)) return;
       onComponentEditorClick(e);
     });
-    wireSelectionBar(formEl);
     return;
   }
   if (model.kind === 'grid') {
     host.innerHTML = gridBodyHtml(model.flavor);
     const cellsEl = host.querySelector('[data-view-grid-cells]');
     cellsEl.innerHTML = model.cells.length ? gridCellListHtml(model.cells) : '<p class="more-buttons-description">No cells.</p>';
-    if (model.cells.length) cellsEl.insertAdjacentHTML('afterbegin', listTileHeadHtml());
+    if (model.cells.length) cellsEl.insertAdjacentHTML('afterbegin', listTileHeadHtml({ canDelete: false }));
     listCountBadge(cellsEl.closest('[data-list-row]'), model.cells.length);
     paintInlineAtoms(cellsEl);
     applyCardClamps(cellsEl);
     const cellOrder = () => model.cells.map(c => c.uuid);
-    const paintCells = () => paintListSelection(cellsEl, cellOrder(), undefined, { canDelete: false });
+    const paintCells = () => paintListSelection(cellsEl, cellOrder());
     const selectAllCells = on => { const sel = listSelectionOf(cellsEl); if (on) cellOrder().forEach(u => sel.add(u)); else sel.clear(); paintCells(); };
     paintCells();
-    // Delegated on the overlay content, not the form: the selection bar lives
-    // in the dock beside the form. This screen has no open component editor,
-    // so it paints its own list.
-    formEl.parentElement.addEventListener('click', e => {
+    // This screen has no open component editor, so it paints its own list
+    // (Copy from the header; no Delete on a live grid). On the form itself:
+    // onComponentEditorClick reads the form off e.currentTarget.
+    formEl.addEventListener('click', e => {
       const copy = e.target.closest('[data-copy-grid-cell]');
       if (copy) { copyLiveGridCells(model, [model.cells[Number(copy.dataset.copyGridCell)]?.uuid], copy); return; }
       const selectRow = e.target.closest('[data-select-row]');
@@ -621,8 +618,6 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
       }
       const selectAll = e.target.closest('[data-select-all]');
       if (selectAll) { selectAllCells(selectAll.checked); return; }
-      if (e.target.closest('[data-select-all-btn]')) { selectAllCells(true); return; }
-      if (e.target.closest('[data-clear-selection]')) { selectAllCells(false); return; }
       const copySelected = e.target.closest('[data-copy-selected]');
       if (copySelected) {
         const uuids = listSelectionOf(cellsEl).ordered(cellOrder());
@@ -639,7 +634,6 @@ registerFormAction('openComponentLiveView', async ({ file, path, label, tab }) =
     if (openChildView(e, file, path, label)) return;
     onComponentEditorClick(e);
   });
-  wireSelectionBar(formEl);
 });
 
 

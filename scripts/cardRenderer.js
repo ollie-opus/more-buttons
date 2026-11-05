@@ -363,9 +363,9 @@ const SELECT_COLUMN = `
  * box's checked / indeterminate state. The selection's actions (count, Copy,
  * Delete, clear) live in the form's actions dock, not here.
  */
-export function listTileHeadHtml() {
+export function listTileHeadHtml({ canDelete = true } = {}) {
   return `
-    <div class="mb-list-tile__head"><label class="mb-list-tile__all"><input type="checkbox" data-select-all aria-label="Select all" /><span>Select all</span></label></div>`;
+    <div class="mb-list-tile__head"><label class="mb-list-tile__all"><input type="checkbox" data-select-all aria-label="Select all" /><span>Select all</span></label><span class="mb-list-tile__count" data-select-summary></span><button type="button" class="mb-list-tile__btn" data-copy-selected title="Copy the selected items">Copy</button>${canDelete ? '<button type="button" class="mb-list-tile__btn --danger" data-delete-selected title="Delete the selected items">Delete</button>' : ''}</div>`;
 }
 
 /**

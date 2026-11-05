@@ -930,33 +930,6 @@ button.more-buttons-crumb:hover {
   backdrop-filter: blur(12px) saturate(1.4);
 }
 
-/* While anything in the form's list is selected the island swaps to the
-   selection bar (listSelection.js sets `--selecting` and builds the bar as the
-   dock's last child): the dock's buttons (and the KB bar's group, the live
-   dock's separators) hide, the bar shows. */
-.more-buttons-overlay-content > .more-buttons-form-actions.--selecting > .more-buttons-button,
-.more-buttons-overlay-content > .more-buttons-form-actions.--selecting > .mb-kb-actions,
-.more-buttons-overlay-content > .more-buttons-form-actions.--selecting > .mb-dock-sep { display: none; }
-.more-buttons-overlay-content > .more-buttons-form-actions:not(.--selecting) > .mb-selection-bar { display: none; }
-.mb-selection-bar { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.mb-selection-bar__count { font-size: 0.75rem; font-weight: 600; color: var(--mb-text); padding: 0 6px 0 8px; }
-.mb-selection-bar__sep { width: 1px; height: 22px; background: var(--mb-border-subtle); margin: 0 2px; }
-.mb-selection-bar__btn {
-  --mb-accent: var(--mb-acc-default);
-  border: 1px solid var(--mb-accent); color: var(--mb-accent); background: transparent;
-  border-radius: 8px; padding: 7px 12px;
-  font: inherit; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; line-height: 1;
-  cursor: pointer;
-}
-.mb-selection-bar__btn:hover { background: var(--mb-accent); color: var(--mb-acc-on); }
-.mb-selection-bar__btn.--danger { --mb-accent: var(--mb-acc-danger); }
-.mb-selection-bar__btn.--icon {
-  width: 30px; height: 30px; padding: 0; border: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--mb-text-muted);
-}
-.mb-selection-bar__btn.--icon:hover { background: var(--mb-bg-subtle); color: var(--mb-text); }
-.mb-selection-bar__btn.--icon .more-buttons-icon { font-size: 1rem; }
 
 /* Give the scroll area room so its final content settles above the floating dock
    instead of hiding behind it. Scoped via :has to bodies that actually have the
@@ -1910,8 +1883,9 @@ button.more-buttons-crumb:hover {
 
 /* Empty-state: a single, always-visible prominent insert button. */
 /* The list's terminal trigger is always visible: a full-width dashed button
-   under the last row, no rule behind it. */
-.mb-insert-component.--end { height: auto; margin-top: 6px; }
+   under the last row, no rule behind it, set where the next card would start
+   (the 36px an in-between trigger occupies). */
+.mb-insert-component.--end { height: auto; margin-top: 36px; }
 .mb-insert-component.--end::before { display: none; }
 .mb-insert-component.--end .mb-insert-component__btn {
   opacity: 1; transform: none;
@@ -4573,8 +4547,14 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
    A list group (`data-list-row`: Components / Cells) is an ordinary eyebrow
    group whose field wrapper is a quiet tile. Inside, every row is a 28px
    gutter (the select box above the move rail, both top-aligned to the card)
-   beside the card; the tile's first row is the select-all box in that same
-   gutter. The selection's actions live in the form's dock, not here. */
+   beside the card. The tile's lid is the list header: Select all in that same
+   gutter, and — while anything is picked — the count, Copy and Delete to its
+   right. It sits on the base surface (not a tint) with a hairline under it,
+   bled to the tile's border, and is sticky: as the list scrolls it glues to
+   the bottom of the navbar (the form starts right under the navbar's rule and
+   has no padding-top). At top:-1px the stuck watcher in listSelection.js sees
+   it lose a pixel and sets `--stuck`, which squares the lid's corners so it
+   meets the rule flush. The tile's own side borders run beside it throughout. */
 [data-list-row] > div:not(.more-buttons-label) {
   background: var(--mb-bg-subtle);
   border: 1px solid var(--mb-border-subtle);
@@ -4587,7 +4567,41 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   letter-spacing: 0;
   color: var(--mb-text-placeholder);
 }
-.mb-list-tile__head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.mb-list-tile__head {
+  position: sticky;
+  top: -1px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: -12px -14px 0;        /* the first insert slot (36px) spaces the first card, like every card */
+  padding: 8px 14px;
+  background: var(--mb-bg);
+  border-bottom: 1px solid var(--mb-border-subtle);
+  border-radius: 9px 9px 0 0;   /* the tile's 10px, inside its 1px border */
+}
+.mb-list-tile__head.--stuck { border-radius: 0; }
+.mb-list-tile__head:not(.--selecting) > .mb-list-tile__count,
+.mb-list-tile__head:not(.--selecting) > .mb-list-tile__btn { display: none; }
+.mb-list-tile__count {
+  margin-left: 2px;
+  font-size: 0.75rem; font-weight: 500;
+  color: var(--mb-text-placeholder);
+  white-space: nowrap;
+}
+/* Neutral grey ghost buttons; Delete takes the red every other Delete uses.
+   Deliberately NOT .more-buttons-button (form.js lifts those into dock tiles). */
+.mb-list-tile__btn {
+  border: 1px solid var(--mb-border); color: var(--mb-text-muted); background: transparent;
+  border-radius: 7px; padding: 5px 10px;
+  font: inherit; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; line-height: 1;
+  cursor: pointer; white-space: nowrap;
+}
+.mb-list-tile__btn:first-of-type { margin-left: 4px; }
+.mb-list-tile__btn:hover { background: var(--mb-bg-subtle); border-color: var(--mb-text-label); color: var(--mb-text); }
+.mb-list-tile__btn.--danger { border-color: var(--mb-acc-danger); color: var(--mb-acc-danger); }
+.mb-list-tile__btn.--danger:hover { background: var(--mb-acc-danger); border-color: var(--mb-acc-danger); color: var(--mb-acc-on); }
 .mb-list-tile__all {
   display: inline-flex; align-items: center; gap: 12px;
   padding-left: 6px;       /* (28px gutter - 16px box) / 2: lines up with the row boxes */

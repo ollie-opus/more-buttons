@@ -1,6 +1,7 @@
-// Source-text guards for the list chrome that no unit test can reach: every
-// list-owning screen wires the dock's selection bar, every list group gets the
-// tile, and Escape clears a selection before it closes the overlay.
+// Source-text guards for the list chrome that no unit test can reach: the
+// selection actions live in the tile header (no dock bar), every list group
+// gets the tile, the header is sticky, and Escape clears a selection before it
+// closes the overlay.
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 const src = p => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
@@ -15,19 +16,27 @@ test('every template group holding a component list carries data-list-row (the t
   }
 });
 
-test('every component-editor click site is paired with wireSelectionBar (the bar lives in the dock)', () => {
-  for (const f of ['scripts/guides.js', 'scripts/contentTabsEditor.js', 'scripts/systemUpdates.js', 'scripts/gridEditor.js']) {
-    const lines = src(f).split('\n');
-    lines.forEach((l, i) => {
-      const m = l.match(/^\s*(\w+)\.addEventListener\('click', onComponentEditorClick\);/);
-      if (m) assert.ok(lines.slice(i + 1, i + 3).some(x => x.includes(`wireSelectionBar(${m[1]})`)), `${f}:${i + 1} not followed by wireSelectionBar(${m[1]})`);
-    });
+test('the selection actions live in the tile header, inside the form: no dock bar anywhere', () => {
+  for (const f of ['scripts/guides.js', 'scripts/contentTabsEditor.js', 'scripts/systemUpdates.js', 'scripts/gridEditor.js', 'scripts/guideLiveView.js', 'scripts/listSelection.js', 'scripts/form.js']) {
+    const t = src(f);
+    for (const bad of ['wireSelectionBar', 'wireCellSelectionBar', 'mb-selection-bar', 'data-select-all-btn', 'data-clear-selection']) {
+      assert.ok(!t.includes(bad), `${f} still mentions ${bad}`);
+    }
   }
-  const live = src('scripts/guideLiveView.js');
-  // The grid-cell / tabs-body fallthrough at the end of openComponentLiveView renders a selectable list too.
-  const tail = live.slice(live.indexOf("mountContainer(formEl, host, model.kind === 'grid-cell'"));
-  const block = tail.slice(0, tail.indexOf('\n});'));
-  assert.ok(block.includes('wireSelectionBar(formEl)'), 'live grid-cell screen does not wire the selection bar');
+  assert.ok(!src('scripts/listSelection.js').includes('more-buttons-form-actions'), 'listSelection.js never touches the dock');
+  const css = src('config/forms/formsStyling.css');
+  assert.ok(!css.includes('mb-selection-bar') && !css.includes('.--selecting >'), 'dock bar CSS gone');
+});
+
+test('the tile header is sticky under the navbar: top:-1px (stuck detection), squared while --stuck, no form padding-top', () => {
+  const css = src('config/forms/formsStyling.css');
+  const head = css.match(/\n\.mb-list-tile__head \{([^}]*)\}/)?.[1] ?? '';
+  assert.ok(/position:\s*sticky/.test(head), 'sticky');
+  assert.ok(/top:\s*-1px/.test(head), 'top: -1px');
+  assert.ok(/\.mb-list-tile__head\.--stuck \{[^}]*border-radius:\s*0/.test(css), '--stuck squares the corners');
+  assert.ok(/\.mb-list-tile__head:not\(\.--selecting\) > \.mb-list-tile__btn/.test(css), 'actions hidden until something is selected');
+  const form = css.match(/\n\.more-buttons-overlay-content > form \{([^}]*)\}/)?.[1] ?? '';
+  assert.ok(!/padding-top/.test(form) && !/padding:\s*[1-9]/.test(form), 'the scrolling form has no top padding (sticky inset)');
 });
 
 test('Escape clears a selection before it closes the overlay', () => {
