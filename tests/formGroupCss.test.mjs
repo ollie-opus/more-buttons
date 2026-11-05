@@ -22,4 +22,8 @@ test('no 160px label column survives anywhere', () => {
 test('the title row helper is gone (identity row replaces it)', () => {
   assert.ok(!css.includes('.mb-title-row'));
 });
+test('form-level rows never shrink: the scrolling form is a column flexbox and a wrapped row would collapse once content overflows', () => {
+  assert.match(block('.more-buttons-form-group'), /flex-shrink:\s*0/);
+  assert.match(block('.mb-ident'), /flex-shrink:\s*0/);
+});
 console.log(`${passed} passed`);

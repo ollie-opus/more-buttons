@@ -17,7 +17,7 @@ import { pageBasesUsingMedia, buildUsageTreeNodes } from './mediaUsage.js';
 import { showDangerConfirm, showNotice } from './confirmPanel.js';
 
 const panelShell = (inner) => `
-  <div class="more-buttons-form-group more-buttons-form-group--full" data-usage-panel>
+  <div class="more-buttons-form-group" data-usage-panel>
     <label class="more-buttons-label">Used on pages</label>
     ${inner}
   </div>`;
