@@ -16,6 +16,10 @@
  *               silently blank, is reported before any command exists
  *   the grid    clipPaste / keepInBody over a dataTableGridModel state whose
  *               header row is locked; fillButtonDefaults once a row has data
+ *   writing     actionsForRow / commandsFor: one /seleniumPageAutomation
+ *               command per row, each a single line, in the JSON action
+ *               syntax emerald parses (keys in the agreed order: targetType,
+ *               target, action, value, optionType, option)
  *
  * Matching is exact and case-sensitive. Only the outer whitespace of a cell,
  * and the whitespace around the commas of a multi-answer cell, is ignored.
@@ -290,4 +294,55 @@ export function clipPaste(st, block) {
   const room = st.align.length - normalizeRange(st).c0;
   applyPaste(st, block.map(cells => cells.slice(0, room)));
   keepInBody(st);
+}
+
+// ── Writing the commands ────────────────────────────────────────────────────
+
+// One valid cell → its action objects. Each is built literally so its keys
+// come out in the agreed order.
+function actionsForCell(column, items) {
+  const { targetType, target } = column;
+  switch (column.kind) {
+    case 'text':
+    case 'textarea':
+      return [{ targetType, target, action: 'fill', value: items[0] }];
+    case 'select':
+      return [{ targetType, target, action: 'select', optionType: column.matchOn, option: items[0] }];
+    case 'radioGroup':
+    case 'checkboxGroup':
+      return items.map(option => ({ targetType, target, action: 'check', optionType: column.matchOn, option }));
+    case 'checkbox':
+      return [{ targetType, target, action: items[0] === 'TRUE' ? 'check' : 'uncheck' }];
+    case 'button':
+      // Opus panel buttons are disabled while their content loads and ignore
+      // a click silently, so a click always waits for its target first.
+      return items[0] === 'submit'
+        ? [{ targetType, target, action: 'submit' }]
+        : [{ targetType, target, action: 'wait' }, { targetType, target, action: 'click' }];
+    default:
+      return [];
+  }
+}
+
+/** The action objects of one row, in column order. A blank cell adds nothing. */
+export function actionsForRow(columns, row) {
+  return columns.flatMap((column, col) => {
+    const result = checkCell(column, row[col]);
+    return result.ok && result.items.length ? actionsForCell(column, result.items) : [];
+  });
+}
+
+/**
+ * One command line per row that holds anything, in row order. Refuses a sheet
+ * with problems: a command must never be written from a cell that is not a
+ * real choice.
+ */
+export function commandsFor(url, columns, rows, options = {}) {
+  const bad = problems(columns, rows, options);
+  if (bad.length) throw new Error(`${bad.length} cell(s) do not match a choice`);
+  const page = /[\s"'(){}]/.test(url) ? `"${url}"` : url;
+  return rows
+    .map(row => actionsForRow(columns, row))
+    .filter(actions => actions.length)
+    .map(actions => `/seleniumPageAutomation ${page} ${actions.map(a => JSON.stringify(a)).join(' ')}`);
 }

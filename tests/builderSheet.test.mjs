@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   parseClipboardTsv, parseMulti, formatMulti,
   columnsFromPicks, matchModes, choiceTexts, checkCell, problems, a1, switchMatchOn,
-  rowHasData, fillButtonDefaults, clipPaste, keepInBody,
+  rowHasData, fillButtonDefaults, clipPaste, keepInBody, actionsForRow, commandsFor,
 } from '../scripts/builderSheet.js';
 
 let passed = 0;
@@ -176,6 +176,55 @@ test('keepInBody stops the selection reaching the header row', () => {
   const st = { align: ['left'], header: ['a'], rows: [['']], selected: { row: -1, col: 0 }, anchor: { row: -1, col: 0 } };
   keepInBody(st);
   assert.deepEqual([st.selected.row, st.anchor.row], [0, 0]);
+});
+
+const GOLDEN = String.raw`/seleniumPageAutomation https://cloud.opus-safety.co.uk/contractors/new {"targetType":"name","target":"contractor[name]","action":"fill","value":"Acme \"Northern\" Ltd"} {"targetType":"name","target":"contractor[comment]","action":"fill","value":"Weekly clean\nGate code {12}"} {"targetType":"name","target":"contractor[kind]","action":"check","optionType":"label","option":"Company"} {"targetType":"name","target":"contractor[types][]","action":"check","optionType":"label","option":"Grounds, Landscaping & Tree Services"} {"targetType":"name","target":"contractor[types][]","action":"check","optionType":"label","option":"+Gas Works"} {"targetType":"id","target":"contractor_owned_by","action":"select","optionType":"value","option":"42"} {"targetType":"id","target":"contractor_active","action":"uncheck"} {"targetType":"css","target":"button.inline-flex","action":"submit"}`;
+
+test('the golden row produces the golden command, and a blank row produces none', () => {
+  const cols = columnsFromPicks([NAME, COMMENT, KIND, TYPES_PICK, OWNER, ACTIVE, SAVE]);
+  cols[4].matchOn = 'value';
+  const rows = [
+    ['Acme "Northern" Ltd', 'Weekly clean\nGate code {12}', 'Company', '"Grounds, Landscaping & Tree Services", +Gas Works', '42', 'FALSE', 'submit'],
+    ['', '', '', '', '', '', ''],
+  ];
+  assert.deepEqual(commandsFor('https://cloud.opus-safety.co.uk/contractors/new', cols, rows), [GOLDEN]);
+});
+
+test('a blank cell adds nothing and TRUE ticks a lone checkbox', () => {
+  const cols = columnsFromPicks([NAME, ACTIVE, SAVE]);
+  assert.deepEqual(actionsForRow(cols, ['', 'TRUE', '']), [{ targetType: 'id', target: 'contractor_active', action: 'check' }]);
+});
+
+test('a click is written as wait then click on the same target', () => {
+  const cols = columnsFromPicks([OPEN, SAVE]);
+  assert.deepEqual(actionsForRow(cols, ['click', 'click']), [
+    { targetType: 'css', target: 'button[data-action="panel#open"]', action: 'wait' },
+    { targetType: 'css', target: 'button[data-action="panel#open"]', action: 'click' },
+    { targetType: 'css', target: 'button.inline-flex', action: 'wait' },
+    { targetType: 'css', target: 'button.inline-flex', action: 'click' },
+  ]);
+});
+
+test('keys are written in the agreed order', () => {
+  const cols = columnsFromPicks([KIND, NAME]);
+  assert.deepEqual(Object.keys(actionsForRow(cols, ['Company', ''])[0]), ['targetType', 'target', 'action', 'optionType', 'option']);
+  assert.deepEqual(Object.keys(actionsForRow(cols, ['', 'Acme'])[0]), ['targetType', 'target', 'action', 'value']);
+});
+
+test('the url is quoted only when the tokenizer would trip on it', () => {
+  const cols = columnsFromPicks([NAME]);
+  assert.match(commandsFor('https://x.test/a(b)', cols, [['v']])[0], /^\/seleniumPageAutomation "https:\/\/x\.test\/a\(b\)" \{/);
+  assert.match(commandsFor('https://x.test/a', cols, [['v']])[0], /^\/seleniumPageAutomation https:\/\/x\.test\/a \{/);
+});
+
+test('every command is a single line', () => {
+  const cols = columnsFromPicks([COMMENT]);
+  assert.equal(commandsFor('https://x.test/a', cols, [['one\ntwo\r\nthree']])[0].includes('\n'), false);
+});
+
+test('commandsFor refuses a sheet with problems', () => {
+  const cols = columnsFromPicks([KIND]);
+  assert.throws(() => commandsFor('https://x.test/a', cols, [['nope']]), /1 cell/);
 });
 
 console.log(`\n${passed} passed`);
