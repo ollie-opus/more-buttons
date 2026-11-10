@@ -9,7 +9,7 @@
 // the current item on the other side, or its nearest ancestor that exists
 // there (a component added in the draft → its section on live), and swaps the
 // whole breadcrumb trail for that side's (openWithTrail).
-import { getFormAction, onFormActionComplete } from './formActions.js';
+import { registerFormAction, getFormAction, onFormActionComplete } from './formActions.js';
 import { openWithTrail, snapshotFormStack, confirmDiscardIfDirty } from './form.js';
 import { formLoading } from './loading.js';
 import { readRepoText } from './repoClient.js';
@@ -112,6 +112,22 @@ export function counterpartNode(node, fromIdx, toIdx) {
     if (hit) return { node: hit, exact: i === 0 };
   }
   return { node: null, exact: false };
+}
+
+/**
+ * Where a live screen's item sits on a draft just copied from the live page.
+ * The copy keeps live's ordinal paths, so the same path (same kind) on the
+ * draft is the same item even when the uuids differ: a page published without
+ * spans gets in-memory uuids on the live side and freshly minted ones in the
+ * draft, so the uuid lineage would only ever reach the guide entry. The uuid
+ * lineage is the fallback for a draft that has since moved on. Pure.
+ */
+export function freshDraftCounterpart(here, liveIdx, draftIdx) {
+  if (!here) return { node: null, exact: false };
+  if (here.kind === 'page-settings') return { node: here, exact: true };
+  const byPath = draftIdx.byPath.get(pathKey(here.path));
+  if (byPath && byPath.kind === here.kind && byPath.compKind === here.compKind) return { node: byPath, exact: true };
+  return counterpartNode(here, liveIdx, draftIdx);
 }
 
 /**
@@ -242,14 +258,39 @@ async function switchSide(state) {
   const { here, node, exact, otherSide } = resolve(state);
   formLoading.show();
   try {
-    const trail = sideTrail(node, state.idx[otherSide], otherSide, { livePath: state.livePath, title: guideTitle(state.livePath) });
-    const ok = await openWithTrail(trail);
-    // A leaf with no screen on the other side lands on its container; point at its card.
-    if (ok && exact && landsOnContainer(here, otherSide)) flashRow(node.uuid);
+    await openOnSide(here, node, exact, otherSide, state.idx[otherSide], state.livePath, guideTitle(state.livePath));
   } finally {
     formLoading.dismiss();
   }
 }
+
+// Swap the trail for `node`'s on `side`. A leaf with no screen on that side
+// lands on its container; point at its card. Resolves true when it mounted.
+async function openOnSide(here, node, exact, side, idx, livePath, title) {
+  const ok = await openWithTrail(sideTrail(node, idx, side, { livePath, title }));
+  if (ok && exact && landsOnContainer(here, side)) flashRow(node.uuid);
+  return ok;
+}
+
+// The deep live docks' Create draft (guideLiveView createDraftFromView) lands
+// here once the draft is written: the same place on the new draft, resolved
+// from the live screen's own trail entry (the one still current when this
+// runs). Resolves false when nothing can be resolved — the caller then falls
+// back to the guide entry. The draft's cached read is dropped first: the
+// screen's own mount cached its absence moments ago.
+registerFormAction('openFreshDraftAt', async ({ livePath, title, formEl }) => {
+  const cur = snapshotFormStack()?.at(-1);
+  const spec = cur && SCREENS[cur.name];
+  if (!spec || spec.side !== 'live' || !livePath) return false;
+  const draftPath = draftPathOf(livePath);
+  pageReads.delete(draftPath);
+  const [draftMd, liveMd] = await Promise.all([readPageCached(draftPath), readPageCached(livePath)]);
+  if (!draftMd || !liveMd) return false;
+  const idx = { live: guideNodeIndex(liveIdentity(liveMd)), draft: guideNodeIndex(liveIdentity(draftMd)) };
+  const here = spec.locate(cur.args, idx.live, formEl);
+  const { node, exact } = freshDraftCounterpart(here, idx.live, idx.draft);
+  return openOnSide(here, node, exact, 'draft', idx.draft, livePath, title || guideTitle(livePath));
+});
 
 function flashRow(uuid) {
   const row = document.querySelector(`.more-buttons-overlay [data-component-uuid="${CSS.escape(uuid)}"]`);

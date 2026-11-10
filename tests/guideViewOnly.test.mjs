@@ -955,4 +955,45 @@ await test('draftDockPrefixHtml: the link then a dock separator', () => {
 });
 
 
+// ── Create draft from a deep live screen stays where it was ─────────────────
+
+await test('freshDraftCounterpart: a draft just copied from a spanless live page shares its ordinal paths, not its uuids — the same path wins', async () => {
+  const { ensureAdmonitionUUIDs } = await import('../scripts/admonitions.js');
+  const liveMd = ['# T', '', '## A', '', '!!! tip "Tip"', '', '    Tip body.', '', '## B', '', '!!! note "N"', '', '    N.', ''].join('\n');
+  const draftMd = ensureAdmonitionUUIDs(ensureSectionUUIDs(liveMd), GUIDE_ADMONITION_TYPES_RE); // what writeGuideDraft persists
+  const liveIdx = sw.guideNodeIndex(liveIdentity(liveMd));
+  const draftIdx = sw.guideNodeIndex(liveIdentity(draftMd));
+  const here = liveIdx.byPath.get('1.0');
+  assert.equal(here.kind, 'admonition');
+  assert.notEqual(here.uuid, draftIdx.byPath.get('1.0').uuid, 'the live side minted an in-memory uuid; the draft carries a new span');
+  assert.deepEqual(sw.counterpartNode(here, liveIdx, draftIdx), { node: null, exact: false }, 'by uuid alone nothing below the page matches');
+  const r = sw.freshDraftCounterpart(here, liveIdx, draftIdx);
+  assert.deepEqual(r, { node: draftIdx.byPath.get('1.0'), exact: true });
+  const opts = { livePath: 'docs/pages/x.md', title: 'X' };
+  assert.deepEqual(sw.sideTrail(r.node, draftIdx, 'draft', opts).map(e => e.name), ['openGuideEntry', 'openEditGuideSection', 'openEditGuideAdmonition']);
+  assert.equal(sw.sideTrail(r.node, draftIdx, 'draft', opts).at(-1).args.uuid, draftIdx.byPath.get('1.0').uuid, 'the editor opens by the DRAFT uuid');
+  // The section screen lands on its section editor; page settings is its own counterpart; nothing stays nothing.
+  assert.equal(sw.freshDraftCounterpart(liveIdx.byPath.get('2'), liveIdx, draftIdx).node, draftIdx.byPath.get('2'));
+  assert.deepEqual(sw.freshDraftCounterpart(sw.PAGE_SETTINGS_NODE, liveIdx, draftIdx), { node: sw.PAGE_SETTINGS_NODE, exact: true });
+  assert.deepEqual(sw.freshDraftCounterpart(null, liveIdx, draftIdx), { node: null, exact: false });
+});
+
+await test('freshDraftCounterpart: a path holding a different kind on the draft falls back to the uuid lineage', () => {
+  const liveIdx = sw.guideNodeIndex(liveIdentity(PUB_LIVE));
+  // The draft gained a code block ahead of the tip: paths shifted, spans still shared.
+  const draftIdx = sw.guideNodeIndex(liveIdentity(PUB_LIVE.replace('!!! tip "Tip"', '```js\nx\n```\n\n!!! tip "Tip"')));
+  const here = liveIdx.byUuid.get('ADM-1');
+  assert.equal(draftIdx.byPath.get('1.0').kind, 'leaf');
+  assert.deepEqual(sw.freshDraftCounterpart(here, liveIdx, draftIdx), { node: draftIdx.byUuid.get('ADM-1'), exact: true });
+  assert.equal(draftIdx.byUuid.get('ADM-1').path.join('.'), '1.1');
+});
+
+await test('openFreshDraftAt: registered; without a live screen on the trail it resolves false and reads nothing', async () => {
+  const open = getFormAction('openFreshDraftAt');
+  assert.ok(open);
+  const calls = stubFetch({});
+  assert.equal(await open({ livePath: 'docs/pages/x.md', title: 'X', formEl: null }), false);
+  assert.equal(calls.length, 0);
+});
+
 console.log(`\n${passed} passed`);

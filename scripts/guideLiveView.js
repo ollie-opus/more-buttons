@@ -81,10 +81,13 @@ export function liveDockHtml(livePath, { drafted = false } = {}) {
       + '<button type="button" class="more-buttons-button" data-guide-live-create><span class="more-buttons-icon">plus</span>Create draft</button>');
 }
 
-// Deep-screen Create draft. On success it returns to the guide entry (which
-// re-probes and opens on the new draft), walking back through history when
-// the entry is on it, else opening it fresh (cold restore straight to depth).
-async function createDraftFromView(btn, livePath, title) {
+// Deep-screen Create draft. On success it stays where it was: the same
+// section / component on the new draft, its editor opened with the draft
+// trail (guideSideSwitch's openFreshDraftAt). Only when that place can't be
+// resolved does it return to the guide entry (which re-probes and opens on
+// the new draft), walking back through history when the entry is on it, else
+// opening it fresh (cold restore straight to depth).
+async function createDraftFromView(btn, livePath, title, formEl) {
   const snap = snapshotButton(btn);
   btn.disabled = true;
   btn.innerHTML = '<span class="more-buttons-icon more-buttons-icon--spin">refresh-cw</span>Creating draft…';
@@ -95,6 +98,7 @@ async function createDraftFromView(btn, livePath, title) {
       alert('Live page not found at ' + livePath);
       return;
     }
+    if (await openFreshDraftInPlace(livePath, title, formEl)) return;
     const wentBack = await navigateBackTo('guideEntry');
     if (!wentBack) {
       restoreButton(btn, snap);
@@ -104,6 +108,17 @@ async function createDraftFromView(btn, livePath, title) {
     restoreButton(btn, snap);
     alert('Failed to create draft: ' + e.message);
   }
+}
+
+// The same place on the just-written draft; false when the hand-off can't
+// resolve it (or isn't registered), so the caller falls back to the entry.
+async function openFreshDraftInPlace(livePath, title, formEl) {
+  const open = getFormAction('openFreshDraftAt');
+  if (!open) return false;
+  formLoading.show();
+  try { return !!(await open({ livePath, title, formEl })); }
+  catch (err) { console.warn('[MB] opening the new draft in place failed:', err); return false; }
+  finally { formLoading.dismiss(); }
 }
 
 // Deep screens show the live page whether or not a draft exists (the entry's
@@ -194,7 +209,7 @@ function wireLiveCreate(formEl, file, label) {
   const pageTitle = pageTitleOf(file, label);
   formEl.parentElement.addEventListener('click', e => {
     const btn = e.target.closest('[data-guide-live-create]');
-    if (btn) createDraftFromView(btn, file, pageTitle);
+    if (btn) createDraftFromView(btn, file, pageTitle, formEl);
   });
 }
 
