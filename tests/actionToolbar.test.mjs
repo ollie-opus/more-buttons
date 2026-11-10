@@ -71,8 +71,8 @@ function mount(env, extra = {}) {
   return { bar, fired };
 }
 
-test('BAR_VARIANTS are recording, paused, playing', () => {
-  assert.deepEqual(BAR_VARIANTS, ['recording', 'paused', 'playing']);
+test('BAR_VARIANTS are recording, paused, playing, picking', () => {
+  assert.deepEqual(BAR_VARIANTS, ['recording', 'paused', 'playing', 'picking']);
 });
 
 test('mounts a capture-style bar + tab on documentElement with variant classes and the title in both', () => {

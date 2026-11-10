@@ -429,7 +429,7 @@
       "keywords": ["/"]
     },
     "action": "openManageActions",
-    "dockGroup": "Actions",
+    "dockGroup": "Input automation",
     "dockOrder": 10
   },
   {
@@ -443,7 +443,21 @@
       "keywords": ["/"]
     },
     "action": "playActiveAction",
-    "dockGroup": "Actions",
+    "dockGroup": "Input automation",
     "dockOrder": 20
+  },
+  {
+    "id": "mb-selenium-builder-btn",
+    "displayText": "Selenium command builder",
+    "descriptionText": "Pick inputs on this page, paste rows from a sheet, and get one /seleniumPageAutomation command per row",
+    "icon": "terminal",
+    "colour": "orange",
+    "pageMatch": {
+      "mode": "or",
+      "keywords": ["/"]
+    },
+    "action": "openSeleniumCommandBuilder",
+    "dockGroup": "Input automation",
+    "dockOrder": 30
   }
 ]

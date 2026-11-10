@@ -14,7 +14,7 @@
 
 import { watchIconSpans } from './lucideIcons.js';
 
-export const BAR_VARIANTS = ['recording', 'paused', 'playing'];
+export const BAR_VARIANTS = ['recording', 'paused', 'playing', 'picking'];
 
 const BAR_H = 40, HOVER_BUFFER = 20, HOLD_Y = BAR_H + HOVER_BUFFER;
 const EXIT_MS = 220, FLASH_MS = 2200;
@@ -52,7 +52,7 @@ function controlEl(doc, c) {
 
 /**
  * @param {Object} o
- * @param {'recording'|'paused'|'playing'} o.variant
+ * @param {'recording'|'paused'|'playing'|'picking'} o.variant
  * @param {string} o.title
  * @param {Array<{id, icon, label, kind?: 'toggle'|'close'}>} o.controls
  * @param {(id: string, btn: Element) => void} o.onControl
