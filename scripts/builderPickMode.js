@@ -63,14 +63,15 @@ function make(tag, className, text) {
 }
 
 /**
- * Start pick mode. `picks` and `rows` are what the sheet hands back through
- * "Back to picking", so both survive the round trip: the picks show as
- * picked again and the rows are passed on untouched at Continue.
+ * Start pick mode. `picks`, `rows` and `memory` are what the sheet hands back
+ * through "Back to picking", so they survive the round trip: the picks show
+ * as picked again, and the rows travel on untouched at Continue together with
+ * the sheet's memory of which column each cell belongs to.
  */
-export function enterPickMode({ picks = [], rows = null } = {}) {
+export function enterPickMode({ picks = [], rows = null, memory = null } = {}) {
   if (active) active.exit();
 
-  const state = { picks: [...picks], rows };
+  const state = { picks: [...picks], rows, memory };
   let hovered = null; // the pick under the cursor, as last resolved
   let armed = false;  // Shift held
   let frame = 0;
@@ -205,11 +206,13 @@ export function enterPickMode({ picks = [], rows = null } = {}) {
 
   // Continue: leave pick mode and open the sheet on these picks, with any
   // rows an earlier visit to the sheet handed back.
+  // The bar stays on screen for its exit transition, so a second click on
+  // Continue must not open a second sheet.
   function proceed() {
-    if (!state.picks.length) return;
-    const { picks, rows } = state;
+    if (active !== handle || !state.picks.length) return;
+    const { picks, rows, memory } = state;
     exit();
-    openBuilderSheet({ url: location.href, picks, rows });
+    openBuilderSheet({ url: location.href, picks, rows, memory });
   }
 
   const handle = { exit };

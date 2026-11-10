@@ -17,7 +17,7 @@
  * none of it is reused.
  */
 import { createForm, closeActiveForm } from './form.js';
-import { openPopupMenu } from './insertMenu.js';
+import { openPopupMenu, isPopupMenuOpen } from './insertMenu.js';
 import { escapeHtml } from './cardRenderer.js';
 import { flashButtonLabel } from './guides.js';
 import { enterPickMode } from './builderPickMode.js';
@@ -28,7 +28,7 @@ import {
 import {
   parseClipboardTsv, formatClipboardTsv, parseMulti, formatMulti,
   columnsFromPicks, matchModes, choiceTexts, checkCell, problems, switchMatchOn,
-  rowHasData, fillButtonDefaults, clipPaste, keepInBody, commandsFor,
+  rowHasData, settleButtons, sheetMemory, carryRows, clipPaste, keepInBody, commandsFor,
 } from './builderSheet.js';
 
 const BLANK_ROWS = 20;
@@ -45,12 +45,6 @@ const accepts = (type, text) => {
   return probe.value !== '';
 };
 
-// What "Back to picking" handed out: the column key of every cell in the rows
-// it passed to pick mode, and each column's pill. enterPickMode carries only
-// picks and rows, so this is how a returning sheet lines its old cells up
-// with the (possibly changed) picks and keeps a switched pill.
-let handedOut = null;
-
 // Spreadsheet column letters: 0 → A, 25 → Z, 26 → AA…
 function colLetter(i) {
   let s = '';
@@ -60,26 +54,13 @@ function colLetter(i) {
 
 const blankRows = width => Array.from({ length: BLANK_ROWS }, () => Array.from({ length: width }, () => ''));
 
-// The grid state for these picks. Rows coming back from pick mode keep each
-// surviving column's cells by pick key; a column picked since starts blank,
-// except that a new button column takes its default on rows that have data.
-function buildState(url, picks, rows) {
+// The grid state for these picks. Rows coming back from pick mode arrive with
+// the memory of which column each cell belonged to (sheetMemory) and are lined
+// up by pick key (carryRows); rows without that memory are never guessed at
+// by position, the sheet just starts blank.
+function buildState(url, picks, rows, memory) {
   const columns = columnsFromPicks(picks);
-  const before = rows && handedOut ? handedOut : null;
-  handedOut = null;
-  let cells = blankRows(columns.length);
-  if (rows && rows.length) {
-    const from = columns.map((column, col) => (before ? before.keys.indexOf(column.key) : col));
-    cells = rows.map(row => from.map(i => (i >= 0 ? String(row[i] ?? '') : '')));
-  }
-  if (before) {
-    columns.forEach(column => {
-      const mode = before.matchOn[column.key];
-      if (mode && matchModes(column).includes(mode)) column.matchOn = mode;
-    });
-    const added = columns.some(column => column.kind === 'button' && !before.keys.includes(column.key));
-    if (added) fillButtonDefaults(columns, cells, cells.map((row, r) => r).filter(r => rowHasData(columns, cells[r])));
-  }
+  const cells = rows && rows.length && memory ? carryRows(columns, rows, memory) : blankRows(columns.length);
   return {
     url,
     columns,
@@ -94,14 +75,18 @@ function buildState(url, picks, rows) {
   };
 }
 
-/** Open the sheet for these picks. `rows` is null on a first visit, or the rows "Back to picking" took away. */
-export async function openBuilderSheet({ url, picks, rows = null }) {
-  const state = buildState(url, picks, rows);
+/**
+ * Open the sheet for these picks. On a first visit `rows` and `memory` are
+ * null; after "Back to picking" they are the rows that left with it and the
+ * sheetMemory describing them.
+ */
+export async function openBuilderSheet({ url, picks, rows = null, memory = null }) {
+  const state = buildState(url, picks, rows, memory);
   const { columns, st } = state;
   const picksInColumnOrder = () => columns.map(column => state.picksByKey.get(column.key));
 
   const form = await createForm('seleniumCommandBuilder',
-    () => openBuilderSheet({ url, picks: picksInColumnOrder(), rows: handOut() }), { rootEntry: true });
+    () => openBuilderSheet({ url, picks: picksInColumnOrder(), rows: st.rows, memory: sheetMemory(columns) }), { rootEntry: true });
   const content = form?.content;
   const wrap = content?.querySelector('[data-builder-grid-wrap]');
   const grid = content?.querySelector('[data-builder-grid]');
@@ -111,15 +96,6 @@ export async function openBuilderSheet({ url, picks, rows = null }) {
   let editing = null;     // { row, col, original, textarea } while a cell is edited in place
   let dragging = false;
   let pendingMenu = null; // the menu a press asked for; opened on release (see the pointer section)
-
-  // Remember which column each cell belongs to, then give the rows away.
-  function handOut() {
-    handedOut = {
-      keys: columns.map(column => column.key),
-      matchOn: Object.fromEntries(columns.map(column => [column.key, column.matchOn])),
-    };
-    return st.rows;
-  }
 
   $('[data-builder-runs-on]').innerHTML = `every row runs on <b>${escapeHtml(url)}</b>`;
 
@@ -195,23 +171,22 @@ export async function openBuilderSheet({ url, picks, rows = null }) {
     } else {
       line.textContent = '';
     }
-    const anything = st.rows.some(row => row.some(cell => String(cell ?? '').trim() !== ''));
-    $('[data-builder-produce]').disabled = bad.length > 0 || !anything;
+    $('[data-builder-produce]').disabled = bad.length > 0 || !hasAnything();
   }
 
   const focusGrid = () => wrap.focus({ preventScroll: true });
   const showSelected = () => tdAt(st.selected.row, st.selected.col)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 
-  // Every change to cells goes through here: a row that has just got its
-  // first data takes its button defaults, then the grid and the problems
-  // line are redrawn.
+  // Every change to cells goes through here: button cells are kept in step
+  // with whether their row has data (defaults in when it first gets some, out
+  // again when it loses it all), then the grid and the problems line are redrawn.
   function change(mutate) {
     const had = st.rows.map(row => rowHasData(columns, row));
     mutate();
     keepInBody(st);
     // Always one spare row at the bottom to type into; blank rows write no command.
     if (st.rows.at(-1).some(cell => String(cell ?? '').trim() !== '')) st.rows.push(columns.map(() => ''));
-    fillButtonDefaults(columns, st.rows, st.rows.map((row, r) => r).filter(r => !had[r] && rowHasData(columns, st.rows[r])));
+    settleButtons(columns, st.rows, had);
     render();
   }
 
@@ -508,10 +483,34 @@ export async function openBuilderSheet({ url, picks, rows = null }) {
   function backToPicking() {
     commitEditing();
     const picks = picksInColumnOrder();
-    const rows = handOut();
     closeActiveForm();
-    enterPickMode({ picks, rows });
+    enterPickMode({ picks, rows: st.rows, memory: sheetMemory(columns) });
   }
+
+  // ── Not losing the sheet ──────────────────────────────────────────────────
+
+  const hasAnything = () => st.rows.some(row => row.some(cell => String(cell ?? '').trim() !== ''));
+
+  // A menu dismissed without a pick (Escape, a click elsewhere) leaves focus
+  // on nothing; hand it back to the grid so the keyboard keeps working.
+  new MutationObserver(records => {
+    const menuClosed = records.some(record => [...record.removedNodes].some(node => node.classList?.contains('mb-popup-menu')));
+    if (menuClosed && !editing && !isPopupMenuOpen() && !content.contains(document.activeElement)) focusGrid();
+  }).observe(content, { childList: true });
+
+  // The overlay closes on Escape (form.js). With rows in the sheet that would
+  // throw them away on one stray key, so ask first. Registered on document in
+  // the capture phase to run before that handler; it removes itself once the
+  // overlay is gone. An open menu or cell editor takes its own Escape.
+  function guardEscape(e) {
+    if (!content.isConnected) { document.removeEventListener('keydown', guardEscape, true); return; }
+    if (e.key !== 'Escape' || editing || isPopupMenuOpen() || !hasAnything()) return;
+    if (!window.confirm('Close the Selenium command builder? The rows in the sheet will be lost.')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+  document.addEventListener('keydown', guardEscape, true);
 
   content.addEventListener('click', e => {
     if (e.target.closest('[data-builder-produce]')) produce();

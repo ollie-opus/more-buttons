@@ -6061,3 +6061,12 @@ html.mb-builder-pick-mode .mb-capture-selector { border-style: dashed; border-ra
   white-space: pre;
   overflow-x: auto;
 }
+
+/* `.green:disabled` is the project's settled "saved" look and does not dim.
+   Produce commands is disabled because the sheet is not ready, so here it must
+   read as unavailable. */
+.mb-builder .more-buttons-button.green:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: transparent;
+}

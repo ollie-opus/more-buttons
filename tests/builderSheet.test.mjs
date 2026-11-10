@@ -3,6 +3,7 @@ import {
   parseClipboardTsv, parseMulti, formatMulti,
   columnsFromPicks, matchModes, choiceTexts, checkCell, problems, a1, switchMatchOn,
   rowHasData, fillButtonDefaults, clipPaste, keepInBody, actionsForRow, commandsFor, formatClipboardTsv,
+  settleButtons, sheetMemory, carryRows,
 } from '../scripts/builderSheet.js';
 
 let passed = 0;
@@ -232,6 +233,42 @@ test('formatClipboardTsv quotes the cells that would break a row, and parses bac
   const text = formatClipboardTsv(block);
   assert.equal(text, 'a\t"line 1\nline ""2"""\t\n"tab\there"\t"""starts quoted"\tplain, text');
   assert.deepEqual(parseClipboardTsv(text), block);
+});
+
+test('settleButtons fills defaults when a row first gets data and blanks them when it loses it', () => {
+  const cols = columnsFromPicks([NAME, SAVE]);
+  const rows = [['Acme', ''], ['', 'submit'], ['Kept', ''], ['', 'click'], ['', '']];
+  settleButtons(cols, rows, [false, true, true, false, false]);
+  assert.deepEqual(rows, [['Acme', 'submit'], ['', ''], ['Kept', ''], ['', 'click'], ['', '']]);
+});
+
+test('a row whose data is deleted writes no submit-only command', () => {
+  const cols = columnsFromPicks([NAME, SAVE]);
+  const rows = [['', ''], ['', '']];
+  rows[0][0] = 'Acme'; settleButtons(cols, rows, [false, false]);
+  assert.deepEqual(rows[0], ['Acme', 'submit']);
+  rows[0][0] = ''; settleButtons(cols, rows, [true, false]);
+  assert.deepEqual(commandsFor('https://x.test/a', cols, rows), []);
+});
+
+test('sheetMemory records each column key and pill, and carryRows lines old rows up with new picks', () => {
+  const before = columnsFromPicks([NAME, COMMENT, KIND]);
+  switchMatchOn(before, [], 2, 'value');
+  const memory = sheetMemory(before);
+  assert.deepEqual(memory, { keys: [NAME.key, COMMENT.key, KIND.key], matchOn: { [NAME.key]: null, [COMMENT.key]: null, [KIND.key]: 'value' } });
+  // Back in pick mode the comment was dropped, the order changed and two buttons were added.
+  const after = columnsFromPicks([KIND, NAME, SAVE, OPEN]);
+  const rows = carryRows(after, [['Acme', 'note', 'company'], ['', '', '']], memory);
+  assert.deepEqual(rows, [['company', 'Acme', 'submit', 'click'], ['', '', '', '']]);
+  assert.equal(after[0].matchOn, 'value');
+});
+
+test('carryRows keeps a carried button cell as it was, and ignores a pill mode that no longer applies', () => {
+  const before = columnsFromPicks([NAME, SAVE, TYPES_PICK]);
+  const memory = { ...sheetMemory(before), matchOn: { [TYPES_PICK.key]: 'id' } };
+  const after = columnsFromPicks([NAME, SAVE, TYPES_PICK]);
+  assert.deepEqual(carryRows(after, [['Acme', '', '+Gas Works']], memory), [['Acme', '', '+Gas Works']]); // the blanked submit stays blank
+  assert.equal(after[2].matchOn, 'label');
 });
 
 console.log(`\n${passed} passed`);

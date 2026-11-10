@@ -15,7 +15,9 @@
  *               real choices, or that a typed input (date, number...) would
  *               silently blank, is reported before any command exists
  *   the grid    clipPaste / keepInBody over a dataTableGridModel state whose
- *               header row is locked; fillButtonDefaults once a row has data
+ *               header row is locked; settleButtons keeps button cells in
+ *               step with whether their row has data; sheetMemory / carryRows
+ *               line a sheet's rows up again after a trip back to pick mode
  *   writing     actionsForRow / commandsFor: one /seleniumPageAutomation
  *               command per row, each a single line, in the JSON action
  *               syntax emerald parses (keys in the agreed order: targetType,
@@ -290,6 +292,59 @@ export function fillButtonDefaults(columns, rows, rowIndexes) {
       if (column.kind === 'button' && rows[r] && isBlank(rows[r][col])) rows[r][col] = column.submit ? 'submit' : 'click';
     });
   }
+}
+
+/**
+ * Keep button cells in step with whether their row has data. `hadData[r]` is
+ * rowHasData before the change just made. A row that has just got its first
+ * data takes its button defaults; a row whose data has just gone loses its
+ * button cells, so deleting a row's data never leaves a submit-only command
+ * behind. Rows that did not cross that line are left exactly as typed.
+ */
+export function settleButtons(columns, rows, hadData) {
+  const gained = [];
+  rows.forEach((row, r) => {
+    const has = rowHasData(columns, row);
+    if (has && !hadData[r]) gained.push(r);
+    if (!has && hadData[r]) columns.forEach((column, col) => { if (column.kind === 'button') row[col] = ''; });
+  });
+  fillButtonDefaults(columns, rows, gained);
+}
+
+// ── Going back to pick mode and returning ───────────────────────────────────
+
+/**
+ * What a sheet must remember about its rows before they leave for pick mode:
+ * the pick key each cell's column had, and each column's pill.
+ */
+export function sheetMemory(columns) {
+  return {
+    keys: columns.map(column => column.key),
+    matchOn: Object.fromEntries(columns.map(column => [column.key, column.matchOn])),
+  };
+}
+
+/**
+ * Rows from an earlier sheet, lined up with the columns now picked. Cells
+ * follow their column by pick key, never by position; a column picked since
+ * starts blank, except that a new button column takes its default on rows
+ * that have data. Each surviving column gets its pill back when that mode
+ * still applies. Returns the new rows; sets `matchOn` on `columns`.
+ */
+export function carryRows(columns, rows, memory) {
+  const from = columns.map(column => memory.keys.indexOf(column.key));
+  const carried = rows.map(row => from.map(i => (i >= 0 ? String(row[i] ?? '') : '')));
+  columns.forEach(column => {
+    const mode = memory.matchOn[column.key];
+    if (mode && matchModes(column).includes(mode)) column.matchOn = mode;
+  });
+  carried.forEach(row => {
+    if (!rowHasData(columns, row)) return;
+    columns.forEach((column, col) => {
+      if (column.kind === 'button' && from[col] < 0) row[col] = column.submit ? 'submit' : 'click';
+    });
+  });
+  return carried;
 }
 
 // ── The grid state ──────────────────────────────────────────────────────────
