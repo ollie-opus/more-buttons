@@ -123,6 +123,7 @@
         "scripts/actionPlayVeil.js",
         "scripts/actionEditor.js",
         "scripts/builderPickables.js",
+        "scripts/builderSheet.js",
         "scripts/gridEditor.js",
         "scripts/mdButtons.js",
         "scripts/buttonEditor.js",
