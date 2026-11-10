@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { slugify, titleCaseSegment, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue, parseCreatedTags, parseTagRegistry, writeTagRegistry, mergeTagRegistry } from '../scripts/navToml.js';
+import { slugify, sectionNameFrom, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue, parseCreatedTags, parseTagRegistry, writeTagRegistry, mergeTagRegistry } from '../scripts/navToml.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -22,12 +22,6 @@ test('slugify hyphenates punctuation instead of deleting it', () => {
 });
 test('slugify transliterates accented characters', () => {
   assert.equal(slugify('Résumé Café'), 'resume-cafe');
-});
-test('titleCaseSegment title-cases hyphenated segment', () => {
-  assert.equal(titleCaseSegment('annual-reports'), 'Annual Reports');
-});
-test('titleCaseSegment handles single word', () => {
-  assert.equal(titleCaseSegment('employees'), 'Employees');
 });
 
 const SAMPLE = `# comment line
@@ -95,12 +89,33 @@ test('insertPath merges into existing section matched by slug', () => {
   assert.equal(items[0].children.length, 1);
   assert.equal(items[0].children[0].children[0].value, 'pages/registering-an-employee.md');
 });
-test('insertPath creates missing sections with title-cased names', () => {
+test('sectionNameFrom capitalises each word and leaves the rest as typed', () => {
+  assert.equal(sectionNameFrom('briefings'), 'Briefings');
+  assert.equal(sectionNameFrom('annual reports'), 'Annual Reports');
+  assert.equal(sectionNameFrom('RAMS'), 'RAMS');
+  assert.equal(sectionNameFrom('health & safety'), 'Health & Safety');
+  assert.equal(sectionNameFrom('eLearning'), 'ELearning');
+  assert.equal(sectionNameFrom('  padded  '), 'Padded');
+});
+test('insertPath creates missing sections capitalised from the typed text', () => {
   const items = [];
-  insertPath(items, ['guides', 'annual-reports'], 'Q1', 'pages/q1.md');
+  insertPath(items, ['guides', ' annual reports '], 'Q1', 'pages/q1.md');
   assert.equal(items[0].name, 'Guides');
   assert.equal(items[0].children[0].name, 'Annual Reports');
   assert.equal(items[0].children[0].children[0].value, 'pages/q1.md');
+});
+test('insertPath keeps "&" and acronyms in new section names', () => {
+  const items = [];
+  insertPath(items, ['health & safety', 'RAMS'], 'Q1', 'pages/q1.md');
+  assert.equal(items[0].name, 'Health & Safety');
+  assert.equal(items[0].children[0].name, 'RAMS');
+});
+test('insertPath matches an existing "&" section whether typed as "&" or "and"', () => {
+  const items = [{ name: 'Health & Safety', children: [] }];
+  insertPath(items, ['health and safety'], 'Q1', 'pages/q1.md');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, 'Health & Safety');
+  assert.equal(items[0].children[0].value, 'pages/q1.md');
 });
 test('insertPath with empty segments adds a root leaf', () => {
   const items = [];
@@ -124,9 +139,17 @@ test('removeByValue keeps siblings', () => {
   assert.equal(items[0].children.length, 1);
   assert.equal(items[0].children[0].value, 'pages/b.md');
 });
-test('findPathOfValue returns segments and leaf name', () => {
-  const items = [{ name: 'Guides', children: [{ name: 'Employees', children: [{ name: 'R', value: 'pages/r.md' }] }] }];
-  assert.deepEqual(findPathOfValue(items, 'pages/r.md'), { segments: ['guides', 'employees'], leafName: 'R' });
+test('findPathOfValue returns section names as written and the leaf name', () => {
+  const items = [{ name: 'Guides', children: [{ name: 'Health & Safety', children: [{ name: 'R', value: 'pages/r.md' }] }] }];
+  assert.deepEqual(findPathOfValue(items, 'pages/r.md'), { segments: ['Guides', 'Health & Safety'], leafName: 'R' });
+});
+test('a found location mirrored into another nav recreates sections with their real names', () => {
+  const nav = [{ name: 'Health & Safety', children: [{ name: 'RAMS', children: [{ name: 'R', value: 'pages/r.md' }] }] }];
+  const loc = findPathOfValue(nav, 'pages/r.md');
+  const draft = [];
+  insertPath(draft, loc.segments, loc.leafName, 'drafts/r.md');
+  assert.equal(draft[0].name, 'Health & Safety');
+  assert.equal(draft[0].children[0].name, 'RAMS');
 });
 test('findPathOfValue returns null when absent', () => {
   assert.equal(findPathOfValue([], 'pages/none.md'), null);
@@ -134,7 +157,7 @@ test('findPathOfValue returns null when absent', () => {
 
 test('insertPath under a different path leaves the original (caller must removeByValue first)', () => {
   const items = [{ name: 'A', children: [{ name: 'Leaf', value: 'pages/x.md' }] }];
-  insertPath(items, ['b'], 'Leaf', 'pages/x.md');
+  insertPath(items, ['B'], 'Leaf', 'pages/x.md');
   // Not de-duplicated across paths: both the original and the new leaf exist.
   assert.equal(items.length, 2);
   assert.equal(items[0].children[0].value, 'pages/x.md');

@@ -14,12 +14,11 @@ export function slugify(title) {
     .replace(/^-|-$/g, '');
 }
 
-export function titleCaseSegment(segment) {
-  return String(segment)
-    .split('-')
-    .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+// Display name for a section created from typed text: each word's first
+// letter upper-cased, nothing else touched — "briefings" → "Briefings" while
+// "RAMS" and "Health & Safety" stay as written.
+export function sectionNameFrom(segment) {
+  return String(segment).trim().replace(/(^|\s)(\p{Ll})/gu, (m, sp, ch) => sp + ch.toUpperCase());
 }
 
 function toNode(obj) {
@@ -84,7 +83,9 @@ export function replaceNavBlock(tomlText, key, items) {
 
 // Walk/create the section hierarchy for `segments`, then insert or replace the
 // leaf {leafName: value} at the deepest level. Matches existing sections by
-// slug; creates missing ones with a title-cased display name. Mutates + returns.
+// slug; a missing one is created from the segment as typed (sectionNameFrom)
+// — never rebuilt from its slug, which would turn "Health & Safety" into
+// "Health And Safety" and "RAMS" into "Rams". Mutates + returns.
 // Note: the existing-leaf check is scoped to the deepest section only. If `value`
 // may already exist elsewhere in the tree, call removeByValue first to avoid a duplicate.
 export function insertPath(nodes, segments, leafName, value) {
@@ -93,7 +94,7 @@ export function insertPath(nodes, segments, leafName, value) {
     const segSlug = slugify(seg);
     let section = level.find(n => n.children && slugify(n.name) === segSlug);
     if (!section) {
-      section = { name: titleCaseSegment(segSlug), children: [] };
+      section = { name: sectionNameFrom(seg), children: [] };
       level.push(section);
     }
     level = section.children;
@@ -121,11 +122,14 @@ export function removeByValue(nodes, value) {
   return nodes;
 }
 
-// Locate a leaf by value; return { segments (slugs), leafName } or null.
+// Locate a leaf by value; return { segments, leafName } or null. `segments`
+// are the section names as written, so a location can be mirrored into
+// another nav array and recreate missing sections with their real names;
+// every consumer matches sections by slugify(segment), never by text.
 export function findPathOfValue(nodes, value, trail = []) {
   for (const n of nodes) {
     if (n.children) {
-      const found = findPathOfValue(n.children, value, [...trail, slugify(n.name)]);
+      const found = findPathOfValue(n.children, value, [...trail, n.name]);
       if (found) return found;
     } else if (n.value === value) {
       return { segments: trail, leafName: n.name };
@@ -147,7 +151,7 @@ export function valueSlug(value) {
 export function findPathByValueSlug(nodes, slug, trail = []) {
   for (const n of nodes) {
     if (n.children) {
-      const found = findPathByValueSlug(n.children, slug, [...trail, slugify(n.name)]);
+      const found = findPathByValueSlug(n.children, slug, [...trail, n.name]);
       if (found) return found;
     } else if (n.value !== undefined && valueSlug(n.value) === slug) {
       return { segments: trail, leafName: n.name };
@@ -340,14 +344,14 @@ export function attachUnderPath(tree, idxPath, node) {
   if (target && target.children) target.children.push(node);
 }
 
-// Walk/create sections by slug (title-cased display name for new ones), then
-// push node at the deepest level. Mirrors insertPath's section-walk.
+// Walk/create sections by slug (a new one named via sectionNameFrom), then push node
+// at the deepest level. Mirrors insertPath's section-walk.
 export function attachUnderSegments(tree, segments, node) {
   let level = tree;
   for (const seg of segments) {
     const segSlug = slugify(seg);
     let section = level.find(n => n.children && slugify(n.name) === segSlug);
-    if (!section) { section = { name: titleCaseSegment(segSlug), children: [] }; level.push(section); }
+    if (!section) { section = { name: sectionNameFrom(seg), children: [] }; level.push(section); }
     level = section.children;
   }
   level.push(node);

@@ -15,7 +15,7 @@ const TOML = `draft_nav = [
 
 test('moves a leaf to a new section path, preserving its name', () => {
   const items = parseNavBlock(TOML, 'draft_nav').items;
-  const r = setPathByValueSlug(items, 'registering-an-employee', ['onboarding'], {
+  const r = setPathByValueSlug(items, 'registering-an-employee', ['Onboarding'], {
     value: 'drafts/registering-an-employee.md',
     fallbackName: 'registering-an-employee',
   });
@@ -52,7 +52,7 @@ test('no-op when already at the target path', () => {
 
 test('creates the leaf when slug is absent (self-heal)', () => {
   const items = [];
-  const r = setPathByValueSlug(items, 'new-guide', ['guides'], {
+  const r = setPathByValueSlug(items, 'new-guide', ['Guides'], {
     value: 'drafts/new-guide.md',
     fallbackName: 'new-guide',
   });

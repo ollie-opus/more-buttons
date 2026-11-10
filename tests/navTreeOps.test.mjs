@@ -49,10 +49,11 @@ test('attachUnderPath pushes into the target section', () => {
   assert.deepEqual(t[1].children.map(x => x.name), ['D', 'B']);
 });
 
-test('attachUnderSegments creates missing sections title-cased', () => {
+test('attachUnderSegments matches sections by slug and names new ones as typed', () => {
   const t = fresh();
   const n = detachAtPath(t, [0, 0]);          // pull A out
-  attachUnderSegments(t, ['guides', 'contractors'], n);
+  attachUnderSegments(t, ['guides', 'Contractors'], n);
+  assert.equal(t.length, 2, 'lower-case "guides" matched the existing Guides section');
   const contractors = t[0].children.find(x => x.name === 'Contractors');
   assert.ok(contractors, 'Contractors section created');
   assert.deepEqual(contractors.children.map(x => x.name), ['A']);

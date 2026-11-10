@@ -62,7 +62,7 @@ test('buildPayload writes nav order, drops draft-only leaf from nav', () => {
 
 test('moveToSegments reparents a leaf into a new section', () => {
   const s = createReorderState({ tree: tree(), navItems: navItems(), draftItems: draftItems() });
-  s.moveToSegments('0.0.0', ['guides', 'archive']);  // move A to Guides/Archive
+  s.moveToSegments('0.0.0', ['Guides', 'Archive']);  // move A to Guides/Archive
   const { nav } = s.buildPayload();
   const archive = nav[1].children.find(n => n.name === 'Archive');
   assert.ok(archive);
