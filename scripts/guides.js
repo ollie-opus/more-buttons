@@ -41,7 +41,7 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, listTileHeadHtml, deleteButtonHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, listTileHeadHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
 import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, deleteConfirmMessage, parsePastedComponents, cardPreviewModel } from './components.js';
 import { listSelectionOf, paintListSelection, listCountBadge } from './listSelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
@@ -1357,7 +1357,6 @@ function captureComponentCardFor(cap) {
     thumbSrc: assetCdnUrl('docs/assets/' + cap.lightFilename),
     btnAttr: `data-edit-component="${escapeHtml(cap.uuid ?? '')}"`,
     copyAttr: cap.uuid ? `data-copy-component-md="${escapeHtml(cap.uuid)}"` : '',
-    deleteAttr: cap.uuid ? `data-delete-component="${escapeHtml(cap.uuid)}"` : '',
     ext: fileExtOf(cap.lightFilename),
   });
 }
@@ -1367,7 +1366,6 @@ function videoComponentCardFor(vid) {
     thumbSrc: assetCdnUrl('docs/assets/' + vid.lightFilename),
     btnAttr: `data-edit-video-component="${escapeHtml(vid.uuid ?? '')}"`,
     copyAttr: vid.uuid ? `data-copy-component-md="${escapeHtml(vid.uuid)}"` : '',
-    deleteAttr: vid.uuid ? `data-delete-component="${escapeHtml(vid.uuid)}"` : '',
     ext: fileExtOf(vid.lightFilename),
   });
 }
@@ -1377,7 +1375,6 @@ function imageComponentCardFor(img) {
     thumbSrc: assetCdnUrl('docs/assets/' + img.filename),
     btnAttr: `data-edit-image-component="${escapeHtml(img.uuid ?? '')}"`,
     copyAttr: img.uuid ? `data-copy-component-md="${escapeHtml(img.uuid)}"` : '',
-    deleteAttr: img.uuid ? `data-delete-component="${escapeHtml(img.uuid)}"` : '',
     ext: fileExtOf(img.filename),
   });
 }
@@ -1393,7 +1390,6 @@ function buttonComponentCardFor(btn) {
     onclick: btn.onclick,
     btnAttr: `data-edit-button-component="${escapeHtml(btn.uuid ?? '')}"`,
     copyAttr: btn.uuid ? `data-copy-component-md="${escapeHtml(btn.uuid)}"` : '',
-    deleteAttr: btn.uuid ? `data-delete-component="${escapeHtml(btn.uuid)}"` : '',
   });
 }
 
@@ -1402,7 +1398,6 @@ function navLinksComponentCardFor(nav) {
     path: nav.tag != null ? `${nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${nav.tag}` : nav.path,
     btnAttr: `data-edit-nav-links-component="${escapeHtml(nav.uuid ?? '')}"`,
     copyAttr: nav.uuid ? `data-copy-component-md="${escapeHtml(nav.uuid)}"` : '',
-    deleteAttr: nav.uuid ? `data-delete-component="${escapeHtml(nav.uuid)}"` : '',
   });
 }
 
@@ -1410,7 +1405,6 @@ function diagramComponentCardFor(dia) {
   return diagramComponentCard({
     btnAttr: `data-edit-diagram-component="${escapeHtml(dia.uuid ?? '')}"`,
     copyAttr: dia.uuid ? `data-copy-component-md="${escapeHtml(dia.uuid)}"` : '',
-    deleteAttr: dia.uuid ? `data-delete-component="${escapeHtml(dia.uuid)}"` : '',
   });
 }
 
@@ -1420,7 +1414,6 @@ function codeBlockComponentCardFor(cb) {
     language: cb.language,
     btnAttr: `data-edit-codeblock-component="${escapeHtml(cb.uuid ?? '')}"`,
     copyAttr: cb.uuid ? `data-copy-component-md="${escapeHtml(cb.uuid)}"` : '',
-    deleteAttr: cb.uuid ? `data-delete-component="${escapeHtml(cb.uuid)}"` : '',
   });
 }
 
@@ -1431,7 +1424,7 @@ function codeBlockComponentCardFor(cb) {
 // View-only lists (live guide screens) keep the draft list's shape — the
 // empty tile, the dashed insert rules and the reorder rail — with every
 // control inert; `insertHint` is the empty tile's label (why nothing can be
-// inserted here). Edit and Delete keys are never emitted on a view-only list.
+// inserted here). Edit keys are never emitted on a view-only list.
 // Every non-empty list starts with the tile head (Select all) and has a
 // checkbox per row; the selection's actions live in the form's dock
 // (listSelection.js). The group's eyebrow carries the count ("COMPONENTS · n").
@@ -1671,12 +1664,6 @@ export function onComponentEditorClick(e) {
   const deleteSelected = e.target.closest('[data-delete-selected]');
   if (deleteSelected) {
     deleteComponentsFromEditor(formEl, selectedComponentUuids(formEl));
-    return;
-  }
-
-  const deleteOne = e.target.closest('[data-delete-component]');
-  if (deleteOne) {
-    deleteComponentsFromEditor(formEl, [deleteOne.dataset.deleteComponent]);
     return;
   }
 
@@ -1921,7 +1908,7 @@ async function copySelectedComponents(formEl, btn) {
   }
 }
 
-// Card Delete / header Delete selected: remove `uuids` from the open editor's
+// The header's Delete selected: remove `uuids` from the open editor's
 // container as ONE commit through the container's `mutate` (the same path the
 // edit forms' Delete takes), after the same native confirm text those forms
 // use (deleteConfirmMessage). Runs the save-gate first, like a child
@@ -1981,7 +1968,7 @@ function admonitionCard(adm, stepNumber = null) {
       ${cardPreviewBlock(cardPreviewModel(adm.body, GUIDE_ADMONITION_TYPES_RE))}
       <div class="mb-incident-card__foot --end">
         ${adm.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(adm.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(adm.uuid ? `data-delete-component="${escapeHtml(adm.uuid)}"` : '')}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
       </div>
     </div>`;
 }
@@ -2002,7 +1989,7 @@ function tabsComponentCard(grp) {
       ${titles ? `<p class="mb-incident-card__body">${escapeHtml(titles)}</p>` : ''}
       <div class="mb-incident-card__foot --end">
         ${grp.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(grp.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grp.uuid ? 'Edit' : 'Error'}</button>${deleteButtonHtml(grp.uuid ? `data-delete-component="${escapeHtml(grp.uuid)}"` : '')}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grp.uuid ? 'Edit' : 'Error'}</button>
       </div>
     </div>`;
 }
@@ -2025,7 +2012,7 @@ function dataTableCard(tbl) {
       <p class="mb-incident-card__body">${escapeHtml(summary)}</p>
       <div class="mb-incident-card__foot --end">
         ${tbl.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(tbl.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${tbl.uuid ? 'Edit' : 'Error'}</button>${deleteButtonHtml(tbl.uuid ? `data-delete-component="${escapeHtml(tbl.uuid)}"` : '')}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${tbl.uuid ? 'Edit' : 'Error'}</button>
       </div>
     </div>`;
 }
@@ -2048,7 +2035,7 @@ function gridCard(grid) {
       <p class="mb-incident-card__body">${escapeHtml(summary)}</p>
       <div class="mb-incident-card__foot --end">
         ${grid.uuid ? `<button type="button" class="mb-incident-card__edit" data-copy-component-md="${escapeHtml(grid.uuid)}">Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grid.uuid ? 'Edit' : 'Error'}</button>${deleteButtonHtml(grid.uuid ? `data-delete-component="${escapeHtml(grid.uuid)}"` : '')}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${grid.uuid ? 'Edit' : 'Error'}</button>
       </div>
     </div>`;
 }

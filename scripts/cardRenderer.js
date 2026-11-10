@@ -190,7 +190,7 @@ function cardFormatPill(ext) {
 // inline <video> thumbnail (paused, first-frame poster) and a Video badge.
 // `thumbSrc` is the light/single video's CDN url; `ext` renders the grey
 // file-format pill after the badge.
-export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', deleteAttr = '', ext = '' }) {
+export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', ext = '' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
@@ -200,7 +200,7 @@ export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyA
     ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><video class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" muted playsinline preload="metadata"></video></div>` : ''}
     <div class="mb-incident-card__foot --end">
       ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
-      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(deleteAttr)}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
 }
@@ -210,7 +210,7 @@ export function videoComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyA
 // " · Force dark" / " · Border light only"-style suffixes for non-default theme
 // and border), and an Edit button. Legacy colourless buttons fall back to the
 // old Primary/Secondary tag.
-export function buttonComponentCard({ label, destination, primary, colour, theme, border, onclick, btnAttr, btnLabel = 'Edit', copyAttr = '', deleteAttr = '' }) {
+export function buttonComponentCard({ label, destination, primary, colour, theme, border, onclick, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
   const support = isSupportOnclick(onclick);
   // A support-widget button's destination is a meaningless `#` — name it instead.
   const text = (label ?? '').trim() || (support ? 'Support widget' : (destination ?? '').trim()) || '(no label)';
@@ -232,7 +232,7 @@ export function buttonComponentCard({ label, destination, primary, colour, theme
       <span class="mb-incident-card__meta">${tag}</span>
       <span class="mb-incident-card__foot-actions">
         ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
-        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(deleteAttr)}
+        <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
       </span>
     </div>
   </div>`;
@@ -241,7 +241,7 @@ export function buttonComponentCard({ label, destination, primary, colour, theme
 // A "Nav links" component card: grey chrome, a "Nav links" badge, the nav path it
 // lists, and an Edit button. The list itself is rendered live on the published
 // site, so the card just previews the path.
-export function navLinksComponentCard({ path, btnAttr, btnLabel = 'Edit', copyAttr = '', deleteAttr = '' }) {
+export function navLinksComponentCard({ path, btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
   const text = (path ?? '').trim() || '(no path)';
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
@@ -251,7 +251,7 @@ export function navLinksComponentCard({ path, btnAttr, btnLabel = 'Edit', copyAt
     </div>
     <div class="mb-incident-card__foot --end">
       ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
-      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(deleteAttr)}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
 }
@@ -259,7 +259,7 @@ export function navLinksComponentCard({ path, btnAttr, btnLabel = 'Edit', copyAt
 // A "Diagram" component card: grey chrome, a "Diagram" badge, a static "Diagram"
 // title, and an Edit button. The Mermaid diagram itself renders live on the
 // published site, so the card is just a labelled placeholder.
-export function diagramComponentCard({ btnAttr, btnLabel = 'Edit', copyAttr = '', deleteAttr = '' }) {
+export function diagramComponentCard({ btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
@@ -268,7 +268,7 @@ export function diagramComponentCard({ btnAttr, btnLabel = 'Edit', copyAttr = ''
     </div>
     <div class="mb-incident-card__foot --end">
       ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
-      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(deleteAttr)}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
 }
@@ -278,7 +278,7 @@ export function diagramComponentCard({ btnAttr, btnLabel = 'Edit', copyAttr = ''
 // language rendered in the grey format-pill slot. The highlighted block itself
 // renders on the published site, so the card is a labelled placeholder like
 // the diagram's.
-export function codeBlockComponentCard({ title = '', language = '', btnAttr, btnLabel = 'Edit', copyAttr = '', deleteAttr = '' }) {
+export function codeBlockComponentCard({ title = '', language = '', btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
   const t = (title ?? '').trim();
   const lang = (language ?? '').trim();
   const heading = t || lang || 'Code block';
@@ -294,7 +294,7 @@ export function codeBlockComponentCard({ title = '', language = '', btnAttr, btn
     </div>
     <div class="mb-incident-card__foot --end">
       ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
-      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(deleteAttr)}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
 }
@@ -308,7 +308,7 @@ export function codeBlockComponentCard({ title = '', language = '', btnAttr, btn
 // An "Image" component card: same chrome as captureComponentCard but for a
 // single library image (no theme pair). `thumbSrc` is the file's CDN url;
 // `ext` renders the grey file-format pill after the badge.
-export function imageComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', deleteAttr = '', ext = '' }) {
+export function imageComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', ext = '' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
@@ -318,12 +318,12 @@ export function imageComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyA
     ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><img class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" alt="" loading="lazy" /></div>` : ''}
     <div class="mb-incident-card__foot --end">
       ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
-      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(deleteAttr)}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
 }
 
-export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', deleteAttr = '', ext = '' }) {
+export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', copyAttr = '', ext = '' }) {
   return `
   <div class="mb-incident-card --grey mb-component-card--capture">
     <div class="mb-incident-card__head">
@@ -333,7 +333,7 @@ export function captureComponentCard({ thumbSrc, btnAttr, btnLabel = 'Edit', cop
     ${thumbSrc ? `<div class="mb-incident-card__body mb-component-card__thumb-row"><img class="mb-component-card__thumb" src="${escapeHtml(thumbSrc)}" alt="" loading="lazy" /></div>` : ''}
     <div class="mb-incident-card__foot --end">
       ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
-      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>${deleteButtonHtml(deleteAttr)}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
     </div>
   </div>`;
 }
@@ -369,15 +369,6 @@ export function listTileHeadHtml({ canDelete = true } = {}) {
 }
 
 /**
- * A card foot's red Delete button, or '' when `attr` is empty (no uuid to act
- * on). Sits after Edit so Copy · Edit · Delete reads the same on every card.
- */
-export function deleteButtonHtml(attr) {
-  return attr ? `
-      <button type="button" class="mb-incident-card__edit --danger" ${attr}>Delete</button>` : '';
-}
-
-/**
  * Wraps a card with the vertical up/down reorder rail on its left edge.
  * `rowAttrs` is the raw attribute string identifying the row (e.g.
  * `data-component-uuid="…"`); `moveAttr` is the data attribute the rail buttons
@@ -406,8 +397,8 @@ export function insertSpacerHtml() {
 }
 
 /**
- * View-only cards: drop every foot button except Copy (the Edit / Error and
- * Delete buttons of each builder), keeping the foot wrapper and Show more intact.
+ * View-only cards: drop every foot button except Copy (each builder's Edit /
+ * Error button), keeping the foot wrapper and Show more intact.
  * Labels are plain text today; the lazy body match also tolerates markup.
  */
 export function stripNonCopyFootButtons(cardHtml) {

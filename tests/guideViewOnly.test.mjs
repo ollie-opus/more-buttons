@@ -43,7 +43,7 @@ await test('view-only renderComponents: the draft list shape with inert chrome �
   assert.equal(count(html, /data-view-component="[01]"/g), 2);
   assert.equal(count(html, /class="mb-incident-card__edit"/g), 4, '2× Copy, 2× View');
   assert.equal(count(html, /data-edit-guide-admonition/g), 0);
-  assert.equal(count(html, /data-delete-component/g), 0, 'no Delete on a view-only card');
+  assert.equal(count(html, /data-delete-component|--danger/g), 0, 'no Delete on a view-only card');
   assert.equal(count(html, /class="mb-component-row" data-component-uuid="U-[12]"/g), 2);
   assert.equal(count(html, /data-select-row/g), 2, 'each row keeps its checkbox (Copy selected works live)');
   assert.equal(count(html, /class="mb-list-tile__head"/g), 1, 'the tile head (select all) is the first row');
@@ -68,22 +68,22 @@ await test('view-only renderComponents: an empty list keeps the insert tile, dis
   assert.ok(!list.innerHTML.includes('data-insert-component-at'));
 });
 
-await test('editable renderComponents: insert triggers, rails, Copy · Edit · Delete per card, checkbox per row, and the full header', () => {
+await test('editable renderComponents: insert triggers, rails, Copy · Edit per card (never a card Delete), checkbox per row, and the full header', () => {
   const list = fakeList(false);
   renderComponents(list, TWO);
   const html = list.innerHTML;
   assert.equal(count(html, /data-insert-component-at="[012]"/g), 3);
   assert.equal(count(html, /mb-component-rail"/g), 2);
   assert.equal(count(html, /data-edit-guide-admonition="U-[12]"/g), 2);
-  assert.equal(count(html, /class="mb-incident-card__edit --danger" data-delete-component="U-[12]"/g), 2);
+  assert.equal(count(html, /data-delete-component|mb-incident-card__edit --danger/g), 0, 'no per-card Delete: deletion is the header\'s Delete selected or the edit form\'s Delete');
   assert.equal(count(html, /data-select-row/g), 2);
   assert.equal(count(html, /class="mb-list-tile__head"/g), 1);
   assert.ok(html.indexOf('class="mb-list-tile__head"') < html.indexOf('data-insert-component-at="0"'), 'the tile head comes first');
   assert.ok(html.includes('data-copy-selected') && html.includes('data-delete-selected'), 'the header offers Copy and Delete');
   assert.ok(!html.includes('data-view-component'));
-  // Foot order on an admonition card: Copy, Edit, Delete.
+  // Foot order on an admonition card: Copy, then Edit closes the foot.
   const foot = html.slice(html.indexOf('data-copy-component-md="U-1"'));
-  assert.ok(foot.indexOf('data-edit-guide-admonition="U-1"') < foot.indexOf('data-delete-component="U-1"'));
+  assert.ok(foot.indexOf('data-edit-guide-admonition="U-1"') < foot.indexOf('</div>'));
 });
 
 await test('renderComponents: a single component gets no header (nothing to select against), editable or view-only', () => {

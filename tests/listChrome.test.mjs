@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { insertTriggerHtml, railRowHtml, listTileHeadHtml, deleteButtonHtml, stripNonCopyFootButtons, captureComponentCard } from '../scripts/cardRenderer.js';
+import { insertTriggerHtml, railRowHtml, listTileHeadHtml, stripNonCopyFootButtons, captureComponentCard } from '../scripts/cardRenderer.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -62,25 +62,12 @@ test('listTileHeadHtml: the tile header — Select all, the count slot, Copy, an
   assert.ok(ro.includes('data-copy-selected') && !ro.includes('data-delete-selected'));
 });
 
-test('deleteButtonHtml: a red ghost button carrying the attribute, or nothing without one', () => {
-  assert.equal(deleteButtonHtml('data-delete-component="U"').trim(), '<button type="button" class="mb-incident-card__edit --danger" data-delete-component="U">Delete</button>');
-  assert.equal(deleteButtonHtml(''), '');
-});
-
-test('card builders: deleteAttr renders Delete after Edit; omitted → no Delete', () => {
-  const card = captureComponentCard({ thumbSrc: 'x.png', btnAttr: 'data-edit-component="U"', copyAttr: 'data-copy-component-md="U"', deleteAttr: 'data-delete-component="U"' });
+test('card builders: the foot is Copy · Edit — no per-card Delete (deletion is the header\'s Delete selected or the edit form\'s Delete)', () => {
+  const card = captureComponentCard({ thumbSrc: 'x.png', btnAttr: 'data-edit-component="U"', copyAttr: 'data-copy-component-md="U"' });
   assert.ok(card.indexOf('data-copy-component-md') < card.indexOf('data-edit-component'));
-  assert.ok(card.indexOf('data-edit-component') < card.indexOf('data-delete-component'));
-  assert.ok(!captureComponentCard({ thumbSrc: 'x.png', btnAttr: 'a' }).includes('--danger'));
-});
-
-test('stripNonCopyFootButtons: drops the red Delete too (modifier class), keeps Copy', () => {
-  const card = captureComponentCard({ thumbSrc: 'x.png', btnAttr: 'data-edit-component="U"', copyAttr: 'data-copy-component-md="U"', deleteAttr: 'data-delete-component="U"' });
-  const out = stripNonCopyFootButtons(card);
-  assert.ok(out.includes('data-copy-component-md="U"'));
-  assert.ok(!out.includes('data-delete-component'));
-  assert.ok(!out.includes('data-edit-component'));
-  assert.equal((out.match(/<button/g) || []).length, 1);
+  assert.equal((card.match(/<button/g) || []).length, 2, 'Copy and Edit only');
+  assert.ok(!card.includes('--danger') && !card.includes('Delete'));
+  assert.ok(!captureComponentCard({ thumbSrc: 'x.png', btnAttr: 'a' }).includes('Delete'));
 });
 
 test('stripNonCopyFootButtons: keeps Copy, drops Edit, keeps the foot wrapper', () => {

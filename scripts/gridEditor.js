@@ -53,7 +53,7 @@ import {
 import { syncSurfaceFromTextarea, paintInlineAtoms } from './richTextEditor.js';
 import {
   cardBodyBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, railRowHtml,
-  listTileHeadHtml, deleteButtonHtml,
+  listTileHeadHtml,
 } from './cardRenderer.js';
 import { openPopupMenu } from './insertMenu.js';
 import { showFieldError } from './formValidation.js';
@@ -186,9 +186,8 @@ function enrichCellCounts(formEl, md) {
 const CELL_INSERT_ATTR = 'data-insert-cell-at';
 
 // One cell card: rich description preview (clamp + Show more), a component-count
-// meta, and Copy / Edit / Delete. Copy reads the cell from the file and Delete
-// commits to it, so both are omitted in create mode (the grid isn't in the file
-// yet and its cells are empty anyway).
+// meta, and Copy / Edit. Copy reads the cell from the file, so it is omitted in
+// create mode (the grid isn't in the file yet and its cells are empty anyway).
 function cellCard(formEl, c, i) {
   const n = c.nComponents ?? 0;
   const canCopy = inFile(formEl);
@@ -202,14 +201,14 @@ function cellCard(formEl, c, i) {
         ${n ? `<span class="mb-incident-card__meta">${n} component${n === 1 ? '' : 's'}</span>` : ''}
         <span class="mb-incident-card__foot-actions">
           ${canCopy ? `<button type="button" class="mb-incident-card__edit" data-copy-grid-cell="${i}">Copy</button>` : ''}
-          <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>${canCopy ? deleteButtonHtml(`data-grid-delete-cell="${i}"`) : ''}
+          <button type="button" class="mb-incident-card__edit" data-grid-edit-cell="${i}">Edit</button>
         </span>
       </div>
     </div>`;
 }
 
-// True once the grid exists in the file (edit mode): Copy / Delete / the
-// selection bar all read or write the file, so create mode goes without them.
+// True once the grid exists in the file (edit mode): Copy / Delete selected /
+// the selection header all read or write the file, so create mode goes without them.
 function inFile(formEl) { return formEl.dataset.mode !== 'create'; }
 
 // Render the vertical cell list: the tile head (Select all), then an insert bar
@@ -340,7 +339,7 @@ function paintCellSelection(formEl) {
   paintListSelection(cellListHost(formEl), formEl._grid.cells.map(c => c.uuid));
 }
 
-// Parent list → a card's Delete / the bar's Delete selected: confirm (native
+// Parent list → the header's Delete selected: confirm (native
 // dialog, like the child form's Delete cell), remove the cells from the grid as
 // ONE commit and refresh the list in place. A grid keeps at least one cell. The
 // save-gate runs first so an unsaved flavor / reorder isn't lost to the re-read.
@@ -404,7 +403,7 @@ function setFlavor(formEl, flavor) {
 
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
-// Parent: flavor toggle, rail reorder, Copy / Edit / Delete on a card, the
+// Parent: flavor toggle, rail reorder, Copy / Edit on a card, the
 // selection bar (Copy selected / Delete selected), and the insert bar (a two-item
 // menu: Add cell / Paste cell markdown — both via the save-gate).
 function wireGridEditor(formEl) {
@@ -446,8 +445,6 @@ function wireGridEditor(formEl) {
       return;
     }
     if (e.target.closest('[data-delete-selected]')) { deleteGridCells(formEl, selectedCellUuids(formEl)); return; }
-    const deleteBtn = e.target.closest('[data-grid-delete-cell]');
-    if (deleteBtn) { deleteGridCells(formEl, [formEl._grid.cells[parseInt(deleteBtn.dataset.gridDeleteCell, 10)]?.uuid].filter(Boolean)); return; }
 
     const editBtn = e.target.closest('[data-grid-edit-cell]');
     if (editBtn) {

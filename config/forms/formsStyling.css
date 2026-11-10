@@ -4602,9 +4602,6 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   accent-color: var(--mb-acc-info);
   cursor: pointer;
 }
-/* Destructive ghost button (a card's Delete): the red every other Delete in
-   these forms uses, filling on hover like its siblings. */
-.mb-incident-card__edit.--danger { --mb-accent: var(--mb-acc-danger); --mb-card-edit-fg-hover: var(--mb-acc-on); }
 .mb-component-rail { grid-area: 2 / 1; justify-self: center; display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; padding-top: 6px; }
 .mb-component-rail__btn {
   width: 24px; height: 20px; padding: 0; line-height: 1;
