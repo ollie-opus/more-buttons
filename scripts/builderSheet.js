@@ -1,5 +1,5 @@
 /**
- * builderSheet.js — the logic behind the Selenium command builder's sheet.
+ * builderSheet.js — the logic behind the Selenium automation helper's sheet.
  *
  * Ollie pastes rows from Google Sheets into a grid with one column per picked
  * input. This module is everything about that grid that is not drawing it:

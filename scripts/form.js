@@ -79,7 +79,7 @@ const FORM_LABELS = {
   actionName: 'Name Action',
   askAtPlay: 'Play Action',
   confirmPlayAction: 'Play Action',
-  seleniumCommandBuilder: 'Selenium command builder',
+  seleniumCommandBuilder: 'Selenium automation helper',
 };
 
 function resetHistory() {

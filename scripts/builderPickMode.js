@@ -1,9 +1,9 @@
 /**
- * builderPickMode.js — step 1 of the Selenium command builder: picking the
+ * builderPickMode.js — step 1 of the Selenium automation helper: picking the
  * inputs a sheet will fill.
  *
  * Modelled on capture mode and its extract mode, and built from the same
- * parts: the action bar (actionToolbar.js) in its own violet hue, and the
+ * parts: the action bar (actionToolbar.js) in its own pink hue, and the
  * capture selector (captureElement.js installSelector) restricted to what
  * builderPickables.js says is pickable.
  *
@@ -12,12 +12,12 @@
  *   - With Shift held, hovering outlines whatever a click would add (an
  *     input, a whole radio / checkbox group, a button) and a small tag names
  *     it. Everything else gets no outline.
- *   - Shift + click adds it; again, or the ✕ on its chip in the bar, removes
- *     it. Picked inputs keep a solid outline and their number. The number is
- *     the pick order, which is the column order and the order the command
- *     runs the actions in.
+ *   - Shift + click adds it; again removes it. Picked inputs keep a solid
+ *     outline and their number. The number is the pick order, which is the
+ *     column order and the order the command runs the actions in.
+ *   - Clear in the bar drops every pick at once (as in annotate mode).
  *   - Continue hands the picks to the sheet. Esc, the close control, the
- *     dock button again, or leaving the page ends the mode without a trace.
+ *     popup button again, or leaving the page ends the mode without a trace.
  *
  * All the judgement (what an element is, how it is addressed, its choices)
  * lives in builderPickables.js and is tested there; this file is the wiring.
@@ -42,13 +42,13 @@ const look = {
 
 let active = null; // { exit } while pick mode is on
 
-/** The dock action: start picking, or leave pick mode when it is already on. */
+/** The popup action: start picking, or leave pick mode when it is already on. */
 export function openSeleniumCommandBuilder() {
   if (active) { active.exit(); return; }
   enterPickMode();
 }
 
-const titleFor = n => `Selenium command builder · ${n} picked`;
+const titleFor = n => `Selenium automation helper · ${n} picked`;
 
 function tagTextFor(pick) {
   const n = pick.choices?.length;
@@ -83,15 +83,13 @@ export function enterPickMode({ picks = [], rows = null, memory = null } = {}) {
     variant: 'picking',
     title: titleFor(state.picks.length),
     controls: [
+      { id: 'clear', icon: 'eraser', label: 'Clear' },
       { id: 'continue', icon: 'arrow-right', label: 'Continue' },
       { id: 'cancel', icon: 'x', label: 'Close', kind: 'close' },
     ],
     escapeControl: 'cancel',
-    onControl: id => (id === 'continue' ? proceed() : exit()),
+    onControl: id => (id === 'continue' ? proceed() : id === 'clear' ? clearPicks() : exit()),
   });
-
-  const chips = make('div', 'mb-builder-chips');
-  bar.bar.insertBefore(chips, bar.bar.querySelector('.mb-capture-bar__spacer'));
 
   const tag = make('div', 'mb-builder-hover-tag');
   tag.hidden = true;
@@ -140,25 +138,10 @@ export function enterPickMode({ picks = [], rows = null, memory = null } = {}) {
     placeMarkers();
   }
 
-  // ── Chips ─────────────────────────────────────────────────────────────────
-  function paintChips() {
-    chips.replaceChildren(...state.picks.map((pick, i) => {
-      const chip = make('span', 'mb-builder-chip');
-      chip.title = tagTextFor(pick);
-      const remove = make('button', 'mb-builder-chip__x');
-      remove.type = 'button';
-      remove.setAttribute('aria-label', `Remove ${pick.title}`);
-      remove.appendChild(make('span', 'more-buttons-icon', 'x'));
-      remove.addEventListener('click', () => toggle(pick));
-      chip.append(make('b', 'mb-builder-chip__n', String(i + 1)), make('span', 'mb-builder-chip__name', pick.title), remove);
-      return chip;
-    }));
-  }
-
   function render() {
     bar.setTitle(titleFor(state.picks.length));
     bar.setControl('continue', { hidden: state.picks.length === 0 });
-    paintChips();
+    bar.setControl('clear', { label: `Clear (${state.picks.length})`, hidden: state.picks.length === 0 });
     paintMarkers();
   }
 
@@ -166,6 +149,11 @@ export function enterPickMode({ picks = [], rows = null, memory = null } = {}) {
   function toggle(pick) {
     const at = state.picks.findIndex(p => p.key === pick.key);
     if (at >= 0) state.picks.splice(at, 1); else state.picks.push(pick);
+    render();
+  }
+
+  function clearPicks() {
+    state.picks.length = 0;
     render();
   }
 

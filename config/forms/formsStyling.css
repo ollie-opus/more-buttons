@@ -5786,18 +5786,18 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 .mb-action-error__row.--ok { color: var(--mb-text-muted, #64748b); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * Selenium command builder
+ * Selenium automation helper
  *
  * Pick mode (scripts/builderPickMode.js) reuses the action bar and the capture
- * selector and re-hues them violet with the same single-token trick as the
+ * selector and re-hues them pink with the same single-token trick as the
  * capture modes: the bar and tab by their variant class, the selector box by
  * a class held on <html> while the mode is on. The picked markers and the
  * hover tag are the mode's own elements and take the same hue. */
 .mb-action-bar.--picking, .mb-action-tab.--picking,
 html.mb-builder-pick-mode .mb-capture-selector,
 html.mb-builder-pick-mode .mb-capture-padding-ring,
-.mb-builder-marker, .mb-builder-hover-tag { --cb-hue: #7c3aed; } /* violet-600 */
-.mb-action-bar.--picking { --tab-w: 300px; } /* tab grows to "Selenium command builder · 12 picked" */
+.mb-builder-marker, .mb-builder-hover-tag { --cb-hue: #db2777; } /* pink-600, the popup button's family */
+.mb-action-bar.--picking { --tab-w: 310px; } /* tab grows to "Selenium automation helper · 12 picked" */
 
 /* Hovering with Shift held is dashed, so it reads apart from a picked (solid) input. */
 html.mb-builder-pick-mode .mb-capture-selector { border-style: dashed; border-radius: 6px; }
@@ -5844,55 +5844,6 @@ html.mb-builder-pick-mode .mb-capture-selector { border-style: dashed; border-ra
   text-overflow: ellipsis;
 }
 .mb-builder-hover-tag[hidden] { display: none; }
-
-/* One chip per picked input, in the bar: number, name, ✕ to un-pick. */
-.mb-builder-chips {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.mb-builder-chips::-webkit-scrollbar { display: none; }
-.mb-builder-chips:empty { display: none; }
-.mb-builder-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  height: 24px;
-  padding: 0 2px 0 8px;
-  border: 1px solid var(--cb-border);
-  border-radius: 999px;
-  background: var(--cb-bg-sunken);
-  color: var(--cb-text);
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-.mb-builder-chip__n { font-weight: 700; }
-.mb-builder-chip__name {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.6875rem;
-}
-.mb-builder-chip__x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px; height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--cb-text-muted);
-  cursor: pointer;
-}
-.mb-builder-chip__x:hover { background: var(--cb-chip-hover); color: var(--cb-text); }
-.mb-builder-chip__x .more-buttons-icon { font-size: 0.75rem; }
 
 /* ── The sheet and the commands (scripts/builderSheetForm.js) ───────────────
  * A formless overlay: the root fills the tile and each view is a column whose

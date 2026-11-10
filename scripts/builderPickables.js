@@ -1,5 +1,5 @@
 /**
- * builderPickables.js — what the Selenium command builder can pick on a page,
+ * builderPickables.js — what the Selenium automation helper can pick on a page,
  * and how the command it writes will find that thing again.
  *
  * Pick mode hands a hovered element to describePick, which answers with a

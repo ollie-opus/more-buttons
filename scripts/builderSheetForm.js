@@ -1,5 +1,5 @@
 /**
- * builderSheetForm.js — steps 2 and 3 of the Selenium command builder: the
+ * builderSheetForm.js — steps 2 and 3 of the Selenium automation helper: the
  * sheet and the commands.
  *
  * A full overlay with a spreadsheet grid in the look of the data table editor
@@ -505,7 +505,7 @@ export async function openBuilderSheet({ url, picks, rows = null, memory = null 
   function guardEscape(e) {
     if (!content.isConnected) { document.removeEventListener('keydown', guardEscape, true); return; }
     if (e.key !== 'Escape' || editing || isPopupMenuOpen() || !hasAnything()) return;
-    if (!window.confirm('Close the Selenium command builder? The rows in the sheet will be lost.')) {
+    if (!window.confirm('Close the Selenium automation helper? The rows in the sheet will be lost.')) {
       e.preventDefault();
       e.stopPropagation();
     }
