@@ -1,0 +1,43 @@
+<div class="mb-builder" data-width="94vw" data-height="90vh">
+  <div class="mb-builder-top">
+    <h2><span class="more-buttons-icon" style="font-size: 1.5rem">terminal</span> Selenium command builder</h2>
+    <ol class="mb-builder-steps" aria-label="Steps">
+      <li class="mb-builder-step --done">1 · Pick inputs</li>
+      <li class="mb-builder-step --now" data-builder-step="sheet">2 · Fill the sheet</li>
+      <li class="mb-builder-step" data-builder-step="commands">3 · Commands</li>
+    </ol>
+  </div>
+
+  <p class="mb-builder-runs-on" data-builder-runs-on></p>
+
+  <!-- Step 2: the sheet. One column per picked input; the headers are row 1
+       and locked; data starts at row 2. -->
+  <div class="mb-builder-view" data-builder-sheet>
+    <div class="mb-dt-grid-wrap" data-builder-grid-wrap tabindex="0" role="grid" aria-label="Sheet">
+      <table class="mb-dt-grid" data-builder-grid></table>
+    </div>
+    <div class="mb-builder-foot">
+      <p class="mb-builder-problems" data-builder-problems role="status"></p>
+      <div class="mb-builder-foot__btns">
+        <button type="button" class="more-buttons-button" data-builder-back-to-picking>Back to picking</button>
+        <button type="button" class="more-buttons-button green" data-builder-produce disabled>Produce commands</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: one command per row that has data, each on one line. -->
+  <div class="mb-builder-view" data-builder-commands hidden>
+    <div class="mb-builder-command-list" data-builder-command-list></div>
+    <div class="mb-builder-foot">
+      <p class="mb-builder-problems" data-builder-command-count></p>
+      <div class="mb-builder-foot__btns">
+        <button type="button" class="more-buttons-button" data-builder-back-to-sheet>Back to the sheet</button>
+        <button type="button" class="more-buttons-button green" data-builder-copy>Copy all</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button" data-action="close"><span class="more-buttons-icon">x</span>Close</button>
+  </div>
+</div>

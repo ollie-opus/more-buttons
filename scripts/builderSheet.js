@@ -76,6 +76,17 @@ export function parseClipboardTsv(text) {
   return rows;
 }
 
+/**
+ * Rows of cells → clipboard text, the inverse of parseClipboardTsv: a cell
+ * holding a line break or a tab, or starting with a quote, is wrapped in
+ * quotes (`""` for a quote inside) the way Sheets writes it, so it comes back
+ * as one cell here and pastes as one cell there.
+ */
+export function formatClipboardTsv(block) {
+  const quote = cell => (/[\t\n\r]/.test(cell) || cell.startsWith('"') ? `"${cell.replace(/"/g, '""')}"` : cell);
+  return block.map(cells => cells.map(cell => quote(String(cell ?? ''))).join('\t')).join('\n');
+}
+
 // ── Multi-answer cells ──────────────────────────────────────────────────────
 
 const isSpace = ch => ch !== undefined && /\s/.test(ch);

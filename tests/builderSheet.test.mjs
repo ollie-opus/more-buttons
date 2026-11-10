@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   parseClipboardTsv, parseMulti, formatMulti,
   columnsFromPicks, matchModes, choiceTexts, checkCell, problems, a1, switchMatchOn,
-  rowHasData, fillButtonDefaults, clipPaste, keepInBody, actionsForRow, commandsFor,
+  rowHasData, fillButtonDefaults, clipPaste, keepInBody, actionsForRow, commandsFor, formatClipboardTsv,
 } from '../scripts/builderSheet.js';
 
 let passed = 0;
@@ -225,6 +225,13 @@ test('every command is a single line', () => {
 test('commandsFor refuses a sheet with problems', () => {
   const cols = columnsFromPicks([KIND]);
   assert.throws(() => commandsFor('https://x.test/a', cols, [['nope']]), /1 cell/);
+});
+
+test('formatClipboardTsv quotes the cells that would break a row, and parses back', () => {
+  const block = [['a', 'line 1\nline "2"', ''], ['tab\there', '"starts quoted', 'plain, text']];
+  const text = formatClipboardTsv(block);
+  assert.equal(text, 'a\t"line 1\nline ""2"""\t\n"tab\there"\t"""starts quoted"\tplain, text');
+  assert.deepEqual(parseClipboardTsv(text), block);
 });
 
 console.log(`\n${passed} passed`);

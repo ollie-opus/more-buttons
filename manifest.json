@@ -125,6 +125,7 @@
         "scripts/builderPickables.js",
         "scripts/builderSheet.js",
         "scripts/builderPickMode.js",
+        "scripts/builderSheetForm.js",
         "scripts/gridEditor.js",
         "scripts/mdButtons.js",
         "scripts/buttonEditor.js",

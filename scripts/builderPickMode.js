@@ -26,6 +26,7 @@ import { installSelector } from './captureElement.js';
 import { mountActionBar } from './actionToolbar.js';
 import { isOwnUi } from './actionRecorder.js';
 import { describePick, commonAncestor } from './builderPickables.js';
+import { openBuilderSheet } from './builderSheetForm.js';
 
 const MODE_CLASS = 'mb-builder-pick-mode';
 const HINT = 'hold shift and click an input, group or button to add it';
@@ -202,12 +203,13 @@ export function enterPickMode({ picks = [], rows = null } = {}) {
     document.documentElement.classList.remove(MODE_CLASS);
   }
 
-  // Continue: hand the picks to the sheet. Until the sheet exists (Task 6 of
-  // the plan) the picks are logged so pick mode can be tried on its own.
+  // Continue: leave pick mode and open the sheet on these picks, with any
+  // rows an earlier visit to the sheet handed back.
   function proceed() {
     if (!state.picks.length) return;
-    console.log('[MB builder] picked:', state.picks);
+    const { picks, rows } = state;
     exit();
+    openBuilderSheet({ url: location.href, picks, rows });
   }
 
   const handle = { exit };
