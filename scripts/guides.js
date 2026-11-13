@@ -41,8 +41,8 @@ import { setRteDisabled, syncSurfaceFromTextarea, paintInlineAtoms } from './ric
 import { runComponentCaptureFlow, runComponentLibraryInsert } from './captures.js';
 import { runComponentVideoLibraryInsert } from './videos.js';
 import { runComponentImageLibraryInsert } from './images.js';
-import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, listTileHeadHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
-import { parseComponents, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, deleteConfirmMessage, parsePastedComponents, cardPreviewModel } from './components.js';
+import { escapeHtml, titleWithLabelsHtml, captureComponentCard, videoComponentCard, imageComponentCard, buttonComponentCard, navLinksComponentCard, diagramComponentCard, textComponentCard, codeBlockComponentCard, fileExtOf, cardPreviewBlock, applyCardClamps, toggleCardExpand, insertTriggerHtml, insertSpacerHtml, railRowHtml, listTileHeadHtml, stripNonCopyFootButtons, appendFootButton } from './cardRenderer.js';
+import { parseComponents, sectionBodyOpts, leadUuid, buildComponentBody, ensureCaptureUUIDs, uuidOfComponent, reorderComponents, componentsMarkdown, deleteConfirmMessage, parsePastedComponents, cardPreviewModel } from './components.js';
 import { listSelectionOf, paintListSelection, listCountBadge } from './listSelection.js';
 import { registerComponentContainer, getComponentContainer, containerExists } from './componentContainers.js';
 import { openInsertMenu } from './insertMenu.js';
@@ -735,6 +735,86 @@ async function createGuideDraft(formEl, btn) {
   }
 }
 
+/**
+ * Publish a draft to live: write the live page, delete the draft, promote the
+ * nav entry. Free of any form, so the guide entry's Publish button and the
+ * Knowledge Base page editor's (kbPageEditor.js) run the same steps. `title`
+ * is the guide's display title (the `Publish: ` commit subject). Resolves
+ * false when there is no draft to publish; throws on failure.
+ */
+export async function publishGuideFiles({ livePath, draftPath, title }, onProgress = () => {}) {
+  onProgress('Reading draft…');
+  const draftMarkdown = await readRepoText(draftPath);
+  if (!draftMarkdown) return false;
+  // Fail-safe behind livePathFromNav's normalization: never delete the draft
+  // (below) unless the live page is a genuinely distinct file under
+  // docs/pages/. If the two paths ever collapse, the live-page write is a
+  // silent no-op and the delete would erase the only copy of the content.
+  if (livePath === draftPath ||
+      !livePath.startsWith('docs/pages/')) {
+    throw new Error(
+      `Refusing to publish "${livePath}": it does not resolve to a ` +
+      `distinct docs/pages/ file (draft is "${draftPath}"). The nav ` +
+      `entry value is likely malformed — it should be pages/<slug>.md.`,
+    );
+  }
+  // An unlisted page must stay unlisted across a draft/publish cycle: keep
+  // its search exclusion and leave `nav` alone below — otherwise publish
+  // would silently re-list it, since "absent from nav" is indistinguishable
+  // from "never published".
+  onProgress('Checking visibility…');
+  const unlisted = isUnlistedInToml(await readRepoText('zensical.toml'), livePath);
+  // Public pages: strip the draft-only search exclusion — published verbatim,
+  // the live page would inherit it and vanish from the search index.
+  await githubFetchAndPushFile(livePath, onProgress,
+    () => writeFrontmatterSearchExclude(draftMarkdown, unlisted),
+    { commit: `Publish: ${title}` });
+  onProgress('Deleting draft…');
+  await githubDeleteFile(draftPath, onProgress,
+    { commit: `Publish: ${title}` });
+  // Promote into nav (mirroring its draft_nav location) and drop from draft_nav.
+  onProgress('Updating navigation…');
+  const value = navValueOf(livePath);
+  const slug = valueSlug(value);
+  await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+    const navItems = parseNavBlock(md, 'nav').items;
+    const draftItems = parseNavBlock(md, 'draft_nav').items;
+    // Match the draft entry by slug, not exact value: a legacy/hand-authored
+    // draft_nav leaf may carry a drafts/<slug>.md value, which exact matching
+    // misses — dropping its display name and section location on promotion.
+    const loc = findPathByValueSlug(draftItems, slug);
+    if (unlisted) {
+      // Unlisted publish: never touch `nav`. Mirror the draft's location into
+      // unlisted_nav instead, so a Path edited on the draft still takes effect.
+      const unlistedItems = parseNavBlock(md, 'unlisted_nav').items;
+      setPathByValueSlug(unlistedItems, slug, loc?.segments ?? [], {
+        value,
+        fallbackName: loc?.leafName ?? guideBaseName(livePath),
+      });
+      removeByValueSlug(draftItems, slug);
+      let out = replaceNavBlock(md, 'unlisted_nav', unlistedItems);
+      out = replaceNavBlock(out, 'draft_nav', draftItems);
+      return out;
+    }
+    // Move the live nav entry to wherever the draft sits, so a Path edited on the
+    // draft takes effect on publish. For a never-published guide this creates the
+    // nav leaf; for a republished one whose Path changed, this RELOCATES the stale
+    // live entry instead of leaving it behind (the old insert-only-if-absent check
+    // skipped already-present entries, so the live nav never followed the draft).
+    // setPathByValueSlug keeps the existing nav display name when present, else
+    // uses the draft's leaf name.
+    setPathByValueSlug(navItems, slug, loc?.segments ?? [], {
+      value,
+      fallbackName: loc?.leafName ?? guideBaseName(livePath),
+    });
+    removeByValueSlug(draftItems, slug);
+    let out = replaceNavBlock(md, 'nav', navItems);
+    out = replaceNavBlock(out, 'draft_nav', draftItems);
+    return out;
+  });
+  return true;
+}
+
 async function publishGuideDraft(formEl) {
   if (!currentGuide) return;
   if (!confirm('Publish this draft to live? This overwrites the live page.')) return;
@@ -743,84 +823,32 @@ async function publishGuideDraft(formEl) {
   if (btn) btn.disabled = true;
 
   try {
-    setButtonBusy(btn, 'Reading draft…');
-    const draftMarkdown = await readRepoText(currentGuide.draftPath);
-    if (!draftMarkdown) {
-      alert('Draft not found at ' + currentGuide.draftPath);
+    const guide = { ...currentGuide, title: guideDisplayTitle(formEl) };
+    if (!(await publishGuideFiles(guide, s => setButtonBusy(btn, s)))) {
+      alert('Draft not found at ' + guide.draftPath);
       restoreButton(btn, snap);
       return;
     }
-    // Fail-safe behind livePathFromNav's normalization: never delete the draft
-    // (below) unless the live page is a genuinely distinct file under
-    // docs/pages/. If the two paths ever collapse, the live-page write is a
-    // silent no-op and the delete would erase the only copy of the content.
-    if (currentGuide.livePath === currentGuide.draftPath ||
-        !currentGuide.livePath.startsWith('docs/pages/')) {
-      throw new Error(
-        `Refusing to publish "${currentGuide.livePath}": it does not resolve to a ` +
-        `distinct docs/pages/ file (draft is "${currentGuide.draftPath}"). The nav ` +
-        `entry value is likely malformed — it should be pages/<slug>.md.`,
-      );
-    }
-    // An unlisted page must stay unlisted across a draft/publish cycle: keep
-    // its search exclusion and leave `nav` alone below — otherwise publish
-    // would silently re-list it, since "absent from nav" is indistinguishable
-    // from "never published".
-    setButtonBusy(btn, 'Checking visibility…');
-    const unlisted = isUnlistedInToml(await readRepoText('zensical.toml'), currentGuide.livePath);
-    // Public pages: strip the draft-only search exclusion — published verbatim,
-    // the live page would inherit it and vanish from the search index.
-    await githubFetchAndPushFile(currentGuide.livePath, s => setButtonBusy(btn, s),
-      () => writeFrontmatterSearchExclude(draftMarkdown, unlisted),
-      { commit: `Publish: ${guideDisplayTitle(formEl)}` });
-    setButtonBusy(btn, 'Deleting draft…');
-    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s),
-      { commit: `Publish: ${guideDisplayTitle(formEl)}` });
-    // Promote into nav (mirroring its draft_nav location) and drop from draft_nav.
-    setButtonBusy(btn, 'Updating navigation…');
-    const value = navValueOf(currentGuide.livePath);
-    const slug = valueSlug(value);
-    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
-      const navItems = parseNavBlock(md, 'nav').items;
-      const draftItems = parseNavBlock(md, 'draft_nav').items;
-      // Match the draft entry by slug, not exact value: a legacy/hand-authored
-      // draft_nav leaf may carry a drafts/<slug>.md value, which exact matching
-      // misses — dropping its display name and section location on promotion.
-      const loc = findPathByValueSlug(draftItems, slug);
-      if (unlisted) {
-        // Unlisted publish: never touch `nav`. Mirror the draft's location into
-        // unlisted_nav instead, so a Path edited on the draft still takes effect.
-        const unlistedItems = parseNavBlock(md, 'unlisted_nav').items;
-        setPathByValueSlug(unlistedItems, slug, loc?.segments ?? [], {
-          value,
-          fallbackName: loc?.leafName ?? guideBaseName(currentGuide.livePath),
-        });
-        removeByValueSlug(draftItems, slug);
-        let out = replaceNavBlock(md, 'unlisted_nav', unlistedItems);
-        out = replaceNavBlock(out, 'draft_nav', draftItems);
-        return out;
-      }
-      // Move the live nav entry to wherever the draft sits, so a Path edited on the
-      // draft takes effect on publish. For a never-published guide this creates the
-      // nav leaf; for a republished one whose Path changed, this RELOCATES the stale
-      // live entry instead of leaving it behind (the old insert-only-if-absent check
-      // skipped already-present entries, so the live nav never followed the draft).
-      // setPathByValueSlug keeps the existing nav display name when present, else
-      // uses the draft's leaf name.
-      setPathByValueSlug(navItems, slug, loc?.segments ?? [], {
-        value,
-        fallbackName: loc?.leafName ?? guideBaseName(currentGuide.livePath),
-      });
-      removeByValueSlug(draftItems, slug);
-      let out = replaceNavBlock(md, 'nav', navItems);
-      out = replaceNavBlock(out, 'draft_nav', draftItems);
-      return out;
-    });
     await renderGuideEntryContent(formEl);
   } catch (e) {
     restoreButton(btn, snap);
     alert('Failed to publish draft: ' + e.message);
   }
+}
+
+/**
+ * Delete a guide's draft file and drop it from draft_nav. Shared by the form
+ * editor's Discard draft and the in-page editor's Delete draft.
+ */
+export async function discardGuideDraftFiles({ livePath, draftPath, title }, onProgress = () => {}) {
+  await githubDeleteFile(draftPath, onProgress, { commit: `Discard draft: ${title}` });
+  onProgress('Updating navigation…');
+  const value = navValueOf(livePath);
+  await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+    const draftItems = parseNavBlock(md, 'draft_nav').items;
+    removeByValueSlug(draftItems, valueSlug(value));
+    return replaceNavBlock(md, 'draft_nav', draftItems);
+  });
 }
 
 async function discardGuideDraft(formEl) {
@@ -831,15 +859,7 @@ async function discardGuideDraft(formEl) {
   setButtonBusy(btn, 'Deleting draft…');
 
   try {
-    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s),
-      { commit: `Discard draft: ${guideDisplayTitle(formEl)}` });
-    setButtonBusy(btn, 'Updating navigation…');
-    const value = navValueOf(currentGuide.livePath);
-    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
-      const draftItems = parseNavBlock(md, 'draft_nav').items;
-      removeByValueSlug(draftItems, valueSlug(value));
-      return replaceNavBlock(md, 'draft_nav', draftItems);
-    });
+    await discardGuideDraftFiles({ ...currentGuide, title: guideDisplayTitle(formEl) }, s => setButtonBusy(btn, s));
     await renderGuideEntryContent(formEl);
   } catch (e) {
     restoreButton(btn, snap);
@@ -920,55 +940,50 @@ registerFormAction('openCreateGuide', async () => {
   renderSuffix();
 });
 
-registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
-  const btn = content.querySelector('[data-action="submitCreateGuide"]');
-  const title = formEl.querySelector('[name="guideTitle"]')?.value.trim() ?? '';
-  const pathRaw = formEl.querySelector('[name="guidePath"]')?.value ?? '';
-  const settings = readPageSettingsFields(formEl);
+/**
+ * Create a brand-new guide as a draft: the draft file, its draft_nav entry and
+ * (for an Unlisted page) its unlisted_nav entry. Shared by the Create guide
+ * form and the Knowledge Base site's admin pages. Throws an Error whose
+ * `conflict` is true when the name is taken (nothing was written).
+ * @param {{title:string, segments:string[], settings:{icon:string, writtenFor:string, tags:string[], hide:object, visibility:string}}} guide
+ * @returns {Promise<{slug:string, value:string, draftPath:string}>}
+ */
+export async function createGuideDraftFiles({ title, segments, settings }, onProgress = () => {}) {
   const slug = slugify(title);
-  if (!slug) { alert('Please enter a title.'); return; }
-
-  const segments = pathRaw.split('/').map(s => s.trim()).filter(Boolean);
+  if (!slug) throw Object.assign(new Error('Please enter a title.'), { conflict: true });
   const value = `pages/${slug}.md`;        // live-page value, used for the nav conflict check
   const draftValue = `drafts/${slug}.md`;  // draft_nav references the draft file itself
   const draftPath = `docs/drafts/${slug}.md`;
 
-  let draftWritten = false;
-  const snap = snapshotButton(btn);
-  setButtonBusy(btn, 'Checking…');
-  try {
-    // Conflict check: a flat-by-slug file may already be live (in nav) or a draft.
-    const tomlText = await readRepoText('zensical.toml');
-    const nav = parseNavBlock(tomlText, 'nav').items;
-    const liveValues = new Set();
-    (function collect(nodes) {
-      for (const n of nodes) { if (n.children) collect(n.children); else liveValues.add(n.value); }
-    })(nav);
-    if (liveValues.has(value)) {
-      restoreButton(btn, snap);
-      alert(`A live page with the name "${slug}.md" already exists.`);
-      return;
-    }
-    const existingDraft = await readRepoText(draftPath);
-    if (existingDraft) {
-      restoreButton(btn, snap);
-      alert(`A draft named "${slug}.md" already exists. Choose a different title.`);
-      return;
-    }
+  // Conflict check: a flat-by-slug file may already be live (in nav) or a draft.
+  onProgress('Checking…');
+  const tomlText = await readRepoText('zensical.toml');
+  const nav = parseNavBlock(tomlText, 'nav').items;
+  const liveValues = new Set();
+  (function collect(nodes) {
+    for (const n of nodes) { if (n.children) collect(n.children); else liveValues.add(n.value); }
+  })(nav);
+  if (liveValues.has(value)) {
+    throw Object.assign(new Error(`A live page with the name "${slug}.md" already exists.`), { conflict: true });
+  }
+  if (await readRepoText(draftPath)) {
+    throw Object.assign(new Error(`A draft named "${slug}.md" already exists. Choose a different title.`), { conflict: true });
+  }
 
+  let draftWritten = false;
+  try {
     // Write the draft file (H1 = title, UUID span injected so the tree renders).
     // Born search-excluded so unfinished drafts never surface in the site
     // search bar; publishGuideDraft strips the flag on promotion to live. The
     // page-settings frontmatter (icon / tags incl. the audience tag / hide) is
     // composed by the same helper the Page settings save uses.
-    setButtonBusy(btn, 'Creating draft…');
-    const freeTags = settings.tags;
-    await githubFetchAndPushFile(draftPath, s => setButtonBusy(btn, s),
+    onProgress('Creating draft…');
+    await githubFetchAndPushFile(draftPath, onProgress,
       () => applyPageSettingsFrontmatter(
         writeFrontmatterSearchExclude(ensureSectionUUIDs(`# ${title}\n`), true),
         {
           icon: settings.icon,
-          tags: composeTags(settings.writtenFor, freeTags),
+          tags: composeTags(settings.writtenFor, settings.tags),
           hide: settings.hide,
         },
       ),
@@ -979,9 +994,9 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
     // unlisted_nav in the same commit (what applyPageVisibility does for a
     // never-published page; publishGuideDraft consults unlisted_nav on first
     // publish and page settings seeds Unlisted from it).
-    setButtonBusy(btn, 'Updating navigation…');
+    onProgress('Updating navigation…');
     const unlisted = settings.visibility === 'unlisted';
-    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
+    await githubFetchAndPushFile('zensical.toml', onProgress, md => {
       const items = parseNavBlock(md, 'draft_nav').items;
       insertPath(items, segments, title, draftValue);
       let out = replaceNavBlock(md, 'draft_nav', items);
@@ -992,18 +1007,34 @@ registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
       }
       return out;
     });
-
-    await chrome.storage.local.remove('moreButtonsCreateGuide');
-    // Behave like an open draft from here on.
-    await getFormAction('openGuideEntry')({ filePath: value, label: title });
   } catch (e) {
     if (draftWritten) {
       // Roll back the orphaned draft file so the user isn't blocked from
       // retrying (a draft file with no draft_nav entry is invisible + unrecoverable).
       try { await githubDeleteFile(draftPath, () => {}); } catch { /* best-effort */ }
     }
+    throw e;
+  }
+  return { slug, value, draftPath };
+}
+
+registerFormAction('submitCreateGuide', async ({ formEl, content }) => {
+  const btn = content.querySelector('[data-action="submitCreateGuide"]');
+  const title = formEl.querySelector('[name="guideTitle"]')?.value.trim() ?? '';
+  const pathRaw = formEl.querySelector('[name="guidePath"]')?.value ?? '';
+  const settings = readPageSettingsFields(formEl);
+  if (!slugify(title)) { alert('Please enter a title.'); return; }
+  const segments = pathRaw.split('/').map(s => s.trim()).filter(Boolean);
+
+  const snap = snapshotButton(btn);
+  try {
+    const { value } = await createGuideDraftFiles({ title, segments, settings }, s => setButtonBusy(btn, s));
+    await chrome.storage.local.remove('moreButtonsCreateGuide');
+    // Behave like an open draft from here on.
+    await getFormAction('openGuideEntry')({ filePath: value, label: title });
+  } catch (e) {
     restoreButton(btn, snap);
-    alert('Failed to create guide: ' + e.message);
+    alert(e.conflict ? e.message : 'Failed to create guide: ' + e.message);
   }
 });
 
@@ -1093,7 +1124,7 @@ registerFormAction('openEditGuideSection', async ({ uuid, file }) => {
   if (!section) { alert('Section not found.'); return; }
 
   const { descriptionMarkdown, hideTitle } = readSectionDescription(draftMarkdown, uuid);
-  const { description, components } = parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE);
+  const { description, components } = parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE, sectionBodyOpts(uuid));
 
   const { title } = buildSectionTree(draftMarkdown);
   const parentDefault = section.level === 1
@@ -1187,12 +1218,12 @@ function findH2ParentUuid(markdown, h3Uuid) {
 
 function readSectionComponents(md, uuid) {
   const { descriptionMarkdown } = readSectionDescription(md, uuid);
-  return parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE);
+  return parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE, sectionBodyOpts(uuid));
 }
 function writeSectionBody(md, uuid, description, components) {
   const sec = locateSectionByUUID(md, uuid);
   if (!sec) return md;
-  const body = buildComponentBody(null, description, components);
+  const body = buildComponentBody(null, description, components, leadUuid(readSectionComponents(md, uuid), description));
   return replaceSectionByUUID(md, uuid, buildSection(sec.level, sec.title, uuid, body));
 }
 function readAdmonitionComponents(md, uuid) {
@@ -1202,7 +1233,7 @@ function readAdmonitionComponents(md, uuid) {
 function writeAdmonitionBody(md, uuid, description, components) {
   const adm = locateGuideAdmonition(md, uuid);
   if (!adm) return md;
-  const body = buildComponentBody(uuid, description, components);
+  const body = buildComponentBody(uuid, description, components, leadUuid(readAdmonitionComponents(md, uuid), description));
   return replaceAdmonitionByUUID(md, uuid, buildAdmonition(adm.prefix, adm.type, adm.title, body));
 }
 
@@ -1335,7 +1366,7 @@ export async function spliceIntoContainer(container, insertAt, items, onProgress
 function sectionStepNumber(markdown, uuid) {
   for (const sec of parseSections(markdown)) {
     const { descriptionMarkdown } = readSectionDescription(markdown, sec.uuid);
-    const { components } = parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE);
+    const { components } = parseComponents(descriptionMarkdown, GUIDE_ADMONITION_TYPES_RE, sectionBodyOpts(sec.uuid));
     let n = 0;
     for (const c of components) {
       if (c.kind !== 'admonition') continue;
@@ -1398,6 +1429,14 @@ function navLinksComponentCardFor(nav) {
     path: nav.tag != null ? `${nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${nav.tag}` : nav.path,
     btnAttr: `data-edit-nav-links-component="${escapeHtml(nav.uuid ?? '')}"`,
     copyAttr: nav.uuid ? `data-copy-component-md="${escapeHtml(nav.uuid)}"` : '',
+  });
+}
+
+function textComponentCardFor(txt) {
+  return textComponentCard({
+    bodyMd: txt.body,
+    btnAttr: `data-edit-text-component="${escapeHtml(txt.uuid ?? '')}"`,
+    copyAttr: txt.uuid ? `data-copy-component-md="${escapeHtml(txt.uuid)}"` : '',
   });
 }
 
@@ -1470,6 +1509,8 @@ export function renderComponents(listEl, components, numberSteps = true, { viewO
       card = navLinksComponentCardFor(c.nav);
     } else if (c.kind === 'diagram') {
       card = diagramComponentCardFor(c.dia);
+    } else if (c.kind === 'text') {
+      card = textComponentCardFor(c.txt);
     } else if (c.kind === 'codeblock') {
       card = codeBlockComponentCardFor(c.cb);
     } else {
@@ -1579,6 +1620,7 @@ async function runChildAction(container, formEl, action) {
     else if (action.kind === 'button') await getFormAction('openCreateButton')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'navlinks') await getFormAction('openCreateNavLinks')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'diagram') await getFormAction('openCreateDiagram')?.({ container, insertAtIndex: action.insertAt });
+    else if (action.kind === 'text') await getFormAction('openCreateText')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'codeblock') await getFormAction('openCreateCodeBlock')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'tabs') await getFormAction('openCreateContentTabs')?.({ container, insertAtIndex: action.insertAt });
     else if (action.kind === 'table') await getFormAction('openCreateDataTable')?.({ container, insertAtIndex: action.insertAt });
@@ -1598,6 +1640,8 @@ async function runChildAction(container, formEl, action) {
     await getFormAction('openEditNavLinks')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-diagram') {
     await getFormAction('openEditDiagram')?.({ uuid: action.uuid, file: container.file });
+  } else if (action.type === 'edit-text') {
+    await getFormAction('openEditText')?.({ container, uuid: action.uuid });
   } else if (action.type === 'edit-codeblock') {
     await getFormAction('openEditCodeBlock')?.({ uuid: action.uuid, file: container.file });
   } else if (action.type === 'edit-tabs') {
@@ -1711,6 +1755,12 @@ export function onComponentEditorClick(e) {
     return;
   }
 
+  const editText = e.target.closest('[data-edit-text-component]');
+  if (editText) {
+    beginChildNavigation(formEl, { type: 'edit-text', uuid: editText.dataset.editTextComponent });
+    return;
+  }
+
   const editDiagram = e.target.closest('[data-edit-diagram-component]');
   if (editDiagram) {
     beginChildNavigation(formEl, { type: 'edit-diagram', uuid: editDiagram.dataset.editDiagramComponent });
@@ -1746,6 +1796,7 @@ export function onComponentEditorClick(e) {
     const idx = parseInt(insert.dataset.insertComponentAt, 10);
     const anchor = insert.querySelector('.mb-insert-component__btn') || insert;
     openInsertMenu(anchor, idx, {
+      text: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'text', insertAt: i }),
       admonition: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'admonition', insertAt: i }),
       captureNew: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-new', insertAt: i }),
       captureLibrary: (i) => beginChildNavigation(formEl, { type: 'insert', kind: 'capture-library', insertAt: i }),
@@ -1791,6 +1842,8 @@ async function openEditorForComponent(container, component) {
     await getFormAction('openEditNavLinks')?.({ uuid: component.nav.uuid, file: container.file });
   } else if (component.kind === 'diagram') {
     await getFormAction('openEditDiagram')?.({ uuid: component.dia.uuid, file: container.file });
+  } else if (component.kind === 'text') {
+    await getFormAction('openEditText')?.({ container, uuid: component.txt.uuid });
   } else if (component.kind === 'codeblock') {
     await getFormAction('openEditCodeBlock')?.({ uuid: component.cb.uuid, file: container.file });
   }
@@ -2136,6 +2189,8 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
         labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
+      } else if (c.kind === 'text') {
+        labelMap[c.txt.uuid] = { kind: 'admonition', title: 'Text' };
       } else if (c.kind === 'codeblock') {
         labelMap[c.cb.uuid] = { kind: 'admonition', title: c.cb.title || c.cb.language || 'Code block' };
       } else {
@@ -2163,7 +2218,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
       const { descriptionMarkdown, hideTitle } = readSectionDescription(md, editUuid);
       return {
         sectionTitle: sec?.title ?? '',
-        sectionDescription: parseComponents(descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE).description ?? '',
+        sectionDescription: parseComponents(descriptionMarkdown ?? '', GUIDE_ADMONITION_TYPES_RE, sectionBodyOpts(editUuid)).description ?? '',
         hideSectionTitle: !!hideTitle,
         componentOrder: components.map(uuidOfComponent).join(','),
       };
@@ -2171,9 +2226,11 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     build: (md, resolved) => {
       const sec = locateSectionByUUID(md, editUuid);
       if (!sec) throw new Error('Section no longer exists.');
-      const { components } = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
+      const prior = readContainerComponents(md, { kind: 'guide-section', uuid: editUuid });
+      const { components } = prior;
       const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
-      const baseBody = buildComponentBody(null, (resolved.sectionDescription ?? '').trim(), ordered);
+      const text = (resolved.sectionDescription ?? '').trim();
+      const baseBody = buildComponentBody(null, text, ordered, leadUuid(prior, text));
       const newBody = writeHideSectionTitle(baseBody, !!resolved.hideSectionTitle);
       let updated = replaceSectionByUUID(md, editUuid, buildSection(sec.level, (resolved.sectionTitle ?? '').trim(), editUuid, newBody));
       if (parentChanged) updated = moveSectionToParent(updated, editUuid, requestedParent);
@@ -2201,24 +2258,7 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
     const newTitle = (resolved.sectionTitle ?? '').trim();
     if (newTitle) {
       try {
-        onProgress('Updating navigation…');
-        const value = navValueOf(currentGuide.livePath);
-        await githubFetchAndPushFile('zensical.toml', onProgress, md => {
-          let out = md;
-          const slug = valueSlug(value);
-          for (const key of ['nav', 'draft_nav']) {
-            const { items } = parseNavBlock(out, key);
-            // Only reserialize a block that actually changed — replaceNavBlock
-            // normalizes formatting, which would otherwise make an empty-diff
-            // commit. (githubFetchAndPushFile also skips byte-identical output.)
-            // draft_nav matches by slug so a legacy drafts/-valued entry still renames.
-            const renamed = key === 'draft_nav'
-              ? renameByValueSlug(items, slug, newTitle)
-              : renameByValue(items, value, newTitle);
-            if (renamed) out = replaceNavBlock(out, key, items);
-          }
-          return out;
-        });
+        await renameGuideInNav(currentGuide.livePath, newTitle, onProgress);
       } catch (e) {
         alert(`Section saved, but updating the navigation name failed: ${e.message}. Re-saving the title will retry it.`);
       }
@@ -2226,6 +2266,33 @@ async function saveSectionForComponent(formEl, onProgress = () => {}) {
   }
 
   return { container: { kind: 'guide-section', uuid: editUuid, file: currentGuide.draftPath }, formEl };
+}
+
+/**
+ * A guide's H1 is also its display name in zensical.toml: keep `nav` and
+ * `draft_nav` in step with a renamed page title. Free of any form, so the
+ * section editor and the Knowledge Base page editor (kbPageEditor.js) share it.
+ * A name that already matches costs one GET and no PUT.
+ */
+export async function renameGuideInNav(livePath, newTitle, onProgress = () => {}) {
+  onProgress('Updating navigation…');
+  const value = navValueOf(livePath);
+  await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+    let out = md;
+    const slug = valueSlug(value);
+    for (const key of ['nav', 'draft_nav']) {
+      const { items } = parseNavBlock(out, key);
+      // Only reserialize a block that actually changed — replaceNavBlock
+      // normalizes formatting, which would otherwise make an empty-diff
+      // commit. (githubFetchAndPushFile also skips byte-identical output.)
+      // draft_nav matches by slug so a legacy drafts/-valued entry still renames.
+      const renamed = key === 'draft_nav'
+        ? renameByValueSlug(items, slug, newTitle)
+        : renameByValue(items, value, newTitle);
+      if (renamed) out = replaceNavBlock(out, key, items);
+    }
+    return out;
+  });
 }
 
 registerFormAction('submitEditGuideSection', async ({ formEl, content }) => {
@@ -2673,7 +2740,7 @@ async function persistNewAdmonition(formEl, onProgress = () => {}) {
   const { type, title, description, prefix } = readAdmonitionFields(formEl);
   if (!type) { alert('Type is required.'); return null; }
   const newUuid = generateUUID();
-  const newAdm = { prefix, type, title, body: buildComponentBody(newUuid, description, []) };
+  const newAdm = { prefix, type, title, body: buildComponentBody(newUuid, description, [], leadUuid(null, description)) };
   const container = {
     kind: formEl.dataset.parentKind,
     uuid: formEl.dataset.parentUuid,
@@ -2719,6 +2786,8 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
         labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
+      } else if (c.kind === 'text') {
+        labelMap[c.txt.uuid] = { kind: 'admonition', title: 'Text' };
       } else if (c.kind === 'codeblock') {
         labelMap[c.cb.uuid] = { kind: 'admonition', title: c.cb.title || c.cb.language || 'Code block' };
       } else {
@@ -2758,10 +2827,11 @@ async function persistAdmonitionEdit(formEl, onProgress = () => {}) {
     },
     build: (md, resolved) => {
       if (!locateGuideAdmonition(md, editUuid)) throw new Error('Admonition no longer exists.');
-      const { components } = readContainerComponents(md, { kind: 'guide-admonition', uuid: editUuid });
+      const prior = readContainerComponents(md, { kind: 'guide-admonition', uuid: editUuid });
+      const { components } = prior;
       const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
       const mergedTitle = joinTitleMeta(resolved.admonitionType === 'step' ? '' : resolved.admonitionTitle, resolved.admonitionMeta);
-      const body = buildComponentBody(editUuid, resolved.admonitionDescription, ordered);
+      const body = buildComponentBody(editUuid, resolved.admonitionDescription, ordered, leadUuid(prior, resolved.admonitionDescription));
       return replaceAdmonitionByUUID(md, editUuid, buildAdmonition(collapsibleToPrefix(resolved.admonitionCollapsible), resolved.admonitionType, mergedTitle, body));
     },
     commit: ({ before, changedLabels }) => isReorderOnly(changedLabels)

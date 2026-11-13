@@ -140,6 +140,385 @@ export function upgradeTextarea(textarea, opts = {}) {
   return rte;
 }
 
+/**
+ * The editor without its box: makes an element that is already on the page the
+ * rich surface (the Knowledge Base page editor). There is no Rich | Markdown
+ * switch, no visible textarea and no fixed toolbar: `rte.textarea` is a
+ * detached value store that fires `input` on every change, exactly as the form
+ * editor's does.
+ *
+ * The format buttons live in a bar that floats over highlighted text and is
+ * gone when nothing is highlighted. The two buttons that insert rather than
+ * format (horizontal rule, icon) are not in it: typing `/` in the text opens
+ * an insert menu at the caret (attachSlashMenu). The link / label / icon / AI
+ * popovers open at the text too. All of it sits in one `.mb-rte-float` host on
+ * body; `destroy()` removes it and the document listeners. The surface keeps
+ * its own listeners, so the caller replaces the element when it is done.
+ *
+ * `inline` is the single-line flavour (a title, a table cell): no lists, rules
+ * or AI rewrite, and no line breaks. `buttons` restricts the bar and the menu
+ * to those keys, as upgradeTextarea's `buttons` does.
+ *
+ * @param {HTMLElement} surface
+ * @param {{ value?: string, placeholder?: string, inline?: boolean, buttons?: string[]|null }} opts
+ */
+export function attachRichSurface(surface, { value = '', placeholder = '', inline = false, buttons = null } = {}) {
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+
+  surface.contentEditable = 'true';
+  surface.setAttribute('role', 'textbox');
+  surface.setAttribute('aria-multiline', String(!inline));
+  if (placeholder) surface.dataset.placeholder = placeholder;
+
+  const host = document.createElement('div');
+  host.className = 'mb-rte-float';
+  host.hidden = true;
+  const toolbar = document.createElement('div');
+  toolbar.className = 'mb-rte-float__bar';
+  toolbar.setAttribute('role', 'toolbar');
+  toolbar.setAttribute('aria-label', 'Text formatting');
+  host.appendChild(toolbar);
+  document.body.appendChild(host);
+
+  const rte = {
+    textarea, surface, toolbar, btnGroup: toolbar,
+    richTab: makeTab('Rich', true), mdTab: makeTab('Markdown', false), // never mounted
+    buttons: [], mode: 'rich', inline,
+    allowed: Array.isArray(buttons) && buttons.length ? new Set(buttons) : null,
+    // Insert-only buttons: offered by the slash menu, not the selection bar.
+    skip: new Set(FLOAT_BAR_SKIPS),
+    pending: new Set(), pendingOff: new Set(), pendingAnchor: 0,
+    cleanups: [],
+  };
+
+  buildButtons(rte);
+  attachLinkPopover(rte);
+  attachLabelPopover(rte);
+  attachIconPopover(rte);
+  if (!inline) attachAiPopover(rte);
+  attachFloat(rte, host);
+  attachSlashMenu(rte, host); // before the surface's own key handling: the open menu takes Enter / Escape
+  attachSurfaceEvents(rte);
+  attachSelectionTracking(rte);
+  setMode(rte, 'rich', { focus: false });
+
+  rte.destroy = () => {
+    rte.destroyed = true;
+    rte.cleanups.forEach(fn => fn());
+    rte.cleanups.length = 0;
+    rte.buttons.length = 0;
+    host.remove();
+  };
+  return rte;
+}
+
+// ── Floating bar (attachRichSurface) ─────────────────────────────────────────
+// One host on body holds the selection bar, the insert menu and the popovers,
+// stacked; at most one of the three shows at a time:
+//   popover  a link / label / icon / AI popover is open → under the text
+//   menu     the slash menu is open                      → under the caret
+//   bar      text is highlighted in the surface          → over the highlight
+// The host is placed in page px (it scrolls with the text). Where the text is
+// gets remembered while the selection is in the surface, because a popover's
+// own field takes the selection with it.
+
+const FLOAT_BAR_SKIPS = ['hr', 'icon'];
+const FLOAT_GAP = 8;
+const FLOAT_EDGE = 8;
+
+const setHidden = (el, hidden) => { if (el.hidden !== hidden) el.hidden = hidden; };
+
+// The selection's box in the window, or null. A collapsed caret at the start
+// of an empty line has no box of its own: the element it sits in stands in.
+function selectionBox(sel) {
+  const range = sel.getRangeAt(0);
+  let box = range.getBoundingClientRect();
+  if (!box.width && !box.height) box = range.getClientRects()[0] ?? null;
+  if (!box || (!box.width && !box.height)) {
+    const node = range.startContainer;
+    const el = node.nodeType === 1 ? (node.childNodes[range.startOffset]?.nodeType === 1 ? node.childNodes[range.startOffset] : node) : node.parentElement;
+    const r = el?.getBoundingClientRect();
+    if (!r) return null;
+    const line = parseFloat(getComputedStyle(el).lineHeight) || r.height;
+    box = { left: r.left, right: r.left, top: r.top, bottom: r.top + Math.min(line, r.height || line) };
+  }
+  return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+}
+
+function attachFloat(rte, host) {
+  const { surface, toolbar: bar } = rte;
+  const f = rte.float = { host, at: null, range: null, down: false, sync: null, closeMenu: null, menuOpen: () => false };
+  const popovers = [...host.querySelectorAll(':scope > .mb-rte__popover')];
+  const popoverOpen = () => popovers.some(p => !p.hidden);
+
+  // Indent / outdent only do anything inside a list: out of one they are left
+  // out of the bar instead of sitting there greyed.
+  rte.buttons.forEach(b => { if (b._indent) b.classList.add('--only-enabled'); });
+
+  const surfaceSelection = () => {
+    const sel = window.getSelection();
+    return sel && sel.rangeCount && surface.contains(sel.anchorNode) && surface.contains(sel.focusNode) ? sel : null;
+  };
+
+  // Remember where the text is (page px) and the range itself, while we can.
+  const capture = () => {
+    const sel = surfaceSelection();
+    if (!sel) return null;
+    const box = selectionBox(sel);
+    if (box) f.at = { left: box.left + window.scrollX, right: box.right + window.scrollX, top: box.top + window.scrollY, bottom: box.bottom + window.scrollY };
+    f.range = sel.getRangeAt(0).cloneRange();
+    return sel;
+  };
+
+  const place = above => {
+    const w = host.offsetWidth;
+    const h = host.offsetHeight;
+    const r = { left: f.at.left - window.scrollX, right: f.at.right - window.scrollX, top: f.at.top - window.scrollY, bottom: f.at.bottom - window.scrollY };
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    let x = above ? (r.left + r.right) / 2 - w / 2 : r.left;
+    x = Math.max(FLOAT_EDGE, Math.min(x, vw - w - FLOAT_EDGE));
+    let y;
+    if (above) {
+      y = r.top - h - FLOAT_GAP;
+      if (y < FLOAT_EDGE) y = r.bottom + FLOAT_GAP;
+    } else {
+      y = r.bottom + FLOAT_GAP;
+      if (y + h > vh - FLOAT_EDGE && r.top - h - FLOAT_GAP >= FLOAT_EDGE) y = r.top - h - FLOAT_GAP;
+    }
+    host.style.left = `${Math.round(x + window.scrollX)}px`;
+    host.style.top = `${Math.round(y + window.scrollY)}px`;
+  };
+
+  const sync = f.sync = () => {
+    if (rte.destroyed) return;
+    const sel = capture();
+    const pop = popoverOpen();
+    const menu = !pop && f.menuOpen();
+    const showBar = !pop && !menu && !!sel && !sel.isCollapsed && !f.down && !rte.disabled && rte.buttons.length > 0;
+    setHidden(bar, !showBar);
+    const show = (pop || menu || showBar) && !!f.at;
+    setHidden(host, !show);
+    if (show) place(showBar);
+  };
+
+  // A press in the host must not take the caret out of the text (the popovers'
+  // own fields still take focus).
+  host.addEventListener('mousedown', e => {
+    if (!(e.target instanceof Element) || !e.target.closest('input, textarea, select')) e.preventDefault();
+  });
+
+  // The bar waits for the drag to end before it shows over a selection.
+  const onDown = () => { f.down = true; setHidden(bar, true); };
+  const onUp = () => { if (!f.down) return; f.down = false; sync(); };
+  surface.addEventListener('mousedown', onDown);
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('selectionchange', sync);
+  window.addEventListener('resize', sync);
+  rte.cleanups.push(() => {
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('selectionchange', sync);
+    window.removeEventListener('resize', sync);
+  });
+
+  // A popover is opened from the bar, from the slash menu or by a click on an
+  // icon / label in the text. The host has to be showing before the popover
+  // focuses its field (focus is a no-op inside a hidden host), and the text's
+  // place is read first, while the selection is still in the surface.
+  for (const key of ['openLinkPopover', 'openLabelPopover', 'openIconPopover', 'openAiPopover']) {
+    const open = rte[key];
+    if (!open) continue;
+    rte[key] = () => {
+      capture();
+      f.closeMenu?.();
+      setHidden(bar, true);
+      setHidden(host, false);
+      open();
+      sync();
+    };
+  }
+
+  // A popover closes itself in several places (Cancel, Escape, Insert, a press
+  // elsewhere): watch for it. Closed without a change, the caret goes back to
+  // where it was in the text.
+  if (typeof MutationObserver === 'function') {
+    const mo = new MutationObserver(() => {
+      if (rte.destroyed) return;
+      const focus = document.activeElement;
+      if (!popoverOpen() && focus !== surface && (host.contains(focus) || focus === document.body) && f.range) {
+        surface.focus({ preventScroll: true });
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(f.range);
+      }
+      sync();
+    });
+    popovers.forEach(p => mo.observe(p, { attributes: true, attributeFilter: ['hidden'] }));
+    rte.cleanups.push(() => mo.disconnect());
+  }
+  // A popover changes height as its tabs and lists fill in.
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(() => { if (!host.hidden) sync(); });
+    ro.observe(host);
+    rte.cleanups.push(() => ro.disconnect());
+  }
+}
+
+// ── Slash menu (attachRichSurface) ───────────────────────────────────────────
+// Typing `/` at the start of a line or after a space opens a menu of the things
+// that can be put into the text at the caret. Typing on filters it; Enter / Tab
+// (or a click) takes the typed `/query` back out and inserts the pick; Escape,
+// a query that matches nothing or moving the caret away leaves what was typed
+// as text.
+
+const SLASH_ITEMS = [
+  { key: 'icon', icon: 'smile-plus', label: 'Icon', words: ['symbol', 'emoji', 'lucide'], run: rte => rte.openIconPopover?.() },
+  { key: 'label', icon: 'tag', label: 'Label', words: ['pill', 'tag', 'badge'], run: rte => rte.openLabelPopover?.() },
+  { key: 'link', icon: 'link', label: 'Link', words: ['url', 'page', 'internal', 'support'], run: rte => rte.openLinkPopover?.() },
+  { key: 'ul', icon: 'list', label: 'Bulleted list', words: ['unordered', 'list', 'bullets', 'ul'], block: true, list: true, run: rte => runTransform(rte, (v, s, e) => toggleList(v, s, e, 'ul')) },
+  { key: 'ol', icon: 'list-ordered', label: 'Numbered list', words: ['ordered', 'list', 'numbers', 'ol'], block: true, list: true, run: rte => runTransform(rte, (v, s, e) => toggleList(v, s, e, 'ol')) },
+  { key: 'hr', icon: 'minus', label: 'Horizontal rule', words: ['divider', 'line', 'separator', 'rule', 'hr'], block: true, run: rte => runTransform(rte, insertHorizontalRule) },
+];
+
+// Pure: may a `/` typed at source offset `at` open the menu? Only at the start
+// of the text or a line, or after white space ("and/or" and URLs stay text).
+export function slashOpensAt(value, at) {
+  return value[at] === '/' && (at === 0 || /\s/.test(value[at - 1]));
+}
+
+// Pure: the text typed after the slash at `at`, up to the caret; null once the
+// caret is no longer in it (moved before the slash, the slash deleted, a new line).
+export function slashQuery(value, at, caret) {
+  if (value[at] !== '/' || caret <= at) return null;
+  const query = value.slice(at + 1, caret);
+  return query.includes('\n') ? null : query;
+}
+
+// Pure: the menu rows for a query. `inline` drops the block inserts, `allowed`
+// (a Set of button keys, or null) is the editor's own restriction, and `inList`
+// drops the list rows where the line is one already (they would take it out).
+// A label that starts with the query ranks over one matched by another word.
+export function slashItems(query, { inline = false, allowed = null, inList = false } = {}) {
+  const q = query.trim().toLowerCase();
+  const pool = SLASH_ITEMS.filter(i => (!inline || !i.block) && (!allowed || allowed.has(i.key)) && !(inList && i.list));
+  if (!q) return pool;
+  const starts = pool.filter(i => i.label.toLowerCase().startsWith(q));
+  const rest = pool.filter(i => !starts.includes(i)
+    && (i.label.toLowerCase().includes(q) || i.words.some(w => w.startsWith(q))));
+  return [...starts, ...rest];
+}
+
+function attachSlashMenu(rte, host) {
+  const { surface } = rte;
+  const f = rte.float;
+  let open = null; // { at, items, index }
+
+  const menu = document.createElement('div');
+  menu.className = 'mb-rte-slash';
+  menu.setAttribute('role', 'listbox');
+  menu.setAttribute('aria-label', 'Insert');
+  menu.hidden = true;
+  host.appendChild(menu);
+
+  const paint = () => {
+    menu.replaceChildren(...open.items.map((item, i) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'mb-rte-slash__item' + (i === open.index ? ' --active' : '');
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', String(i === open.index));
+      row.dataset.index = String(i);
+      row.innerHTML = `<span class="more-buttons-icon">${item.icon}</span><span>${item.label}</span>`;
+      return row;
+    }));
+  };
+
+  const close = () => {
+    if (!open) return;
+    open = null;
+    setHidden(menu, true);
+    f.sync();
+  };
+  f.closeMenu = close;
+  f.menuOpen = () => !!open;
+
+  // Re-read the text and the caret: keeps the rows in step with what is typed
+  // and closes the menu once the caret is out of the `/query`.
+  const refresh = () => {
+    if (!open) return;
+    const sel = window.getSelection();
+    if (!sel || !sel.isCollapsed || !surface.contains(sel.anchorNode)) { close(); return; }
+    const { value, selStart } = currentSelection(rte);
+    const query = slashQuery(value, open.at, selStart);
+    const items = query == null ? [] : slashItems(query, { inline: rte.inline, allowed: rte.allowed, inList: isListLineAt(value, open.at) });
+    if (!items.length) { close(); return; }
+    const kept = open.items[open.index];
+    const same = items.length === open.items.length && items.every((it, i) => it === open.items[i]);
+    open.items = items;
+    open.index = Math.max(0, items.indexOf(kept));
+    if (!same) paint();
+    f.sync();
+  };
+
+  const choose = item => {
+    const { value, selStart } = currentSelection(rte);
+    const { at } = open;
+    close();
+    clearArmed(rte);
+    // Take the typed `/query` out, then insert at the caret it leaves.
+    applyResult(rte, { value: value.slice(0, at) + value.slice(Math.max(at, selStart)), selStart: at, selEnd: at });
+    item.run(rte);
+  };
+
+  surface.addEventListener('input', e => {
+    if (open) { refresh(); return; }
+    if (e.inputType !== 'insertText' || e.data !== '/' || rte.disabled) return;
+    if (selectionMarkTags(rte).has('code') || selectionInLabel(rte)) return; // a slash in code is a slash
+    const { value, selStart, selEnd } = currentSelection(rte);
+    if (selStart !== selEnd || !slashOpensAt(value, selStart - 1)) return;
+    const at = selStart - 1;
+    const items = slashItems('', { inline: rte.inline, allowed: rte.allowed, inList: isListLineAt(value, at) });
+    if (!items.length) return;
+    open = { at, items, index: 0 };
+    paint();
+    setHidden(menu, false);
+    f.sync();
+  });
+
+  // Capture: ahead of the surface's and the page editor's own Enter / Escape / Tab.
+  surface.addEventListener('keydown', e => {
+    if (!open || e.isComposing) return;
+    const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (step) {
+      open.index = (open.index + step + open.items.length) % open.items.length;
+      paint();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      choose(open.items[open.index]);
+    } else if (e.key === 'Escape') {
+      close();
+    } else {
+      return;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+
+  menu.addEventListener('mousemove', e => {
+    const row = e.target instanceof Element && e.target.closest('.mb-rte-slash__item');
+    if (!row || !open || Number(row.dataset.index) === open.index) return;
+    open.index = Number(row.dataset.index);
+    paint();
+  });
+  menu.addEventListener('click', e => {
+    const row = e.target instanceof Element && e.target.closest('.mb-rte-slash__item');
+    if (row && open) choose(open.items[Number(row.dataset.index)]);
+  });
+
+  document.addEventListener('selectionchange', refresh);
+  rte.cleanups.push(() => document.removeEventListener('selectionchange', refresh));
+}
+
 function makeTab(text, active) {
   const b = document.createElement('button');
   b.type = 'button';
@@ -508,7 +887,7 @@ function selectionInLabel(rte) {
 }
 
 function buildButtons(rte) {
-  const want = k => !rte.allowed || rte.allowed.has(k);
+  const want = k => (!rte.allowed || rte.allowed.has(k)) && !rte.skip?.has(k);
   MARKS.forEach(m => {
     if (!want(m.key)) return;
     const btn = makeBtn(m.icon, m.label, () => runMarker(rte, m.marker));
@@ -757,7 +1136,7 @@ function attachSurfaceEvents(rte) {
 // Keep the toolbar's active states in sync with the caret, and disarm a pending
 // format when the user moves the caret away without typing.
 function attachSelectionTracking(rte) {
-  document.addEventListener('selectionchange', () => {
+  const onSelectionChange = () => {
     if (rte.mode !== 'rich') return; // Markdown mode: buttons stay off
     if (isArmed(rte)) {
       const sel = window.getSelection();
@@ -770,7 +1149,10 @@ function attachSelectionTracking(rte) {
       }
     }
     refreshActiveStates(rte);
-  });
+  };
+  document.addEventListener('selectionchange', onSelectionChange);
+  // Only a short-lived editor (attachRichSurface) ever detaches.
+  rte.cleanups?.push(() => document.removeEventListener('selectionchange', onSelectionChange));
 }
 
 function attachLinkPopover(rte) {

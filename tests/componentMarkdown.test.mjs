@@ -84,17 +84,23 @@ test('parsePastedComponents: rejects empty / whitespace paste', () => {
   assert.ok(parsePastedComponents('   \n  ').error);
 });
 
-test('parsePastedComponents: rejects plain prose', () => {
+// Text is a block like any other, so pasted prose lands as text blocks.
+test('parsePastedComponents: plain prose becomes one text block', () => {
   const res = parsePastedComponents('Just some text, not a component.');
-  assert.equal(res.components, null);
-  assert.ok(res.error);
+  assert.equal(res.error, null);
+  assert.equal(res.components.length, 1);
+  assert.equal(res.components[0].kind, 'text');
+  assert.equal(res.components[0].txt.body, 'Just some text, not a component.');
+  assert.match(res.components[0].txt.uuid, /^[0-9a-f-]{36}$/);
 });
 
-test('parsePastedComponents: rejects components mixed with stray prose', () => {
+test('parsePastedComponents: prose around a component keeps its place, each run a text block', () => {
   const { components } = parseComponents(ADM_FIXTURE, ADM_RE);
-  const res = parsePastedComponents('Stray intro line.\n\n' + componentMarkdown(components[0]));
-  assert.equal(res.components, null);
-  assert.ok(res.error);
+  const res = parsePastedComponents('Intro line.\n\n' + componentMarkdown(components[0]) + '\n\nOutro line.');
+  assert.equal(res.error, null);
+  assert.deepEqual(res.components.map(c => c.kind), ['text', 'admonition', 'text']);
+  assert.equal(res.components[2].txt.body, 'Outro line.');
+  assert.notEqual(res.components[0].txt.uuid, res.components[2].txt.uuid);
 });
 
 test('parsePastedComponents: accepts CRLF clipboard text', () => {

@@ -76,6 +76,18 @@ const UUID_SPAN_FULL_LINE_RE = /^[ \t]*<span[^>]*data-uuid[^>]*><\/span>[ \t]*\r
 // paragraph instead of minting an empty <p> above every description.
 const BLOCK_AFTER_SPAN_RE = /^(?:[-*+]\s|\d{1,9}[.)]\s|>|```|~~~|\|)/;
 
+// First lines a text block cannot open with while its span's paragraph is still
+// open: BLOCK_AFTER_SPAN_RE's, plus the ones that would read the span line as
+// part of themselves (a `---` under it is a setext heading) or are blocks of
+// their own (a heading, block html, an admonition or tab the parser left as text).
+const TEXT_AFTER_SPAN_RE = /^(?:[-*+]\s|\d{1,9}[.)]\s|>|```|~~~|\||#{1,6}\s|[-=*_]{3,}\s*$|[-*_](?:\s*[-*_]){2,}\s*$|<(?:div|details|table|p|ul|ol|style|figure|iframe|video|h[1-6])\b|!!!|\?\?\?|===\s)/;
+
+/** A text block's lines: its identity span, then the text (a blank between when the text cannot follow the span directly). */
+function textBlockLines(uuid, body) {
+  const first = body.split('\n', 1)[0];
+  return [buildSectionUUIDSpan(uuid), ...(TEXT_AFTER_SPAN_RE.test(first) ? [''] : []), body];
+}
+
 /** True when `line` falls within any `[start, end)` range. */
 function inAnyRange(line, ranges) {
   return ranges.some(([start, end]) => line >= start && line < end);
@@ -315,7 +327,35 @@ export function ensureCaptureUUIDs(markdown) {
  *   Each component is `{ kind:'admonition', adm }`, `{ kind:'capture', cap }`
  *   or `{ kind:'tabs', grp }`.
  */
-export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) {
+export function parseComponents(body, typeRegex, opts = {}) {
+  const { blocks } = parseBlocks(body, typeRegex, opts);
+  const lead = blocks[0]?.kind === 'text' ? blocks[0].txt : null;
+  return {
+    description: lead ? lead.body : '',
+    descriptionUuid: lead ? lead.uuid : null,
+    components: lead ? blocks.slice(1) : blocks,
+  };
+}
+
+/**
+ * A body as ONE ordered list of blocks: every component, and every run of text
+ * between them as `{ kind: 'text', txt: { uuid, body } }`. Text is a block like
+ * any other: it keeps its place, and its identity is the uuid span on the line
+ * above it (same span as every other block). Text with no span yet (a page
+ * written before text blocks, or by hand) is given a uuid worked out from the
+ * container, its place and its words, so the same body always reads the same
+ * way; the span is written the next time the container is.
+ *
+ * @param {string} body
+ * @param {RegExp} typeRegex
+ * @param {{skipTabBlocks?: boolean, ownSpan?: boolean, owner?: string}} [opts]
+ *   `ownSpan` (default true): the body opens with its container's own identity
+ *   span (an admonition's, a tab's, a grid cell's, a system update's). A
+ *   section's body does not (its span sits under the heading): pass false and
+ *   the section's uuid as `owner`.
+ * @returns {{ blocks: Array }}
+ */
+export function parseBlocks(body, typeRegex, { skipTabBlocks = true, ownSpan = true, owner = '' } = {}) {
   const src = body ?? '';
 
   // ALL code blocks (any indent) first: fence content can contain lines that
@@ -448,10 +488,12 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     })),
   ].sort((a, b) => a.startLine - b.startLine);
 
-  const description = extractDescription(src, items);
+  const all = [...items, ...locateTextBlocks(src, items, ownSpan, owner)]
+    .sort((a, b) => a.startLine - b.startLine);
 
   // Strip the internal line bookkeeping before handing components back.
-  const components = items.map(it => {
+  const blocks = all.map(it => {
+    if (it.kind === 'text') return { kind: 'text', txt: it.txt };
     if (it.kind === 'admonition') return { kind: 'admonition', adm: it.adm };
     if (it.kind === 'tabs') return { kind: 'tabs', grp: it.grp };
     if (it.kind === 'table') return { kind: 'table', tbl: it.tbl };
@@ -465,26 +507,82 @@ export function parseComponents(body, typeRegex, { skipTabBlocks = true } = {}) 
     return { kind: 'capture', cap: it.cap };
   });
 
-  return { description, components };
+  return { blocks };
+}
+
+// A block's identity span standing on a line of its own, at the body's own
+// indent (a deeper one belongs to something nested the parser does not know).
+const OWN_LINE_SPAN_RE = /^<span[^>]*data-uuid="([^"]+)"[^>]*><\/span>\s*$/;
+
+/**
+ * A uuid worked out from a string: the same string always gives the same uuid.
+ * For text that has no identity span yet (see parseBlocks).
+ */
+export function derivedUuid(seed) {
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
+  for (let i = 0; i < seed.length; i++) {
+    const k = seed.charCodeAt(i);
+    h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+  const hex = [h1 ^ h2 ^ h3 ^ h4, h2 ^ h1, h3 ^ h1, h4 ^ h1]
+    .map(h => (h >>> 0).toString(16).padStart(8, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 /**
- * Returns the leading description text of `body` — everything that isn't part of
- * a component block. Mirrors splitSectionBody's removal logic.
+ * The text blocks of `body`: every run of lines no component covers. A span
+ * line starts a block (and names it); text with no span above it is a block
+ * too. A span with nothing under it but the next component is that
+ * component's own (or stray) and is not text.
  */
-function extractDescription(body, items) {
+function locateTextBlocks(body, items, ownSpan, owner) {
   const lines = body.split('\n');
-  const removed = items.map(it => ({ start: it.startLine, end: it.endLine }));
-  removed.sort((a, b) => b.start - a.start); // descending so splices stay valid
-  let descLines = lines.slice();
-  for (const { start, end } of removed) {
-    let extEnd = end;
-    if (descLines[extEnd] === '') extEnd++; // eat one trailing blank
-    descLines.splice(start, extEnd - start);
+  const covered = new Array(lines.length).fill(false);
+  for (const it of items) for (let i = it.startLine; i < it.endLine && i < lines.length; i++) covered[i] = true;
+
+  let ownerUuid = owner ?? '';
+  if (ownSpan) {
+    const first = lines.findIndex(l => l.trim() !== '');
+    const m = first >= 0 && !covered[first] ? lines[first].match(OWN_LINE_SPAN_RE) : null;
+    if (m) { ownerUuid = m[1]; covered[first] = true; }
   }
-  let desc = descLines.join('\n');
-  desc = desc.replace(UUID_SPAN_RE, ''); // drop the admonition/section UUID span
-  return desc.trim();
+
+  const out = [];
+  let cur = null;
+  let pending = null;
+  const flush = () => {
+    if (cur) {
+      const text = cur.lines.join('\n').trim();
+      if (text) out.push({ kind: 'text', startLine: cur.startLine, endLine: cur.startLine + 1, txt: { uuid: cur.uuid, body: text } });
+    }
+    cur = null;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    if (covered[i]) { flush(); pending = null; continue; }
+    const line = lines[i];
+    const span = line.match(OWN_LINE_SPAN_RE);
+    if (span) { flush(); pending = { uuid: span[1], line: i }; continue; }
+    if (line.trim() === '') { if (cur) cur.lines.push(''); continue; }
+    if (!cur) {
+      cur = { uuid: pending?.uuid ?? null, startLine: pending?.line ?? i, lines: [] };
+      pending = null;
+    }
+    cur.lines.push(line);
+  }
+  flush();
+
+  let n = 0;
+  for (const t of out) {
+    if (!t.txt.uuid) t.txt.uuid = derivedUuid(`${ownerUuid}|text|${n++}|${t.txt.body}`);
+  }
+  return out;
 }
 
 /**
@@ -515,6 +613,7 @@ function subViewModel(c, typeRegex) {
     case 'navlinks': return { kind: 'navlinks', text: c.nav.tag != null ? `${c.nav.tag.includes(',') ? 'Tags' : 'Tag'}: ${c.nav.tag}` : c.nav.path };
     case 'diagram':  return { kind: 'diagram' };
     case 'codeblock': return { kind: 'codeblock', title: c.cb.title, language: c.cb.language };
+    case 'text':     return { kind: 'text', text: c.txt.body };
     case 'video':    return { kind: 'video', filename: c.vid.lightFilename };
     case 'image':    return { kind: 'image', filename: c.img.filename };
     default:         return { kind: 'capture', filename: c.cap.lightFilename };
@@ -536,19 +635,33 @@ function subViewModel(c, typeRegex) {
  * @param {string|null} uuid - admonition UUID to embed as a hidden span, or null
  *                             for sections (whose UUID lives in the heading).
  * @param {string} description
- * @param {Array} components - `{kind:'admonition', adm}` | `{kind:'capture', cap}`
+ * @param {Array} components - `{kind:'admonition', adm}` | `{kind:'capture', cap}` | `{kind:'text', txt}` …
+ * @param {string|null} [descriptionUuid] - the leading text's own uuid (parseComponents hands it back)
  * @returns {string}
  */
-export function buildComponentBody(uuid, description, components) {
+export function buildComponentBody(uuid, description, components, descriptionUuid = null) {
   const lines = [];
   if (uuid) lines.push(buildSectionUUIDSpan(uuid));
   const desc = (description ?? '').trim();
-  if (desc.length) {
+  if (desc.length && descriptionUuid) {
+    // The leading text as the block it is: its own span, on the line above it.
+    if (uuid) lines.push('');
+    lines.push(...textBlockLines(descriptionUuid, desc));
+  } else if (desc.length) {
+    // No identity handed over: the text is written bare and reads back as the
+    // leading text block (parseBlocks names it until a span is written).
     if (uuid && BLOCK_AFTER_SPAN_RE.test(desc)) lines.push('');
     lines.push(desc);
   }
 
   for (const c of components) {
+    if (c.kind === 'text') {
+      const body = (c.txt.body ?? '').trim();
+      if (!body) continue; // an emptied text block is no block at all
+      lines.push('');
+      lines.push(...textBlockLines(c.txt.uuid, body));
+      continue;
+    }
     lines.push(''); // one blank separator before each component
     if (c.kind === 'admonition') {
       const a = c.adm;
@@ -662,6 +775,22 @@ export function admonitionComponent(adm) {
   return { kind: 'admonition', adm };
 }
 
+/**
+ * parseComponents options for a SECTION's body: unlike every other container's,
+ * it does not open with the container's own span (that sits under the heading).
+ */
+export const sectionBodyOpts = sectionUuid => ({ ownSpan: false, owner: sectionUuid ?? '' });
+
+/**
+ * The identity a container's leading text is written with: the one it has
+ * (`prior` is the container as last parsed), or a new one where there was no
+ * leading text. Null when there is no text to write.
+ */
+export function leadUuid(prior, description) {
+  if (!String(description ?? '').trim()) return null;
+  return prior?.descriptionUuid ?? generateUUID();
+}
+
 /** The stable UUID of a component (admonition, capture, video, tab group, or data table). */
 export function uuidOfComponent(c) {
   if (c.kind === 'admonition') return c.adm.uuid;
@@ -674,6 +803,7 @@ export function uuidOfComponent(c) {
   if (c.kind === 'navlinks') return c.nav.uuid;
   if (c.kind === 'diagram') return c.dia.uuid;
   if (c.kind === 'codeblock') return c.cb.uuid;
+  if (c.kind === 'text') return c.txt.uuid;
   return c.cap.uuid;
 }
 
@@ -717,6 +847,7 @@ const DELETE_PROMPTS = {
   navlinks: 'Delete these nav links?',
   diagram: 'Delete this diagram?',
   codeblock: 'Delete this code block?',
+  text: 'Delete this text?',
 };
 const DELETE_LIST_CAP = 8;
 export function deleteConfirmMessage(components) {
@@ -752,13 +883,9 @@ export function componentsMarkdown(components) {
 export function parsePastedComponents(text) {
   const { stripped, description, components } = mintPastedMarkdown(text);
   if (!stripped) return { components: null, error: 'Nothing to insert — paste component markdown first.' };
-  if (components.length === 0) {
-    return { components: null, error: 'No components recognised. Paste markdown copied from a component (admonition, capture, content tabs, data table, grid, video, image, button, nav links, diagram or code block).' };
-  }
-  if (description.trim() !== '') {
-    return { components: null, error: 'The pasted markdown contains text outside of component blocks, so it can\'t be inserted.' };
-  }
-  return { components, error: null };
+  // Text is a block like any other: pasted text lands as text blocks, in place.
+  const lead = description.trim() ? [{ kind: 'text', txt: { uuid: generateUUID(), body: description.trim() } }] : [];
+  return { components: [...lead, ...components], error: null };
 }
 
 // Shared mint step for the paste flows: strip any spans the paste carried,
@@ -769,7 +896,10 @@ function mintPastedMarkdown(text) {
   const stripped = stripUUIDSpans(text ?? '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) return { stripped, description: '', components: [] };
   const withUuids = ensureCodeBlockUUIDs(ensureDiagramUUIDs(ensureNavLinksUUIDs(ensureButtonUUIDs(ensureImageUUIDs(ensureVideoUUIDs(ensureCaptureUUIDs(ensureDataTableUUIDs(ensureGridUUIDs(ensureTabUUIDs(ensureAdmonitionUUIDs(stripped, GUIDE_ADMONITION_TYPES_RE)))))))))));
-  const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE);
+  // The paste carries no container span of its own, and its text gets fresh
+  // identities like everything else in it.
+  const { description, components } = parseComponents(withUuids, GUIDE_ADMONITION_TYPES_RE, { ownSpan: false });
+  for (const c of components) if (c.kind === 'text') c.txt.uuid = generateUUID();
   return { stripped, description, components };
 }
 
@@ -831,7 +961,7 @@ export function parsePastedGridCells(text) {
 export function readTabComponents(md, tabUuid) {
   const lines = (md ?? '').split('\n');
   const loc = locateTabByUUID(lines, tabUuid);
-  if (!loc) return { description: '', components: [] };
+  if (!loc) return { description: '', descriptionUuid: null, components: [] };
   const bodyIndent = loc.headerIndent + '    ';
   const body = lines.slice(loc.headerLine + 1, loc.endLine)
     .map(l => (l.startsWith(bodyIndent) ? l.slice(bodyIndent.length) : l))
@@ -870,7 +1000,7 @@ export function writeTabBody(md, tabUuid, description, components) {
   const loc = locateTabByUUID(lines, tabUuid);
   if (!loc) return md;
   const bodyIndent = loc.headerIndent + '    ';
-  const body = buildComponentBody(tabUuid, description, components);
+  const body = buildComponentBody(tabUuid, description, components, leadUuid(readTabComponents(md, tabUuid), description));
   const indented = body.split('\n').map(l => (l.length ? bodyIndent + l : l));
   return [
     ...lines.slice(0, loc.headerLine + 1),
@@ -891,7 +1021,7 @@ export function writeTabBody(md, tabUuid, description, components) {
 export function readGridCellComponents(md, cellUuid) {
   const lines = (md ?? '').split('\n');
   const loc = locateGridCellByUUID(lines, cellUuid);
-  if (!loc) return { description: '', components: [] };
+  if (!loc) return { description: '', descriptionUuid: null, components: [] };
   const body = lines.slice(loc.openLine + 1, loc.closeLine)
     .map(l => (loc.indent && l.startsWith(loc.indent)) ? l.slice(loc.indent.length) : l)
     .join('\n');
@@ -913,7 +1043,7 @@ export function writeGridCellBody(md, cellUuid, description, components) {
   const lines = (md ?? '').split('\n');
   const loc = locateGridCellByUUID(lines, cellUuid);
   if (!loc) return md;
-  const body = buildComponentBody(cellUuid, description, components);
+  const body = buildComponentBody(cellUuid, description, components, leadUuid(readGridCellComponents(md, cellUuid), description));
   const indented = body.split('\n').map(l => (l.length ? loc.indent + l : l));
   return [
     ...lines.slice(0, loc.openLine + 1),

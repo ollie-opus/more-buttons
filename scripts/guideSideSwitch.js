@@ -14,7 +14,7 @@ import { openWithTrail, snapshotFormStack, confirmDiscardIfDirty } from './form.
 import { formLoading } from './loading.js';
 import { readRepoText } from './repoClient.js';
 import { buildSectionTree, readSectionDescription } from './sections.js';
-import { parseComponents, uuidOfComponent } from './components.js';
+import { parseComponents, sectionBodyOpts, uuidOfComponent } from './components.js';
 import { GUIDE_ADMONITION_TYPES_RE, ADMONITION_TYPE_LABELS, splitTitleMeta, stripInlineAtoms } from './admonitions.js';
 import { guideModeToggleHtml, draftPathOf, draftLinkHtml } from './guides.js';
 import { liveIdentity, liveComponentFormName } from './guideLiveView.js';
@@ -41,7 +41,7 @@ const landsOnContainer = (here, side) => here?.kind === 'leaf' && !hasScreenOn(h
 // switch, so it is its own counterpart (never in the node index).
 export const PAGE_SETTINGS_NODE = Object.freeze({ uuid: null, kind: 'page-settings', path: [], parent: null, label: 'Page settings' });
 
-const parseBody = body => parseComponents(body ?? '', GUIDE_ADMONITION_TYPES_RE).components;
+const parseBody = (body, opts) => parseComponents(body ?? '', GUIDE_ADMONITION_TYPES_RE, opts).components;
 const pathKey = path => path.join('.');
 
 function admonitionLabel(adm) {
@@ -86,7 +86,7 @@ export function guideNodeIndex(md) {
   const { sections } = buildSectionTree(md ?? '');
   sections.forEach((s, si) => {
     add({ uuid: s.uuid, kind: 'section', path: [si], parent: null, label: s.visualLabel });
-    walk(parseBody(readSectionDescription(md, s.uuid).descriptionMarkdown), [si], s.uuid);
+    walk(parseBody(readSectionDescription(md, s.uuid).descriptionMarkdown, sectionBodyOpts(s.uuid)), [si], s.uuid);
   });
   return { byUuid, byPath };
 }

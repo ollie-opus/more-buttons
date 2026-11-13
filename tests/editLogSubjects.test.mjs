@@ -13,8 +13,12 @@ await test('guides.js: the rule-line prefixes and section/settings subjects are 
   assert.match(g, /commit: `Create guide: \$\{title\}`/);
   assert.match(g, /commit: `Create draft: \$\{title\}`/);
   assert.match(g, /export async function writeGuideDraft\(livePath, onProgress, \{ title \}\)/);
-  assert.ok(count(g, /commit: `Publish: \$\{guideDisplayTitle\(formEl\)\}`/g) >= 2, 'live PUT and draft DELETE');
-  assert.match(g, /commit: `Discard draft: \$\{guideDisplayTitle\(formEl\)\}`/);
+  // The publish steps are form-free (publishGuideFiles, shared with the
+  // Knowledge Base page editor); the form passes its display title in.
+  assert.ok(count(g, /commit: `Publish: \$\{title\}`/g) >= 2, 'live PUT and draft DELETE');
+  assert.match(g, /publishGuideFiles\(\{ livePath, draftPath, title \}/);
+  assert.match(g, /const guide = \{ \.\.\.currentGuide, title: guideDisplayTitle\(formEl\) \};/);
+  assert.match(g, /commit: `Discard draft: \$\{title\}`/);
   assert.match(g, /commit: 'Reordered sections'/);
   assert.ok(count(g, /commit: 'Edited page settings'/g) >= 2, 'draft mergeSave and live PUT');
   assert.match(g, /Reordered components in '\$\{resolved\.sectionTitle\.trim\(\)\}'/);

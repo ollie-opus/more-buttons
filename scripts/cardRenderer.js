@@ -91,6 +91,8 @@ function subPreviewHtml(sub) {
       return subCard('grey', escapeHtml((sub.text ?? '').trim() || '(no path)'), 'Nav links');
     case 'diagram':
       return subCard('grey', escapeHtml('Diagram'), 'Diagram');
+    case 'text': // text standing among the components: shown as it reads, no card chrome
+      return sub.text ? `<div class="mb-card-sub__body mb-card-rich">${componentBodyHtml(sub.text)}</div>` : '';
     case 'codeblock':
       return subCard('grey', escapeHtml((sub.title ?? '').trim() || (sub.language ?? '').trim() || 'Code block'), 'Code');
     default:
@@ -249,6 +251,25 @@ export function navLinksComponentCard({ path, btnAttr, btnLabel = 'Edit', copyAt
       <strong class="mb-incident-card__title">${escapeHtml(text)}</strong>
       <span class="mb-incident-card__badge">Nav links</span>
     </div>
+    <div class="mb-incident-card__foot --end">
+      ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
+      <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>
+    </div>
+  </div>`;
+}
+
+// A "Text" component card: a text block standing among a container's
+// components (the container's LEADING text is its Description field instead).
+// Grey chrome, a "Text" badge, and the text itself rendered rich under the
+// usual clamp + Show more.
+export function textComponentCard({ bodyMd = '', btnAttr, btnLabel = 'Edit', copyAttr = '' }) {
+  return `
+  <div class="mb-incident-card --grey">
+    <div class="mb-incident-card__head">
+      <strong class="mb-incident-card__title">Text</strong>
+      <span class="mb-incident-card__badge">Text</span>
+    </div>
+    ${cardBodyBlock(bodyMd)}
     <div class="mb-incident-card__foot --end">
       ${copyAttr ? `<button type="button" class="mb-incident-card__edit" ${copyAttr}>Copy</button>` : ''}
       <button type="button" class="mb-incident-card__edit" ${btnAttr}>${btnLabel}</button>

@@ -23,6 +23,7 @@ import './gridEditor.js';
 import './buttonEditor.js';
 import './navLinksEditor.js';
 import './diagramEditor.js';
+import './textEditor.js';
 import './codeBlockEditor.js';
 import './integrations.js';
 import './knowledgeBaseSettings.js';
@@ -35,6 +36,7 @@ export { openCaptureEntry } from './captureEntry.js';
 export { openIntegrations } from './integrations.js';
 export { openManageActions, playActiveAction, resumeActionSession } from './actionsManage.js';
 export { openSeleniumCommandBuilder } from './builderPickMode.js';
+export { kbCreateDraft, kbEnterEditMode } from './kbPageEditor.js';
 
 export { navigateToNewDocumentPage } from './navigateToNewDocumentPage.js';
 export { clearAllCheckboxes } from './clearAllCheckboxes.js';

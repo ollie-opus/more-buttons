@@ -55,7 +55,7 @@ const fromHtml = (html) => { const h = document.createElement('div'); h.innerHTM
  * wipes them and their buttons never dirty the form. Idempotent: a second call
  * on the same form swaps the thread and re-renders, keeping the open state.
  */
-export function mountEditLog(formEl, thread, { itemTypeRegex = null } = {}) {
+export function mountEditLog(formEl, thread, { itemTypeRegex = null, onClose = null } = {}) {
   const host = formEl.closest('.more-buttons-overlay-content') ?? formEl.parentElement;
   let layer = host.querySelector('[data-editlog-layer]');
   if (!layer) { layer = fromHtml(editLogDrawerHtml()); host.appendChild(layer); }
@@ -65,7 +65,7 @@ export function mountEditLog(formEl, thread, { itemTypeRegex = null } = {}) {
   }
 
   formEl._editLog = {
-    thread, itemTypeRegex, host, layer,
+    thread, itemTypeRegex, host, layer, onClose,
     container: layer.querySelector('[data-editlog-body]'),
     texts: new Map(), detailHtml: new Map(), expanded: new Set(),
   };
@@ -96,6 +96,8 @@ export function setEditLogOpen(formEl, open) {
     if (st.onKey) document.removeEventListener('keydown', st.onKey, true);
     st.onKey = null;
     toggle?.focus({ preventScroll: true });
+    // A host with no navbar toggle (the Knowledge Base popup) tears itself down here.
+    st.onClose?.();
   }
 }
 

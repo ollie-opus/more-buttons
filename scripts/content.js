@@ -5,6 +5,11 @@
 const getActions = () => (window.__mbActionsPromise ??=
     import(chrome.runtime.getURL('scripts/actions.js')).then(m => (window.__mbActionsModule = m, m)));
 
+// The published Knowledge Base is the one other host the content script runs
+// on. It gets no dock: scripts/kbSite.js places its own buttons in the page,
+// chosen from the page's state, never the webapp's url-matched ones.
+const ON_KB_SITE = location.hostname === 'support.opus-safety.co.uk';
+
 // Mirrors captureMode.js SESSION_KEY (pinned by tests/contentScript.test.mjs).
 // Read here so a page with no capture session never pays the actions import.
 const CAPTURE_SESSION_KEY = 'moreButtonsCaptureSession';
@@ -58,8 +63,9 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
         // Only page-surface buttons can ever render here; popup-only ones are
         // dropped before compiling so they aren't tested on every navigation.
         const { page } = splitBySurface(buttons);
-        const pageButtons = page.map(def => ({ def, matches: compilePageMatch(def.pageMatch) }));
-        const pageAutomations = automations.map(def => ({ def, matches: compilePageMatch(def.pageMatch) }));
+        const pageButtons = (ON_KB_SITE ? [] : page)
+            .map(def => ({ def, matches: compilePageMatch(def.pageMatch) }));
+        const pageAutomations = (ON_KB_SITE ? [] : automations).map(def => ({ def, matches: compilePageMatch(def.pageMatch) }));
 
         return { renderPageDock, removePageDock, runAutomations, createNavigationWatcher, watchIconSpans, loadChromeIcons, pageButtons, pageAutomations };
     })();
@@ -72,6 +78,15 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
     // wait for the render to settle. See scripts/pageNavigation.js.
     //
     setup.then(({ renderPageDock, removePageDock, runAutomations, createNavigationWatcher, watchIconSpans, loadChromeIcons, pageButtons, pageAutomations }) => {
+        if (ON_KB_SITE) {
+            // No dock here: kbSite.js places its buttons in the page itself,
+            // from what GitHub says about the page. Full page loads only, so
+            // there is no url watcher.
+            return import(chrome.runtime.getURL('scripts/kbSite.js')).then(({ startKbSite }) => startKbSite({
+                loadActions: getActions,
+            }));
+        }
+
         const onNavigate = (url) => {
             const matched = pageButtons.filter(b => b.matches(url)).map(b => b.def);
             if (!matched.length) { removePageDock(); return; }

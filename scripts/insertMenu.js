@@ -278,6 +278,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
     { id: 'capture-library', label: 'Add capture from library' },
     { id: 'image', label: 'Add image from library' },
   ] : [
+    { id: 'text', label: 'Text' },
     { id: 'admonition', label: 'Admonition' },
     {
       id: 'capture', label: 'Capture',
@@ -300,6 +301,7 @@ export function openInsertMenu(triggerEl, insertAtIndex, handlers, opts = {}) {
   ];
 
   const byId = {
+    'text': handlers.text,
     'admonition': handlers.admonition,
     'capture-new': handlers.captureNew,
     'capture-library': handlers.captureLibrary,

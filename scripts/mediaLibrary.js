@@ -12,7 +12,7 @@ import { PAIR_DIRS, isSystemUpdateCapturePath } from './captureDest.js';
 
 // The library mirrors this repo folder: every top-level subfolder becomes a
 // tab, so adding a folder in the repo adds a tab here with no code change.
-const MEDIA_ROOT = 'docs/assets/media';
+export const MEDIA_ROOT = 'docs/assets/media';
 // The one folder with extra behaviour: capture-manifest pills and the
 // create/upload dock buttons (both write into this folder).
 const CAPTURE_TAB_KEY = 'occ-captures';
@@ -22,7 +22,7 @@ const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
 // its own kind of file (a capture is a theme PAIR, an image a lone file), so
 // e.g. the Capture flow never surfaces the buttons tab and vice versa. Tabs
 // whose tree is empty after the filter are dropped entirely.
-const ACCEPT = {
+export const MEDIA_ACCEPT = {
   capture: { exts: IMAGE_EXTS, shape: 'pair' },
   image: { exts: IMAGE_EXTS, shape: 'single' },
   video: { exts: VIDEO_EXTS, shape: null },
@@ -32,7 +32,8 @@ const ACCEPT = {
 // so its destination dropdown mirrors the library (plain data — replay-safe).
 let libraryContext = { folders: [], current: CAPTURE_TAB_KEY };
 
-async function listMediaPaths() {
+/** Every media file in the repo, as repo paths (one recursive tree read). */
+export async function listMediaPaths() {
   const auth = await authHeader();
   const url = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/git/trees/${REPO.branch}?recursive=1`;
   const res = await fetch(url, { headers: { 'Authorization': auth }, cache: 'no-store' });
@@ -67,7 +68,7 @@ function decorateCapturePills(panel, meta) {
 // plain data so the opener replays.
 export async function openMediaLibrary({ mode, accept, excludeTabs = [], duplicateTo = null } = {}) {
   const insertMode = mode === 'insert';
-  const filter = ACCEPT[accept] ?? null; // null = browse: every file shows
+  const filter = MEDIA_ACCEPT[accept] ?? null; // null = browse: every file shows
   const opener = () => openMediaLibrary({ mode, accept, excludeTabs, duplicateTo });
   const { formEl } = await createForm('mediaLibrary', opener);
   if (!formEl) return;

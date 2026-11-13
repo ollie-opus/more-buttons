@@ -8,7 +8,7 @@ import { paintInlineAtoms } from './richTextEditor.js';
 import { parseAdmonitions, buildAdmonition, generateUUID, injectAdmonitionUUID, replaceAdmonitionByUUID, deleteAdmonitionByUUID, splitTitleMeta, joinTitleMeta } from './admonitions.js';
 import { pushCaptures } from './captures.js';
 import { registerComponentContainer } from './componentContainers.js';
-import { parseComponents, buildComponentBody, uuidOfComponent, reorderComponents, cardPreviewModel } from './components.js';
+import { parseComponents, leadUuid, buildComponentBody, uuidOfComponent, reorderComponents, cardPreviewModel } from './components.js';
 import { mergeSave } from './mergeSave.js';
 import { itemCommit, reorderCommit, isReorderOnly, UPDATE_BLOCK_TYPES_RE } from './editLogDescribe.js';
 import { prefetchEditLog, mountEditLog } from './editLogPanel.js';
@@ -126,7 +126,7 @@ function writeUpdateBody(md, uuid, description, components) {
     : block.date;
   // buildComponentBody embeds the uuid span; buildUpdateBlock then sees it and
   // skips re-injection. captures=[] because captures now live inside the body.
-  const body = buildComponentBody(uuid, description, components);
+  const body = buildComponentBody(uuid, description, components, leadUuid(readUpdateComponents(md, uuid), description));
   return replaceUpdateInMarkdown(
     md, uuid,
     { type: block.type, title: block.title, date: isoDate, uuid, description: body },
@@ -209,6 +209,8 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
         labelMap[c.nav.uuid] = { kind: 'admonition', title: c.nav.path || c.nav.tag || 'Nav links' };
       } else if (c.kind === 'diagram') {
         labelMap[c.dia.uuid] = { kind: 'admonition', title: 'Diagram' };
+      } else if (c.kind === 'text') {
+        labelMap[c.txt.uuid] = { kind: 'admonition', title: 'Text' };
       } else if (c.kind === 'codeblock') {
         labelMap[c.cb.uuid] = { kind: 'admonition', title: c.cb.title || c.cb.language || 'Code block' };
       } else {
@@ -247,9 +249,10 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
       };
     },
     build: (md, resolved) => {
-      const { components } = readUpdateComponents(md, uuid);
+      const prior = readUpdateComponents(md, uuid);
+      const { components } = prior;
       const ordered = reorderComponents(components, (resolved.componentOrder ?? '').split(',').filter(Boolean));
-      const body = buildComponentBody(uuid, resolved.description, ordered);
+      const body = buildComponentBody(uuid, resolved.description, ordered, leadUuid(prior, resolved.description));
       const upd = { title: resolved.updateTitle, date: resolved.updateDate, type: resolved.updateType, uuid, description: body };
       return kind === 'system-update'
         ? replaceUpdateInMarkdown(md, uuid, upd, [])
@@ -266,8 +269,8 @@ async function saveUpdateForComponent(formEl, onProgress = () => {}) {
 // the update block's rebuilt body. Components are re-read fresh so any committed
 // during this edit session are preserved.
 function rebuildUpdateBody(md, uuid, description) {
-  const { components } = readUpdateComponents(md, uuid);
-  return buildComponentBody(uuid, description, components);
+  const prior = readUpdateComponents(md, uuid);
+  return buildComponentBody(uuid, description, prior.components, leadUuid(prior, description));
 }
 
 // ── Month/Year heading management ─────────────────────────────────────────────

@@ -30,6 +30,7 @@ export function componentKindLabel(component) {
     case 'table': return 'Data table';
     case 'grid': return 'Grid';
     case 'tabs': return 'Content tabs';
+    case 'text': return 'Text';
     default: return 'Component';
   }
 }

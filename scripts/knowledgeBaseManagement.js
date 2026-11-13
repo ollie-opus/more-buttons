@@ -232,9 +232,26 @@ function openMoveToPicker(anchorBtn, reorder, rerender) {
   }), 0);
 }
 
-// Commit nav, draft_nav and unlisted_nav in a single zensical.toml push.
+/**
+ * Commit a reorder payload ({ nav, draftNav, unlistedNav } from kbReorder's
+ * buildPayload) in a single zensical.toml push. Shared with the Knowledge Base
+ * site's admin pages.
+ */
+export function pushNavOrder({ nav, draftNav, unlistedNav }, onProgress = () => {}) {
+  return githubFetchAndPushFile('zensical.toml', onProgress, md => {
+    let out = replaceNavBlock(md, 'nav', nav);
+    out = replaceNavBlock(out, 'draft_nav', draftNav);
+    // Only touch unlisted_nav when the toml already has the block or there is
+    // something to write: replaceNavBlock auto-creates a missing block at EOF,
+    // which would land it inside [project.extra] (see applyPageVisibility).
+    if (parseNavBlock(out, 'unlisted_nav').start !== -1 || unlistedNav.length) {
+      out = replaceNavBlock(out, 'unlisted_nav', unlistedNav);
+    }
+    return out;
+  });
+}
+
 async function saveReorder(reorder, formEl) {
-  const { nav, draftNav, unlistedNav } = reorder.buildPayload();
   // Progress rides the amber dock tag, matching every other GitHub-commit button.
   // The push queue serialises writes, so leaving the rest of the form live during
   // the commit is safe; we just disable the sibling Discard so it can't fire mid-
@@ -245,17 +262,7 @@ async function saveReorder(reorder, formEl) {
   setButtonBusy(saveBtn, 'Saving order…');
   if (discardBtn) discardBtn.disabled = true;
   try {
-    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(saveBtn, s), md => {
-      let out = replaceNavBlock(md, 'nav', nav);
-      out = replaceNavBlock(out, 'draft_nav', draftNav);
-      // Only touch unlisted_nav when the toml already has the block or there is
-      // something to write: replaceNavBlock auto-creates a missing block at EOF,
-      // which would land it inside [project.extra] (see applyPageVisibility).
-      if (parseNavBlock(out, 'unlisted_nav').start !== -1 || unlistedNav.length) {
-        out = replaceNavBlock(out, 'unlisted_nav', unlistedNav);
-      }
-      return out;
-    });
+    await pushNavOrder(reorder.buildPayload(), s => setButtonBusy(saveBtn, s));
     await getFormAction('openKnowledgeBaseManagement')();  // reload fresh tree
   } catch (e) {
     restoreButton(saveBtn, snap);

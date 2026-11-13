@@ -1,0 +1,13 @@
+<form data-nav data-dirty-guard id="edit-text-form" data-storage-key="moreButtonsEditText" data-width="70vw" data-height="80vh">
+  <h2 data-text-heading>Edit text</h2>
+
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Text</label>
+    <textarea name="textBody" rows="12" data-richtext placeholder="Markdown allowed — lists, defn lists, etc." required></textarea>
+  </div>
+
+  <div class="more-buttons-form-actions">
+    <button type="button" class="more-buttons-button green" data-action="submitEditText" data-validate data-save-state data-saved-label="Draft saved" data-unsaved-label="Save to draft"><span class="more-buttons-icon">save</span>Save to draft</button>
+    <button type="button" class="more-buttons-button red" data-action="deleteText" data-delete-text-btn><span class="more-buttons-icon">trash-2</span>Delete</button>
+  </div>
+</form>

@@ -1,0 +1,582 @@
+/* ── Knowledge Base site: the admin area (kbAdmin.js and its screens) ─────────
+   Runs on support.opus-safety.co.uk, drawn where the site's 404 content would
+   be. Everything here is built from the theme's own tokens (--md-*), its rem
+   scale, its .4rem corners and its .05rem hairlines, so the screens read as
+   pages of the site in both of its schemes. No colours of the extension's own
+   except the state pills, which are mixed into the theme's foreground.
+
+   A screen's buttons sit in the page (.mb-adm-actions): the bottom bar on
+   this site is the draft editor's alone. */
+
+/* ── Shell ─────────────────────────────────────────────────────────────────── */
+
+/* No "On this page" for these screens: the content takes its room. */
+html.mb-kb-admin .md-sidebar--secondary { display: none; }
+
+/* The left navigation: the theme's own nav links, with a quiet way back out. */
+.mb-adm-nav .md-nav__link { align-items: center; }
+.mb-adm-nav .md-nav__link svg { width: 1.3em; height: 1.3em; }
+.mb-adm-nav__exit {
+  margin-top: .6rem;
+  padding-top: .6rem;
+  border-top: .05rem solid var(--md-default-fg-color--lightest);
+}
+.mb-adm-nav__exit .md-nav__link { color: var(--md-default-fg-color--light); }
+
+.mb-adm-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem 1rem;
+  margin-bottom: 1.28rem;
+}
+.md-typeset .mb-adm-head > h1 { margin: 0; }
+.mb-adm-head > [data-adm-actions]:empty,
+.mb-adm > [data-adm-actions]:empty { display: none; }
+/* Under a form: the buttons that finish it. */
+.mb-adm > [data-adm-actions="end"] { margin-top: 1.6rem; }
+.mb-adm-lead {
+  max-width: 34rem;
+  color: var(--md-default-fg-color--light);
+}
+.md-typeset .mb-adm-section > h2 { margin-top: 0; }
+.md-typeset .mb-adm-section > p { max-width: 34rem; }
+
+/* ── Home tiles: the theme's card grid, each card one link ─────────────────── */
+
+.md-typeset .mb-adm-tiles.grid.cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+.md-typeset .mb-adm-tiles.grid.cards > ul > li { position: relative; }
+.md-typeset .mb-adm-tile {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  color: var(--md-default-fg-color);
+  text-decoration: none;
+  font-size: .8rem;
+}
+.md-typeset .mb-adm-tile::after { content: ""; position: absolute; inset: 0; border-radius: .4rem; }
+.md-typeset .mb-adm-tile:focus-visible { outline: none; }
+.md-typeset .mb-adm-tile:focus-visible::after { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .1rem; }
+.mb-adm-tile__icon { display: inline-flex; color: var(--md-default-fg-color--light); transition: color .25s; }
+.mb-adm-tile__icon svg { width: 1.1rem; height: 1.1rem; }
+.md-typeset .mb-adm-tiles li:hover .mb-adm-tile__icon,
+.md-typeset .mb-adm-tiles li:focus-within .mb-adm-tile__icon { color: var(--md-accent-fg-color); }
+.md-typeset .mb-adm-tiles li > p { margin: .5rem 0 0; color: var(--md-default-fg-color--light); }
+
+/* ── Tabs: the look of the theme's content tabs ────────────────────────────── */
+
+.mb-adm-tabs {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  box-shadow: 0 -.05rem var(--md-default-fg-color--lightest) inset;
+  margin-bottom: .8rem;
+}
+.mb-adm-tabs > button {
+  flex-shrink: 0;
+  padding: .78125em 1.25em .625em;
+  border: 0;
+  border-bottom: .075rem solid transparent;
+  background: none;
+  color: var(--md-default-fg-color--light);
+  font: inherit;
+  font-size: .7rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .25s, border-color .25s;
+}
+.mb-adm-tabs > button:hover { color: var(--md-accent-fg-color); }
+.mb-adm-tabs > button[aria-selected="true"] {
+  color: var(--md-default-fg-color);
+  border-bottom-color: var(--md-default-fg-color);
+}
+.mb-adm-tabs > button:disabled { opacity: .4; cursor: default; }
+.mb-adm-tabs > button:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: -.15rem; border-radius: .2rem; }
+
+/* ── Fields: the header search box's shape ─────────────────────────────────── */
+
+.mb-adm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: .6rem;
+}
+.mb-adm-toolbar .mb-adm-search { flex: 1 1 12rem; min-width: 0; }
+.mb-adm-summary {
+  margin-left: auto;
+  color: var(--md-default-fg-color--light);
+  font-size: .64rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.md-typeset .mb-adm-input {
+  box-sizing: border-box;
+  height: 1.7rem;
+  padding: 0 .6rem;
+  border: .05rem solid transparent;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  font: inherit;
+  font-size: .7rem;
+  transition: background-color .25s, border-color .25s;
+}
+.md-typeset .mb-adm-input::placeholder { color: var(--md-default-fg-color--light); opacity: 1; }
+.md-typeset .mb-adm-input:hover { background-color: var(--md-default-fg-color--lighter); }
+.md-typeset .mb-adm-input:focus-visible {
+  outline: none;
+  background-color: var(--md-default-bg-color);
+  border-color: var(--md-accent-fg-color);
+}
+/* A select draws its own chevron: the theme's, with the room a field's text gets. */
+.md-typeset select.mb-adm-input {
+  appearance: none;
+  padding-right: 1.7rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentcolor 50%), linear-gradient(135deg, currentcolor 50%, transparent 50%);
+  background-position: right .85rem center, right .6rem center;
+  background-size: .25rem .25rem;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+/* Pages: the search fills the row up to the filters, each a fixed width, so
+   choosing a filter resizes nothing. "Clear filters" slides in ahead of them
+   once one is on, and the search eases narrower to make its room. */
+.mb-adm-filters { display: flex; align-items: center; gap: .4rem; }
+.md-typeset .mb-adm-filters .mb-adm-link {
+  flex-shrink: 0;
+  max-width: 0;
+  margin: 0 -.4rem 0 0;   /* takes back the gap it would otherwise leave */
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transform: translateX(.4rem);
+  transition: max-width .32s cubic-bezier(.25, 1, .5, 1), margin .32s cubic-bezier(.25, 1, .5, 1),
+    transform .32s cubic-bezier(.25, 1, .5, 1), opacity .16s ease-out;
+}
+.md-typeset .mb-adm-filters .mb-adm-link.--shown {
+  max-width: 6rem;
+  margin: 0 .3rem 0 .4rem;
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s, 0s, 0s, .1s;   /* the room opens, then the words arrive */
+}
+.md-typeset .mb-adm-filters select.mb-adm-input { width: 8.4rem; }
+/* A filter that is on wears the pill colour of the state it shows. */
+.md-typeset select.mb-adm-input[data-adm-state] {
+  --pill: oklch(0.62 0.02 255);
+  background-color: color-mix(in oklch, var(--pill) 18%, transparent);
+  color: color-mix(in oklch, var(--pill) 58%, var(--md-default-fg-color));
+}
+.md-typeset select.mb-adm-input[data-adm-state="drafting"] { --pill: oklch(0.74 0.15 78); }
+.md-typeset select.mb-adm-input[data-adm-state="none"]     { --pill: oklch(0.64 0.16 150); }
+.md-typeset select.mb-adm-input[data-adm-state="public"]   { --pill: oklch(0.64 0.14 245); }
+/* Focused (clicked or tabbed to): a ring in the filter's own colour, grey while
+   it filters nothing, never the theme's accent blue. */
+.md-typeset .mb-adm-filters select.mb-adm-input:focus,
+.md-typeset .mb-adm-filters select.mb-adm-input:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklch, var(--pill, oklch(0.62 0.02 255)) 75%, transparent);
+}
+.md-typeset .mb-adm-filters select.mb-adm-input:not([data-adm-state]):focus { background-color: var(--md-default-fg-color--lightest); }
+.md-typeset select.mb-adm-input option { background-color: var(--md-default-bg-color); color: var(--md-default-fg-color); }
+
+.md-typeset .mb-adm-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--md-typeset-a-color);
+  font: inherit;
+  font-size: .64rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+.md-typeset .mb-adm-link:hover,
+.md-typeset .mb-adm-link:focus-visible { color: var(--md-accent-fg-color); text-decoration: underline; }
+
+.md-typeset .mb-adm-hint {
+  margin: .3rem 0 0;
+  color: var(--md-default-fg-color--light);
+  font-size: .64rem;
+  line-height: 1.5;
+}
+.md-typeset .mb-adm-empty { margin: 1.2rem 0; color: var(--md-default-fg-color--light); }
+.mb-adm-notice:empty { display: none; }
+.mb-adm [hidden] { display: none !important; }
+
+/* ── The tree ──────────────────────────────────────────────────────────────── */
+
+.md-typeset .mb-adm-tree,
+.md-typeset .mb-adm-tree ul[role="group"] { list-style: none; margin: 0; padding: 0; }
+.md-typeset .mb-adm-tree li.mb-adm-node { margin: 0; }
+/* A hairline guide down each open section. */
+.md-typeset .mb-adm-tree ul[role="group"] {
+  margin-left: .85rem;
+  padding-left: .25rem;
+  border-left: .05rem solid var(--md-default-fg-color--lightest);
+}
+.md-typeset .mb-adm-node.--collapsed > ul[role="group"] { display: none; }
+
+.mb-adm-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 1.7rem;
+  padding-right: .35rem;
+  border-radius: .4rem;
+  transition: background-color .25s;
+}
+.mb-adm-row:hover,
+.mb-adm-row:focus-within { background-color: var(--md-default-fg-color--lightest); }
+.mb-adm-node.--open > .mb-adm-row { background-color: var(--md-accent-fg-color--transparent); }
+
+.md-typeset .mb-adm-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .3rem .5rem;
+  border: 0;
+  border-radius: .4rem;
+  background: none;
+  color: var(--md-default-fg-color);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.md-typeset a.mb-adm-row__main:hover { color: var(--md-accent-fg-color); }
+.md-typeset .mb-adm-row__main:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: -.1rem; }
+.mb-adm-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-adm-node.--folder > .mb-adm-row .mb-adm-label { font-weight: 500; }
+.mb-adm-count {
+  color: var(--md-default-fg-color--light);
+  font-size: .6rem;
+  font-variant-numeric: tabular-nums;
+}
+.mb-adm-chevron,
+.mb-adm-leaf-icon { display: inline-flex; flex-shrink: 0; opacity: .5; }
+.mb-adm-chevron svg,
+.mb-adm-leaf-icon svg { width: 1.15em; height: 1.15em; }
+.mb-adm-chevron { transition: transform .2s cubic-bezier(.25, 1, .5, 1); transform: rotate(90deg); }
+.mb-adm-node.--collapsed > .mb-adm-row .mb-adm-chevron { transform: none; }
+.mb-adm-row:hover .mb-adm-chevron,
+.mb-adm-row:hover .mb-adm-leaf-icon { opacity: .8; }
+
+/* State pills: one hue each, mixed into the scheme's own foreground so they
+   hold in light and dark. */
+.mb-adm-pills { display: inline-flex; flex-shrink: 0; gap: .25rem; }
+.md-typeset .mb-adm-pill {
+  --pill: oklch(0.62 0.02 255);
+  display: inline-flex;
+  align-items: center;
+  padding: .22rem .42rem;
+  border-radius: .3rem;
+  background-color: color-mix(in oklch, var(--pill) 16%, transparent);
+  color: color-mix(in oklch, var(--pill) 58%, var(--md-default-fg-color));
+  font-size: .56rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.md-typeset .mb-adm-pill.--live     { --pill: oklch(0.64 0.16 150); }
+.md-typeset .mb-adm-pill.--drafting { --pill: oklch(0.74 0.15 78); }
+.md-typeset .mb-adm-pill.--public   { --pill: oklch(0.64 0.14 245); }
+.md-typeset .mb-adm-pill.--system   { --pill: oklch(0.6 0.17 315); }
+.md-typeset .mb-adm-pill.--danger   { --pill: oklch(0.62 0.19 25); }
+.md-typeset a.mb-adm-pill { transition: background-color .25s; }
+.md-typeset a.mb-adm-pill:hover,
+.md-typeset a.mb-adm-pill:focus-visible { background-color: color-mix(in oklch, var(--pill) 32%, transparent); }
+
+/* Reorder controls: on the row under the pointer or holding the focus. */
+.mb-adm-controls { display: inline-flex; flex-shrink: 0; gap: .1rem; visibility: hidden; }
+.mb-adm-row:hover .mb-adm-controls,
+.mb-adm-row:focus-within .mb-adm-controls { visibility: visible; }
+.mb-adm-ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border: 0;
+  border-radius: .3rem;
+  background: none;
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  transition: color .25s, background-color .25s;
+}
+.mb-adm-ctl svg { width: .8rem; height: .8rem; }
+.mb-adm-ctl:hover:not(:disabled),
+.mb-adm-ctl:focus-visible { background-color: var(--md-accent-fg-color--transparent); color: var(--md-accent-fg-color); outline: none; }
+.mb-adm-ctl:disabled { opacity: .3; cursor: default; }
+.mb-adm-tree.--reorder .mb-adm-row__main { cursor: default; }
+
+/* "Move to": a list under the row it belongs to. */
+.mb-adm-move {
+  margin: .2rem 0 .5rem 1.6rem;
+  padding: .6rem;
+  max-width: 24rem;
+  border: .05rem solid var(--md-default-fg-color--lightest);
+  border-radius: .4rem;
+  background-color: var(--md-default-bg-color);
+  box-shadow: var(--md-shadow-z2);
+}
+.md-typeset .mb-adm-move__title { margin: 0 0 .3rem; font-weight: 700; font-size: .64rem; }
+.mb-adm-move__list { display: flex; flex-direction: column; max-height: 11rem; overflow-y: auto; }
+.mb-adm-move__list > button {
+  padding: .3rem .5rem;
+  border: 0;
+  border-radius: .3rem;
+  background: none;
+  color: var(--md-default-fg-color);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mb-adm-move__list > button:hover,
+.mb-adm-move__list > button:focus-visible { background-color: var(--md-accent-fg-color--transparent); color: var(--md-accent-fg-color); outline: none; }
+.mb-adm-move__new { display: flex; flex-direction: column; gap: .25rem; margin-top: .5rem; font-size: .64rem; color: var(--md-default-fg-color--light); }
+
+/* A media row opened in place. */
+.mb-adm-detail {
+  margin: .3rem 0 .8rem 1.6rem;
+  padding: .8rem;
+  border: .05rem solid var(--md-default-fg-color--lightest);
+  border-radius: .4rem;
+}
+.mb-adm-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .6rem; }
+.md-typeset .mb-adm-figure { display: block; margin: 0; width: auto; max-width: none; text-align: left; }
+.mb-adm-figure__frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 6rem;
+  padding: .6rem;
+  border-radius: .3rem;
+  background-color: var(--md-default-fg-color--lightest);
+}
+/* A capture is made for one scheme: show it on that scheme's page colour. */
+.mb-adm-figure.--light .mb-adm-figure__frame { background-color: oklch(0.985 0.002 250); box-shadow: 0 0 0 .05rem var(--md-default-fg-color--lightest) inset; }
+.mb-adm-figure.--dark .mb-adm-figure__frame { background-color: oklch(0.2 0.01 255); }
+.md-typeset .mb-adm-figure img { display: block; max-width: 100%; max-height: 16rem; height: auto; }
+.md-typeset .mb-adm-figure figcaption { margin: .3rem 0 0; max-width: none; color: var(--md-default-fg-color--light); font-size: .6rem; font-style: normal; text-align: left; }
+.mb-adm-video { display: block; max-width: 100%; max-height: 18rem; border-radius: .3rem; }
+.md-typeset .mb-adm-facts { margin: .8rem 0 0; }
+.md-typeset .mb-adm-facts > div { display: grid; grid-template-columns: 5rem 1fr; gap: .6rem; padding: .35rem 0; border-top: .05rem solid var(--md-default-fg-color--lightest); }
+.md-typeset .mb-adm-facts dt { margin: 0; color: var(--md-default-fg-color--light); font-size: .64rem; font-weight: 400; }
+.md-typeset .mb-adm-facts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .6rem; min-width: 0; }
+.md-typeset .mb-adm-facts code { word-break: break-all; }
+.md-typeset .mb-adm-usage { list-style: none; margin: 0; padding: 0; }
+.md-typeset .mb-adm-usage li { margin: 0 0 .15rem; }
+
+/* ── Forms (New page, Upload, Settings) ───────────────────────────────────── */
+
+.mb-adm-form { max-width: 30rem; }
+.md-typeset .mb-adm-field { margin: 0 0 1.3rem; padding: 0; border: 0; min-width: 0; }
+.md-typeset .mb-adm-field > label,
+.md-typeset .mb-adm-field > legend,
+.md-typeset .mb-adm-inline-form > label {
+  display: block;
+  margin: 0 0 .35rem;
+  padding: 0;
+  color: var(--md-default-fg-color);
+  font-size: .7rem;
+  font-weight: 700;
+}
+.mb-adm-optional { margin-left: .3rem; color: var(--md-default-fg-color--light); font-size: .6rem; font-weight: 400; }
+.md-typeset .mb-adm-field > .mb-adm-input { width: 100%; }
+.md-typeset .mb-adm-field.--invalid .mb-adm-input { border-color: oklch(0.62 0.19 25); }
+.md-typeset .mb-adm-error { margin: .3rem 0 0; color: color-mix(in oklch, oklch(0.62 0.19 25) 75%, var(--md-default-fg-color)); font-size: .64rem; }
+
+.mb-adm-icon-field { display: flex; align-items: center; gap: .4rem; }
+.mb-adm-icon-field .mb-adm-input { flex: 1; min-width: 0; }
+.mb-adm-icon-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color--light);
+}
+.mb-adm-icon-preview svg { width: .9rem; height: .9rem; }
+
+/* Radios and checkboxes as the theme's tag shape; the input stays in the
+   accessibility tree, only its box is hidden. */
+.mb-adm-choices { display: flex; flex-wrap: wrap; gap: .3rem; }
+.mb-adm-choice { position: relative; display: inline-flex; cursor: pointer; }
+.mb-adm-choice > input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.mb-adm-choice > span {
+  padding: .3rem .65rem;
+  border: .05rem solid transparent;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color--light);
+  font-size: .64rem;
+  font-weight: 500;
+  transition: background-color .25s, color .25s, border-color .25s;
+}
+.mb-adm-choice:hover > span { color: var(--md-default-fg-color); }
+/* Picked: the choice's own colour, never the theme's accent. A state (Public,
+   Unlisted) takes its pill's hue; one with none is the neutral grey. */
+.mb-adm-choice > span { --pill: oklch(0.62 0.02 255); }
+.mb-adm-choice.--public > span { --pill: oklch(0.64 0.14 245); }
+.mb-adm-choice > input:checked + span {
+  background-color: color-mix(in oklch, var(--pill) 18%, transparent);
+  border-color: color-mix(in oklch, var(--pill) 70%, transparent);
+  color: color-mix(in oklch, var(--pill) 58%, var(--md-default-fg-color));
+}
+/* "Written for" and a coloured tag are the site's label pills: the label's
+   class (labels.css) colours the span once picked; until then it is held grey. */
+.md-typeset .mb-adm-choice > input:not(:checked) + span[class*="mb-label-"] {
+  background: var(--md-default-fg-color--lightest) !important;
+  border-color: transparent !important;
+  color: var(--md-default-fg-color--light) !important;
+}
+.md-typeset .mb-adm-choice:hover > input:not(:checked) + span[class*="mb-label-"] { color: var(--md-default-fg-color) !important; }
+
+.mb-adm-choice > input:focus-visible + span { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .1rem; }
+
+.md-typeset .mb-adm-file { display: block; max-width: 100%; font: inherit; font-size: .64rem; color: var(--md-default-fg-color--light); }
+.md-typeset .mb-adm-file::file-selector-button {
+  margin-right: .6rem;
+  height: 1.7rem;
+  padding: 0 .7rem;
+  border: 0;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .25s;
+}
+.md-typeset .mb-adm-file::file-selector-button:hover { background-color: var(--md-default-fg-color--lighter); }
+
+/* A screen's actions: beside the title, or under a form. */
+.mb-adm-actions,
+.mb-adm-actions__group { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.mb-adm-actions { gap: .4rem .8rem; }
+
+/* A button in the page. */
+.md-typeset .mb-adm-button {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  white-space: nowrap;
+  height: 1.7rem;
+  padding: 0 .8rem;
+  border: 0;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .25s;
+}
+.md-typeset .mb-adm-button:hover { background-color: var(--md-default-fg-color--lighter); }
+.md-typeset .mb-adm-button:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .1rem; }
+.mb-adm-button svg { flex-shrink: 0; width: .8rem; height: .8rem; }
+/* The button that needs emphasis (save, upload, publish): the theme's accent. */
+.md-typeset .mb-adm-button.--accent {
+  background-color: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+}
+.md-typeset .mb-adm-button.--accent:hover { background-color: color-mix(in oklch, var(--md-accent-fg-color) 85%, var(--md-default-fg-color)); }
+.md-typeset .mb-adm-button.--accent:focus-visible { outline-offset: .15rem; }
+/* A mode that is on (Reorder mode): pink, as in the editor. */
+.md-typeset .mb-adm-button.--pink {
+  --pill: oklch(0.66 0.21 350);
+  background-color: color-mix(in oklch, var(--pill) 18%, transparent);
+  box-shadow: 0 0 0 .05rem color-mix(in oklch, var(--pill) 55%, transparent) inset;
+  color: color-mix(in oklch, var(--pill) 62%, var(--md-default-fg-color));
+}
+.md-typeset .mb-adm-button.--pink:hover { background-color: color-mix(in oklch, var(--pill) 30%, transparent); }
+.md-typeset .mb-adm-button[aria-pressed="true"]:not(.--pink) {
+  background-color: var(--md-accent-fg-color--transparent);
+  box-shadow: 0 0 0 .05rem var(--md-accent-fg-color) inset;
+  color: var(--md-accent-fg-color);
+}
+.md-typeset .mb-adm-button[aria-disabled="true"],
+.md-typeset .mb-adm-button:disabled:not(.--busy) { opacity: .5; cursor: default; }
+.md-typeset .mb-adm-button[aria-disabled="true"]:hover { background-color: var(--md-default-fg-color--lightest); }
+.md-typeset .mb-adm-button.--busy { cursor: progress; }
+.mb-adm-button.--busy svg { animation: mb-adm-turn 1s linear infinite; }
+@keyframes mb-adm-turn { to { transform: rotate(360deg); } }
+
+.mb-adm-inline-form { margin-top: 1.4rem; max-width: 22rem; }
+.mb-adm-inline-form__row { display: flex; gap: .4rem; }
+.mb-adm-inline-form__row .mb-adm-input { flex: 1; min-width: 0; }
+
+/* Tags (Settings): the theme's tag, or the site's label pill once coloured. */
+.mb-adm-tags,
+.mb-adm-colours__list { display: flex; flex-wrap: wrap; gap: .3rem; }
+.md-typeset .mb-adm-tag {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: .3rem .65rem;
+  border: .05rem solid transparent;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  font: inherit;
+  font-size: .64rem;
+  font-weight: 700;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.md-typeset .mb-adm-tag:hover { filter: brightness(.96); }
+.md-typeset .mb-adm-tag[aria-pressed="true"] { outline: .1rem solid var(--md-default-fg-color); outline-offset: .1rem; }
+.md-typeset .mb-adm-tag:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .1rem; }
+.md-typeset .mb-adm-tag[data-adm-unsaved] { border-style: dashed; border-color: var(--md-default-fg-color--lighter); }
+.mb-adm-colours {
+  margin-top: .8rem;
+  padding: .8rem;
+  border: .05rem solid var(--md-default-fg-color--lightest);
+  border-radius: .4rem;
+}
+.md-typeset .mb-adm-colours__title { margin: 0 0 .5rem; font-size: .64rem; color: var(--md-default-fg-color--light); }
+
+/* ── Loading: the list's own shape ─────────────────────────────────────────── */
+
+.mb-adm-skeleton { display: flex; flex-direction: column; gap: .55rem; padding: .4rem 0; }
+.mb-adm-skeleton > span {
+  height: .7rem;
+  border-radius: .3rem;
+  background-color: var(--md-default-fg-color--lightest);
+  animation: mb-adm-pulse 1.4s ease-in-out infinite;
+}
+.mb-adm-skeleton > span:nth-child(2n) { animation-delay: .15s; }
+@keyframes mb-adm-pulse { 50% { opacity: .45; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mb-adm-skeleton > span { animation: none; }
+  .mb-adm-button.--busy svg { animation: none; }
+  .md-typeset .mb-adm-filters .mb-adm-link { transition: none; }
+  .mb-adm-chevron { transition: none; }
+}
+
+@media screen and (max-width: 44.9375em) {
+  /* Pills drop under the name on a phone instead of squeezing it. */
+  .mb-adm-row { flex-wrap: wrap; }
+  .mb-adm-pills { flex-wrap: wrap; padding: 0 .5rem .3rem 1.9rem; flex-basis: 100%; }
+  .mb-adm-controls { visibility: visible; }
+  /* The filters take the line under the search, sharing it evenly. */
+  .mb-adm-filters { flex: 1 1 100%; }
+  .md-typeset .mb-adm-filters select.mb-adm-input { flex: 1 1 0; width: auto; min-width: 0; }
+  .md-typeset .mb-adm-filters .mb-adm-link { order: 1; margin: 0 0 0 -.4rem; transform: translateX(-.4rem); }
+  .md-typeset .mb-adm-filters .mb-adm-link.--shown { margin: 0 0 0 .2rem; }
+  .md-typeset .mb-adm-facts > div { grid-template-columns: 1fr; gap: .1rem; }
+}

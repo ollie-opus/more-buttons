@@ -38,7 +38,7 @@ import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { generateUUID, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
 import {
-  parseComponents, buildComponentBody, uuidOfComponent, reorderComponents,
+  parseComponents, leadUuid, buildComponentBody, uuidOfComponent, reorderComponents,
   readGridCellComponents, writeGridCellBody, gridCellExists,
   gridCellsMarkdown, parsePastedGridCells,
 } from './components.js';
@@ -654,7 +654,7 @@ async function persistNewGrid(formEl, onProgress = () => {}) {
   const gridUuid = generateUUID();
   const gridCells = st.cells.map(c => ({
     uuid: c.uuid,
-    body: buildComponentBody(c.uuid, c.description, []),
+    body: buildComponentBody(c.uuid, c.description, [], leadUuid(null, c.description)),
     spill: c.spill,
     valign: c.valign,
   }));
@@ -695,9 +695,10 @@ async function persistGridEdit(formEl, onProgress = () => {}) {
   await githubFetchAndPushFile(file, onProgress, md => {
     if (!getGridByUUID(md, gridUuid)) { found = false; return md; }
     const gridCells = st.cells.map(c => {
-      const { components } = readGridCellComponents(md, c.uuid);
+      const prior = readGridCellComponents(md, c.uuid);
+      const { components } = prior;
       const ordered = c.order ? reorderComponents(components, c.order) : components;
-      return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered), spill: c.spill, valign: c.valign };
+      return { uuid: c.uuid, body: buildComponentBody(c.uuid, c.description, ordered, leadUuid(prior, c.description)), spill: c.spill, valign: c.valign };
     });
     return replaceGridByUUID(md, gridUuid, buildGrid(gridUuid, st.flavor, gridCells));
   }, { commit: ({ before }) => componentCommit('Edited', 'Grid', before, gridUuid) });
@@ -769,7 +770,7 @@ async function spliceGridCells(file, gridUuid, insertAt, newCells, onProgress = 
     const idx = (insertAt != null && insertAt >= 0 && insertAt <= grid.cells.length) ? insertAt : grid.cells.length;
     const built = newCells.map(c => ({
       uuid: c.uuid,
-      body: buildComponentBody(c.uuid, c.description ?? '', c.components ?? []),
+      body: buildComponentBody(c.uuid, c.description ?? '', c.components ?? [], leadUuid(null, c.description)),
       spill: !!c.spill,
       valign: c.valign ?? 'default',
     }));

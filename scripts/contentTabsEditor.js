@@ -34,7 +34,7 @@ import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js';
 import { generateUUID, GUIDE_ADMONITION_TYPES_RE } from './admonitions.js';
 import {
-  parseComponents, buildComponentBody, uuidOfComponent, reorderComponents,
+  parseComponents, leadUuid, buildComponentBody, uuidOfComponent, reorderComponents,
   readTabComponents, writeTabBody, tabContainerExists,
 } from './components.js';
 import { registerComponentContainer, getComponentContainer } from './componentContainers.js';
@@ -372,7 +372,7 @@ async function persistNewTabsGroup(formEl, onProgress = () => {}) {
   const grpTabs = st.tabs.map(t => ({
     uuid: t.uuid,
     title: t.title.trim(),
-    body: buildComponentBody(t.uuid, t.description, []),
+    body: buildComponentBody(t.uuid, t.description, [], leadUuid(null, t.description)),
   }));
   const insertAtRaw = formEl.dataset.insertAtIndex;
   const insertAt = insertAtRaw === '' || insertAtRaw == null ? null : parseInt(insertAtRaw, 10);
@@ -416,9 +416,10 @@ async function persistTabsEdit(formEl, onProgress = () => {}) {
   await githubFetchAndPushFile(file, onProgress, md => {
     if (!getTabGroupByUUID(md, groupUuid)) { found = false; return md; }
     const grpTabs = st.tabs.map(t => {
-      const { components } = readTabComponents(md, t.uuid);
+      const prior = readTabComponents(md, t.uuid);
+      const { components } = prior;
       const ordered = t.order ? reorderComponents(components, t.order) : components;
-      return { uuid: t.uuid, title: t.title.trim(), body: buildComponentBody(t.uuid, t.description, ordered) };
+      return { uuid: t.uuid, title: t.title.trim(), body: buildComponentBody(t.uuid, t.description, ordered, leadUuid(prior, t.description)) };
     });
     return replaceTabGroupByUUID(md, groupUuid, buildTabGroup(groupUuid, grpTabs));
   }, { commit: ({ before }) => componentCommit('Edited', 'Content tabs', before, groupUuid) });

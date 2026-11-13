@@ -46,8 +46,8 @@ test('tabContainerExists: false for a vanished tab', () => {
 
 test('tabContainerExists: true for an exists-but-EMPTY tab (readTabComponents cannot tell)', () => {
   // The read helper returns the same empty shape for both cases…
-  assert.deepEqual(readTabComponents(TABS_MD, 'T2'), { description: '', components: [] });
-  assert.deepEqual(readTabComponents(TABS_MD, 'NOPE'), { description: '', components: [] });
+  assert.deepEqual(readTabComponents(TABS_MD, 'T2'), { description: '', descriptionUuid: null, components: [] });
+  assert.deepEqual(readTabComponents(TABS_MD, 'NOPE'), { description: '', descriptionUuid: null, components: [] });
   // …exists() is the disambiguator: empty ≠ gone.
   assert.equal(tabContainerExists(TABS_MD, 'T2'), true);
 });

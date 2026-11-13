@@ -10,7 +10,7 @@ import { formLoading } from './loading.js';
 import { readRepoText } from './repoClient.js';
 import { migrateGuideIdentity } from './github.js';
 import { buildSectionTree, readSectionDescription } from './sections.js';
-import { parseComponents, ensureVideoUUIDs, gridCellsMarkdown, uuidOfComponent } from './components.js';
+import { parseComponents, sectionBodyOpts, ensureVideoUUIDs, gridCellsMarkdown, uuidOfComponent } from './components.js';
 import { ensureButtonUUIDs } from './mdButtons.js';
 import { ensureDiagramUUIDs } from './mdDiagrams.js';
 import { ensureCodeBlockUUIDs } from './mdCodeBlocks.js';
@@ -156,7 +156,7 @@ export function liveSectionModel(markdown, index) {
   const node = buildSectionTree(md).sections[index];
   if (!node) return null;
   const { descriptionMarkdown: body, hideTitle } = readSectionDescription(md, node.uuid);
-  const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE);
+  const { description, components } = parseComponents(body, GUIDE_ADMONITION_TYPES_RE, sectionBodyOpts(node.uuid));
   return { uuid: node.uuid, title: node.title, visualLabel: node.visualLabel, level: node.level, parentUuid: node.parentUuid ?? '', hideTitle: !!hideTitle, description, components, md };
 }
 
