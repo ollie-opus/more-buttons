@@ -18,7 +18,10 @@ export function publishedUrl(navValue) {
 }
 
 export function contentsApiUrl(path, ref = REPO.branch) {
-  return `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${path}?ref=${ref}`;
+  // Each path segment and the ref are encoded, so nothing in a file name (a
+  // `?`, a `#`) can become part of the request itself.
+  const safePath = String(path ?? '').split('/').map(encodeURIComponent).join('/');
+  return `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${safePath}?ref=${encodeURIComponent(ref)}`;
 }
 
 // Cache-busted contents-API read URL. The browser caches/coalesces these URLs by

@@ -169,7 +169,7 @@ export function textHtml(ctx, description) {
       let j = i + 1;
       while (j < lines.length && (matchListLine(lines[j]) || (lines[j].trim() && /^\s{2,}/.test(lines[j])))) j++;
       flush();
-      out.push(renderDocHtml(lines.slice(i, j).join('\n')));
+      out.push(neutraliseHrefs(renderDocHtml(lines.slice(i, j).join('\n')))); // list items carry links too
       i = j;
       continue;
     }

@@ -30,6 +30,10 @@ test('a draft url is the draft side of the same page', () => {
 
 test('trailing slash and index.html are optional', () => {
   assert.equal(classifyKbPath('/pages/faqs')?.slug, 'faqs');
+  // Nothing but a plain file name is a page: the slug goes into GitHub requests.
+  for (const bad of ['/drafts/a%3Fref%3Dother/', '/drafts/a%23b/', '/drafts/..%2Fsecret/', '/drafts/../', '/drafts/a%20b/', '/pages/a.b/']) {
+    assert.equal(classifyKbPath(bad), null, bad);
+  }
   assert.equal(classifyKbPath('/pages/faqs/index.html')?.slug, 'faqs');
 });
 

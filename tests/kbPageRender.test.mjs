@@ -305,6 +305,15 @@ test('Markdown view shows text blocks and headings as their markdown source, esc
   assert.match(evil, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
 
+test('a script link is defused in a list item as it is in a paragraph', () => {
+  for (const md of ['[x](javascript:alert(1))', '- [x](javascript:alert(1))', '1. [x](JaVaScRiPt:alert(1))', '- a\n  - [x](data:text/html,hi)']) {
+    const out = renderTextHtml(md, { assetUrl });
+    assert.doesNotMatch(out, /href="(?:javascript|data):/i, md);
+    assert.match(out, /href="#"/, md);
+  }
+  assert.match(renderTextHtml('- [ok](overview.md)', { assetUrl }), /href="overview\.md"/);
+});
+
 test('one block redraws on its own exactly as the page drew it', () => {
   const text = 'Intro with **bold** and a [link](overview.md).\n\nSecond paragraph\non two lines.';
   const block = renderTextHtml(text, { assetUrl });

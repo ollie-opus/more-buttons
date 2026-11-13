@@ -53,7 +53,9 @@ export function classifyKbPath(pathname) {
   if (!m) return null;
   let slug;
   try { slug = decodeURIComponent(m[2]); } catch { return null; }
-  if (!slug || slug.includes('/') || EXCLUDED_SLUGS.has(slug)) return null;
+  // The slug goes into repo paths and GitHub requests: only a plain file name
+  // (letters, digits, hyphens, underscores) is a page.
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(slug) || EXCLUDED_SLUGS.has(slug)) return null;
   return {
     side: m[1] === 'pages' ? 'live' : 'draft',
     slug,
