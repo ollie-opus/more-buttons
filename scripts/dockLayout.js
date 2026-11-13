@@ -1,14 +1,19 @@
 // Pure ordering logic for the button dock (no DOM, no chrome.*).
 
-// Reserved group names. Both ignore dockOrder for group placement: Uncategorised
-// (the bucket for buttons with a blank/missing dockGroup) always sits after every
-// named group, and System always sits after that — [named groups…][Uncategorised][System].
+// Group names with a fixed place at the end of the dock. All three ignore
+// dockOrder for group placement: Uncategorised (the bucket for buttons with a
+// blank/missing dockGroup) sits after every named group, Actions (the saved
+// actions, offered on every page) after that, and System last —
+// [named groups…][Uncategorised][Actions][System].
 export const UNCATEGORISED_GROUP = 'Uncategorised';
+export const ACTIONS_GROUP = 'Actions';
 export const SYSTEM_GROUP = 'System';
+const TAIL_GROUPS = [UNCATEGORISED_GROUP, ACTIONS_GROUP, SYSTEM_GROUP];
 
-// Reserved groups are the two fixed buckets above. Surfaces use this to skip the
-// "Group: " prefix on the compact hover tag, which only earns its place for
-// user-defined groups.
+// Reserved groups are the two fixed buckets, Uncategorised and System. Surfaces
+// use this to skip the "Group: " prefix on the compact hover tag, which only
+// earns its place for named groups. Actions is pinned to the tail but is still
+// a named group, so it keeps its prefix.
 export function isReservedGroup(name) {
   return name === UNCATEGORISED_GROUP || name === SYSTEM_GROUP;
 }
@@ -44,12 +49,11 @@ export function orderDockButtons(buttons) {
   });
   for (const items of buckets.values()) items.sort(byOrderThenIdx);
   const named = [...buckets.entries()]
-    .filter(([g]) => !isReservedGroup(g))
+    .filter(([g]) => !TAIL_GROUPS.includes(g))
     .map(([, items]) => items)
     .sort((a, b) => byOrderThenIdx(
       { order: a[0].order, idx: Math.min(...a.map((d) => d.idx)) },
       { order: b[0].order, idx: Math.min(...b.map((d) => d.idx)) }));
-  if (buckets.has(UNCATEGORISED_GROUP)) named.push(buckets.get(UNCATEGORISED_GROUP));
-  if (buckets.has(SYSTEM_GROUP)) named.push(buckets.get(SYSTEM_GROUP));
+  for (const g of TAIL_GROUPS) if (buckets.has(g)) named.push(buckets.get(g));
   return named.map((items) => items.map((d) => d.btn));
 }

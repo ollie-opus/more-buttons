@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normaliseGroup, splitBySurface, orderDockButtons, isReservedGroup, SYSTEM_GROUP, UNCATEGORISED_GROUP } from '../scripts/dockLayout.js';
+import { normaliseGroup, splitBySurface, orderDockButtons, isReservedGroup, SYSTEM_GROUP, UNCATEGORISED_GROUP, ACTIONS_GROUP } from '../scripts/dockLayout.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -73,6 +73,13 @@ test('empty input -> []', () => {
 test('System group is last, after the Uncategorised group, regardless of dockOrder', () => {
   const btns = [b('s', 0, SYSTEM_GROUP), b('n', 0), b('a', 5, 'A'), b('s2', -1, ' System ')];
   assert.deepEqual(ids(orderDockButtons(btns)), [['a'], ['n'], ['s2', 's']]);
+});
+
+test('Actions group sits after every named group and Uncategorised, just above System, regardless of dockOrder', () => {
+  const btns = [b('act', -5, ACTIONS_GROUP), b('s', 0, SYSTEM_GROUP), b('n', 0), b('z', 999, 'Z'), b('a', 5, 'A'), b('act2', -9, ' Actions ')];
+  assert.deepEqual(ids(orderDockButtons(btns)), [['a'], ['z'], ['n'], ['act2', 'act'], ['s']]);
+  assert.deepEqual(ids(orderDockButtons([b('act', 1, 'Actions'), b('a', 50, 'A')])), [['a'], ['act']], 'last when there is no System group');
+  assert.equal(isReservedGroup(ACTIONS_GROUP), false, 'still a named group: keeps its "Group: " tag prefix');
 });
 
 test('System group alone / with only Uncategorised still orders [Uncategorised][System]', () => {
