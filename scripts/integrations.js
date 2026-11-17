@@ -1,5 +1,6 @@
 import { createForm } from './form.js';
 import { authHeader } from './repoClient.js';
+import { commentsAccess } from './kbCommentsClient.js';
 import { registerFormAction } from './formActions.js';
 import { GEMINI_STORAGE_KEY, loadAiPrompts, buildGeminiRequest, parseGeminiResponse } from './aiReword.js';
 
@@ -63,6 +64,19 @@ export async function openIntegrations() {
   });
 }
 
+// Comments live in a second repo; show the note only when a token is saved
+// and it can't reach that repo. Never blocks the form (errors just hide it).
+async function populateCommentsAccess(note) {
+  if (!note) return;
+  try {
+    const store = await chrome.storage.local.get('moreButtonsIntegrations');
+    const access = store.moreButtonsIntegrations?.githubPAT ? await commentsAccess() : 'ok';
+    note.hidden = access !== 'no-access';
+  } catch {
+    note.hidden = true;
+  }
+}
+
 export async function openGithubIntegration() {
   const { formEl } = await createForm('githubIntegration', openGithubIntegration);
   if (!formEl) return;
@@ -72,9 +86,14 @@ export async function openGithubIntegration() {
 
   // PAT may not be set yet — try anyway; the error renders as a normal message.
   populateRateLimit(panel);
+  const note = contentEl.querySelector('[data-comments-access]');
+  populateCommentsAccess(note);
 
   contentEl.addEventListener('click', (e) => {
-    if (e.target.closest('[data-rate-limit-refresh]')) populateRateLimit(panel);
+    if (e.target.closest('[data-rate-limit-refresh]')) {
+      populateRateLimit(panel);
+      populateCommentsAccess(note);
+    }
   });
 }
 
