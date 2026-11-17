@@ -55,3 +55,14 @@ test('withText changes only the text; withPage only the path and link', () => {
   assert.ok(!moved.includes('https://s/pages/a/'));
   assert.equal(parseIssue(issueOf({ ...built, body: moved })).text, 'old');
 });
+
+test('comment text holding the end marker round-trips; withText keeps the anchor', () => {
+  const text = 'before <!-- mb-text-end --> after';
+  const built = buildIssue({ text, guideTitle: 'G', liveUrl: 'u', anchor });
+  const c = parseIssue(issueOf(built));
+  assert.equal(c.text, text);
+  assert.deepEqual(c.anchor, anchor);
+  const edited = parseIssue(issueOf({ ...built, body: withText(built.body, 'new') }));
+  assert.equal(edited.text, 'new');
+  assert.deepEqual(edited.anchor, anchor);
+});

@@ -43,6 +43,15 @@ export function buildIssue({ text, guideTitle, liveUrl, anchor }) {
   return { title: `${guideTitle}: "${cut}"`, body };
 }
 
+/**
+ * Where the text ends: the last end marker before the data block that is followed by the quote block.
+ * The one buildIssue writes is always that one, so a marker typed into the text (or the quote) is harmless.
+ */
+function textEnd(body) {
+  const at = dataStart(body);
+  return body.lastIndexOf(TEXT_END + '\n\n> ', at < 0 ? body.length : at);
+}
+
 /** Where the hidden data block starts in a body, or -1. */
 const dataStart = body => body.lastIndexOf(DATA_OPEN);
 
@@ -71,7 +80,7 @@ export function parseIssue(issue) {
   if (!issue || issue.pull_request || typeof issue.body !== 'string') return null;
   const anchor = readAnchor(issue.body);
   if (!anchor) return null;
-  const end = issue.body.indexOf(TEXT_END);
+  const end = textEnd(issue.body);
   const text = (end < 0 ? '' : issue.body.slice(0, end)).trim();
   return {
     number: issue.number,
@@ -87,7 +96,7 @@ export function parseIssue(issue) {
 
 /** The body with its comment text replaced; everything from the text's end marker on is untouched. */
 export function withText(body, newText) {
-  const end = body.indexOf(TEXT_END);
+  const end = textEnd(body);
   return newText + '\n\n' + (end < 0 ? body : body.slice(end));
 }
 
