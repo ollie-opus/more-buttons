@@ -183,6 +183,7 @@
         "scripts/kbPageDrag.js",
         "scripts/kbTypePicker.js",
         "scripts/kbComments.js",
+        "scripts/kbCommentsClient.js",
         "scripts/kbToc.js",
         "scripts/kbPageEditor.js",
         "scripts/kbAdmin.js",
