@@ -56,6 +56,16 @@ test('withText changes only the text; withPage only the path and link', () => {
   assert.equal(parseIssue(issueOf({ ...built, body: moved })).text, 'old');
 });
 
+test('withPage with no title never writes an empty link: the stored link line stays', () => {
+  const built = buildIssue({ text: 'old', guideTitle: 'Stored title', liveUrl: 'https://s/pages/a/', anchor });
+  const moved = withPage(built.body, 'docs/pages/b.md', 'https://s/pages/b/', '');
+  assert.ok(moved.includes('[Stored title](https://s/pages/a/)'));
+  assert.ok(!moved.includes('[]('));
+  const parsed = parseIssue(issueOf({ ...built, body: moved }));
+  assert.equal(parsed.anchor.page, 'docs/pages/b.md');
+  assert.equal(parsed.text, 'old');
+});
+
 test('comment text holding the end marker round-trips; withText keeps the anchor', () => {
   const text = 'before <!-- mb-text-end --> after';
   const built = buildIssue({ text, guideTitle: 'G', liveUrl: 'u', anchor });

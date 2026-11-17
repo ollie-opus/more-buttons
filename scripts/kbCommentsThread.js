@@ -188,7 +188,8 @@ export function attachThread(card, c, ctx) {
   let replies = [];
   let state = 'idle'; // idle | loading | ready
 
-  const showCount = () => { count.textContent = repliesLabel(replies.length || c.replyCount); count.hidden = !count.textContent; };
+  // Before the replies are loaded the issue's own count is all there is; a reply posted since is in it too (and in `replies`).
+  const showCount = () => { count.textContent = repliesLabel(Math.max(replies.length, c.replyCount)); count.hidden = !count.textContent; };
 
   function replyItem(r) {
     const li = el('li', 'mb-kb-reply');
@@ -291,7 +292,11 @@ export function attachThread(card, c, ctx) {
     try {
       const got = c.replyCount > 0 ? await client.listReplies(c.number) : [];
       if (ctx.dead()) return;
-      replies = got;
+      // A reply posted while these were loading (or after an earlier try failed) is not in `got`
+      // unless GitHub had it already: keep it, once, after the others.
+      const have = new Set(got.map(r => r.id));
+      replies = [...got, ...replies.filter(r => !have.has(r.id))];
+      c.replyCount = replies.length;
       list.replaceChildren(...replies.map(replyItem));
       state = 'ready';
       showCount();

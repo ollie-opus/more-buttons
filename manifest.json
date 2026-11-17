@@ -184,6 +184,7 @@
         "scripts/kbTypePicker.js",
         "scripts/kbComments.js",
         "scripts/kbCommentsClient.js",
+        "scripts/kbCommentsPanel.js",
         "scripts/kbCommentsThread.js",
         "scripts/kbCommentsUi.js",
         "config/forms/kbComments.css",

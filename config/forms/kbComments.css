@@ -53,13 +53,15 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
 
 .mb-kb-comment__meta {
   display: flex;
+  flex-wrap: wrap; /* the date drops below before the name is cut short */
   align-items: baseline;
-  gap: .4rem;
+  column-gap: .4rem;
   min-width: 0;
 }
 .mb-kb-comment__meta[hidden] { display: none; }
 .mb-kb-comment__author {
   min-width: 0;
+  max-width: 100%; /* cut with an ellipsis only when the name alone is wider than the card */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -283,4 +285,94 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
   ::highlight(mb-kb-comment) {
     background-color: oklch(0.84 0.16 95 / .34);
   }
+}
+
+/* ── The pull-out panel and its header button (kbCommentsPanel.js) ──────── */
+
+.mb-kb-comments-btn { position: relative; }
+.mb-kb-comments-btn__count {
+  position: absolute;
+  top: .35rem;
+  right: .15rem;
+  min-width: .8rem;
+  height: .8rem;
+  padding: 0 .2rem;
+  box-sizing: border-box;
+  border-radius: .4rem;
+  /* The theme's accent, as a chip on the icon. */
+  background-color: var(--md-accent-fg-color);
+  color: var(--md-default-bg-color);
+  font-size: .5rem;
+  font-weight: 700;
+  line-height: .8rem;
+  text-align: center;
+  pointer-events: none;
+}
+.mb-kb-comments-btn__count[hidden] { display: none; }
+.mb-kb-comments-btn.--open { opacity: 1; }
+
+.mb-kb-comments-panel {
+  position: fixed;
+  z-index: 2; /* over the page, under the theme's header (4) and the selection icon (3) */
+  top: var(--mb-kb-comments-top, 2.4rem);
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(18rem, 100vw);
+  background-color: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  box-shadow: var(--md-shadow-z3), 0 0 0 .05rem var(--md-default-fg-color--lightest);
+  font-size: .7rem;
+  line-height: 1.3;
+  animation: mb-kb-comments-slide .22s cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes mb-kb-comments-slide { from { transform: translateX(1.5rem); opacity: 0; } }
+.mb-kb-comments-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: .5rem .6rem .3rem 1rem;
+}
+.mb-kb-comments-panel .mb-kb-comments-panel__title {
+  margin: 0;
+  color: var(--md-default-fg-color);
+  font-size: .8rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.mb-kb-comments-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: .4rem;
+  background: transparent;
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  transition: color .25s, background-color .25s;
+}
+.mb-kb-comments-panel__close:hover { color: var(--md-default-fg-color); background-color: var(--md-default-fg-color--lightest); }
+.mb-kb-comments-panel__close:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .05rem; }
+.mb-kb-comments-panel__close svg { width: .9rem; height: .9rem; }
+.mb-kb-comments-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: .2rem .6rem 1rem;
+}
+.mb-kb-comments-panel .mb-kb-comments__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .4rem; }
+.mb-kb-comments-panel .mb-kb-comment,
+.mb-kb-comments-panel .mb-kb-comments__compose { margin-inline: 0; }
+.mb-kb-comments-panel__none { margin: .2rem .4rem; color: var(--md-default-fg-color--light); }
+.mb-kb-comments-panel__none[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-comments-panel { animation: none; }
 }

@@ -13,7 +13,8 @@
  * the comments repo leaves the page exactly as it was.
  *
  * Where the list goes is one swappable piece (PLACEMENTS): under the theme's
- * "On this page" list for now.
+ * "On this page" list when the view has that margin, otherwise in a pull-out
+ * panel opened from a button in the site's header (kbCommentsPanel.js).
  *
  * Everything that came from GitHub reaches the page as text (textContent),
  * never as markup, and nothing read back from an issue is used to build a url
@@ -30,6 +31,7 @@ import { loadLucideBodies, lucideSvg } from './lucideIcons.js';
 import { setThemeTip, KB_HOST } from './kbSite.js';
 import { currentGithubLogin } from './repoClient.js';
 import { attachThread } from './kbCommentsThread.js';
+import { mountHeaderButton, mountPanel, titleFromDocument } from './kbCommentsPanel.js';
 
 const HIGHLIGHT = 'mb-kb-comment';
 const STYLESHEET_ID = 'mb-kb-comments-stylesheet';
@@ -270,6 +272,9 @@ const liveLink = page => `https://${KB_HOST}${page.liveUrl}`;
 // `{ remove() }`, or null when the page has no room of that kind.
 
 const PLACEMENTS = {
+  /** Over the right-hand side of the page, below the header (the header button toggles it). */
+  panel: (doc, list, { close }) => mountPanel(doc, list, { onClose: close }),
+
   /** Under the theme's "On this page", as a second list of the same kind: its title is the same element. */
   toc(doc, list) {
     const inner = doc.querySelector('.md-sidebar--secondary .md-sidebar__inner');
@@ -287,7 +292,22 @@ const PLACEMENTS = {
   },
 };
 
-const placement = () => 'toc';
+/**
+ * Where the list can go in this view: 'toc' when the theme's right-hand
+ * sidebar is on the page beside the article, 'panel' otherwise. The sidebar
+ * is asked, not a width: it is gone (display: none) when the theme hides its
+ * sidebars on a narrow window, `hidden` on a page that hides its contents
+ * (`hide: [toc]`), and an off-canvas drawer is not a margin either.
+ * (Task 8 adds 'margin' for the editor.)
+ */
+function placement(doc) {
+  const side = doc.querySelector('.md-sidebar--secondary');
+  const inner = side?.querySelector('.md-sidebar__inner');
+  if (!side || !inner || side.hidden || !side.getClientRects().length) return 'panel';
+  const style = doc.defaultView.getComputedStyle(side);
+  if (style.visibility === 'hidden' || style.position === 'fixed' || !inner.getClientRects().length) return 'panel';
+  return 'toc';
+}
 
 // ── The comments on the page ─────────────────────────────────────────────────
 
@@ -362,6 +382,10 @@ export function startKbComments(opts) {
   let compose = null;      // the open comment box: { li, anchor, busy }
   let active = null;       // the number of the card clicked
   let host = null;         // the placement holding the list, while it has anything in it
+  let hostKind = null;     // which placement `host` is
+  let panelOpen = false;   // the pull-out panel is open (only means anything in the 'panel' placement)
+  let button = null;       // the header button, in the 'panel' placement
+  let frame = 0;           // a resize waiting for its animation frame
   let sheet = null;        // our hold on the stylesheet
   let pop = null;          // the selection's comment icon
   let pending = null;      // the anchor the icon would comment on
@@ -371,6 +395,10 @@ export function startKbComments(opts) {
   const off = [];          // listeners to take away again
 
   const list = el(doc, 'ol', 'md-nav__list mb-kb-comments__list');
+
+  /** The guide's title: its heading, or, on a page that hides it, the document's (without the site's name). */
+  const guideTitle = () => (article.querySelector(':scope > h1')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    || titleFromDocument(doc.title);
 
   // The model is built again only after the article has changed.
   let model = null;
@@ -411,9 +439,39 @@ export function startKbComments(opts) {
       return card;
     });
     arrange(els);
-    const want = shown() && els.length > 0;
-    if (want && !host) host = PLACEMENTS[placement()]?.(doc, list) ?? null;
-    if (!want && host) { host.remove(); host = null; }
+    const where = shown() ? placement(doc) : null;
+    // A box being typed in goes with the list into the panel, which opens so it stays in sight.
+    if (where === 'panel' && hostKind === 'toc' && compose) panelOpen = true;
+    syncButton(where === 'panel');
+    const want = where === 'panel' ? panelOpen : where != null && els.length > 0;
+    if (host && (!want || hostKind !== where)) {
+      // Moving the one list: an open box keeps its words, and its focus is put back.
+      const had = list.contains(doc.activeElement) ? doc.activeElement : null;
+      host.remove();
+      host = null;
+      if (want) mount(where, had);
+    } else if (want && !host) mount(where, null);
+    else host?.refresh?.();
+  }
+
+  function mount(where, had) {
+    host = PLACEMENTS[where]?.(doc, list, { close: () => setPanel(false) }) ?? null;
+    hostKind = host ? where : null;
+    if (had?.isConnected && doc.activeElement !== had) had.focus({ preventScroll: true });
+  }
+
+  /** The header button, present only while the list has no margin to be in. */
+  function syncButton(want) {
+    if (want && !button) button = mountHeaderButton(doc, { onToggle: () => setPanel(!panelOpen) });
+    else if (!want && button) { button.remove(); button = null; }
+    button?.set({ count: comments.length, open: panelOpen });
+  }
+
+  function setPanel(open) {
+    if (panelOpen === open) return;
+    panelOpen = open;
+    draw();
+    if (!open) button?.el.focus({ preventScroll: true });
   }
 
   function makeCard(c) {
@@ -432,7 +490,7 @@ export function startKbComments(opts) {
       doc, client, relativeDate, page,
       login: () => login,
       dead: () => dead,
-      guideTitle: () => (article.querySelector(':scope > h1')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      guideTitle,
       liveLink: () => liveLink(page),
       onRemoved: removeComment,
       onChanged: () => draw(),
@@ -567,8 +625,7 @@ export function startKbComments(opts) {
       setBusy(true);
       error.hidden = true;
       try {
-        const guideTitle = (article.querySelector(':scope > h1')?.textContent ?? '').replace(/\s+/g, ' ').trim();
-        const made = await client.createComment(buildIssue({ text, guideTitle, liveUrl: liveLink(page), anchor }));
+        const made = await client.createComment(buildIssue({ text, guideTitle: guideTitle(), liveUrl: liveLink(page), anchor }));
         if (!made) throw new Error(SAVE_FAILED);
         if (dead || compose !== mine) return;
         comments.push(made);
@@ -594,6 +651,7 @@ export function startKbComments(opts) {
     send.addEventListener('click', post);
 
     hidePop();
+    if (placement(doc) === 'panel') panelOpen = true; // the box must be where it can be seen
     draw();
     box.focus({ preventScroll: true });
     li.scrollIntoView?.({ block: 'nearest' });
@@ -676,12 +734,20 @@ export function startKbComments(opts) {
       const t = e.target instanceof win.Element ? e.target : null;
       if (pop?.contains(t)) return;
       pointerDown = true;
-      if (!t?.closest('li.mb-kb-comment')) clearActive();
+      if (!t?.closest('li.mb-kb-comment, .mb-kb-comments-panel, .mb-kb-comments-btn')) clearActive();
     }, true);
     listen(doc, 'pointerup', () => { pointerDown = false; queueCheck(); }, true);
     listen(doc, 'keyup', queueCheck, true);
     listen(win, 'scroll', follow, { capture: true, passive: true });
-    listen(win, 'resize', follow, { passive: true });
+    listen(win, 'resize', () => {
+      follow();
+      // The view may have gained or lost its margin: move the list (once per frame).
+      if (!frame) frame = win.requestAnimationFrame(() => { frame = 0; draw(); });
+    }, { passive: true });
+    listen(doc, 'keydown', e => {
+      // Escape closes the panel, unless a box in it has just used the key itself.
+      if (e.key === 'Escape' && panelOpen && !e.defaultPrevented) { e.preventDefault(); setPanel(false); }
+    });
     list.addEventListener('click', e => {
       const card = e.target.closest('li.mb-kb-comment');
       if (card && !e.target.closest('button, a, textarea, input, .mb-kb-comment__replies, .mb-kb-comment__edit')) activate(card);
@@ -724,7 +790,7 @@ export function startKbComments(opts) {
       model = null;
       if (!client || !observer) return; // still loading: it draws when it is ready
       if (!shown()) hidePop();
-      draw();
+      draw(); // also finds out again where the list belongs
       if (active != null) {
         win.CSS?.highlights?.delete(HIGHLIGHT);
         const c = comments.find(x => x.number === active);
@@ -739,8 +805,11 @@ export function startKbComments(opts) {
       if (checkTimer) win.clearTimeout(checkTimer);
       off.splice(0).forEach(f => f());
       observer?.disconnect();
+      if (frame) win.cancelAnimationFrame(frame);
       host?.remove();
       host = null;
+      button?.remove();
+      button = null;
       pop?.remove();
       list.remove();
       if (active != null) win.CSS?.highlights?.delete(HIGHLIGHT);

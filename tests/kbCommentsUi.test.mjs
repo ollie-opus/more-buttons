@@ -120,3 +120,19 @@ test('editedBody changes the text and the page path, and the rest of the anchor 
 test('editedBody is null for a body with no text part (it must not be sent)', () => {
   assert.equal(editedBody('Just some words, edited on GitHub.', 'New', { livePath: 'p', liveUrl: 'u', guideTitle: 't' }), null);
 });
+
+test('the header count: nothing for none, 99+ past two digits', async () => {
+  const { countLabel } = await import('../scripts/kbCommentsPanel.js');
+  assert.equal(countLabel(0), '');
+  assert.equal(countLabel(3), '3');
+  assert.equal(countLabel(99), '99');
+  assert.equal(countLabel(100), '99+');
+});
+
+test('the page title without the site name', async () => {
+  const { titleFromDocument } = await import('../scripts/kbCommentsPanel.js');
+  assert.equal(titleFromDocument('Overview - Opus Knowledge Base'), 'Overview');
+  assert.equal(titleFromDocument('Sites - Admin - Opus Knowledge Base'), 'Sites - Admin');
+  assert.equal(titleFromDocument('  Overview  '), 'Overview');
+  assert.equal(titleFromDocument(''), '');
+});

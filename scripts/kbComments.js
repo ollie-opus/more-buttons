@@ -107,7 +107,7 @@ export function withText(body, newText) {
   return newText + (body.includes('\r\n') ? '\r\n\r\n' : '\n\n') + body.slice(end);
 }
 
-/** The body with the page path and the guide link changed; the text and the rest of the anchor are untouched. */
+/** The body with the page path and the guide link changed (the link stays as it was when `guideTitle` is empty); the text and the rest of the anchor are untouched. */
 export function withPage(body, page, liveUrl, guideTitle) {
   const at = dataStart(body);
   const anchor = readAnchor(body);
@@ -115,7 +115,9 @@ export function withPage(body, page, liveUrl, guideTitle) {
   const head = body.slice(0, at);
   const linkAt = head.trimEnd().lastIndexOf('\n') + 1; // the link line is the last line before the data block
   const eol = body.includes('\r\n') ? '\r\n' : '\n';
-  return head.slice(0, linkAt) + linkLine(guideTitle, liveUrl) + eol + eol + dataBlock({ ...anchor, page });
+  // With no title to write, the link line already in the body stays as it is (never `[](url)`).
+  const line = guideTitle ? linkLine(guideTitle, liveUrl) : head.slice(linkAt).trimEnd();
+  return head.slice(0, linkAt) + line + eol + eol + dataBlock({ ...anchor, page });
 }
 
 const QUOTE_MAX = 300;
