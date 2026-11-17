@@ -66,3 +66,40 @@ test('comment text holding the end marker round-trips; withText keeps the anchor
   assert.equal(edited.text, 'new');
   assert.deepEqual(edited.anchor, anchor);
 });
+
+const crlf = s => s.replace(/\n/g, '\r\n');
+
+test('a body saved with CRLF line endings parses like its LF twin', () => {
+  const text = 'line one\nline two';
+  const built = buildIssue({ text, guideTitle: 'G', liveUrl: 'https://s/pages/a/', anchor });
+  const c = parseIssue(issueOf({ ...built, body: crlf(built.body) }));
+  assert.equal(c.text, text);
+  assert.deepEqual(c.anchor, anchor);
+  const edited = parseIssue(issueOf({ ...built, body: withText(crlf(built.body), 'new') }));
+  assert.equal(edited.text, 'new');
+  assert.deepEqual(edited.anchor, anchor);
+  const moved = parseIssue(issueOf({ ...built, body: withPage(crlf(built.body), 'docs/pages/b.md', 'https://s/pages/b/', 'G2') }));
+  assert.equal(moved.anchor.page, 'docs/pages/b.md');
+  assert.equal(moved.text, text);
+});
+
+test('text holding the marker and a quote line round-trips', () => {
+  const text = 'a <!-- mb-text-end -->\n\n> x';
+  const built = buildIssue({ text, guideTitle: 'G', liveUrl: 'u', anchor });
+  assert.equal(parseIssue(issueOf(built)).text, text);
+});
+
+test('a quote holding the marker round-trips', () => {
+  const quote = 'q <!-- mb-text-end --> r\nsecond';
+  const built = buildIssue({ text: 'mine', guideTitle: 'G', liveUrl: 'u', anchor: { ...anchor, quote } });
+  const c = parseIssue(issueOf(built));
+  assert.equal(c.text, 'mine');
+  assert.equal(c.anchor.quote, quote);
+});
+
+test('a body with the data block but no end marker is not a comment and is not rewritten', () => {
+  const built = buildIssue({ text: 't', guideTitle: 'G', liveUrl: 'u', anchor });
+  const body = built.body.replace('<!-- mb-text-end -->', '');
+  assert.equal(parseIssue(issueOf({ ...built, body })), null);
+  assert.equal(withText(body, 'new'), body);
+});

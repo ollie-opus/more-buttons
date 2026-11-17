@@ -44,12 +44,17 @@ export function buildIssue({ text, guideTitle, liveUrl, anchor }) {
 }
 
 /**
- * Where the text ends: the last end marker before the data block that is followed by the quote block.
- * The one buildIssue writes is always that one, so a marker typed into the text (or the quote) is harmless.
+ * Where the text ends: the last end marker before the data block that is followed by the quote block
+ * (a blank line, then ">"). The one buildIssue writes is always that one, so a marker typed into the
+ * text or the quote is harmless. Line endings may be CRLF, as GitHub's web editor saves them. When no
+ * marker is followed by a quote block, the last bare marker; -1 when there is none.
  */
 function textEnd(body) {
   const at = dataStart(body);
-  return body.lastIndexOf(TEXT_END + '\n\n> ', at < 0 ? body.length : at);
+  const head = at < 0 ? body : body.slice(0, at);
+  let last = -1;
+  for (const m of head.matchAll(/<!-- mb-text-end -->(?=\r?\n\r?\n>)/g)) last = m.index;
+  return last >= 0 ? last : head.lastIndexOf(TEXT_END);
 }
 
 /** Where the hidden data block starts in a body, or -1. */
@@ -81,7 +86,8 @@ export function parseIssue(issue) {
   const anchor = readAnchor(issue.body);
   if (!anchor) return null;
   const end = textEnd(issue.body);
-  const text = (end < 0 ? '' : issue.body.slice(0, end)).trim();
+  if (end < 0) return null;
+  const text = issue.body.slice(0, end).replace(/\r\n/g, '\n').trim();
   return {
     number: issue.number,
     text,
@@ -94,10 +100,11 @@ export function parseIssue(issue) {
   };
 }
 
-/** The body with its comment text replaced; everything from the text's end marker on is untouched. */
+/** The body with its comment text replaced; everything from the text's end marker on is untouched. A body with no end marker is returned unchanged. */
 export function withText(body, newText) {
   const end = textEnd(body);
-  return newText + '\n\n' + (end < 0 ? body : body.slice(end));
+  if (end < 0) return body;
+  return newText + (body.includes('\r\n') ? '\r\n\r\n' : '\n\n') + body.slice(end);
 }
 
 /** The body with the page path and the guide link changed; the text and the rest of the anchor are untouched. */
@@ -106,6 +113,7 @@ export function withPage(body, page, liveUrl, guideTitle) {
   const anchor = readAnchor(body);
   if (at < 0 || !anchor) return body;
   const head = body.slice(0, at);
-  const linkAt = head.lastIndexOf('\n\n', head.length - 3) + 2; // the link line is the last paragraph before the data block
-  return head.slice(0, linkAt) + linkLine(guideTitle, liveUrl) + '\n\n' + dataBlock({ ...anchor, page });
+  const linkAt = head.trimEnd().lastIndexOf('\n') + 1; // the link line is the last line before the data block
+  const eol = body.includes('\r\n') ? '\r\n' : '\n';
+  return head.slice(0, linkAt) + linkLine(guideTitle, liveUrl) + eol + eol + dataBlock({ ...anchor, page });
 }
