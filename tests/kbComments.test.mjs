@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIssue, parseIssue, withText, withPage, makeAnchor, findAnchor, commentsForGuide, orderComments, stackTops, clampTops } from '../scripts/kbComments.js';
+import { buildIssue, parseIssue, withText, withPage, makeAnchor, findAnchor, commentsForGuide, orderComments, stackTops, clampTops, boundTops } from '../scripts/kbComments.js';
+import { textModel } from '../scripts/kbCommentsUi.js';
 
 const anchor = { guide: 'g1', page: 'docs/pages/overview.md', block: 'b1', quote: 'click Save', before: 'Then ', after: ' to finish' };
 const issueOf = (built, extra = {}) => ({ number: 7, body: built.body, title: built.title, user: { login: 'ollie-opus' }, created_at: '2026-11-17T10:00:00Z', comments: 2, html_url: 'https://github.com/x/y/issues/7', ...extra });
@@ -201,4 +202,103 @@ test('clampTops keeps cards in the room: none above its top, none overlapping', 
   // A floor other than 0, and nothing at all.
   assert.deepEqual([...clampTops([{ id: 'a', height: 10 }], new Map([['a', -5]]), { floor: 20 })], [['a', 20]]);
   assert.deepEqual([...clampTops([], new Map())], []);
+});
+
+// ── Headings across views ──
+// The same guide drawn two ways: in the editor a heading IS its marker, so the heading's words follow
+// the marker; on the built page a section's id span comes after the heading. The words of both
+// headings also turn up later in the body.
+const GUIDE = [
+  { section: 'T', heading: 'Overview', blocks: [['t1', 'This guide covers sites. Read on.']] },
+  { section: 'S', heading: 'Adding a site', blocks: [['b1', 'Open the form.'], ['b2', 'Adding a site takes a minute. See the Overview again.']] },
+];
+function drawn(layout) {
+  const pieces = [];
+  const headings = [];
+  const heading = text => { headings.push(text); pieces.push({ gap: true }, { text, node: { heading: text } }, { gap: true }); };
+  for (const sec of GUIDE) {
+    if (layout === 'editor') { pieces.push({ marker: sec.section }); heading(sec.heading); }
+    else { heading(sec.heading); pieces.push({ gap: true }, { marker: sec.section }, { gap: true }); }
+    for (const [id, t] of sec.blocks) pieces.push({ marker: id }, { gap: true }, { text: t, node: { id } }, { gap: true });
+  }
+  const m = textModel(pieces);
+  // Where each heading's words are: the seg drawn from the heading's own node.
+  m.headingAt = Object.fromEntries(m.segs.filter(sg => sg.node.heading).map(sg => [sg.node.heading, sg.start]));
+  return m;
+}
+
+test('a heading comment made in one view finds the heading in the other', () => {
+  const editor = drawn('editor'), live = drawn('live');
+  assert.equal(editor.text, live.text); // the same words; only the block edges differ
+  for (const [from, to] of [[editor, live], [live, editor]]) {
+    for (const h of ['Overview', 'Adding a site']) {
+      const s = from.headingAt[h];
+      assert.ok(from.text.indexOf(h, s + 1) > s, 'the heading words also occur later');
+      const a = makeAnchor(from, s, s + h.length, { guide: 'T', page: 'p' });
+      assert.deepEqual(findAnchor(to, a), { start: to.headingAt[h], end: to.headingAt[h] + h.length, found: true }, `${h}`);
+      assert.deepEqual(findAnchor(from, a), { start: s, end: s + h.length, found: true });
+    }
+  }
+});
+
+test('a quote moved to an earlier block is found there, not at a later look-alike', () => {
+  const build = parts => { let text = ''; const blocks = []; for (const [id, t] of parts) { const start = text.length; text += t + ' '; blocks.push({ id, start, end: start + t.length }); } return { text, blocks }; };
+  const before = build([['b1', 'Open the form.'], ['b2', 'Read this.'], ['b3', 'Then click Save to finish.'], ['b4', 'Later click Save twice.']]);
+  const s = before.text.indexOf('click Save');
+  const a = makeAnchor(before, s, s + 10, { guide: 'g', page: 'p' });
+  assert.equal(a.block, 'b3');
+  const after = build([['b1', 'Then click Save to finish. Open the form.'], ['b2', 'Read this.'], ['b3', 'Later, press Enter.'], ['b4', 'Later click Save twice.']]);
+  assert.deepEqual(findAnchor(after, a), { start: 5, end: 15, found: true });
+  // Equal neighbours either side: the one at or after the block's start wins.
+  const tie = build([['b1', 'x click Save y'], ['b2', 'Read.'], ['b3', 'z'], ['b4', 'x click Save y']]);
+  const t = findAnchor(tie, { guide: '', page: '', block: 'b3', quote: 'click Save', before: '', after: '' });
+  assert.equal(t.start, tie.text.lastIndexOf('click Save'));
+});
+
+test('an empty block id or page path never matches', () => {
+  const c = (n, anchor) => ({ number: n, anchor });
+  const list = [c(1, { guide: 'other', page: 'docs/pages/other.md', block: '' }), c(2, { guide: '', page: '', block: 'x' })];
+  assert.deepEqual(commentsForGuide(list, { guide: 'g', page: 'p', blockIds: new Set(['', 'b1']) }).map(x => x.number), []);
+  assert.deepEqual(commentsForGuide(list, { guide: 'g', page: '', blockIds: new Set(['']) }).map(x => x.number), []);
+});
+
+test('a long guide title is cut so the whole issue title fits; the format never is', () => {
+  const quote = 'q'.repeat(100);
+  const built = buildIssue({ text: 't', guideTitle: 'G'.repeat(400), liveUrl: 'u', anchor: { ...anchor, quote } });
+  assert.equal(built.title.length, 250);
+  assert.ok(built.title.endsWith(`…: "${'q'.repeat(60)}…"`));
+  assert.ok(built.title.startsWith('GGG'));
+  // The link in the body keeps the full title.
+  assert.ok(built.body.includes(`[${'G'.repeat(400)}](u)`));
+  // Short titles are left alone, and one exactly at the limit is not cut.
+  assert.equal(buildIssue({ text: 't', guideTitle: 'Overview', liveUrl: 'u', anchor }).title, 'Overview: "click Save"');
+  const exact = 'E'.repeat(250 - 'click Save'.length - 4);
+  assert.equal(buildIssue({ text: 't', guideTitle: exact, liveUrl: 'u', anchor }).title, `${exact}: "click Save"`);
+});
+
+test('boundTops ends a stack at the bottom of the room, moving as little as it can', () => {
+  const items = [{ id: 1, height: 50 }, { id: 2, height: 50 }, { id: 3, height: 50 }];
+  // Room enough: nothing moves.
+  const fits = new Map([[1, 0], [2, 100], [3, 200]]);
+  assert.deepEqual([...boundTops(items, fits, { gap: 8, ceiling: 300 })], [...fits]);
+  assert.deepEqual([...boundTops(items, fits)], [...fits]);
+  // The last card runs 30 past the bottom: it moves up 30, the one above only as much as it must.
+  const low = new Map([[1, 0], [2, 150], [3, 280]]);
+  assert.deepEqual([...boundTops(items, low, { gap: 8, ceiling: 300 })], [[1, 0], [2, 150], [3, 250]]);
+  const lower = new Map([[1, 0], [2, 200], [3, 280]]);
+  assert.deepEqual([...boundTops(items, lower, { gap: 8, ceiling: 300 })], [[1, 0], [2, 192], [3, 250]]);
+  // Taller than the room: starts at the floor and runs on, never overlapping.
+  const tall = new Map([[1, 0], [2, 58], [3, 116]]);
+  assert.deepEqual([...boundTops(items, tall, { gap: 8, ceiling: 100 })], [[1, 0], [2, 58], [3, 116]]);
+  assert.deepEqual([...boundTops([], new Map(), { ceiling: 10 })], []);
+});
+
+test('boundTops keeps a pinned card in place when the cards under it fit', () => {
+  const items = [{ id: 1, want: 0, height: 40 }, { id: 2, want: 200, height: 100 }, { id: 3, want: 250, height: 40 }];
+  const stacked = clampTops(items, stackTops(items, { gap: 8, pinned: 2 }));
+  assert.deepEqual([...stacked], [[1, 0], [2, 200], [3, 308]]);
+  // 3 ends at 348: a room of 360 holds it.
+  assert.deepEqual([...boundTops(items, stacked, { gap: 8, ceiling: 360 })], [...stacked]);
+  // A room of 340: 3 moves up to end at 340, pushing into the pin, so the pin gives 8.
+  assert.deepEqual([...boundTops(items, stacked, { gap: 8, ceiling: 340 })], [[1, 0], [2, 192], [3, 300]]);
 });

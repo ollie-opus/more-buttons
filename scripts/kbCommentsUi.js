@@ -32,7 +32,7 @@
  * Node-tested; the rest needs a DOM.
  */
 
-import { buildIssue, makeAnchor, findAnchor, commentsForGuide, orderComments } from './kbComments.js';
+import { buildIssue, makeAnchor, findAnchor, commentsForGuide, orderComments, BODY_MAX } from './kbComments.js';
 import { loadLucideBodies, lucideSvg } from './lucideIcons.js';
 import { setThemeTip, KB_HOST } from './kbSite.js';
 import { currentGithubLogin } from './repoClient.js';
@@ -158,6 +158,16 @@ function skipped(el, view) {
   return view.getComputedStyle(el).display === 'none';
 }
 
+/**
+ * The block id an element starts, or null when it starts none. An element with
+ * an empty id (kbPageRender.js can draw `data-mb-node=""`) is not a marker: an
+ * empty id would match every comment made before the first marker on any page.
+ */
+export function markerId(el) {
+  if (!el.matches(MARKER)) return null;
+  return el.dataset.uuid || el.dataset.mbNode || null;
+}
+
 function walk(article) {
   const view = article.ownerDocument.defaultView;
   const out = [];
@@ -165,7 +175,8 @@ function walk(article) {
     for (let n = el.firstChild; n; n = n.nextSibling) {
       if (n.nodeType === 3) { out.push({ text: n.data, node: n }); continue; }
       if (n.nodeType !== 1) continue;
-      if (n.matches(MARKER)) out.push({ marker: n.dataset.uuid ?? n.dataset.mbNode ?? '' });
+      const id = markerId(n);
+      if (id) out.push({ marker: id });
       if (skipped(n, view)) continue;
       const edge = BREAKS.has(n.tagName);
       if (edge) out.push({ gap: true });
@@ -707,6 +718,7 @@ export function startKbComments(opts) {
     const quote = el(doc, 'blockquote', 'mb-kb-comment__quote', anchor.quote);
     const box = el(doc, 'textarea', 'mb-kb-comments__input');
     box.rows = 2;
+    box.maxLength = BODY_MAX;
     box.placeholder = 'Add a comment';
     box.setAttribute('aria-label', 'Comment');
     const error = el(doc, 'p', 'mb-kb-comments__error');
@@ -912,6 +924,9 @@ export function startKbComments(opts) {
       if (!t?.closest('li.mb-kb-comment, .mb-kb-comments-panel, .mb-kb-comments-btn')) clearActive();
     }, true);
     listen(doc, 'pointerup', () => { pointerDown = false; queueCheck(); }, true);
+    // A drag (the text's own, or a block's) or a cancelled pointer never sends a pointerup.
+    listen(doc, 'pointercancel', () => { pointerDown = false; }, true);
+    listen(doc, 'dragend', () => { pointerDown = false; }, true);
     listen(doc, 'keyup', queueCheck, true);
     listen(win, 'scroll', follow, { capture: true, passive: true });
     listen(win, 'resize', () => {

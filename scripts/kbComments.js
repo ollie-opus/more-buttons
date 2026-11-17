@@ -15,6 +15,10 @@ const TEXT_END = '<!-- mb-text-end -->';
 const DATA_OPEN = '<!-- mb-comment ';
 const DATA_CLOSE = ' -->';
 const TITLE_QUOTE_MAX = 60;
+// GitHub's limits are 256 characters for a title and 65,536 for a body; the body
+// also carries the quote, the link and the data block, so the text boxes stop short.
+const TITLE_MAX = 250;
+export const BODY_MAX = 60000;
 
 /** The anchor as one line of JSON, with < and > escaped so "-->" can never close the comment early. */
 function dataBlock(anchor) {
@@ -40,7 +44,11 @@ export function buildIssue({ text, guideTitle, liveUrl, anchor }) {
   const flat = String(anchor.quote).replace(/\s+/g, ' ').trim();
   const cut = flat.length > TITLE_QUOTE_MAX ? flat.slice(0, TITLE_QUOTE_MAX) + '…' : flat;
   const body = [text, TEXT_END, quoteBlock(anchor.quote), linkLine(guideTitle, liveUrl), dataBlock(anchor)].join('\n\n');
-  return { title: `${guideTitle}: "${cut}"`, body };
+  // Over the title limit: the guide's title is cut, never the `: "…"` around the quote.
+  const room = TITLE_MAX - (cut.length + 4);
+  const name = String(guideTitle);
+  const shown = name.length > room ? name.slice(0, room - 1).replace(/[\uD800-\uDBFF]$/, '') + '…' : name;
+  return { title: `${shown}: "${cut}"`, body };
 }
 
 /**
@@ -158,8 +166,11 @@ function contextScore(text, i, len, { before, after }) {
 }
 
 /**
- * Where an anchor's quote is now: in its own block, else from that block to the end (a selection that
- * ran across blocks), else anywhere. Several matches: the one whose neighbours fit best, earliest on a tie.
+ * Where an anchor's quote is now: in its own block, else anywhere in the text. Several matches: the one
+ * whose neighbours fit best; on a tie, one at or after the block's start (a selection that ran across
+ * blocks), then the earliest. The whole text is searched, not just from the block on, because the views
+ * put a heading on opposite sides of its marker (on the built page the section's id span follows the
+ * heading; in the editor the heading is the marker), and because a quote can move to an earlier block.
  *
  * @returns {{start: number, end: number, found: true}|{start: number, found: false}|null}
  *   `found: false` points at the block's start; null when the quote and the block are both gone
@@ -169,19 +180,17 @@ export function findAnchor(model, anchor) {
   const quote = anchor.quote;
   const block = model.blocks.find(b => b.id === anchor.block);
   if (quote) {
-    const scopes = [];
-    if (block) scopes.push([block.start, block.end], [block.start, text.length]);
-    scopes.push([0, text.length]);
-    for (const [lo, hi] of scopes) {
-      const hits = occurrences(text, quote, lo, hi);
-      if (!hits.length) continue;
-      let best = hits[0], bestScore = -1;
-      for (const i of hits) {
-        const s = contextScore(text, i, quote.length, anchor);
-        if (s > bestScore) { best = i; bestScore = s; }
-      }
-      return { start: best, end: best + quote.length, found: true };
+    let hits = block ? occurrences(text, quote, block.start, block.end) : [];
+    const own = hits.length > 0;
+    if (!own) hits = occurrences(text, quote, 0, text.length);
+    const from = !own && block ? block.start : 0; // ties go to a match at or after this
+    let best = -1, bestScore = -1, bestAfter = false;
+    for (const i of hits) {
+      const s = contextScore(text, i, quote.length, anchor);
+      const after = i >= from;
+      if (s > bestScore || (s === bestScore && after && !bestAfter)) { best = i; bestScore = s; bestAfter = after; }
     }
+    if (best >= 0) return { start: best, end: best + quote.length, found: true };
   }
   return block ? { start: block.start, found: false } : null;
 }
@@ -190,7 +199,8 @@ export function findAnchor(model, anchor) {
 export function commentsForGuide(comments, { guide, page, blockIds }) {
   return comments.filter(c => {
     const a = c.anchor;
-    return (a.guide && a.guide === guide) || blockIds.has(a.block) || a.page === page;
+    // Never on an empty id or path: a comment made before the first marker has block ''.
+    return (a.guide && a.guide === guide) || (a.block && blockIds.has(a.block)) || (a.page && a.page === page);
   });
 }
 
@@ -252,4 +262,27 @@ export function clampTops(items, tops, { gap = 8, floor = 0 } = {}) {
     min = top + it.height + gap;
   }
   return out;
+}
+
+/**
+ * Tops from clampTops kept inside the room: a stack that would run past `ceiling` (the room's bottom) is
+ * moved up just enough to end there. Working up from the bottom, each card moves only as far as the one
+ * under it needs, so the cards higher up, and a pinned card, keep their places whenever the cards below
+ * them fit under them. None goes above `floor` or overlaps: a stack taller than the room starts at the
+ * floor and runs on past the ceiling.
+ *
+ * @param {{id: *, height: number}[]} items - in page order, as given to clampTops
+ * @param {Map<*, number>} tops - from clampTops
+ * @returns {Map<*, number>} id to top
+ */
+export function boundTops(items, tops, { gap = 8, floor = 0, ceiling = Infinity } = {}) {
+  const up = new Map();
+  let limit = ceiling + gap; // the next card up ends a gap above this
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    const top = Math.min(tops.get(it.id) ?? floor, limit - gap - it.height);
+    up.set(it.id, top);
+    limit = top;
+  }
+  return clampTops(items, new Map(items.map(it => [it.id, up.get(it.id)])), { gap, floor });
 }

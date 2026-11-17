@@ -7,7 +7,8 @@
  * Each card stands level with the top of its words where it can, otherwise
  * just below the card above it (kbComments.js stackTops). The card clicked, or
  * a comment box being written, keeps its exact place and its neighbours give
- * way; none is ever drawn above the article (clampTops). Comments whose words
+ * way; none is ever drawn above the article (clampTops), and the stack is moved
+ * up to end at the article's bottom rather than run over the footer (boundTops). Comments whose words
  * cannot be found follow the last one placed.
  *
  * kbCommentsUi.js decides when this placement is used (marginRoom) and says
@@ -16,7 +17,7 @@
  * Save never see any of it.
  */
 
-import { stackTops, clampTops } from './kbComments.js';
+import { stackTops, clampTops, boundTops } from './kbComments.js';
 
 const GAP = 8;
 // The navigation's room is narrower than this only when the theme is about to
@@ -69,7 +70,8 @@ export function mountMargin(doc, list, { article, wants, pinned }) {
     if (dead) return;
     const room = marginRoom(doc);
     if (!room) return; // the core moves the list on (its resize handler asks placement() again)
-    const floor = article.getBoundingClientRect().top + win.scrollY;
+    const box = article.getBoundingClientRect();
+    const floor = box.top + win.scrollY;
     host.style.left = `${Math.round(room.left + win.scrollX)}px`;
     host.style.width = `${Math.round(room.width)}px`;
     host.style.top = `${Math.round(floor)}px`;
@@ -83,7 +85,8 @@ export function mountMargin(doc, list, { article, wants, pinned }) {
       items.push({ id: li, want: top, height: li.offsetHeight });
     }
     const pin = pinned();
-    const tops = clampTops(items, stackTops(items, { gap: GAP, pinned: items.some(it => it.id === pin) ? pin : null }), { gap: GAP, floor: 0 });
+    const stacked = clampTops(items, stackTops(items, { gap: GAP, pinned: items.some(it => it.id === pin) ? pin : null }), { gap: GAP, floor: 0 });
+    const tops = boundTops(items, stacked, { gap: GAP, floor: 0, ceiling: box.height });
     for (const it of items) {
       const top = `${Math.round(tops.get(it.id))}px`;
       if (it.id.style.top !== top) it.id.style.top = top;

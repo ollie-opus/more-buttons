@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { textModel, pointAt, offsetAt, relativeDate, popupSpot } from '../scripts/kbCommentsUi.js';
+import { textModel, pointAt, offsetAt, relativeDate, popupSpot, markerId } from '../scripts/kbCommentsUi.js';
 import { makeAnchor, findAnchor } from '../scripts/kbComments.js';
 
 // Stand-in text nodes: only their identity matters to the model.
@@ -135,4 +135,14 @@ test('the page title without the site name', async () => {
   assert.equal(titleFromDocument('Sites - Admin - Opus Knowledge Base'), 'Sites - Admin');
   assert.equal(titleFromDocument('  Overview  '), 'Overview');
   assert.equal(titleFromDocument(''), '');
+});
+
+test('an element with an empty id is not a block marker', () => {
+  // Stand-in elements: `matches` answers for the marker selector, `dataset` as the DOM would.
+  const elt = (dataset, isMarker = true) => ({ dataset, matches: () => isMarker });
+  assert.equal(markerId(elt({ uuid: 'u1' })), 'u1');
+  assert.equal(markerId(elt({ mbNode: 'n1' })), 'n1');
+  assert.equal(markerId(elt({ mbNode: '' })), null);
+  assert.equal(markerId(elt({ uuid: '' })), null);
+  assert.equal(markerId(elt({ uuid: 'u1' }, false)), null);
 });

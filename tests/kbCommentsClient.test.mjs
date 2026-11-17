@@ -8,16 +8,17 @@ import {
 
 const BASE = 'https://api.github.com/repos/opus-safety/opus-knowledge-base-comments';
 const auth = async () => 'token T';
-const ANCHOR = { guide: 'g', page: 'p', blockId: 'b', start: 0, end: 3, quote: 'abc' };
+const ANCHOR = { guide: 'g', page: 'p', block: 'b', quote: 'abc', before: 'x ', after: ' y' };
 
-// Records each call and answers from a queue of { status, json } (or an Error to throw).
+// Records each call and answers from a queue of { status, json, headers? } (or an Error to throw).
 function stub(queue) {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url, method: init.method || 'GET', headers: init.headers || {}, body: init.body === undefined ? undefined : JSON.parse(init.body), cache: init.cache });
     const next = queue.shift();
     if (next instanceof Error) throw next;
-    return { ok: next.status >= 200 && next.status < 300, status: next.status, json: async () => next.json };
+    const headers = new Map(Object.entries(next.headers || {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
+    return { ok: next.status >= 200 && next.status < 300, status: next.status, headers: { get: k => headers.get(k.toLowerCase()) ?? null }, json: async () => next.json };
   };
   return { calls, deps: { fetchImpl, auth } };
 }
@@ -136,4 +137,54 @@ test('commentsAccess: ok, no-access, error', async () => {
   assert.equal(await commentsAccess(stub([{ status: 404, json: {} }]).deps), 'no-access');
   assert.equal(await commentsAccess(stub([{ status: 500, json: {} }]).deps), 'error');
   assert.equal(await commentsAccess(stub([new Error('x')]).deps), 'error');
+});
+
+const LIMITS = [
+  { status: 429, json: {} },
+  { status: 403, json: {}, headers: { 'x-ratelimit-remaining': '0' } },
+  { status: 403, json: {}, headers: { 'retry-after': '60' } },
+];
+
+test('a rate limit is an error, never no access, for reads and the access check', async () => {
+  for (const r of LIMITS) {
+    const res = await listOpenComments(stub([{ ...r }]).deps);
+    assert.equal(res.ok, false);
+    assert.equal(res.reason, 'error');
+    assert.equal(await commentsAccess(stub([{ ...r }]).deps), 'error');
+  }
+  // A plain 403 with requests left is still no access.
+  assert.equal(await commentsAccess(stub([{ status: 403, json: {}, headers: { 'x-ratelimit-remaining': '4999' } }]).deps), 'no-access');
+  assert.equal((await listOpenComments(stub([{ status: 403, json: {}, headers: { 'x-ratelimit-remaining': '4999' } }]).deps)).reason, 'no-access');
+});
+
+test('a rate-limited write or reply list says so', async () => {
+  const message = 'GitHub is rate limiting requests. Try again in a minute.';
+  for (const r of LIMITS) {
+    await assert.rejects(addReply(7, 'x', stub([{ ...r }]).deps), { message });
+    await assert.rejects(createComment({ title: 't', body: 'b' }, stub([{ ...r }]).deps), { message });
+    await assert.rejects(closeComment(7, 'completed', stub([{ ...r }]).deps), { message });
+    await assert.rejects(listReplies(7, stub([{ ...r }]).deps), { message });
+  }
+});
+
+test('deleting a reply that is already gone succeeds', async () => {
+  const s = stub([{ status: 404, json: {} }]);
+  assert.equal(await deleteReply(1, s.deps), undefined);
+  assert.equal(s.calls[0].method, 'DELETE');
+  // Other failures still throw.
+  await assert.rejects(deleteReply(1, stub([{ status: 403, json: {} }]).deps), /can't write/);
+});
+
+test('a 422 on create, edit or reply says it may be too long', async () => {
+  const message = 'GitHub rejected that: it may be too long.';
+  await assert.rejects(createComment({ title: 't', body: 'b' }, stub([{ status: 422, json: {} }]).deps), { message });
+  await assert.rejects(updateCommentBody(7, 'b', stub([{ status: 422, json: {} }]).deps), { message });
+  await assert.rejects(addReply(7, 'x', stub([{ status: 422, json: {} }]).deps), { message });
+  await assert.rejects(editReply(1, 'x', stub([{ status: 422, json: {} }]).deps), { message });
+});
+
+test('listReplies: a server error reads like the write path; no answer is unreachable', async () => {
+  await assert.rejects(listReplies(7, stub([{ status: 500, json: {} }]).deps), { message: 'GitHub error 500.' });
+  await assert.rejects(listReplies(7, stub([new Error('offline')]).deps), { message: "Couldn't reach GitHub." });
+  await assert.rejects(listReplies(7, stub([{ status: 404, json: {} }]).deps), /can't write to the comments repository/);
 });

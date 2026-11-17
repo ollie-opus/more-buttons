@@ -13,7 +13,7 @@
  * repliesLabel, isOwn and editedBody are pure and Node-tested.
  */
 
-import { withText, withPage } from './kbComments.js';
+import { withText, withPage, BODY_MAX } from './kbComments.js';
 import { lucideSvg } from './lucideIcons.js';
 import { setThemeTip } from './kbSite.js';
 
@@ -91,6 +91,7 @@ export function attachThread(card, c, ctx) {
       const box = el('textarea', 'mb-kb-comments__input');
       box.value = getText();
       box.rows = 2;
+      box.maxLength = BODY_MAX;
       box.setAttribute('aria-label', 'Edit');
       const eErr = errorLine();
       const actions = el('div', 'mb-kb-comments__actions');
@@ -227,6 +228,7 @@ export function attachThread(card, c, ctx) {
   const form = el('div', 'mb-kb-reply-form');
   const input = el('textarea', 'mb-kb-comments__input mb-kb-reply-form__input');
   input.rows = 1;
+  input.maxLength = BODY_MAX;
   input.placeholder = 'Reply…';
   input.setAttribute('aria-label', 'Reply');
   const formErr = errorLine();
