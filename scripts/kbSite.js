@@ -8,8 +8,11 @@
  *                                            the title, where the theme puts its
  *                                            own (goes to the page's draft URL:
  *                                            being there is edit mode), and
- *                                            an "Edit log" icon next to it
- *   draft     a draft that exists in GitHub → the in-page editor, which brings
+ *                                            an "Edit log" icon next to it;
+ *                                            the guide's comments under the
+ *                                            "On this page" list
+ *                                            (kbCommentsUi.js)
+ *   draft    a draft that exists in GitHub → the in-page editor, which brings
  *                                            its own bottom bar, keeps the
  *                                            "Edit log" icon in the same place
  *                                            and adds its own icons beside it
@@ -456,7 +459,36 @@ export function injectCreateDraftButton(doc, onCreate) {
   return p;
 }
 
+// The comments on a live guide (kbCommentsUi.js): started in the background,
+// never waited for. `commentsRun` counts the starts, so a start that loads
+// after the page has been redrawn (or left) does nothing.
+let comments = null;
+let commentsRun = 0;
+
+function startComments(page) {
+  const run = ++commentsRun;
+  import('./kbCommentsUi.js')
+    .then(({ startKbComments }) => {
+      if (run !== commentsRun) return;
+      comments = startKbComments({
+        article: document.querySelector(ARTICLE),
+        mode: 'live',
+        page,
+        canResolve: () => false,
+        shown: () => true,
+      });
+    })
+    .catch(err => console.error('MB Error: could not start the comments', err));
+}
+
+function stopComments() {
+  commentsRun++;
+  comments?.destroy();
+  comments = null;
+}
+
 function removeInjected(doc) {
+  stopComments();
   doc.querySelectorAll('.mb-kb-edit, .mb-kb-log, .mb-kb-buttons-end, .mb-kb-modenav, .mb-kb-mdview, .mb-kb-exit, .mb-kb-publish, .mb-kb-delete, .mb-kb-create-draft').forEach(el => el.remove());
 }
 
@@ -581,6 +613,7 @@ export async function refreshKbSite() {
   if (state === 'live') {
     injectEditButton(document, page);
     injectLogButton(document, page);
+    if (!isUpdatesPage(page)) startComments(page);
   }
   if (state === 'no-draft') {
     injectCreateDraftButton(document, async say => {

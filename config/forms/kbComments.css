@@ -1,0 +1,230 @@
+/* ── Knowledge Base site: comments on a guide (kbCommentsUi.js) ───────────────
+   On support.opus-safety.co.uk only. Built from the theme's own tokens (--md-*),
+   its rem scale, its .4rem corners and the sidebar's .7rem / 1.3 type, so the
+   list reads as a second "On this page": the same title, the same margins as
+   its links, and each comment a quiet grey tile in the manner of the editor's.
+   The card that was clicked lifts onto the page ground with the theme's own
+   z2 shadow, as the theme's popovers do.
+
+   Dark mode is one switch: `--mb-dark` on the root, set from the site's own
+   scheme (kbSite.js writes it as `data-mb-theme`), and every dark rule is a
+   style query on it. The theme tokens already follow the scheme by themselves;
+   only the highlight needs a value of its own. */
+
+html.mb-kb-host[data-mb-theme="light"] { --mb-dark: 0; }
+html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
+
+/* ── The list, under "On this page" ─────────────────────────────────────── */
+
+.mb-kb-comments.md-nav--secondary { margin-top: .8rem; }
+.md-nav.mb-kb-comments .md-nav__title { cursor: default; }
+.mb-kb-comments__list.md-nav__list { gap: .4rem; padding-top: .2rem; padding-bottom: .4rem; }
+
+/* ── A comment ──────────────────────────────────────────────────────────── */
+
+.mb-kb-comment,
+.mb-kb-comments__compose {
+  margin-inline: .2rem;
+  padding: .45rem .6rem .5rem;
+  border-radius: .4rem;
+  color: var(--md-default-fg-color);
+  overflow-wrap: anywhere;
+  transition: background-color .25s, box-shadow .25s;
+}
+.mb-kb-comment {
+  background-color: var(--md-default-fg-color--lightest);
+  cursor: pointer;
+}
+.mb-kb-comment:hover { background-color: color-mix(in oklch, var(--md-default-fg-color) 9%, transparent); }
+.mb-kb-comment:focus-visible,
+.mb-kb-comments__btn:focus-visible,
+.mb-kb-comments-pop__btn:focus-visible {
+  outline: .1rem solid var(--md-accent-fg-color);
+  outline-offset: .1rem;
+}
+/* Clicked: lifted onto the page ground, as the theme's popovers sit. */
+.mb-kb-comment.--active,
+.mb-kb-comments__compose {
+  background-color: var(--md-default-bg-color);
+  /* The hairline keeps its edge on the dark scheme, where the shadow is lost. */
+  box-shadow: var(--md-shadow-z2), 0 0 0 .05rem var(--md-default-fg-color--lightest);
+}
+.mb-kb-comment.--active { cursor: default; }
+
+.mb-kb-comment__meta {
+  display: flex;
+  align-items: baseline;
+  gap: .4rem;
+  min-width: 0;
+}
+.mb-kb-comment__meta[hidden] { display: none; }
+.mb-kb-comment__author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.mb-kb-comment__date {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--md-default-fg-color--light);
+  font-size: .6rem;
+  white-space: nowrap;
+}
+.mb-kb-comment__text {
+  margin: .2rem 0 0;
+  white-space: pre-wrap;
+  /* A long comment is read in full once opened. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+.mb-kb-comment.--active .mb-kb-comment__text { display: block; }
+
+/* Its words are no longer on the page: said quietly, with what they were. */
+.mb-kb-comment__changed {
+  margin: .4rem 0 0;
+  color: var(--md-default-fg-color--light);
+  font-size: .6rem;
+  font-weight: 700;
+}
+.mb-kb-comment__quote {
+  margin: .1rem 0 0;
+  padding: 0;
+  border: 0;
+  color: var(--md-default-fg-color--light);
+  font-size: .64rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.mb-kb-comment__quote::before { content: "\201C"; }
+.mb-kb-comment__quote::after { content: "\201D"; }
+.mb-kb-comment.--active .mb-kb-comment__quote { display: block; }
+
+.mb-kb-comment__replies:empty,
+.mb-kb-comment:not(.--active) .mb-kb-comment__replies { display: none; }
+
+/* ── The comment box ────────────────────────────────────────────────────── */
+
+.mb-kb-comments__compose > .mb-kb-comment__quote { margin: 0 0 .35rem; }
+.mb-kb-comments__compose > .mb-kb-comment__meta + .mb-kb-comment__quote { margin-top: .15rem; }
+
+.mb-kb-comments__input {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 2.8rem;
+  max-height: 12rem;
+  field-sizing: content;
+  margin: 0;
+  padding: .35rem .5rem;
+  border: .05rem solid transparent;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  font: inherit;
+  resize: none;
+  transition: background-color .25s, border-color .25s;
+}
+.mb-kb-comments__input::placeholder { color: var(--md-default-fg-color--light); opacity: 1; }
+.mb-kb-comments__input:focus {
+  outline: none;
+  background-color: var(--md-default-bg-color);
+  border-color: var(--md-accent-fg-color);
+}
+
+.mb-kb-comments__error {
+  margin: .3rem 0 0;
+  color: color-mix(in oklch, oklch(0.6 0.21 27) 80%, var(--md-default-fg-color));
+  font-size: .64rem;
+}
+.mb-kb-comments__error[hidden] { display: none; }
+
+.mb-kb-comments__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .3rem;
+  margin-top: .4rem;
+}
+/* The admin area's buttons (kbAdmin.css), at the sidebar's size. */
+.mb-kb-comments__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  height: 1.4rem;
+  padding: 0 .6rem;
+  border: 0;
+  border-radius: .4rem;
+  background-color: var(--md-default-fg-color--lightest);
+  color: var(--md-default-fg-color);
+  font: inherit;
+  font-size: .64rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .25s, opacity .25s;
+}
+.mb-kb-comments__btn:hover:not(:disabled) { background-color: var(--md-default-fg-color--lighter); }
+.mb-kb-comments__btn.--accent {
+  --pill: var(--md-accent-fg-color);
+  background-color: color-mix(in oklch, var(--pill) 18%, transparent);
+  box-shadow: 0 0 0 .05rem color-mix(in oklch, var(--pill) 55%, transparent) inset;
+  color: color-mix(in oklch, var(--pill) 62%, var(--md-default-fg-color));
+}
+.mb-kb-comments__btn.--accent:hover:not(:disabled) { background-color: color-mix(in oklch, var(--pill) 30%, transparent); }
+.mb-kb-comments__btn:disabled:not(.--busy) { opacity: .45; cursor: default; }
+.mb-kb-comments__btn.--busy { cursor: progress; }
+/* The spinner is there only while posting. */
+.mb-kb-comments__spin { display: none; }
+.mb-kb-comments__btn.--busy .mb-kb-comments__spin { display: inline-flex; }
+.mb-kb-comments__spin svg { width: .75rem; height: .75rem; animation: mb-kb-comments-turn 1s linear infinite; }
+@keyframes mb-kb-comments-turn { to { transform: rotate(360deg); } }
+
+/* ── The comment icon at the end of a selection ────────────────────────── */
+
+.mb-kb-comments-pop {
+  position: fixed;
+  z-index: 3; /* over the content, under the theme's header (4) */
+  left: 0;
+  top: 0;
+}
+.mb-kb-comments-pop[hidden] { display: none; }
+.mb-kb-comments-pop__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 0;
+  border-radius: .4rem;
+  background-color: var(--md-default-bg-color);
+  box-shadow: var(--md-shadow-z2);
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  transition: color .25s;
+  animation: mb-kb-comments-pop-in .15s cubic-bezier(.16, 1, .3, 1);
+}
+.mb-kb-comments-pop__btn:hover { color: var(--md-accent-fg-color); }
+.mb-kb-comments-pop__btn svg { width: .9rem; height: .9rem; }
+@keyframes mb-kb-comments-pop-in { from { opacity: 0; transform: translateY(-.15rem); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-comments-pop__btn { animation: none; }
+}
+
+/* ── The clicked comment's words: yellow, never the editor's purple ────── */
+
+::highlight(mb-kb-comment) {
+  background-color: oklch(0.95 0.19 106 / .55);
+  color: inherit;
+}
+@container style(--mb-dark: 1) {
+  ::highlight(mb-kb-comment) {
+    background-color: oklch(0.84 0.16 95 / .34);
+  }
+}
