@@ -117,3 +117,117 @@ export function withPage(body, page, liveUrl, guideTitle) {
   const eol = body.includes('\r\n') ? '\r\n' : '\n';
   return head.slice(0, linkAt) + linkLine(guideTitle, liveUrl) + eol + eol + dataBlock({ ...anchor, page });
 }
+
+const QUOTE_MAX = 300;
+const CONTEXT_LEN = 32;
+
+/**
+ * The anchor for a selection. `model` is `{ text, blocks: [{ id, start, end }] }`: the article's text with
+ * whitespace runs collapsed, and each block's span in it, in page order. Null when the selection is blank.
+ */
+export function makeAnchor(model, start, end, { guide, page }) {
+  const raw = model.text.slice(start, end);
+  const quote = raw.trim().slice(0, QUOTE_MAX);
+  if (!quote) return null;
+  const from = start + (raw.length - raw.trimStart().length);
+  const to = from + quote.length;
+  let block = '';
+  for (const b of model.blocks) if (b.start <= from) block = b.id; else break;
+  return {
+    guide, page, block, quote,
+    before: model.text.slice(Math.max(0, from - CONTEXT_LEN), from),
+    after: model.text.slice(to, to + CONTEXT_LEN),
+  };
+}
+
+/** Every place `quote` sits wholly inside text[lo, hi), overlaps included. */
+function occurrences(text, quote, lo, hi) {
+  const found = [];
+  for (let i = text.indexOf(quote, lo); i >= 0 && i + quote.length <= hi; i = text.indexOf(quote, i + 1)) found.push(i);
+  return found;
+}
+
+/** How many characters next to an occurrence agree with the anchor's saved neighbours. */
+function contextScore(text, i, len, { before, after }) {
+  let score = 0;
+  for (let k = 1; k <= before.length && i - k >= 0 && text[i - k] === before[before.length - k]; k++) score++;
+  for (let k = 0; k < after.length && text[i + len + k] === after[k]; k++) score++;
+  return score;
+}
+
+/**
+ * Where an anchor's quote is now: in its own block, else from that block to the end (a selection that
+ * ran across blocks), else anywhere. Several matches: the one whose neighbours fit best, earliest on a tie.
+ *
+ * @returns {{start: number, end: number, found: true}|{start: number, found: false}|null}
+ *   `found: false` points at the block's start; null when the quote and the block are both gone
+ */
+export function findAnchor(model, anchor) {
+  const { text } = model;
+  const quote = anchor.quote;
+  const block = model.blocks.find(b => b.id === anchor.block);
+  if (quote) {
+    const scopes = [];
+    if (block) scopes.push([block.start, block.end], [block.start, text.length]);
+    scopes.push([0, text.length]);
+    for (const [lo, hi] of scopes) {
+      const hits = occurrences(text, quote, lo, hi);
+      if (!hits.length) continue;
+      let best = hits[0], bestScore = -1;
+      for (const i of hits) {
+        const s = contextScore(text, i, quote.length, anchor);
+        if (s > bestScore) { best = i; bestScore = s; }
+      }
+      return { start: best, end: best + quote.length, found: true };
+    }
+  }
+  return block ? { start: block.start, found: false } : null;
+}
+
+/** The comments that belong to a guide: same guide id, or one of its block ids, or the same page path. */
+export function commentsForGuide(comments, { guide, page, blockIds }) {
+  return comments.filter(c => {
+    const a = c.anchor;
+    return (a.guide && a.guide === guide) || blockIds.has(a.block) || a.page === page;
+  });
+}
+
+/** Entries `{ comment, at }` in page order; those with no place (`at` null) last, oldest first. */
+export function orderComments(entries) {
+  const byAge = (x, y) => (x.comment.createdAt < y.comment.createdAt ? -1 : x.comment.createdAt > y.comment.createdAt ? 1 : 0);
+  return [...entries].sort((x, y) => {
+    if (!x.at || !y.at) return x.at ? -1 : y.at ? 1 : byAge(x, y);
+    return x.at.start - y.at.start || byAge(x, y);
+  });
+}
+
+/**
+ * Tops for cards given in page order so none overlap. Each card sits at its wanted top or just below the
+ * one above. The pinned card keeps exactly its wanted top; cards after it stack down, cards before it up.
+ *
+ * @param {{id: *, want: number, height: number}[]} items
+ * @returns {Map<*, number>} id to top
+ */
+export function stackTops(items, { gap = 8, pinned = null } = {}) {
+  const tops = new Map();
+  const pin = pinned === null ? -1 : items.findIndex(it => it.id === pinned);
+  const down = (from, floor) => {
+    let min = floor;
+    for (let i = from; i < items.length; i++) {
+      const top = Math.max(items[i].want, min);
+      tops.set(items[i].id, top);
+      min = top + items[i].height + gap;
+    }
+  };
+  if (pin < 0) { down(0, -Infinity); return tops; }
+  tops.set(items[pin].id, items[pin].want);
+  down(pin + 1, items[pin].want + items[pin].height + gap);
+  let limit = items[pin].want;
+  for (let i = pin - 1; i >= 0; i--) {
+    const top = Math.min(items[i].want, limit - gap - items[i].height);
+    tops.set(items[i].id, top);
+    limit = top;
+  }
+  // restore page order in the map
+  return new Map(items.map(it => [it.id, tops.get(it.id)]));
+}
