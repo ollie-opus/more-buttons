@@ -90,3 +90,33 @@ test('popupSpot: bottom right of the line, kept in the window', () => {
   assert.equal(popupSpot({ top: -60, right: 400, bottom: -40 }, size, view), null);
   assert.equal(popupSpot({ top: 900, right: 400, bottom: 920 }, size, view), null);
 });
+
+// ── The thread inside an opened card (kbCommentsThread.js) ──
+import { repliesLabel, isOwn, editedBody } from '../scripts/kbCommentsThread.js';
+import { buildIssue, parseIssue } from '../scripts/kbComments.js';
+
+test('repliesLabel counts replies, and says nothing for none', () => {
+  assert.equal(repliesLabel(0), '');
+  assert.equal(repliesLabel(1), '1 reply');
+  assert.equal(repliesLabel(4), '4 replies');
+});
+
+test('isOwn compares logins without case, and never matches an empty one', () => {
+  assert.equal(isOwn('Kb-Tester', 'kb-tester'), true);
+  assert.equal(isOwn('kb-tester', 'sam-ops'), false);
+  assert.equal(isOwn(null, 'sam-ops'), false);
+  assert.equal(isOwn('', ''), false);
+});
+
+test('editedBody changes the text and the page path, and the rest of the anchor not at all', () => {
+  const anchor = { guide: 'g1', page: 'docs/pages/old.md', block: 'b1', quote: 'some words', before: 'a ', after: ' b' };
+  const { body } = buildIssue({ text: 'First text', guideTitle: 'Overview', liveUrl: 'https://x.test/pages/overview/', anchor });
+  const next = editedBody(body, 'Second text\nwith two lines', { livePath: 'docs/pages/overview.md', liveUrl: 'https://x.test/pages/overview/', guideTitle: 'Overview' });
+  const c = parseIssue({ number: 1, body: next, user: { login: 'a' }, created_at: '', comments: 0 });
+  assert.equal(c.text, 'Second text\nwith two lines');
+  assert.deepEqual(c.anchor, { ...anchor, page: 'docs/pages/overview.md' });
+});
+
+test('editedBody is null for a body with no text part (it must not be sent)', () => {
+  assert.equal(editedBody('Just some words, edited on GitHub.', 'New', { livePath: 'p', liveUrl: 'u', guideTitle: 't' }), null);
+});

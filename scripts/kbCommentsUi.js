@@ -29,6 +29,7 @@ import { buildIssue, makeAnchor, findAnchor, commentsForGuide, orderComments } f
 import { loadLucideBodies, lucideSvg } from './lucideIcons.js';
 import { setThemeTip, KB_HOST } from './kbSite.js';
 import { currentGithubLogin } from './repoClient.js';
+import { attachThread } from './kbCommentsThread.js';
 
 const HIGHLIGHT = 'mb-kb-comment';
 const STYLESHEET_ID = 'mb-kb-comments-stylesheet';
@@ -290,17 +291,45 @@ const placement = () => 'toc';
 
 // ── The comments on the page ─────────────────────────────────────────────────
 
-function loadSheet(doc) {
-  if (doc.getElementById(STYLESHEET_ID)) return Promise.resolve(null);
-  const link = doc.createElement('link');
-  link.id = STYLESHEET_ID;
-  link.rel = 'stylesheet';
-  link.href = chrome.runtime.getURL('config/forms/kbComments.css');
-  (doc.head || doc.documentElement).append(link);
-  return new Promise(resolve => {
-    link.addEventListener('load', () => resolve(link), { once: true });
-    link.addEventListener('error', () => resolve(link), { once: true });
-  });
+// The stylesheet is shared by every instance on a document and counted: the
+// link goes only when the last instance using it lets go, so an instance that
+// is destroyed (or replaced) while still loading can never take away the
+// sheet a live one relies on.
+const sheets = new WeakMap(); // document → { link, owned, users, ready }
+
+function acquireSheet(doc) {
+  let entry = sheets.get(doc);
+  if (!entry) {
+    let link = doc.getElementById(STYLESHEET_ID);
+    const owned = !link;
+    if (owned) {
+      link = doc.createElement('link');
+      link.id = STYLESHEET_ID;
+      link.rel = 'stylesheet';
+      link.href = chrome.runtime.getURL('config/forms/kbComments.css');
+      (doc.head || doc.documentElement).append(link);
+    }
+    const ready = owned
+      ? new Promise(resolve => {
+        link.addEventListener('load', resolve, { once: true });
+        link.addEventListener('error', resolve, { once: true });
+      })
+      : Promise.resolve();
+    entry = { link, owned, users: 0, ready };
+    sheets.set(doc, entry);
+  }
+  entry.users++;
+  let held = true;
+  return {
+    ready: entry.ready,
+    release() {
+      if (!held) return;
+      held = false;
+      if (--entry.users > 0) return;
+      sheets.delete(doc);
+      if (entry.owned) entry.link.remove();
+    },
+  };
 }
 
 const el = (doc, tag, cls, text) => {
@@ -329,10 +358,11 @@ export function startKbComments(opts) {
   let login = null;
   let comments = [];       // every comment on this guide, as loaded and as posted
   const cards = new Map(); // comment number → its card
+  const threads = new Map(); // comment number → its replies and edit tools
   let compose = null;      // the open comment box: { li, anchor, busy }
   let active = null;       // the number of the card clicked
   let host = null;         // the placement holding the list, while it has anything in it
-  let sheet = null;        // our stylesheet, when we added it
+  let sheet = null;        // our hold on the stylesheet
   let pop = null;          // the selection's comment icon
   let pending = null;      // the anchor the icon would comment on
   let pointerDown = false;
@@ -396,8 +426,17 @@ export function startKbComments(opts) {
     if (c.createdAt) time.dateTime = c.createdAt;
     meta.append(time);
     li.append(meta, el(doc, 'p', 'mb-kb-comment__text', c.text));
-    // Filled by the replies (a later piece of work); shown while the card is open.
+    // The replies, the reply box and the own-comment tools are in the thread; shown while the card is open.
     li.append(el(doc, 'div', 'mb-kb-comment__replies'));
+    threads.set(c.number, attachThread(li, c, {
+      doc, client, relativeDate, page,
+      login: () => login,
+      dead: () => dead,
+      guideTitle: () => (article.querySelector(':scope > h1')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      liveLink: () => liveLink(page),
+      onRemoved: removeComment,
+      onChanged: () => draw(),
+    }));
     return li;
   }
 
@@ -457,6 +496,16 @@ export function startKbComments(opts) {
     if (scroll) scrollToRange(range);
   }
 
+  /** A deleted comment: its card goes and the list closes up. */
+  function removeComment(number) {
+    comments = comments.filter(x => x.number !== number);
+    if (active === number) clearActive();
+    cards.get(number)?.remove();
+    cards.delete(number);
+    threads.delete(number);
+    draw();
+  }
+
   function activate(card) {
     const c = comments.find(x => String(x.number) === card.dataset.number);
     if (!c) return;
@@ -465,6 +514,7 @@ export function startKbComments(opts) {
     card.classList.add('--active');
     const at = findAnchor(getModel(), c.anchor);
     if (at) highlight(at, { scroll: true });
+    threads.get(c.number)?.open();
   }
 
   // ── The comment box ──
@@ -634,7 +684,7 @@ export function startKbComments(opts) {
     listen(win, 'resize', follow, { passive: true });
     list.addEventListener('click', e => {
       const card = e.target.closest('li.mb-kb-comment');
-      if (card && !e.target.closest('button, a, textarea, input')) activate(card);
+      if (card && !e.target.closest('button, a, textarea, input, .mb-kb-comment__replies, .mb-kb-comment__edit')) activate(card);
     });
     list.addEventListener('keydown', e => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('li.mb-kb-comment')) { e.preventDefault(); activate(e.target); }
@@ -655,9 +705,9 @@ export function startKbComments(opts) {
       }
       const m = getModel();
       comments = commentsForGuide(res.comments, { guide: m.guideId, page: page.livePath, blockIds: m.blockIds });
-      const [link] = await Promise.all([loadSheet(doc), loadLucideBodies(), currentGithubLogin().then(l => { login = l; }, () => {})]);
-      sheet = link;
-      if (dead) { sheet?.remove(); return; }
+      sheet = acquireSheet(doc); // taken now, so a destroy while loading lets it go
+      await Promise.all([sheet.ready, loadLucideBodies(), currentGithubLogin().then(l => { login = l; }, () => {})]);
+      if (dead) return;
       wire();
       draw();
     } catch (err) {
@@ -694,7 +744,8 @@ export function startKbComments(opts) {
       pop?.remove();
       list.remove();
       if (active != null) win.CSS?.highlights?.delete(HIGHLIGHT);
-      sheet?.remove();
+      sheet?.release();
+      sheet = null;
     },
   };
 }

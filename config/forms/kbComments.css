@@ -105,8 +105,64 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
 .mb-kb-comment__quote::after { content: "\201D"; }
 .mb-kb-comment.--active .mb-kb-comment__quote { display: block; }
 
+.mb-kb-comment__text[hidden],
+.mb-kb-comment.--active .mb-kb-comment__text[hidden],
+.mb-kb-comment__count[hidden],
+.mb-kb-comments__tools[hidden] { display: none; }
+
+/* ── Replies, and Edit / Delete on your own ─────────────────────────────── */
+
+.mb-kb-comment__count {
+  margin: .3rem 0 0;
+  color: var(--md-default-fg-color--light);
+  font-size: .6rem;
+  font-weight: 700;
+}
+.mb-kb-comment.--active .mb-kb-comment__count { display: none; }
+
 .mb-kb-comment__replies:empty,
 .mb-kb-comment:not(.--active) .mb-kb-comment__replies { display: none; }
+.mb-kb-comment__replies { margin-top: .5rem; }
+
+.mb-kb-comment__thread { margin: 0; padding: 0; list-style: none; }
+.mb-kb-reply {
+  margin: 0;
+  padding: .4rem 0 .45rem;
+  border-top: .05rem solid var(--md-default-fg-color--lightest);
+}
+.mb-kb-reply .mb-kb-comment__text { display: block; }
+.mb-kb-reply .mb-kb-comment__text[hidden] { display: none; }
+.mb-kb-comment__edit { margin-top: .2rem; }
+
+/* The comment's own tools sit in its open card only; a reply's are always there (replies show only when open). */
+.mb-kb-comment:not(.--active) > .mb-kb-comment__meta .mb-kb-comments__tools { display: none; }
+.mb-kb-comments__tools { display: inline-flex; flex-shrink: 0; gap: .1rem; margin-left: .2rem; }
+.mb-kb-comments__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border: 0;
+  border-radius: .3rem;
+  background: transparent;
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  transition: color .25s, background-color .25s;
+}
+.mb-kb-comments__icon:hover:not(:disabled) { color: var(--md-default-fg-color); background-color: var(--md-default-fg-color--lightest); }
+.mb-kb-comments__icon:disabled { opacity: .45; cursor: default; }
+.mb-kb-comments__icon:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .05rem; }
+.mb-kb-comments__icon svg { width: .7rem; height: .7rem; }
+
+/* The reply box: one line, taller once it is used. */
+.mb-kb-reply-form { margin-top: .35rem; }
+.mb-kb-reply-form .mb-kb-reply-form__input { min-height: 1.5rem; transition: min-height .2s, background-color .25s, border-color .25s; }
+.mb-kb-reply-form:focus-within .mb-kb-reply-form__input,
+.mb-kb-reply-form.--filled .mb-kb-reply-form__input { min-height: 2.8rem; }
+.mb-kb-reply-form:not(:focus-within):not(.--filled) .mb-kb-comments__actions,
+.mb-kb-reply-form:not(:focus-within):not(.--filled) .mb-kb-comments__error { display: none; }
 
 /* ── The comment box ────────────────────────────────────────────────────── */
 
