@@ -38,15 +38,21 @@ test('inserts after header when file has frontmatter', () => {
 test('frontmatter but no header: header created after frontmatter', () => {
   const md = insertDraftIntoMarkdown(FRONTMATTER, UPDATE);
   assert.ok(md.startsWith('---\n'), 'frontmatter stays at the very top');
-  const headerIdx = md.indexOf('# System update drafts');
+  const headerIdx = md.indexOf('# System Updates');
   assert.ok(headerIdx > md.indexOf('exclude: true'), 'header sits below frontmatter');
   assert.ok(md.indexOf('??? improvement') > headerIdx, 'block sits below header');
 });
 
 test('empty file gets header then block', () => {
   const md = insertDraftIntoMarkdown('', UPDATE);
-  assert.ok(md.startsWith(HEADER), 'header first');
+  assert.ok(md.startsWith('# System Updates\n'), 'header first');
   assert.ok(md.includes('??? improvement'), 'block present');
+});
+
+test('a title on the last line, with no newline after it, is kept: no second title', () => {
+  const md = insertDraftIntoMarkdown(FRONTMATTER + '# My own title', UPDATE);
+  assert.ok(md.startsWith(FRONTMATTER + '# My own title\n\n??? improvement'), 'block sits under the title that was there');
+  assert.equal(md.match(/^# /gm).length, 1, 'one title only');
 });
 
 test('new draft lands above existing drafts', () => {

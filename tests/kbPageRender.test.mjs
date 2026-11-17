@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { renderGuidePage, renderTextHtml, renderInlineHtml, assetPathOf, safeUrl, TEXT_KIND } from '../scripts/kbPageRender.js';
+import { renderGuidePage, pageChromeHtml, renderTextHtml, renderInlineHtml, assetPathOf, safeUrl, TEXT_KIND, EMPTY_TEXT } from '../scripts/kbPageRender.js';
 import { guideNodeIndex } from '../scripts/guideSideSwitch.js';
 
 let passed = 0;
@@ -106,12 +106,23 @@ test('a container\'s text is one editable block of real paragraphs', () => {
   assert.match(html, new RegExp(`<div class="mb-kb-leaf" data-mb-node="[0-9a-f-]{36}" data-mb-kind="leaf" data-mb-comp="text"><div class="mb-kb-text" data-mb-text="block" data-mb-uuid="[0-9a-f-]{36}"><p>Intro with <strong>bold</strong> and a <a href="overview.md">link</a>.</p>\\n<p>Second paragraph on two lines.</p></div></div>`));
 });
 
-test('a container with no text still gets an (empty) text block to click', () => {
-  assert.match(html, /<div class="mb-kb-text --empty" data-mb-text="guide-section" data-mb-uuid="s1" data-mb-at="0"><\/div>/);
+test('a container with no text gets nothing standing in for it', () => {
+  assert.ok(!html.includes('--empty'));
+  assert.ok(!html.includes('data-mb-at='));
+});
+
+test('an empty text block is drawn as an empty block of its own', () => {
+  const out = renderGuidePage(['# T', '<span data-uuid="h1" style="display:none"></span>', '', '<span data-uuid="t1" style="display:none"></span>', EMPTY_TEXT].join('\n')).html;
+  assert.match(out, /data-mb-node="t1" data-mb-kind="leaf" data-mb-comp="text"><div class="mb-kb-text --empty" data-mb-text="block" data-mb-uuid="t1"><\/div>/);
 });
 
 test('lists in text render as lists', () => {
   assert.match(html, /data-mb-text="block" data-mb-uuid="[0-9a-f-]{36}"><ul><li>one<\/li><li>two<\/li><\/ul><\/div>/);
+});
+
+test('a step with a meta holds the meta alone: the site writes "Step N" above it', () => {
+  const md = `# T\n${span('h1')}\n\n!!! step "<span class="meta">(optional)</span>"\n\n    ${span('st')}\n    Do it.\n`;
+  assert.match(render(md).html, /<p class="admonition-title" data-mb-title><span class="meta">\(optional\)<\/span><\/p>/);
 });
 
 test('admonitions use the theme markup, default their title to the type, and nest', () => {
@@ -122,8 +133,13 @@ test('admonitions use the theme markup, default their title to the type, and nes
   assert.ok(html.slice(html.indexOf('data-mb-node="a1"'), html.indexOf('data-mb-node="a3"')).includes('Nested note.'));
 });
 
-test('a collapsible admonition is an open <details>', () => {
-  assert.match(html, /<details class="tip" open data-mb-node="a3" data-mb-kind="admonition"><summary data-mb-title><span data-mb-edit="adm-title" data-mb-uuid="a3">Fold me<\/span><\/summary>/);
+test('a closed collapsible admonition is a closed <details>', () => {
+  assert.match(html, /<details class="tip" data-mb-node="a3" data-mb-kind="admonition" data-mb-fold="\?\?\?"><summary data-mb-title><span data-mb-edit="adm-title" data-mb-uuid="a3">Fold me<\/span><\/summary>/);
+});
+
+test('an open collapsible admonition (???+) is an open <details>', () => {
+  const out = render(['# T', '<span data-uuid="h1" style="display:none"></span>', '', '???+ tip "Open me"', '', '    <span data-uuid="a9" style="display:none"></span>', '    Shown tip.'].join('\n')).html;
+  assert.match(out, /<details class="tip" open data-mb-node="a9" data-mb-kind="admonition" data-mb-fold="\?\?\?\+">/);
 });
 
 test('captures render both theme images from the site root, attrs kept', () => {
@@ -156,14 +172,16 @@ test('a diagram is a slot for the copy the site built, with its source under it 
   assert.match(html, /<pre class="mb-kb-source"><code data-mb-edit="diagram" data-mb-uuid="d1">graph TD\n  A--&gt;B<\/code><\/pre>/);
 });
 
-test('code blocks: the code and each annotation are editable pieces; a media cell is not', () => {
+test('code blocks: drawn as the live page, markers as bubbles; a media cell is not editable', () => {
   const out = render([
     '# T', span('h'), '',
-    span('cb'), '```python title="x.py"', 'print(1)  # (1)!', '```', '', '1. A **note**', '',
+    span('cb'), '```python title="x.py" hl_lines="1"', 'print(1)  # (1)!', '```', '', '1. A **note**', '',
     span('tb'), '', '| A | B |', '| :--- | :--- |', '| ![](../assets/media/buttons/save.svg) | text |', '',
   ].join('\n')).html;
-  assert.match(out, /<span class="filename">x\.py<\/span><pre><code data-mb-edit="code" data-mb-uuid="cb">print\(1\)  # \(1\)!<\/code><\/pre>/);
-  assert.match(out, /<ol class="mb-kb-annotations"><li data-mb-edit="annotation" data-mb-uuid="cb" data-mb-index="0">A <strong>note<\/strong><\/li><\/ol>/);
+  assert.match(out, /<div class="highlight mb-kb-code language-python" data-mb-code="cb"><span class="filename">x\.py<\/span><pre data-mb-hl="1"><code data-mb-edit="code" data-mb-uuid="cb">print\(1\) <span class="md-annotation mb-kb-ann" contenteditable="false" data-mb-ann="0">/);
+  assert.doesNotMatch(out, /mb-kb-annotations/, 'an annotation with a marker is in its bubble, not listed');
+  const numbered = render(['# T', span('h'), '', span('n'), '```bash linenums="4"', 'a', 'b', '```', ''].join('\n')).html;
+  assert.match(numbered, /<pre data-mb-hl="" data-mb-linenums="4"><span class="mb-kb-code-nums" aria-hidden="true">4\n5<\/span><code /);
   assert.match(out, /<td style="text-align: left"><img alt="" src="\/assets\/media\/buttons\/save\.svg"><\/td><td style="text-align: left" data-mb-edit="cell" data-mb-uuid="tb" data-mb-row="0" data-mb-col="1">text<\/td>/);
 });
 
@@ -253,7 +271,7 @@ test('an empty or section-less file renders nothing rather than throwing', () =>
   assert.equal(render('just text, no heading').html, '');
 });
 
-// ── Create mode: insert slots ────────────────────────────────────────────────
+// ── Insert slots ────────────────────────────────────────────────
 
 const slotsOf = html => [...html.matchAll(/<div class="mb-kb-insert" data-mb-insert-kind="([^"]*)" data-mb-insert-uuid="([^"]*)" data-mb-insert-at="(\d+)">/g)]
   .map(m => ({ kind: m[1], uuid: m[2], at: Number(m[3]) }));
@@ -287,22 +305,9 @@ test('with insert slots, every container gets one slot per block (text included)
 
 test('insert slots do not change anything else on the page', () => {
   const withSlots = renderGuidePage(PAGE, { assetUrl, insertSlots: true }).html
-    .replace(/<div class="mb-kb-insert"[^>]*><button type="button" class="mb-kb-insert__btn">\+ Insert new<\/button><\/div>\n?/g, '');
+    .replace(/<div class="mb-kb-insert"[^>]*><\/div>\n?/g, '')
+    .replace(/<button type="button" class="mb-kb-(?:newtab|tabadd)".*?<\/button>/g, '');
   assert.equal(withSlots.replace(/\n/g, ''), render(PAGE).html.replace(/\n/g, ''));
-});
-
-// ── Markdown view ────────────────────────────────────────────────────────────
-
-test('Markdown view shows text blocks and headings as their markdown source, escaped', () => {
-  const { html, title } = renderGuidePage(PAGE, { assetUrl, markdown: true });
-  assert.equal(title, 'Adding a new employee');
-  assert.match(html, /<div class="mb-kb-leaf" data-mb-node="[0-9a-f-]{36}" data-mb-kind="leaf" data-mb-comp="text"><div class="mb-kb-text --md" data-mb-text="block" data-mb-uuid="[0-9a-f-]{36}">Intro with \*\*bold\*\* and a \[link\]\(overview\.md\)\.\n\nSecond paragraph\non two lines\.<\/div>/);
-  assert.doesNotMatch(html, /<strong>bold<\/strong>/);
-  // Components are still drawn.
-  assert.match(html, /class="admonition step"/);
-  const evil = renderGuidePage(`# T\n${span('h')}\n\n<img src=x onerror=alert(1)>\n`, { markdown: true }).html;
-  assert.doesNotMatch(evil, /<img/);
-  assert.match(evil, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
 
 test('a script link is defused in a list item as it is in a paragraph', () => {
@@ -322,4 +327,50 @@ test('one block redraws on its own exactly as the page drew it', () => {
   assert.equal(renderInlineHtml('Creating **the** record'), 'Creating <strong>the</strong> record');
 });
 
+test('tabs in the editor: a "New tab" ghost ends the label row; a tab has no Add card of its own', () => {
+  const html = renderGuidePage(PAGE, { assetUrl, insertSlots: true }).html;
+  assert.equal(html.split('data-mb-newtab="t1"').length - 1, 1);
+  assert.match(html, /Multiple Sites<\/label><button type="button" class="mb-kb-newtab" data-mb-newtab="t1"><span class="mb-kb-newtab__plus" aria-hidden="true"><\/span><span>New tab<\/span><\/button><\/div>/);
+  for (const tab of ['tab1', 'tab2']) {
+    assert.match(html, new RegExp(`data-mb-insert-uuid="${tab}" data-mb-insert-at="\\d+"></div>\\s*</div>`));
+  }
+  assert.ok(!html.includes('mb-kb-tabadd'));
+  // The read only view draws neither.
+  const live = render(PAGE).html;
+  assert.ok(!live.includes('mb-kb-newtab') && !live.includes('mb-kb-tabadd'));
+});
+
 console.log(`\n${passed} passed`);
+
+// ── What the site draws from the frontmatter ─────────────────────────────────
+
+const fm = (tags, hide = []) => `---\ntags:\n${tags.map(t => `  - ${t}`).join('\n')}\n${hide.length ? `hide:\n${hide.map(h => `  - ${h}`).join('\n')}\n` : ''}---\n\n# Page\n`;
+
+test('pageChromeHtml: Written for shows the audience and every one above it, as the site builds it', () => {
+  const { writtenFor } = pageChromeHtml(fm(['Managing OCC']));
+  assert.equal(writtenFor, '<p class="mb-written-for"><span class="mb-written-for__label">Written for</span>'
+    + '<span class="mb-label mb-label-purple"><span class="twemoji" data-mb-lucide="user-shield"></span>Managers</span>'
+    + '<span class="mb-label mb-label-pink"><span class="twemoji" data-mb-lucide="user-cog"></span>Administrators</span></p>');
+  assert.equal((pageChromeHtml(fm(['System', 'Using OCC'])).writtenFor.match(/mb-label /g) ?? []).length, 3);
+});
+
+test('pageChromeHtml: no Written for line with no audience tag, or when it is hidden', () => {
+  assert.equal(pageChromeHtml(fm(['System'])).writtenFor, '');
+  assert.equal(pageChromeHtml(fm(['Managing OCC'], ['written-for'])).writtenFor, '');
+  assert.equal(pageChromeHtml('# Page\n').writtenFor, '');
+});
+
+test('pageChromeHtml: the site registry names, colours and orders the pills', () => {
+  const audiences = [{ tag: 'Managing OCC', name: 'Bosses', colour: 'teal', icon: '' }, { tag: 'Using OCC', name: 'All <b>', colour: '', icon: 'lucide/user' }];
+  assert.equal(pageChromeHtml(fm(['Managing OCC']), { audiences }).writtenFor,
+    '<p class="mb-written-for"><span class="mb-written-for__label">Written for</span>'
+    + '<span class="mb-label mb-label-teal">Bosses</span>'
+    + '<span class="mb-label mb-label-grey"><span class="twemoji" data-mb-lucide="user"></span>All &lt;b&gt;</span></p>');
+});
+
+test('pageChromeHtml: the tags row carries every tag in frontmatter order, the audience tag too', () => {
+  assert.equal(pageChromeHtml(fm(['Managing OCC', 'Overview', 'Add-on'], ['written-for'])).tags,
+    '<nav class="md-tags"><span class="md-tag">Managing OCC</span><span class="md-tag">Overview</span><span class="md-tag">Add-on</span></nav>');
+  assert.equal(pageChromeHtml('# Page\n').tags, '');
+  assert.match(pageChromeHtml(fm(['A & B'], ['tags'])).tags, /^<nav class="md-tags" hidden><span class="md-tag">A &amp; B<\/span>/);
+});

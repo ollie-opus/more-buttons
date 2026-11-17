@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   OCC_DIR, SU_DIR, PAIR_DIRS, isSystemUpdateFile, isSystemUpdateContainer,
   captureDirForContainer, isSystemUpdateCapturePath, shortId, pairFilenames,
-  toSystemUpdateFilename,
+  toSystemUpdateFilename, toSystemUpdatePair,
 } from '../scripts/captureDest.js';
 import { buildMediaNodes } from '../scripts/mediaTree.js';
 
@@ -83,6 +83,17 @@ test('renamed pair still collapses to one leaf in the media tree', () => {
   const pairsOnly = buildMediaNodes([light, dark, 'docs/assets/media/system-update-captures/legacy-0f0f0f0f.gif'],
     { root: 'docs/assets/media/system-update-captures', exts: null, shape: 'pair' });
   assert.equal(pairsOnly.length, 1);
+});
+
+test('toSystemUpdatePair: both files under one id, with the generated name to show', () => {
+  assert.deepEqual(toSystemUpdatePair('media/occ-captures/sites/list-a-light-mode.png', 'media/occ-captures/sites/list-a-dark-mode.png', 'ab12cd34'), {
+    base: 'list-a-ab12cd34',
+    lightFilename: 'media/system-update-captures/list-a-ab12cd34-light-mode.png',
+    darkFilename: 'media/system-update-captures/list-a-ab12cd34-dark-mode.png',
+  });
+  // No dark filename given: derived from the light one. The extension is kept.
+  assert.equal(toSystemUpdatePair('media/occ-captures/x-light-mode.svg', null, 'ab12cd34').darkFilename,
+    'media/system-update-captures/x-ab12cd34-dark-mode.svg');
 });
 
 console.log(`\ncaptureDest: ${passed} passed`);

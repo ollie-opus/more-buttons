@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { classifyKbPath, classifyAdminPath, injectAdminCog, ADMIN_ROUTES, injectEditButton, injectLogButton, injectCreateDraftButton, isNotFoundPage, kbSchemeIsDark, KB_HOST } from '../scripts/kbSite.js';
+import { classifyKbPath, classifyAdminPath, injectAdminCog, ADMIN_ROUTES, injectEditButton, injectLogButton, injectPageButton, injectCreateDraftButton, isNotFoundPage, kbSchemeIsDark, KB_HOST } from '../scripts/kbSite.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -37,11 +37,16 @@ test('trailing slash and index.html are optional', () => {
   assert.equal(classifyKbPath('/pages/faqs/index.html')?.slug, 'faqs');
 });
 
-test('the home page, System Status / Updates and anything else get nothing', () => {
-  for (const path of ['/', '/index.html', '/pages/', '/pages/system-status/', '/pages/system-updates/',
-    '/drafts/system-updates/', '/drafts/system-status/', '/assets/media/x.png', '/pages/a/b/', '/search/', '', undefined]) {
+test('the home page, System Status and anything else get nothing', () => {
+  for (const path of ['/', '/index.html', '/pages/', '/pages/system-status/',
+    '/drafts/system-status/', '/assets/media/x.png', '/pages/a/b/', '/search/', '', undefined]) {
     assert.equal(classifyKbPath(path), null, String(path));
   }
+});
+
+test('System Updates is a page: its live side and its drafts list', () => {
+  assert.equal(classifyKbPath('/pages/system-updates/')?.draftUrl, '/drafts/system-updates/');
+  assert.equal(classifyKbPath('/drafts/system-updates/')?.draftPath, 'docs/drafts/system-updates.md');
 });
 
 // A just-enough document: one article holding an h1.
@@ -69,7 +74,9 @@ test('Edit is the theme\'s own "Edit this page" control, first in the article, p
   assert.equal(doc.article.children[0], a);
   assert.equal(a.tag, 'a');
   assert.equal(a.href, '/drafts/faqs/');
-  assert.equal(a.title, 'Edit this page');
+  assert.equal(a.attrs['aria-label'], 'Switch to edit mode');
+  assert.equal(a.title, undefined, 'no title: the theme tooltip is drawn by kbSite.js, never the browser\'s');
+  assert.ok(a.listeners.mouseenter, 'shows the theme tooltip on hover');
   assert.ok(a.className.startsWith('md-content__button md-icon'));
   assert.equal(injectEditButton(doc, classifyKbPath('/pages/faqs/')), null, 'never twice');
 });
@@ -82,7 +89,7 @@ test('Edit log is the same theme control, ahead of Edit on a live page (so to it
   const log = injectLogButton(live, page, (p, btn) => opened.push([p, btn]));
   assert.deepEqual(live.article.children.slice(0, 2), [log, edit]);
   assert.equal(log.className, 'md-content__button md-icon mb-kb-log');
-  assert.equal(log.title, 'Edit log');
+  assert.equal(log.attrs['aria-label'], 'Edit log');
   let prevented = 0;
   log.listeners.click({ preventDefault: () => { prevented++; } });
   assert.equal(prevented, 1, 'never follows its href');
@@ -94,11 +101,31 @@ test('Edit log is the same theme control, ahead of Edit on a live page (so to it
   assert.equal(draft.article.children[0], alone);
 });
 
+test('a draft\'s own icons are the same theme control, either side of Edit log, and a disabled one does nothing', () => {
+  const doc = fakeDoc();
+  const clicks = [];
+  const md = injectPageButton(doc, { cls: 'mb-kb-mdview', icon: 'file-code', title: 'Markdown view', onClick: () => clicks.push('markdown') });
+  const log = injectLogButton(doc, classifyKbPath('/drafts/faqs/'), () => {});
+  const del = injectPageButton(doc, { cls: 'mb-kb-delete', icon: 'trash-2', title: 'Delete draft', onClick: () => clicks.push('delete') });
+  // They float right: first in the article is furthest right.
+  assert.deepEqual(doc.article.children.slice(0, 3), [del, log, md]);
+  for (const b of [del, md]) assert.ok(b.className.startsWith('md-content__button md-icon '));
+  assert.equal(md.attrs['aria-label'], 'Markdown view');
+  assert.equal(md.attrs['aria-haspopup'], undefined);
+  assert.equal(log.attrs['aria-haspopup'], 'dialog');
+  md.listeners.click({ preventDefault() {} });
+  del.getAttribute = k => del.attrs[k];
+  del.setAttribute('aria-disabled', 'true');
+  del.listeners.click({ preventDefault() {} });
+  assert.deepEqual(clicks, ['markdown']);
+  assert.equal(injectPageButton(doc, { cls: 'mb-kb-delete', icon: 'trash-2', title: 'Delete draft', onClick() {} }), null, 'never twice');
+});
+
 test('the edit log popup script can be loaded by the page', () => {
   assert.ok(manifest.web_accessible_resources.some(w => w.resources.includes('scripts/kbEditLog.js')));
 });
 
-test('Create draft sits under the reworded 404 heading, and cannot be double-clicked', async () => {
+test('Create new draft sits under the reworded 404 heading, and cannot be double-clicked', async () => {
   const doc = fakeDoc();
   let calls = 0, release;
   const p = injectCreateDraftButton(doc, () => { calls++; return new Promise(r => { release = r; }); });
@@ -106,7 +133,7 @@ test('Create draft sits under the reworded 404 heading, and cannot be double-cli
   assert.equal(doc.article.children[0].textContent, 'This page has no draft yet', 'replaces the 404 heading');
   const btn = p.children.find(c => c.tag === 'a');
   assert.equal(btn.className, 'md-content__button md-icon', 'the theme\'s own edit control');
-  assert.deepEqual(btn.children.map(c => c.textContent), ['Create draft']);
+  assert.deepEqual(btn.children.map(c => c.textContent), ['Create new draft']);
   const first = btn.listeners.click();
   btn.listeners.click();
   assert.equal(calls, 1);
@@ -143,6 +170,12 @@ test('admin urls map to their screen, with or without the trailing slash', () =>
   assert.deepEqual(classifyAdminPath('/admin/'), { route: 'home' });
   assert.deepEqual(classifyAdminPath('/admin/pages'), { route: 'pages' });
   assert.deepEqual(classifyAdminPath('/admin/pages/new/'), { route: 'pages/new' });
+  // A media file's own page: the rest of the url is its path in the library.
+  assert.deepEqual(classifyAdminPath('/admin/media-library/occ-captures/sites/overview/'), { route: 'media-library/file', file: 'occ-captures/sites/overview' });
+  assert.deepEqual(classifyAdminPath('/admin/media-library/upload/'), { route: 'media-library/upload' });
+  assert.deepEqual(classifyAdminPath('/admin/media-library/'), { route: 'media-library' });
+  assert.equal(classifyAdminPath('/admin/pages/whatever/deep/'), null);
+  assert.equal(classifyAdminPath('/admin/media-library/a/../b/'), null);
   assert.deepEqual(classifyAdminPath('/admin/media-library/'), { route: 'media-library' });
   assert.deepEqual(classifyAdminPath('/admin/media-library/upload'), { route: 'media-library/upload' });
   assert.deepEqual(classifyAdminPath('/admin/settings/'), { route: 'settings' });
@@ -173,12 +206,12 @@ test('the admin cog is the theme\'s header button, placed just left of the searc
   };
   const doc = {
     querySelector: sel => (sel === '.md-header__inner' ? header : null),
-    createElement: () => { const a = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }; made.push(a); return a; },
+    createElement: () => { const a = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, addEventListener() {} }; made.push(a); return a; },
   };
   const cog = injectAdminCog(doc);
   assert.equal(cog.className, 'md-header__button md-icon mb-kb-admin-cog');
   assert.equal(cog.href, '/admin/');
-  assert.equal(cog.attrs['aria-label'], 'Knowledge Base admin');
+  assert.equal(cog.attrs['aria-label'], 'Knowledge base admin');
   assert.equal(header.order.indexOf(cog), header.order.indexOf(search) - 1);
   assert.equal(injectAdminCog(doc), null, 'a second call adds nothing');
   assert.equal(injectAdminCog({ querySelector: () => null }), null, 'no header, no cog');

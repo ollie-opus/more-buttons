@@ -1,7 +1,7 @@
 // scripts/labelPalette.js
 // The shared label colour palette (config/labelColours.json): 26 named colours
 // in two groups (chromatic + neutrals), each with light/dark bg/text/border.
-// Consumed by the rich-text Label popover, the button editor's colour swatches,
+// Consumed by the label colour pills (labelPills.js), the button editor's colour swatches,
 // the tag chips (tag colours) and the colour-swatch popover. Kept in its own
 // tiny module so light widgets (tagChips) don't drag the whole rich-text editor
 // graph into their unit tests; the fetch is lazy so importing is test-safe.

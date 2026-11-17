@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { slugify, sectionNameFrom, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue, parseCreatedTags, parseTagRegistry, writeTagRegistry, mergeTagRegistry } from '../scripts/navToml.js';
+import { slugify, sectionNameFrom, parseNavBlock, serializeNav, replaceNavBlock, insertPath, removeByValue, findPathOfValue, parseCreatedTags, parseTagRegistry, writeTagRegistry, mergeTagRegistry, parseAudiences } from '../scripts/navToml.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -254,3 +254,12 @@ test('mergeTagRegistry: union keeps file order + spelling, form colours win, not
 });
 
 console.log(`\n${passed} passed`);
+
+test('parseAudiences: the ordered mb_audiences registry, [] when absent', () => {
+  const toml = '[project.extra]\nmb_audiences = [\n  { tag = "Using OCC",         name = "Users",          colour = "blue",   icon = "lucide/user" },\n  { tag = "Managing OCC", name = "Managers" },\n]\nmb_created_tags = [\n  { name = "System" },\n]\n';
+  assert.deepEqual(parseAudiences(toml), [
+    { tag: 'Using OCC', name: 'Users', colour: 'blue', icon: 'lucide/user' },
+    { tag: 'Managing OCC', name: 'Managers', colour: '', icon: '' },
+  ]);
+  assert.deepEqual(parseAudiences('[project]\n'), []);
+});

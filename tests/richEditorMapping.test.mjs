@@ -170,7 +170,7 @@ function labelEl(slug, ...children) {
 test('serialize a label pill → canonical class-only span', () => {
   assert.equal(serialize(el('root', labelEl('red', txt('Beta')))), LABEL('red', 'Beta'));
 });
-test('serialize a label pill is atomic — inline style / inner marks are dropped', () => {
+test('serialize a label pill: inline style / inner marks are dropped', () => {
   const pill = labelEl('teal', el('strong', txt('New')));
   pill.setAttribute('style', '--bg: rgb(1,2,3)'); // the painter's cosmetic style
   assert.equal(serialize(el('root', pill)), LABEL('teal', 'New'));
@@ -182,12 +182,26 @@ test('serializeWithSelection maps a caret inside a label pill to source', () => 
   const open = '<span class="mb-label mb-label-amber">';
   assert.equal(serializeWithSelection(root, sel).selStart, ('go ' + open).length + 1);
 });
-test('serialize a surface pill: the contenteditable=false attr never leaks into source', () => {
-  // The rich surface renders pills atomic (contenteditable=false); the source
-  // must stay the canonical class-only span.
-  const pill = labelEl('red', txt('Beta'));
-  pill.setAttribute('contenteditable', 'false');
-  assert.equal(serialize(el('root', pill)), LABEL('red', 'Beta'));
+test('a caret after an icon inside a label pill maps past the icon shortcode', () => {
+  const icon = el('span');
+  icon.setAttribute('data-mb-icon', 'check');
+  const t = txt(' Done');
+  const root = el('root', labelEl('green', icon, t));
+  const sel = { anchorNode: t, anchorOffset: 2, focusNode: t, focusOffset: 2 };
+  const res = serializeWithSelection(root, sel);
+  assert.equal(res.value, LABEL('green', ':lucide-check: Done'));
+  assert.equal(res.selStart, '<span class="mb-label mb-label-green">:lucide-check:'.length + 2);
+});
+test('a label pill emptied of its text is dropped, and a caret in it maps to where it stood', () => {
+  const pill = labelEl('red');
+  const root = el('root', txt('a '), pill, txt(' b'));
+  const sel = { anchorNode: pill, anchorOffset: 0, focusNode: pill, focusOffset: 0 };
+  const res = serializeWithSelection(root, sel);
+  assert.equal(res.value, 'a  b');
+  assert.equal(res.selStart, 2);
+});
+test('label pill text can hold no tag and no line break', () => {
+  assert.equal(serialize(el('root', labelEl('red', txt('a<b>\nc')))), LABEL('red', 'abc'));
 });
 test('serializeWithSelection maps a selection wrapping a pill node to its full span range', () => {
   // Range.selectNode(pill) — the surface's click gesture: anchor/focus are the

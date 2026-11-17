@@ -4,6 +4,7 @@ import {
   bindMarkersToAnnotations, normalizeForSave, langWarningFor,
   NO_COMMENT_LANGS, CONSOLE_LANGS,
   hasAnnotationMarker,
+  CODE_LANGUAGES, DEFAULT_CODE_LANGUAGE, languageOptions,
 } from '../scripts/codeAnnotations.js';
 import { buildCodeBlockLines, locateCodeBlockLines } from '../scripts/mdCodeBlocks.js';
 
@@ -278,6 +279,27 @@ test('round trip: serialized code + annotations survive build → locate → tok
   const { chips, orphans } = bindMarkersToAnnotations(tokenizeAnnotatedCode(found.code), found.annotations);
   assert.deepEqual(chips.map(c => c.text), annotations);
   assert.deepEqual(orphans, []);
+});
+
+// ── The languages offered ────────────────────────────────────────────────────
+
+test('the default language is offered and can hold an annotation', () => {
+  assert.ok(CODE_LANGUAGES.some(([v]) => v === DEFAULT_CODE_LANGUAGE));
+  assert.equal(NO_COMMENT_LANGS.has(DEFAULT_CODE_LANGUAGE), false);
+});
+
+test('languageOptions: aliases and no language land on a listed option', () => {
+  assert.equal(languageOptions('py').value, 'python');
+  assert.equal(languageOptions(' YML ').value, 'yaml');
+  assert.equal(languageOptions('').value, 'text');
+  assert.equal(languageOptions('py').options, CODE_LANGUAGES);
+});
+
+test('languageOptions: an unlisted language gets an option of its own', () => {
+  const { options, value } = languageOptions('Rust');
+  assert.equal(value, 'rust');
+  assert.deepEqual(options.at(-1), ['rust', 'Rust']);
+  assert.equal(options.length, CODE_LANGUAGES.length + 1);
 });
 
 console.log(`\ncodeAnnotations: ${passed} tests passed`);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { computeArmedInsertion, slashOpensAt, slashQuery, slashItems } from '../scripts/richTextEditor.js';
+import { computeArmedInsertion, slashOpensAt, slashQuery, slashItems, listShortcutAt } from '../scripts/richTextEditor.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -89,3 +89,19 @@ test('a line that is already a list offers no list rows', () => {
 });
 
 console.log(`\n${passed} passed`);
+
+test('listShortcutAt: `- ` / `* ` / `1. ` at a line start make a list item', () => {
+  assert.deepEqual(listShortcutAt('- ', 2), { kind: 'ul', value: '- ', selStart: 2, selEnd: 2 });
+  assert.deepEqual(listShortcutAt('* hello', 2), { kind: 'ul', value: '- hello', selStart: 2, selEnd: 2 });
+  assert.deepEqual(listShortcutAt('1. ', 3), { kind: 'ol', value: '1. ', selStart: 3, selEnd: 3 });
+  assert.deepEqual(listShortcutAt('3) ', 3), { kind: 'ol', value: '1. ', selStart: 3, selEnd: 3 });
+  assert.equal(listShortcutAt('- ', 2).kind, 'ul'); // the space a contentEditable types at a line end
+  assert.deepEqual(listShortcutAt('Intro\n\n- ', 9), { kind: 'ul', value: 'Intro\n\n- ', selStart: 9, selEnd: 9 });
+});
+
+test('listShortcutAt: anywhere but a line start is left as typed', () => {
+  assert.equal(listShortcutAt('a - ', 4), null);
+  assert.equal(listShortcutAt('-', 1), null);
+  assert.equal(listShortcutAt('1.5 ', 4), null);
+  assert.equal(listShortcutAt('x 1. ', 5), null);
+});

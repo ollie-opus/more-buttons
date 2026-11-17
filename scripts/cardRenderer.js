@@ -9,7 +9,7 @@ export function escapeHtml(str) {
 
 // Canonical label pill span (matches labelMarkup in markdownInline.js: plain
 // inner text only, so `[^<]*` can't swallow a following tag).
-const LABEL_SPAN_RE = /<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/span>/g;
+const LABEL_SPAN_RE = /<span class=["']mb-label mb-label-([a-z0-9-]+)["']>([^<]*)<\/span>/g;
 
 // Escapes a title for card HTML while re-emitting its label pills as real
 // spans and its `:lucide-*:` shortcodes (inside or outside a pill) as icon

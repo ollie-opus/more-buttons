@@ -271,7 +271,7 @@ export function joinTitleMeta(title, meta) {
  * plain inner text only, so `[^<]*` can't swallow a following tag). Group 1 is
  * the colour slug, group 2 the pill text.
  */
-const LABEL_SPAN_RE = /<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/span>/g;
+const LABEL_SPAN_RE = /<span class=["']mb-label mb-label-([a-z0-9-]+)["']>([^<]*)<\/span>/g;
 
 /**
  * Reduces a title's label pills to their plain text, for display sites that

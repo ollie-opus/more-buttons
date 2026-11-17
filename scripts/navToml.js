@@ -372,6 +372,30 @@ export function attachUnderSegments(tree, segments, node) {
 // The extension only ever ADDS names or changes colours (see mergeTagRegistry)
 // — there is deliberately no delete path.
 
+// ── mb_audiences — who a page is written for (read only) ─────────────────────
+// The ordered [project.extra] mb_audiences registry the KB build draws the
+// "Written for" line from (overrides/partials/content.html), one inline table
+// a line: { tag = "Managing OCC", name = "Managers", colour = "purple", icon = "lucide/user-shield" }.
+const AUDIENCES_OPEN_RE = /^\s*mb_audiences\s*=\s*\[\s*$/;
+
+/** The audiences, in file order: [{ tag, name, colour, icon }] ([] when the
+ *  block is absent; entries with no tag are dropped). */
+export function parseAudiences(tomlText) {
+  const lines = (tomlText ?? '').split('\n');
+  const start = lines.findIndex(l => AUDIENCES_OPEN_RE.test(l));
+  if (start === -1) return [];
+  const entries = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*\]\s*,?\s*$/.test(lines[i])) break;
+    const table = lines[i].match(/^\s*\{(.*)\}\s*,?\s*$/);
+    if (!table) continue;
+    const f = {};
+    for (const m of table[1].matchAll(/(\w+)\s*=\s*"([^"]*)"/g)) f[m[1]] = m[2].trim();
+    if (f.tag) entries.push({ tag: f.tag, name: f.name || f.tag, colour: f.colour || '', icon: f.icon || '' });
+  }
+  return entries;
+}
+
 const CREATED_TAGS_OPEN_RE = /^\s*mb_created_tags\s*=\s*\[\s*$/;
 const ARRAY_CLOSE_RE = /^\s*\]\s*,?\s*$/;
 const TAG_ENTRY_STRING_RE = /^\s*"([^"]*)"\s*,?\s*$/;

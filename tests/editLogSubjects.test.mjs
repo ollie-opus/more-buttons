@@ -19,6 +19,9 @@ await test('guides.js: the rule-line prefixes and section/settings subjects are 
   assert.match(g, /publishGuideFiles\(\{ livePath, draftPath, title \}/);
   assert.match(g, /const guide = \{ \.\.\.currentGuide, title: guideDisplayTitle\(formEl\) \};/);
   assert.match(g, /commit: `Discard draft: \$\{title\}`/);
+  // Delete guide (form editor and the in-page editor's Live tab) names the guide on both file deletes.
+  assert.match(g, /export async function deleteGuideFiles\(\{ livePath, draftPath, title \}/);
+  assert.match(g, /const commit = `Delete guide: \$\{title\}`;/);
   assert.match(g, /commit: 'Reordered sections'/);
   assert.ok(count(g, /commit: 'Edited page settings'/g) >= 2, 'draft mergeSave and live PUT');
   assert.match(g, /Reordered components in '\$\{resolved\.sectionTitle\.trim\(\)\}'/);

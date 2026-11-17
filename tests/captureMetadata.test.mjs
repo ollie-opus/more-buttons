@@ -62,6 +62,11 @@ test('captureFlagSuffix covers all four combinations', () => {
   assert.equal(captureFlagSuffix(false, true), '-z');
   assert.equal(captureFlagSuffix(true, true), '-a-z');
 });
+test('captureFlagSuffix puts the isolated flag last', () => {
+  assert.equal(captureFlagSuffix(false, false, [], '', true), '-i');
+  assert.equal(captureFlagSuffix(false, true, [], '', true), '-z-i');
+  assert.equal(captureFlagSuffix(true, true, ['time'], '', true), '-a-time-z-i');
+});
 test('appendCaptureSuffix inserts before the light/dark theme tail', () => {
   assert.equal(
     appendCaptureSuffix('media/occ-captures/foo/bar-light-mode.png', '-a-z'),

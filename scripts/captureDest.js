@@ -92,3 +92,18 @@ export function toSystemUpdateFilename(filename, id8) {
   const slug = name.slice(0, m.index);
   return `media/${SU_DIR}/${slug}-${id8}-${m[1]}-mode.${m[2]}`;
 }
+
+/**
+ * The frozen-folder pair a capture is stored as, under one id: both
+ * library-relative filenames plus `base`, the generated `<slug>-<id8>` name
+ * shown to the user. A missing dark filename is derived from the light one.
+ */
+export function toSystemUpdatePair(lightFilename, darkFilename, id8) {
+  const light = toSystemUpdateFilename(lightFilename, id8);
+  const dark = toSystemUpdateFilename(darkFilename || String(lightFilename ?? '').replace('-light-mode', '-dark-mode'), id8);
+  return {
+    base: light.slice(`media/${SU_DIR}/`.length).replace(THEME_TAIL_RE, ''),
+    lightFilename: light,
+    darkFilename: dark,
+  };
+}

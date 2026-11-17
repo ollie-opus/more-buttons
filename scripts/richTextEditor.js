@@ -1,5 +1,7 @@
-import { markSpans, renderDocHtml } from './markdownInline.js';
-import { applyMarker, applyLink, linkAt, applySupport, supportAt, applyLabel, labelAt, applyIcon, iconAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
+import { markSpans, renderDocHtml, iconMarkup } from './markdownInline.js';
+import { applyMarker, applyLink, linkAt, applySupport, supportAt, applyIcon, iconAt, stripFormatting, toggleList, indentSelection, isListLineAt, insertHorizontalRule } from './markdownToolbarActions.js';
+import { attachLabelEditing } from './labelPills.js';
+import { attachIconMenu } from './iconPills.js';
 import { serialize, serializeWithSelection, placeCaret } from './richEditorMapping.js';
 import { attachIconPicker, getLucideSvgMarkup, loadLucideNames, paintIcons } from './iconPicker.js';
 import { renderTree, applySearch } from './kbTree.js';
@@ -111,10 +113,10 @@ export function upgradeTextarea(textarea, opts = {}) {
   buildButtons(rte);
   wireToolbarScroll(btnWrap, btnGroup);
   attachLinkPopover(rte);
-  attachLabelPopover(rte);
   attachIconPopover(rte);
   if (!inline) attachAiPopover(rte);
   buildTabs(rte);
+  rte.labelEdit = attachLabelEditing(rte, { applyResult, syncFromSurface, currentSelection, refresh: refreshActiveStates, armed: isArmed });
   attachSurfaceEvents(rte);
   attachSelectionTracking(rte);
   setMode(rte, 'rich', { focus: false }); // initial render, no focus steal during hydration
@@ -194,11 +196,13 @@ export function attachRichSurface(surface, { value = '', placeholder = '', inlin
 
   buildButtons(rte);
   attachLinkPopover(rte);
-  attachLabelPopover(rte);
-  attachIconPopover(rte);
+  // Icons are chosen from pills floating by the text (iconPills.js), not a popover.
+  rte.iconMenu = attachIconMenu(rte, { applyResult, currentSelection, clearArmed });
+  rte.openIconPopover = () => rte.iconMenu.open();
   if (!inline) attachAiPopover(rte);
   attachFloat(rte, host);
   attachSlashMenu(rte, host); // before the surface's own key handling: the open menu takes Enter / Escape
+  rte.labelEdit = attachLabelEditing(rte, { applyResult, syncFromSurface, currentSelection, refresh: refreshActiveStates, armed: isArmed });
   attachSurfaceEvents(rte);
   attachSelectionTracking(rte);
   setMode(rte, 'rich', { focus: false });
@@ -296,7 +300,9 @@ function attachFloat(rte, host) {
     const sel = capture();
     const pop = popoverOpen();
     const menu = !pop && f.menuOpen();
-    const showBar = !pop && !menu && !!sel && !sel.isCollapsed && !f.down && !rte.disabled && rte.buttons.length > 0;
+    const showBar = !pop && !menu && !!sel && !sel.isCollapsed && !f.down && !rte.disabled && rte.buttons.length > 0
+      && !rte.labelEdit?.isOpen() // a label's colours float there instead (labelPills.js)
+      && !rte.iconMenu?.isOpen(); // or the icons (iconPills.js)
     setHidden(bar, !showBar);
     const show = (pop || menu || showBar) && !!f.at;
     setHidden(host, !show);
@@ -326,7 +332,7 @@ function attachFloat(rte, host) {
   // icon / label in the text. The host has to be showing before the popover
   // focuses its field (focus is a no-op inside a hidden host), and the text's
   // place is read first, while the selection is still in the surface.
-  for (const key of ['openLinkPopover', 'openLabelPopover', 'openIconPopover', 'openAiPopover']) {
+  for (const key of ['openLinkPopover', 'openIconPopover', 'openAiPopover']) {
     const open = rte[key];
     if (!open) continue;
     rte[key] = () => {
@@ -334,6 +340,9 @@ function attachFloat(rte, host) {
       f.closeMenu?.();
       setHidden(bar, true);
       setHidden(host, false);
+      // Near the text before the popover's field takes focus: focus scrolls
+      // to wherever the host stands, and unplaced that is nowhere near.
+      if (f.at) place(false);
       open();
       sync();
     };
@@ -374,7 +383,7 @@ function attachFloat(rte, host) {
 
 const SLASH_ITEMS = [
   { key: 'icon', icon: 'smile-plus', label: 'Icon', words: ['symbol', 'emoji', 'lucide'], run: rte => rte.openIconPopover?.() },
-  { key: 'label', icon: 'tag', label: 'Label', words: ['pill', 'tag', 'badge'], run: rte => rte.openLabelPopover?.() },
+  { key: 'label', icon: 'tag', label: 'Label', words: ['pill', 'tag', 'badge'], run: rte => rte.labelEdit?.toggle() },
   { key: 'link', icon: 'link', label: 'Link', words: ['url', 'page', 'internal', 'support'], run: rte => rte.openLinkPopover?.() },
   { key: 'ul', icon: 'list', label: 'Bulleted list', words: ['unordered', 'list', 'bullets', 'ul'], block: true, list: true, run: rte => runTransform(rte, (v, s, e) => toggleList(v, s, e, 'ul')) },
   { key: 'ol', icon: 'list-ordered', label: 'Numbered list', words: ['ordered', 'list', 'numbers', 'ol'], block: true, list: true, run: rte => runTransform(rte, (v, s, e) => toggleList(v, s, e, 'ol')) },
@@ -385,6 +394,20 @@ const SLASH_ITEMS = [
 // of the text or a line, or after white space ("and/or" and URLs stay text).
 export function slashOpensAt(value, at) {
   return value[at] === '/' && (at === 0 || /\s/.test(value[at - 1]));
+}
+
+// Pure: a list typed the markdown way. With the caret just after `- `, `* `
+// or `1. ` (any number, `.` or `)`) at the very start of a line that is not a
+// paragraph line, the line becomes a bulleted / numbered item with that
+// marker gone, its text kept and the caret at the start of it. Otherwise null.
+// The space may be a non-breaking one (a contentEditable types one at the end
+// of a line). `kind` says which list it made, for the caller's allowlist.
+export function listShortcutAt(value, caret) {
+  const start = value.lastIndexOf('\n', caret - 1) + 1;
+  const m = /^(?:([-*])|\d{1,9}[.)])[ \u00a0]$/.exec(value.slice(start, caret));
+  if (!m) return null;
+  const kind = m[1] ? 'ul' : 'ol';
+  return { kind, ...toggleList(value.slice(0, start) + value.slice(caret), start, start, kind) };
 }
 
 // Pure: the text typed after the slash at `at`, up to the caret; null once the
@@ -559,7 +582,7 @@ function makeBtn(icon, label, onClick) {
 
 // ── Label colour palette (shared) ────────────────────────────────────────────
 // Loaded once from config/labelColours.json (the extension's existing source)
-// and cached for the session. Drives the Label popover swatches AND paints
+// and cached for the session. Drives the label colour pills (labelPills.js) AND paints
 // `.mb-label` pills wherever they're previewed — the rich surface here, plus the
 // datatable whole-table grid (dataTablesEditor renders cells outside any surface
 // and imports paintLabels from this module), plus the button editor's colour
@@ -621,8 +644,9 @@ export function syncSurfaceFromTextarea(textarea) {
 // Does the surface hold an emptied mark wrapper? (e.g. the user deleted all the
 // text inside a <strong>, leaving <strong></strong> with the caret in it.)
 function hasEmptyMark(surface) {
-  return [...surface.querySelectorAll('strong,b,em,i,u,s,strike,del,mark,code')]
-    .some(el => !el.textContent);
+  return [...surface.querySelectorAll('strong,b,em,i,u,s,strike,del,mark,code')].some(el => !el.textContent)
+    // A label emptied of its text (and icons) is dropped the same way.
+    || [...surface.querySelectorAll('.mb-label')].some(el => !el.textContent && !el.querySelector('[data-mb-icon]'));
 }
 
 // Sync the hidden textarea from the surface and fire input so the dirty-guard
@@ -661,7 +685,11 @@ function currentSelection(rte) {
     const ta = rte.textarea;
     return { value: ta.value, selStart: ta.selectionStart, selEnd: ta.selectionEnd };
   }
-  return serializeWithSelection(rte.surface, window.getSelection());
+  const res = serializeWithSelection(rte.surface, window.getSelection());
+  // Just outside a label's edge the browser's caret is inside its span
+  // (labelPills.js keeps which was meant).
+  const beside = rte.labelEdit?.outsideOffset();
+  return beside == null ? res : { value: res.value, selStart: beside, selEnd: beside };
 }
 
 // Write a transformed value back, restoring selection appropriately per mode.
@@ -672,8 +700,9 @@ function applyResult(rte, res) {
     rte.textarea.setSelectionRange(res.selStart, res.selEnd);
   } else {
     setSurfaceHtml(rte, res.value);
-    rte.surface.focus();
+    rte.surface.focus({ preventScroll: true });
     placeCaret(rte.surface, res.selStart, res.selEnd);
+    rte.labelEdit?.placed(res.selStart, res.selEnd);
   }
   rte.textarea.dispatchEvent(new Event('input', { bubbles: true }));
   refreshActiveStates(rte);
@@ -817,19 +846,18 @@ function refreshActiveStates(rte) {
       return;
     }
     if (btn._label) {
-      // Labels are addable only from a clean context, but always editable/removable
-      // when the caret is already inside one.
+      // Labels are addable only from a clean context; in one, the button is
+      // lit and takes it off again.
       const active = inLabel;
       btn.classList.toggle('--active', active);
       btn.disabled = rich && !inLabel && (inCode || inOtherMark || inLink);
       return;
     }
     if (btn._icon) {
-      // The Icon button can't insert into a code span or a label pill (a pill
-      // is atomic — an icon inside one is typed as its shortcode in the label
-      // popover's text field instead). Lit while a whole icon atom is selected.
+      // The Icon button can't insert into a code span (a label pill takes
+      // icons like any text). Lit while a whole icon atom is selected.
       btn.classList.toggle('--active', rich && selectionIsIcon(rte));
-      btn.disabled = rich && (inCode || inLabel);
+      btn.disabled = rich && inCode;
       return;
     }
     // The clear button carries no state.
@@ -862,28 +890,18 @@ function selectionMarkTags(rte) {
   return tags;
 }
 
-// Whether the selection is "on" a label pill (a `.mb-label` span). Pills are
-// contenteditable=false atoms, so the caret can't sit inside one — the click
-// gesture selects the whole node instead (like icons), and that node-selection
-// counts as "in the label": the popover edits it, conflicting marks stay
-// disabled. The ancestor walk is kept as a fallback for any selection the
-// browser still anchors within the span (e.g. select-all extending over it).
+// Whether the selection is in a label pill: the caret typing in one, or a
+// selection within one (labelPills.js: a caret stepped out to a pill's edge is
+// beside it, not in it), or the pill selected whole as a node. Marks, links
+// and rules stay out of a label.
 function selectionInLabel(rte) {
+  if (rte.labelEdit?.current()) return true;
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return false;
   const r = sel.getRangeAt(0);
-  if (r.startContainer === r.endContainer && r.endOffset - r.startOffset === 1) {
-    const picked = r.startContainer.childNodes && r.startContainer.childNodes[r.startOffset];
-    if (picked && picked.nodeType === 1 && picked.classList && picked.classList.contains('mb-label')
-      && rte.surface.contains(picked)) return true;
-  }
-  let node = sel.anchorNode;
-  if (!node || !rte.surface.contains(node)) return false;
-  while (node && node !== rte.surface) {
-    if (node.nodeType === 1 && node.classList && node.classList.contains('mb-label')) return true;
-    node = node.parentNode;
-  }
-  return false;
+  if (r.startContainer !== r.endContainer || r.endOffset - r.startOffset !== 1) return false;
+  const picked = r.startContainer.childNodes && r.startContainer.childNodes[r.startOffset];
+  return !!(picked && picked.nodeType === 1 && picked.classList && picked.classList.contains('mb-label') && rte.surface.contains(picked));
 }
 
 function buildButtons(rte) {
@@ -938,7 +956,7 @@ function buildButtons(rte) {
 
   // Label pill — always added (like Link), so it works in inline cell editors too.
   if (want('label')) {
-    const labelBtn = makeBtn('tag', 'Label', () => rte.openLabelPopover?.());
+    const labelBtn = makeBtn('tag', 'Label', () => rte.labelEdit?.toggle());
     labelBtn._label = true;
     rte.btnGroup.appendChild(labelBtn);
     rte.buttons.push(labelBtn);
@@ -1046,6 +1064,7 @@ function attachSurfaceEvents(rte) {
   // right context. Only plain text insertions consume the armed state;
   // navigation and deletion leave it for the selectionchange handler to clear.
   surface.addEventListener('beforeinput', e => {
+    if (e.defaultPrevented) return; // spent by the label being typed in (labelPills.js)
     // One-shot AI-rewrite undo: the first Cmd+Z after a rewrite restores the
     // pre-rewrite snapshot (native undo can't — the re-render emptied its stack).
     if (e.inputType === 'historyUndo' && rte.aiUndo?.pending) {
@@ -1081,6 +1100,22 @@ function attachSurfaceEvents(rte) {
     runTransform(rte, (v, s, end) => indentSelection(v, s, end, dir));
   });
 
+  // `- `, `* ` or `1. ` typed at the start of a line makes it a list (where
+  // the editor offers lists, and not in code).
+  surface.addEventListener('input', e => {
+    if (e.inputType !== 'insertText' || (e.data !== ' ' && e.data !== '\u00a0') || rte.inline || rte.disabled) return;
+    if (rte.allowed && !rte.allowed.has('ul') && !rte.allowed.has('ol')) return;
+    if (selectionMarkTags(rte).has('code')) return;
+    const anchor = window.getSelection()?.anchorNode;
+    const el = anchor instanceof Element ? anchor : anchor?.parentElement;
+    if (el?.closest('pre, code, li, blockquote')) return;
+    const { value, selStart, selEnd } = currentSelection(rte);
+    if (selStart !== selEnd) return;
+    const res = listShortcutAt(value, selStart);
+    if (!res || (rte.allowed && !rte.allowed.has(res.kind))) return;
+    clearArmed(rte);
+    applyResult(rte, res);
+  });
   surface.addEventListener('input', () => syncFromSurface(rte));
 
   // Plain-text paste only — no foreign HTML enters the surface. If a format is
@@ -1104,33 +1139,147 @@ function attachSurfaceEvents(rte) {
   surface.addEventListener('click', e => {
     const a = e.target.closest && e.target.closest('a');
     if (a) e.preventDefault();
-    // Clicking an icon atom is its edit gesture: the caret can't enter a
-    // contenteditable=false node, so select the node itself (which maps to
-    // exactly the shortcode's source range) and open the picker on it.
-    // An icon INSIDE a label pill is part of the pill's text (edited via the
-    // label popover), so let the pill gesture below own that click.
+    // An icon behaves like one character: a click highlights it (the caret
+    // can't enter a contenteditable=false node, so the node itself is
+    // selected, which maps to exactly the shortcode's source range) and the
+    // selection bar offers the usual formatting. Shift+click is left to the
+    // browser, to stretch a selection up to the icon.
     const icon = e.target.closest && e.target.closest('.mb-icon');
-    if (icon && surface.contains(icon) && !icon.closest('.mb-label')) {
-      const range = document.createRange();
-      range.selectNode(icon);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      rte.openIconPopover?.();
-    }
-    // Same gesture for a label pill: atomic (contenteditable=false), so select
-    // the node — which maps to exactly the pill's source range — and open the
-    // label popover in edit mode (text/colour/remove).
-    const label = e.target.closest && e.target.closest('.mb-label');
-    if (label && surface.contains(label)) {
-      const range = document.createRange();
-      range.selectNode(label);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      rte.openLabelPopover?.();
-    }
+    if (icon && surface.contains(icon) && !e.shiftKey) selectIconNode(icon);
   });
+
+  // A press or drag with the mouse takes an icon in as it would a letter:
+  // past its middle and it is in. Left to itself the browser stops the
+  // selection at the far side of an icon it cannot put a caret in (always so
+  // for one that opens a label pill), so the end of the selection that
+  // follows the pointer is moved across the icon here.
+  const ptr = { down: false, x: 0, y: 0, downX: 0, downY: 0 };
+  const isIcon = n => n?.nodeType === 1 && n.classList.contains('mb-icon');
+  // Where the selection end at (n, o) belongs with the pointer at (x, y): the
+  // other side of an icon it stands against, or null when it is right as is.
+  const acrossIcon = (n, o, x, y) => {
+    let before = null; let after = null; // the icon just before / just after that end
+    if (n.nodeType === 3) {
+      if (o === 0) before = n.previousSibling;
+      if (o === n.length) after = n.nextSibling;
+    } else {
+      before = n.childNodes[o - 1];
+      after = n.childNodes[o];
+    }
+    for (const [icon, edge] of [[before, 0], [after, 1]]) {
+      if (!isIcon(icon)) continue;
+      const r = icon.getBoundingClientRect();
+      if (y < r.top - r.height / 2 || y > r.bottom + r.height / 2) continue; // another line
+      const mid = r.left + r.width / 2;
+      if (edge === 0 ? x >= mid : x <= mid) continue;
+      return [icon.parentNode, [...icon.parentNode.childNodes].indexOf(icon) + edge];
+    }
+    return null;
+  };
+  // `up`: the button is being let go. A bare caret is only moved then: moving
+  // it while the button is held makes the browser drop the drag it started.
+  const snapToIcon = up => {
+    if (!ptr.down) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !surface.contains(sel.focusNode) || !surface.contains(sel.anchorNode)) return;
+    // The end the press put down is judged by where the press was.
+    const a = acrossIcon(sel.anchorNode, sel.anchorOffset, ptr.downX, ptr.downY);
+    if (sel.isCollapsed) {
+      if (a && up === true) sel.collapse(a[0], a[1]);
+      return;
+    }
+    const f = acrossIcon(sel.focusNode, sel.focusOffset, ptr.x, ptr.y);
+    if (a) sel.setBaseAndExtent(a[0], a[1], ...(f ?? [sel.focusNode, sel.focusOffset]));
+    else if (f) sel.extend(f[0], f[1]);
+  };
+  const onPtrMove = e => { if (ptr.down) { ptr.x = e.clientX; ptr.y = e.clientY; } };
+  const onPtrUp = () => { snapToIcon(true); ptr.down = false; };
+  surface.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.shiftKey || isIcon(e.target.closest?.('.mb-icon'))) return;
+    Object.assign(ptr, { down: true, x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY });
+  });
+  document.addEventListener('mousemove', onPtrMove);
+  document.addEventListener('mouseup', onPtrUp);
+  document.addEventListener('selectionchange', snapToIcon);
+  rte.cleanups?.push(() => {
+    document.removeEventListener('mousemove', onPtrMove);
+    document.removeEventListener('mouseup', onPtrUp);
+    document.removeEventListener('selectionchange', snapToIcon);
+  });
+
+  // Changing an icon is a double click: select it and open the picker on it.
+  // An icon in a label pill is picked the same way. (The pill's own text is
+  // typed where it stands: labelPills.js.)
+  surface.addEventListener('dblclick', e => {
+    const icon = e.target.closest && e.target.closest('.mb-icon');
+    if (!icon || !surface.contains(icon) || rte.disabled) return;
+    e.preventDefault();
+    selectIconNode(icon);
+    rte.openIconPopover?.();
+  });
+
+  // Copy / cut with an icon in the selection: the browser finds no text in
+  // the painted atom and would drop it, so the clipboard is written here with
+  // each icon as its `:lucide-name:` shortcode. Paste reads plain text as
+  // source, so the shortcode lands as the icon again. A selection without
+  // icons is left to the browser.
+  const onCopy = e => {
+    const data = iconSelectionClipboard(surface);
+    if (!data || !e.clipboardData) return false;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', data.text);
+    e.clipboardData.setData('text/html', data.html);
+    return true;
+  };
+  surface.addEventListener('copy', onCopy);
+  surface.addEventListener('cut', e => {
+    if (!onCopy(e) || rte.disabled) return;
+    document.execCommand('delete'); // the browser's own delete: fires input, keeps its undo step
+  });
+}
+
+function selectIconNode(icon) {
+  const range = document.createRange();
+  range.selectNode(icon);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// The highlighted range when it lies in `surface` and is not a bare caret.
+function surfaceRange(surface) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  if (!surface.contains(sel.anchorNode) || !surface.contains(sel.focusNode)) return null;
+  return sel.getRangeAt(0);
+}
+
+// What a copy of the current selection puts on the clipboard when it holds at
+// least one icon: { text, html } with every icon as its shortcode. Null when
+// there is no icon in it (the browser's own copy is right then).
+function iconSelectionClipboard(surface) {
+  const range = surfaceRange(surface);
+  if (!range || ![...surface.querySelectorAll('.mb-icon')].some(i => range.intersectsNode(i))) return null;
+  // innerText needs the copy laid out, so it is read off-screen in the page.
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;white-space:pre-wrap;';
+  box.appendChild(range.cloneContents());
+  for (const icon of box.querySelectorAll('[data-mb-icon]')) {
+    icon.replaceWith(document.createTextNode(iconMarkup(icon.getAttribute('data-mb-icon'))));
+  }
+  document.body.appendChild(box);
+  const data = { text: box.innerText, html: box.innerHTML };
+  box.remove();
+  return data;
+}
+
+// Mark the icons inside the highlighted range: an atom has no text for the
+// browser to paint its selection colour on, so the CSS does it off this class.
+function markSelectedIcons(rte) {
+  const range = surfaceRange(rte.surface);
+  for (const icon of rte.surface.querySelectorAll('.mb-icon')) {
+    icon.classList.toggle('--selected', !!range && range.intersectsNode(icon));
+  }
 }
 
 // Keep the toolbar's active states in sync with the caret, and disarm a pending
@@ -1138,6 +1287,7 @@ function attachSurfaceEvents(rte) {
 function attachSelectionTracking(rte) {
   const onSelectionChange = () => {
     if (rte.mode !== 'rich') return; // Markdown mode: buttons stay off
+    markSelectedIcons(rte);
     if (isArmed(rte)) {
       const sel = window.getSelection();
       const inSurface = sel && sel.anchorNode && rte.surface.contains(sel.anchorNode);
@@ -1362,129 +1512,6 @@ function attachLinkPopover(rte) {
   });
 
   // Esc dismiss (click-outside is wired in openLinkPopover/close).
-  popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-}
-
-// Coloured "label" pill popover. Mirrors attachLinkPopover: a Text field plus a
-// grid of colour swatches (loaded from config/labelColours.json — the same source
-// the rest of the extension uses). Inserts a class-only `<span class="mb-label
-// mb-label-<slug>">` via applyLabel; recolours/removes an existing pill when the
-// caret sits inside one (detected with labelAt). Available in inline cells too.
-function attachLabelPopover(rte) {
-  const { toolbar } = rte;
-  let saved = null;        // { value, selStart, selEnd } captured when the popover opens
-  let selectedSlug = null; // the swatch the user picked (or the edited pill's colour)
-  let firstSlug = null;    // default selection for a fresh insert
-
-  const popover = document.createElement('div');
-  popover.className = 'mb-rte__popover mb-rte__popover--label';
-  popover.hidden = true;
-  popover.innerHTML = `
-    <div class="mb-rte__panel" data-panel="label">
-      <label class="mb-rte__field"><span>Text</span><input type="text" data-label-text></label>
-      <div class="mb-rte__swatch-grid" data-label-swatches></div>
-    </div>
-    <div class="mb-rte__popover-actions">
-      <button type="button" class="mb-rte__popover-btn" data-label-remove hidden>Remove</button>
-      <button type="button" class="mb-rte__popover-btn" data-label-cancel>Cancel</button>
-      <button type="button" class="mb-rte__popover-btn --primary" data-label-insert>Insert</button>
-    </div>`;
-  toolbar.parentNode.insertBefore(popover, toolbar.nextSibling);
-
-  const textInput = popover.querySelector('[data-label-text]');
-  const swatches = popover.querySelector('[data-label-swatches]');
-  const removeBtn = popover.querySelector('[data-label-remove]');
-  const swatchBtns = [];
-
-  const selectSwatch = slug => {
-    selectedSlug = slug;
-    swatchBtns.forEach(b => b.classList.toggle('--selected', b.dataset.slug === slug));
-  };
-
-  // Build the grouped swatch grid from the loaded palette. Each swatch carries
-  // its colours as the same CSS custom props the .mb-label rule consumes, so it
-  // renders as a live pill of that colour.
-  const buildSwatches = groups => {
-    swatches.replaceChildren();
-    swatchBtns.length = 0;
-    for (const [groupName, presets] of Object.entries(groups)) {
-      const title = document.createElement('span');
-      title.className = 'mb-rte__swatch-title';
-      title.textContent = groupName;
-      swatches.appendChild(title);
-      const row = document.createElement('div');
-      row.className = 'mb-rte__swatch-row';
-      for (const [name, preset] of Object.entries(presets)) {
-        const slug = name.toLowerCase();
-        if (firstSlug === null) firstSlug = slug;
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'mb-label mb-rte__swatch mb-label-' + slug;
-        btn.dataset.slug = slug;
-        btn.textContent = name;
-        paintLabelVars(btn, preset);
-        btn.addEventListener('mousedown', e => e.preventDefault()); // keep selection
-        btn.addEventListener('click', () => selectSwatch(slug));
-        swatchBtns.push(btn);
-        row.appendChild(btn);
-      }
-      swatches.appendChild(row);
-    }
-  };
-
-  // Build the swatch grid once the shared palette is loaded. The surface itself
-  // is painted via setSurfaceHtml → paintLabels (which awaits the same cache).
-  loadLabelPalette().then(({ groups }) => buildSwatches(groups));
-
-  const onDocMouseDown = e => {
-    if (!popover.hidden && !popover.contains(e.target) && !toolbar.contains(e.target)) close();
-  };
-  const close = () => { popover.hidden = true; document.removeEventListener('mousedown', onDocMouseDown); };
-
-  rte.openLabelPopover = () => {
-    saved = currentSelection(rte);
-    const selText = saved.value.slice(saved.selStart, saved.selEnd);
-    // Close any sibling popover (e.g. the link one) so only this is visible.
-    for (const p of toolbar.parentNode.querySelectorAll('.mb-rte__popover')) if (p !== popover) p.hidden = true;
-    popover.hidden = false;
-    document.addEventListener('mousedown', onDocMouseDown);
-    const existing = labelAt(saved.value, saved.selStart, saved.selEnd);
-    if (existing) {
-      // Caret inside a pill: widen to its whole span so Insert REPLACES it, prefill
-      // its text + colour, and offer Remove.
-      saved.selStart = existing.start;
-      saved.selEnd = existing.end;
-      textInput.value = existing.text;
-      selectSwatch(existing.slug);
-      removeBtn.hidden = false;
-    } else {
-      textInput.value = selText;
-      selectSwatch(selectedSlug || firstSlug);
-      removeBtn.hidden = true;
-    }
-    textInput.focus();
-  };
-
-  popover.querySelector('[data-label-cancel]').addEventListener('click', close);
-
-  popover.querySelector('[data-label-insert]').addEventListener('click', () => {
-    const text = textInput.value.trim();
-    const slug = selectedSlug || firstSlug;
-    if (!text || !slug) { close(); return; } // nothing to insert → no-op
-    close();
-    clearArmed(rte);
-    applyResult(rte, applyLabel(saved.value, saved.selStart, saved.selEnd, text, slug));
-  });
-
-  removeBtn.addEventListener('click', () => {
-    // Unwrap the pill back to its plain text.
-    const text = textInput.value;
-    const caret = saved.selStart + text.length;
-    close();
-    clearArmed(rte);
-    applyResult(rte, { value: saved.value.slice(0, saved.selStart) + text + saved.value.slice(saved.selEnd), selStart: caret, selEnd: caret });
-  });
-
   popover.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 }
 

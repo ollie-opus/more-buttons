@@ -55,6 +55,40 @@ export const CONSOLE_LANGS = new Set(['console', 'shell-session']);
 
 const norm = lang => (lang ?? '').trim().toLowerCase();
 
+// ── The languages offered ────────────────────────────────────────────────────
+
+/** What a new code block is written in: `#` comments, so annotations work. */
+export const DEFAULT_CODE_LANGUAGE = 'bash';
+
+/** The languages a code block's settings offer, as [value, label]. The ones
+ *  in NO_COMMENT_LANGS cannot hold an annotation. */
+export const CODE_LANGUAGES = [
+  ['bash', 'Bash'], ['python', 'Python'], ['javascript', 'JavaScript'],
+  ['typescript', 'TypeScript'], ['html', 'HTML'], ['css', 'CSS'], ['sql', 'SQL'],
+  ['yaml', 'YAML'], ['toml', 'TOML'], ['ini', 'INI'], ['xml', 'XML'],
+  ['php', 'PHP'], ['csharp', 'C#'], ['powershell', 'PowerShell'],
+  ['markdown', 'Markdown'], ['json', 'JSON'], ['diff', 'Diff'], ['text', 'Plain text'],
+];
+
+const LANG_ALIASES = new Map(Object.entries({
+  sh: 'bash', shell: 'bash', zsh: 'bash', py: 'python', python3: 'python',
+  js: 'javascript', ts: 'typescript', htm: 'html', yml: 'yaml', cs: 'csharp',
+  'c#': 'csharp', ps1: 'powershell', md: 'markdown',
+  '': 'text', txt: 'text', plain: 'text', plaintext: 'text',
+}));
+
+/**
+ * The language pills for a block written in `lang`: `value` is the option that
+ * is its language (an alias, or no language at all, lands on the listed one),
+ * and a language that is not listed gets an option of its own.
+ */
+export function languageOptions(lang) {
+  const l = norm(lang);
+  const value = LANG_ALIASES.get(l) ?? l;
+  const options = CODE_LANGUAGES.some(([v]) => v === value) ? CODE_LANGUAGES : [...CODE_LANGUAGES, [value, lang.trim()]];
+  return { options, value };
+}
+
 /** The comment style for a language. Unknown and no-comment languages fall
  *  back to `#` (lossless — the authoring hint carries the warning). */
 export function commentStyleFor(lang) {

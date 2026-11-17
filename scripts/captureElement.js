@@ -279,7 +279,7 @@ export function installSelector({ onPick, onArmedChange, getPadding, resolveTarg
 // (rgb/rgba, but also oklch()/color() which modern Chrome serializes for
 // Tailwind-v4-style tokens) into [r, g, b, alpha0to1] without hand-parsing.
 let colorParseCtx = null;
-function parseCssColor(str) {
+export function parseCssColor(str) {
   if (!colorParseCtx) {
     const c = document.createElement('canvas');
     c.width = c.height = 1;
@@ -350,8 +350,14 @@ export function voteBackgroundColor(colors) {
 function sampleBackgroundColor(r) {
   const OFFSET = 3;
 
+  // Isolation (captureIsolate.js) hides the page and shows the picked elements
+  // on a flat backdrop — the hidden page can't be hit-tested, and the backdrop
+  // IS the background by definition, so padding takes its colour.
+  const isoBackdrop = document.querySelector('html.mb-isolating > .mb-isolate-backdrop');
+  if (isoBackdrop) return getComputedStyle(isoBackdrop).backgroundColor;
+
   // Hide our overlays so they don't shadow elementFromPoint.
-  const overlays = document.querySelectorAll('.mb-capture-selector, .mb-capture-padding-ring, .mb-capture-bar, .mb-capture-tab, .mb-capture-resize');
+  const overlays = document.querySelectorAll('.mb-capture-selector, .mb-capture-padding-ring, .mb-capture-bar, .mb-capture-tab, .mb-capture-resize, #mb-page-dock');
   const prevDisplay = [];
   overlays.forEach((o, i) => { prevDisplay[i] = o.style.display; o.style.display = 'none'; });
   const colorAt = ([x, y]) => {
@@ -685,9 +691,10 @@ export async function screenshotElement(el, { theme, customRect = null, settings
   // the inset edge glow, bar, tab, and selector box don't bleed into the PNG
   // for elements near the viewport edge. Annotate-mode rings (inline outlines
   // on page elements, applied by captureMode.js) are deliberately NOT hidden —
-  // capturing them is the point of that mode.
+  // capturing them is the point of that mode. The page dock (#mb-page-dock,
+  // open or collapsed to its edge tab) is ours too, so it goes as well.
   const hiddenOverlays = document.querySelectorAll(
-    '.mb-capture-glow, .mb-capture-bar, .mb-capture-bar__popover, .mb-capture-tab, .mb-capture-selector, .mb-capture-padding-ring, .mb-capture-resize'
+    '.mb-capture-glow, .mb-capture-bar, .mb-capture-bar__popover, .mb-capture-tab, .mb-capture-selector, .mb-capture-padding-ring, .mb-capture-resize, #mb-page-dock'
   );
   const prevOverlayDisplay = [];
   hiddenOverlays.forEach((o, i) => {
@@ -821,7 +828,7 @@ export function nudgeActiveResize(delta) {
  * `untouched` is true when the box still matches the element's initial rect
  * (position and size) — i.e. the user just pressed Enter without adjusting.
  */
-export function enterResizeMode(el, settings, onConfirm, onCancel) {
+export function enterResizeMode(el, settings, onConfirm, onCancel, startBox = null) {
   // Annotate-mode picks confirm a green ring instead of a capture — match
   // the box/handles/hint to the mode's hue (amber otherwise).
   const annotate = settings?.pickMode === 'annotate';
@@ -837,6 +844,9 @@ export function enterResizeMode(el, settings, onConfirm, onCancel) {
     height: initRect.height,
   };
   const initBox = { ...box };
+  // A retake opens on the box drawn last time (doc coords). initBox stays the
+  // element's own, so Enter still reads this as an adjusted box.
+  if (startBox) box = { top: startBox.top, left: startBox.left, width: startBox.width, height: startBox.height };
 
   const resizeOverlay = document.createElement('div');
   resizeOverlay.className = 'mb-capture-resize';
@@ -847,6 +857,7 @@ export function enterResizeMode(el, settings, onConfirm, onCancel) {
   document.body.appendChild(resizeOverlay);
 
   const hint = document.createElement('div');
+  hint.className = 'mb-capture-resize-hint'; // named so isolation's page-hide rule can spare it
   Object.assign(hint.style, {
     position: 'absolute', zIndex: '2147483647',
     background: hintBg, color: hintFg,

@@ -13,6 +13,7 @@ import { mergeSave } from './mergeSave.js';
 import { itemCommit, reorderCommit, isReorderOnly, UPDATE_BLOCK_TYPES_RE } from './editLogDescribe.js';
 import { prefetchEditLog, mountEditLog } from './editLogPanel.js';
 import { formLoading } from './loading.js';
+import { updateComponents, splitUpdateTitle, isoOfUpdateDate, draftPlaceFor } from './kbUpdates.js';
 import {
   makeContainerHandler, GUIDE_ADMONITION_TYPES_RE,
   renderComponents, onComponentEditorClick, setOpenComponentEditor,
@@ -390,21 +391,30 @@ export function deleteUpdateFromMarkdown(markdown, uuid) {
 
 // ── Drafts: parse / build / mutate ────────────────────────────────────────────
 
-const DRAFTS_HEADER = '# System update drafts\n\n';
+// Only for a drafts file with no title of its own (a new or emptied file): a
+// title that is there is kept, whatever it says.
+const DRAFTS_HEADER = '# System Updates\n\n';
 
 export const parseDraftBlocks = parseUpdateBlocks;
 
 export function insertDraftIntoMarkdown(markdown, update, captures = []) {
-  const block = buildUpdateBlock(update, captures);
+  return insertDraftBlock(markdown, buildUpdateBlock(update, captures));
+}
+
+// A whole update block, put first in the drafts list.
+function insertDraftBlock(markdown, block) {
   const base = markdown && markdown.trim() ? markdown : DRAFTS_HEADER;
   // The drafts file may carry leading YAML frontmatter (e.g. search: exclude);
   // it must stay at the very top, above the H1.
   const fm = /^---\n[\s\S]*?\n---\n*/.exec(base);
   const bodyStart = fm ? fm[0].length : 0;
-  const headerMatch = /^(#\s.*\n+)/.exec(base.slice(bodyStart));
+  // The title may be the file's last line, with no newline after it (a file
+  // whose drafts were all deleted, or one edited by hand): still the title.
+  const headerMatch = /^#\s.*(?:\n+|$)/.exec(base.slice(bodyStart));
   if (headerMatch) {
     const at = bodyStart + headerMatch[0].length;
-    return base.slice(0, at) + block + '\n\n' + base.slice(at);
+    const gap = headerMatch[0].endsWith('\n') ? '' : '\n\n';
+    return base.slice(0, at) + gap + block + '\n\n' + base.slice(at);
   }
   return base.slice(0, bodyStart) + DRAFTS_HEADER + block + '\n\n' + base.slice(bodyStart);
 }
@@ -513,6 +523,97 @@ export async function publishDraft(uuid, update, captures, onProgress) {
   const updatedPublished = await githubFetchAndPushFile(UPDATES_FILE, onProgress, md => insertUpdateIntoMarkdown(md, { ...update, uuid }, captures), { commit: publishCommit });
   await githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid), { commit: publishCommit });
   return updatedPublished;
+}
+
+// The updates of a file (live or drafts) that stand at its margin, in file order.
+const topUpdates = md => parseAdmonitions(md ?? '', UPDATE_BLOCK_TYPES_RE).filter(a => a.indent === '');
+// One of those, written out again exactly as it stands (its identity is in its body).
+const blockOf = adm => buildAdmonition(adm.prefix || '???', adm.type, adm.title, adm.body.replace(/^\n+/, ''));
+
+/**
+ * Publish one draft update exactly as it stands in the drafts file (the
+ * in-page editor on the Knowledge Base site saves first, then calls this).
+ * Resolves with `drafts`, the drafts file as it is once the update has left
+ * it, and `replaced`: the live update this one took the place of (a draft
+ * cloned from the live page), as it stood, or null when it is new there.
+ * cancelPublishedUpdate needs that to put the live page back.
+ */
+export async function publishDraftAsSaved(uuid, onProgress) {
+  const draftsMd = await readRepoText(DRAFTS_FILE);
+  const adm = updateComponents(draftsMd).find(c => c.adm.uuid === uuid)?.adm;
+  if (!adm) throw new Error('This update is no longer in the drafts. Someone may have published or deleted it.');
+  const { title, date } = splitUpdateTitle(adm.type, adm.title);
+  const isoDate = isoOfUpdateDate(date);
+  if (!title || !isoDate) throw new Error('An update needs a title and a date of release before it can be published.');
+  // The parsed body opens with the blank line under its header: the builder writes its own.
+  const update = { type: adm.type, title, date: isoDate, description: adm.body.replace(/^\n+/, ''), uuid };
+  const publishCommit = itemCommit(`Publish update: '${title}'`, uuid);
+  let replaced = null;
+  await githubFetchAndPushFile(UPDATES_FILE, onProgress, (md) => {
+    const was = topUpdates(md).find(a => a.uuid === uuid);
+    replaced = was ? { prefix: was.prefix, type: was.type, title: was.title, body: was.body } : null;
+    return insertUpdateIntoMarkdown(md, update, []);
+  }, { commit: publishCommit });
+  const drafts = await githubFetchAndPushFile(DRAFTS_FILE, onProgress, md => removeDraftFromMarkdown(md, uuid), { commit: publishCommit });
+  return { drafts, replaced };
+}
+
+// A live update's block put into the drafts file at `place` (an index among
+// the drafts; past the last: after them all). `place` may be worked out from
+// the drafts as they are at that moment.
+function draftsWithBlock(md, block, place) {
+  const drafts = topUpdates(md);
+  if (!drafts.length) return insertDraftBlock(md, block);
+  const at = typeof place === 'function' ? place(drafts) : place;
+  if (at >= drafts.length) return `${md.trimEnd()}\n\n${block}\n`;
+  const lines = md.split('\n');
+  lines.splice(drafts[Math.max(0, at)].headerLine, 0, ...block.split('\n'), '');
+  return lines.join('\n');
+}
+
+/**
+ * Copy one live update into the drafts, exactly as it stands on the live page
+ * and under the same identity: published from there, it replaces the live one
+ * (insertUpdateIntoMarkdown). The live page is not touched. It takes the place
+ * in the drafts that keeps them in the live page's order (draftPlaceFor).
+ * Resolves with the drafts file as it is afterwards.
+ */
+export async function draftLiveUpdate(uuid, onProgress) {
+  const live = topUpdates(await readRepoText(UPDATES_FILE));
+  const adm = live.find(a => a.uuid === uuid);
+  if (!adm) throw new Error('This update is no longer on the live page.');
+  return githubFetchAndPushFile(DRAFTS_FILE, onProgress, (md) => {
+    if (topUpdates(md).some(a => a.uuid === uuid)) throw new Error('This update already has a draft.');
+    return draftsWithBlock(md, blockOf(adm), drafts => draftPlaceFor(drafts, live, uuid));
+  }, { commit: itemCommit(`Saved draft update '${splitUpdateTitle(adm.type, adm.title).title}'`, uuid) });
+}
+
+/**
+ * Take back a publish (publishDraftAsSaved): the update goes back into the
+ * drafts as it stands on the live page, at `place` among them, and the live
+ * page is put back as it was: the update comes off it, or, where it had taken
+ * the place of an older one (`replaced`), that one stands there again.
+ * The drafts are written first: if the second write fails the update is in
+ * both, and publishing it again only replaces the live one.
+ * Resolves with the drafts file as it is afterwards.
+ * @param {string} uuid
+ * @param {{ place?: number, replaced?: {prefix: string, type: string, title: string, body: string}|null }} o
+ */
+export async function cancelPublishedUpdate(uuid, { place = 0, replaced = null } = {}, onProgress) {
+  const adm = topUpdates(await readRepoText(UPDATES_FILE)).find(a => a.uuid === uuid);
+  if (!adm) throw new Error('This update is no longer on the live page.');
+  const title = splitUpdateTitle(adm.type, adm.title).title;
+  const drafts = await githubFetchAndPushFile(DRAFTS_FILE, onProgress,
+    md => (topUpdates(md).some(a => a.uuid === uuid) ? md : draftsWithBlock(md, blockOf(adm), place)),
+    { commit: itemCommit(`Saved draft update '${title}'`, uuid) });
+  if (replaced) {
+    await githubFetchAndPushFile(UPDATES_FILE, onProgress, md => replaceAdmonitionByUUID(md, uuid, blockOf(replaced)),
+      { commit: itemCommit(`Edited update '${splitUpdateTitle(replaced.type, replaced.title).title}'`, uuid) });
+  } else {
+    await githubFetchAndPushFile(UPDATES_FILE, onProgress, md => deleteUpdateFromMarkdown(md, uuid),
+      { commit: itemCommit(`Deleted update '${title}'`, uuid) });
+  }
+  return drafts;
 }
 
 export async function deleteDraft(uuid, onProgress) {

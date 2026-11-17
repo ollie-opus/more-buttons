@@ -3,7 +3,7 @@
 // neutrals, from labelPalette.js) plus a "No colour" swatch, with Cancel /
 // Apply. Anchored under any element inside `host` (host becomes the
 // positioning context). One popover per host (idempotent); the visuals reuse
-// the rich-text Label popover classes (.mb-rte__popover, .mb-rte__swatch-*).
+// the rich-text popover classes (.mb-rte__popover, .mb-rte__swatch-*).
 //
 //   const pop = attachColourSwatchPopover(host);
 //   pop.open(chipEl, 'emerald', slug => { … })   // slug is null for "No colour"

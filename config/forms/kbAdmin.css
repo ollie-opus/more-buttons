@@ -32,6 +32,11 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
   margin-bottom: 1.28rem;
 }
 .md-typeset .mb-adm-head > h1 { margin: 0; }
+/* Icon buttons keep the top right corner: a long title wraps beside them. */
+.mb-adm-head:has(.mb-adm-actions.--pinned) { flex-wrap: nowrap; align-items: flex-start; }
+.md-typeset .mb-adm-head:has(.mb-adm-actions.--pinned) > h1 { min-width: 0; overflow-wrap: anywhere; }
+.mb-adm-head:has(.mb-adm-actions.--pinned) > [data-adm-actions] { flex-shrink: 0; margin-left: auto; }
+.mb-adm-actions.--pinned { flex-wrap: nowrap; margin-top: .2rem; }
 .mb-adm-head > [data-adm-actions]:empty,
 .mb-adm > [data-adm-actions]:empty { display: none; }
 /* Under a form: the buttons that finish it. */
@@ -132,13 +137,27 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
   border-color: var(--md-accent-fg-color);
 }
 /* A select draws its own chevron: the theme's, with the room a field's text gets. */
-.md-typeset select.mb-adm-input {
-  appearance: none;
+.md-typeset select.mb-adm-input,
+.md-typeset input.mb-adm-input[list] {
   padding-right: 1.7rem;
   background-image: linear-gradient(45deg, transparent 50%, currentcolor 50%), linear-gradient(135deg, currentcolor 50%, transparent 50%);
   background-position: right .85rem center, right .6rem center;
   background-size: .25rem .25rem;
   background-repeat: no-repeat;
+}
+.md-typeset select.mb-adm-input { appearance: none; cursor: pointer; }
+/* A field with suggestions wears the same chevron. The browser's own arrow sits
+   on the text baseline, not the field's middle, so it is kept only as the
+   invisible click target over the drawn one. */
+.md-typeset input.mb-adm-input[list] { position: relative; }
+.md-typeset input.mb-adm-input[list]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 1.7rem;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
@@ -165,21 +184,28 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
   transition-delay: 0s, 0s, 0s, .1s;   /* the room opens, then the words arrive */
 }
 .md-typeset .mb-adm-filters select.mb-adm-input { width: 8.4rem; }
-/* A filter that is on wears the pill colour of the state it shows. */
+/* A filter that is on IS the pill of the state it shows (.mb-adm-pill): its
+   ground, its keyline as the border, its ink. */
+.md-typeset .mb-adm-filters select.mb-adm-input { transition: background-color .25s, border-color .25s, box-shadow .2s; }
 .md-typeset select.mb-adm-input[data-adm-state] {
-  --pill: oklch(0.62 0.02 255);
-  background-color: color-mix(in oklch, var(--pill) 18%, transparent);
-  color: color-mix(in oklch, var(--pill) 58%, var(--md-default-fg-color));
+  --pill: oklch(0.7 0.02 255);
+  --ink-mix: 55%;
+  border-color: color-mix(in oklch, var(--pill) 70%, transparent);
+  background-color: color-mix(in oklch, var(--pill) 30%, transparent);
+  color: color-mix(in oklch, var(--pill) var(--ink-mix), var(--md-default-fg-color));
 }
-.md-typeset select.mb-adm-input[data-adm-state="drafting"] { --pill: oklch(0.74 0.15 78); }
-.md-typeset select.mb-adm-input[data-adm-state="none"]     { --pill: oklch(0.64 0.16 150); }
-.md-typeset select.mb-adm-input[data-adm-state="public"]   { --pill: oklch(0.64 0.14 245); }
-/* Focused (clicked or tabbed to): a ring in the filter's own colour, grey while
-   it filters nothing, never the theme's accent blue. */
+.md-typeset select.mb-adm-input[data-adm-state]:hover { background-color: color-mix(in oklch, var(--pill) 40%, transparent); }
+.md-typeset select.mb-adm-input[data-adm-state="drafting"] { --pill: oklch(0.82 0.17 86); --ink-mix: 52%; }
+.md-typeset select.mb-adm-input[data-adm-state="none"]     { --pill: oklch(0.72 0.2 149); --ink-mix: 62%; }
+.md-typeset select.mb-adm-input[data-adm-state="public"]   { --pill: oklch(0.7 0.15 245); --ink-mix: 62%; }
+/* Focused (clicked or tabbed to): the border is already the keyline, so focus
+   is a soft halo outside it in the filter's own colour, the keyline at full
+   strength. Grey while it filters nothing; never the theme's accent blue. */
 .md-typeset .mb-adm-filters select.mb-adm-input:focus,
 .md-typeset .mb-adm-filters select.mb-adm-input:focus-visible {
   outline: none;
-  border-color: color-mix(in oklch, var(--pill, oklch(0.62 0.02 255)) 75%, transparent);
+  border-color: var(--pill, oklch(0.7 0.02 255));
+  box-shadow: 0 0 0 .15rem color-mix(in oklch, var(--pill, oklch(0.7 0.02 255)) 28%, transparent);
 }
 .md-typeset .mb-adm-filters select.mb-adm-input:not([data-adm-state]):focus { background-color: var(--md-default-fg-color--lightest); }
 .md-typeset select.mb-adm-input option { background-color: var(--md-default-bg-color); color: var(--md-default-fg-color); }
@@ -267,32 +293,47 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
 .mb-adm-row:hover .mb-adm-chevron,
 .mb-adm-row:hover .mb-adm-leaf-icon { opacity: .8; }
 
-/* State pills: one hue each, mixed into the scheme's own foreground so they
-   hold in light and dark. */
-.mb-adm-pills { display: inline-flex; flex-shrink: 0; gap: .25rem; }
+/* State pills: Edit mode's title pill (formsStyling.css .mb-kb-statepill) at
+   row size. A ground of the hue, a keyline of it inset, and the hue as text
+   mixed into the scheme's own foreground so it holds in light and dark.
+   Draft yellow and Live green are Edit mode's own two (--mb-kb-draft /
+   --mb-kb-live, which only exist while editing, so restated here); Public is a
+   blue and Unlisted the neutral grey, made the same way. */
+.md-typeset .mb-adm-pills { display: inline-flex; flex-shrink: 0; gap: .3rem; }
 .md-typeset .mb-adm-pill {
-  --pill: oklch(0.62 0.02 255);
+  --pill: oklch(0.7 0.02 255);
+  --ink-mix: 55%;
   display: inline-flex;
   align-items: center;
-  padding: .22rem .42rem;
-  border-radius: .3rem;
-  background-color: color-mix(in oklch, var(--pill) 16%, transparent);
-  color: color-mix(in oklch, var(--pill) 58%, var(--md-default-fg-color));
+  padding: .24rem .45rem;
+  border-radius: .32rem;
+  background-color: color-mix(in oklch, var(--pill) 30%, transparent);
+  box-shadow: 0 0 0 .05rem color-mix(in oklch, var(--pill) 70%, transparent) inset;
+  color: color-mix(in oklch, var(--pill) var(--ink-mix), var(--md-default-fg-color));
   font-size: .56rem;
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0;
   white-space: nowrap;
   text-decoration: none;
+  user-select: none;
 }
-.md-typeset .mb-adm-pill.--live     { --pill: oklch(0.64 0.16 150); }
-.md-typeset .mb-adm-pill.--drafting { --pill: oklch(0.74 0.15 78); }
-.md-typeset .mb-adm-pill.--public   { --pill: oklch(0.64 0.14 245); }
-.md-typeset .mb-adm-pill.--system   { --pill: oklch(0.6 0.17 315); }
-.md-typeset .mb-adm-pill.--danger   { --pill: oklch(0.62 0.19 25); }
-.md-typeset a.mb-adm-pill { transition: background-color .25s; }
+.md-typeset .mb-adm-pill.--drafting { --pill: oklch(0.82 0.17 86); --ink-mix: 52%; }
+.md-typeset .mb-adm-pill.--live     { --pill: oklch(0.72 0.2 149); --ink-mix: 62%; }
+.md-typeset .mb-adm-pill.--public   { --pill: oklch(0.7 0.15 245); --ink-mix: 62%; }
+.md-typeset .mb-adm-pill.--system   { --pill: oklch(0.66 0.19 315); --ink-mix: 62%; }
+.md-typeset .mb-adm-pill.--danger   { --pill: oklch(0.66 0.2 25); --ink-mix: 62%; }
+/* A pill that is a link (Drafting opens the draft) keeps its own hue under the
+   pointer, where the theme would turn a link's words its accent blue: the
+   ground deepens, the words firm up and a keyline of the hue comes in. */
+.md-typeset a.mb-adm-pill { transition: background-color .15s, color .15s, box-shadow .15s; }
 .md-typeset a.mb-adm-pill:hover,
-.md-typeset a.mb-adm-pill:focus-visible { background-color: color-mix(in oklch, var(--pill) 32%, transparent); }
+.md-typeset a.mb-adm-pill:focus-visible {
+  outline: none;
+  background-color: color-mix(in oklch, var(--pill) 45%, transparent);
+  box-shadow: 0 0 0 .05rem var(--pill) inset;
+  color: color-mix(in oklch, var(--pill) 40%, var(--md-default-fg-color));
+}
 
 /* Reorder controls: on the row under the pointer or holding the focus. */
 .mb-adm-controls { display: inline-flex; flex-shrink: 0; gap: .1rem; visibility: hidden; }
@@ -344,7 +385,7 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
 .mb-adm-move__list > button:focus-visible { background-color: var(--md-accent-fg-color--transparent); color: var(--md-accent-fg-color); outline: none; }
 .mb-adm-move__new { display: flex; flex-direction: column; gap: .25rem; margin-top: .5rem; font-size: .64rem; color: var(--md-default-fg-color--light); }
 
-/* A media row opened in place. */
+/* A row opened in place (not used by the media library any more: a file has its own page). */
 .mb-adm-detail {
   margin: .3rem 0 .8rem 1.6rem;
   padding: .8rem;
@@ -366,6 +407,8 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
 .mb-adm-figure.--light .mb-adm-figure__frame { background-color: oklch(0.985 0.002 250); box-shadow: 0 0 0 .05rem var(--md-default-fg-color--lightest) inset; }
 .mb-adm-figure.--dark .mb-adm-figure__frame { background-color: oklch(0.2 0.01 255); }
 .md-typeset .mb-adm-figure img { display: block; max-width: 100%; max-height: 16rem; height: auto; }
+/* Its frame holds the place while the image is read from the repo (kbAdminMediaEntry showStored). */
+.md-typeset .mb-adm-figure img.--waiting { visibility: hidden; height: 8rem; }
 .md-typeset .mb-adm-figure figcaption { margin: .3rem 0 0; max-width: none; color: var(--md-default-fg-color--light); font-size: .6rem; font-style: normal; text-align: left; }
 .mb-adm-video { display: block; max-width: 100%; max-height: 18rem; border-radius: .3rem; }
 .md-typeset .mb-adm-facts { margin: .8rem 0 0; }
@@ -375,6 +418,141 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
 .md-typeset .mb-adm-facts code { word-break: break-all; }
 .md-typeset .mb-adm-usage { list-style: none; margin: 0; padding: 0; }
 .md-typeset .mb-adm-usage li { margin: 0 0 .15rem; }
+.md-typeset .mb-adm-entry .mb-adm-usage,
+.md-typeset .mb-adm-entry .mb-adm-usage li { margin-left: 0; }
+
+/* ── A media file's own page (kbAdminMediaEntry.js) ───────────────────────── */
+/* Groups with a label above, as the forms below; wider, for the previews. */
+
+.mb-adm-entry { max-width: 44rem; }
+.md-typeset .mb-adm-entry__pills { display: flex; flex-wrap: wrap; margin: -.6rem 0 1.3rem; padding: 0; }
+.md-typeset .mb-adm-field > .mb-adm-field__label {
+  display: block;
+  margin: 0 0 .35rem;
+  color: var(--md-default-fg-color);
+  font-size: .7rem;
+  font-weight: 700;
+}
+.mb-adm-entry__file { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .6rem; min-width: 0; margin: 0 0 .25rem; }
+.md-typeset .mb-adm-entry__file code { word-break: break-all; }
+.md-typeset .mb-adm-entry .mb-adm-entry__lead { margin: 0 0 .7rem; max-width: 30rem; }
+.mb-adm-entry__slot { margin: 0 0 .8rem; }
+.md-typeset .mb-adm-entry__slot > label { display: block; margin: 0 0 .3rem; color: var(--md-default-fg-color--light); font-size: .64rem; }
+.mb-adm-entry__choices { display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; }
+/* "A change to this resource is being propagated": the site is still serving
+   the file as it was (kbAdminMediaEntry watchSite). The Draft yellow, as work
+   on its way; mixed into the scheme's own ground and ink for light and dark. */
+.mb-adm-pending {
+  --pd: oklch(0.82 0.17 86);
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin: 0 0 1.3rem;
+  padding: .6rem .8rem;
+  border-radius: .4rem;
+  background-color: color-mix(in oklch, var(--pd) 28%, var(--md-default-bg-color));
+  color: color-mix(in oklch, var(--pd) 52%, var(--md-default-fg-color));
+  font-size: .7rem;
+  line-height: 1.4;
+}
+.mb-adm-pending[hidden] { display: none; }
+.mb-adm-pending__spin { flex: 0 0 auto; display: inline-flex; }
+.mb-adm-pending__spin svg { width: 1rem; height: 1rem; animation: mb-adm-turn .9s linear infinite; }
+.mb-adm-pending__text { display: flex; flex-direction: column; min-width: 0; }
+.mb-adm-pending__text strong { font-weight: 700; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-adm-pending__spin svg { animation: none; }
+}
+
+/* "Capture in progress": the draft editor's own box (formsStyling.css
+   .mb-kb-capwait, which is not loaded here), in the same px sizes. The Draft
+   yellow; the body brings the capturing tab back, the light red end calls the
+   capture off and widens on hover to say so. The reds are mixed into the
+   scheme's own ground and ink, so they hold in light and dark. */
+.mb-adm-capwait {
+  --cw-line: oklch(0.82 0.17 86);
+  --cw-bg: color-mix(in oklch, var(--cw-line) 28%, var(--md-default-bg-color));
+  --cw-bg-hover: color-mix(in oklch, var(--cw-line) 42%, var(--md-default-bg-color));
+  --cw-ink: color-mix(in oklch, var(--cw-line) 52%, var(--md-default-fg-color));
+  --cw-muted: color-mix(in srgb, var(--cw-ink) 80%, transparent);
+  --cw-cancel-line: #f87171;
+  --cw-cancel-bg: color-mix(in oklch, #ef4444 16%, var(--md-default-bg-color));
+  --cw-cancel-bg-hover: color-mix(in oklch, #ef4444 28%, var(--md-default-bg-color));
+  --cw-cancel-ink: color-mix(in oklch, #dc2626 75%, var(--md-default-fg-color));
+  display: flex;
+  align-items: stretch;
+  border-radius: 10px;
+  background-color: var(--cw-bg);
+  color: var(--cw-ink);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  user-select: none;
+}
+.mb-adm-capwait [hidden] { display: none; }
+.md-typeset .mb-adm-capwait button {
+  appearance: none;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.md-typeset .mb-adm-capwait .mb-adm-capwait__main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 12px 16px;
+  border: 2px dashed var(--cw-line);
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+  text-align: left;
+}
+.md-typeset .mb-adm-capwait .mb-adm-capwait__main:hover { background-color: var(--cw-bg-hover); }
+.md-typeset .mb-adm-capwait.--inserting .mb-adm-capwait__main {
+  border-right: 2px dashed var(--cw-line);
+  border-radius: 10px;
+  background-color: transparent;
+  cursor: default;
+}
+.mb-adm-capwait__spin { flex: 0 0 auto; display: inline-flex; color: var(--cw-muted); }
+.mb-adm-capwait__spin svg { width: 20px; height: 20px; animation: mb-adm-turn .9s linear infinite; }
+.mb-adm-capwait__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mb-adm-capwait__text strong { font-weight: 600; }
+.mb-adm-capwait__hint { color: var(--cw-muted); font-size: 12px; }
+.md-typeset .mb-adm-capwait .mb-adm-capwait__cancel {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 17px;
+  border: 2px dashed var(--cw-cancel-line);
+  border-radius: 0 10px 10px 0;
+  background-color: var(--cw-cancel-bg);
+  color: var(--cw-cancel-ink);
+  font-weight: 600;
+}
+.mb-adm-capwait__cancel svg { flex: 0 0 auto; width: 18px; height: 18px; }
+/* The word is there all along, folded shut; hovering opens it. */
+.mb-adm-capwait__cancel-label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition: max-width .32s ease, margin-left .32s ease, opacity .24s ease;
+}
+.md-typeset .mb-adm-capwait .mb-adm-capwait__cancel:hover,
+.md-typeset .mb-adm-capwait .mb-adm-capwait__cancel:focus-visible { background-color: var(--cw-cancel-bg-hover); }
+.mb-adm-capwait__cancel:hover .mb-adm-capwait__cancel-label,
+.mb-adm-capwait__cancel:focus-visible .mb-adm-capwait__cancel-label { max-width: 5em; margin-left: 6px; opacity: 1; }
+.md-typeset .mb-adm-capwait button:focus-visible { outline: 2px solid var(--cw-line); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-adm-capwait__spin svg { animation: none; }
+  .mb-adm-capwait__cancel-label { transition: none; }
+}
 
 /* ── Forms (New page, Upload, Settings) ───────────────────────────────────── */
 
@@ -429,7 +607,7 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
 /* Picked: the choice's own colour, never the theme's accent. A state (Public,
    Unlisted) takes its pill's hue; one with none is the neutral grey. */
 .mb-adm-choice > span { --pill: oklch(0.62 0.02 255); }
-.mb-adm-choice.--public > span { --pill: oklch(0.64 0.14 245); }
+.mb-adm-choice.--public > span { --pill: oklch(0.7 0.15 245); }
 .mb-adm-choice > input:checked + span {
   background-color: color-mix(in oklch, var(--pill) 18%, transparent);
   border-color: color-mix(in oklch, var(--pill) 70%, transparent);
@@ -467,6 +645,20 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
 .mb-adm-actions__group { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .mb-adm-actions { gap: .4rem .8rem; }
 
+/* An icon on its own: the theme's own page icon by a title (the classes
+   md-content__button md-icon, as Switch to edit mode and Edit log wear), so
+   its grey tile, size, hover and dark mode are the theme's. Only what a
+   <button> in a flex row needs is said here. Named by the theme's tooltip. */
+.md-typeset .mb-adm-iconbtn.md-content__button {
+  float: none;
+  margin: 0;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.md-typeset .mb-adm-iconbtn:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .1rem; }
+.md-typeset .mb-adm-iconbtn[aria-disabled="true"] { opacity: .4; cursor: default; }
+
 /* A button in the page. */
 .md-typeset .mb-adm-button {
   display: inline-flex;
@@ -488,13 +680,15 @@ html.mb-kb-admin .md-sidebar--secondary { display: none; }
 .md-typeset .mb-adm-button:hover { background-color: var(--md-default-fg-color--lighter); }
 .md-typeset .mb-adm-button:focus-visible { outline: .1rem solid var(--md-accent-fg-color); outline-offset: .1rem; }
 .mb-adm-button svg { flex-shrink: 0; width: .8rem; height: .8rem; }
-/* The button that needs emphasis (save, upload, publish): the theme's accent. */
+/* The button that needs emphasis (save, upload, publish): a tint of the
+   theme's accent, the same recipe as the state pills. */
 .md-typeset .mb-adm-button.--accent {
-  background-color: var(--md-accent-fg-color);
-  color: var(--md-accent-bg-color);
+  --pill: var(--md-accent-fg-color);
+  background-color: color-mix(in oklch, var(--pill) 18%, transparent);
+  box-shadow: 0 0 0 .05rem color-mix(in oklch, var(--pill) 55%, transparent) inset;
+  color: color-mix(in oklch, var(--pill) 62%, var(--md-default-fg-color));
 }
-.md-typeset .mb-adm-button.--accent:hover { background-color: color-mix(in oklch, var(--md-accent-fg-color) 85%, var(--md-default-fg-color)); }
-.md-typeset .mb-adm-button.--accent:focus-visible { outline-offset: .15rem; }
+.md-typeset .mb-adm-button.--accent:hover { background-color: color-mix(in oklch, var(--pill) 30%, transparent); }
 /* A mode that is on (Reorder mode): pink, as in the editor. */
 .md-typeset .mb-adm-button.--pink {
   --pill: oklch(0.66 0.21 350);

@@ -3,37 +3,42 @@
  * the Knowledge Base site (see kbAdmin.js): the Media Library, as a page.
  *
  * The library mirrors docs/assets/media in the repo: every top-level folder is
- * a tab (mediaTree.js), a light/dark pair is one row. A row opens in place to
- * show the file, its details and the pages that use it (the .media-usage.json
- * index). Upload follows the Upload form's rules (mediaUpload.js): the pair
+ * a tab (mediaTree.js), a light/dark pair is one row. A row is a link to the
+ * file's own page (kbAdminMediaEntry.js): its previews, the pages that use it,
+ * and recapturing, replacing or deleting it. Upload follows the Upload form's rules (mediaUpload.js): the pair
  * folders take a light + dark image, every other folder one file of any kind.
  */
 
-import { readRepoText, readRepoDataUrl } from './repoClient.js';
+import { readRepoText } from './repoClient.js';
 import { parseNavBlock } from './navToml.js';
 import { listMediaPaths, MEDIA_ROOT } from './mediaLibrary.js';
 import { buildMediaNodes, groupMediaPaths } from './mediaTree.js';
 import { readCaptureMeta } from './captureMeta.js';
 import { readMediaUsage } from './mediaUsageStore.js';
-import { pageBasesUsingMedia } from './mediaUsage.js';
+import { mediaEntryHref } from './kbMediaEntry.js';
 import { OCC_DIR, SU_DIR, PAIR_DIRS, isSystemUpdateCapturePath, pairFilenames, shortId } from './captureDest.js';
 import { readCaptureImage, readMediaFile, CAPTURE_UPLOAD_TYPES } from './captureCards.js';
 import { snapshotButton, restoreButton } from './loading.js';
 import { escapeHtml, icon, renderAdminTree, noticeHtml, busyAction } from './kbAdmin.js';
 
-const IMAGE_EXTS = ['png', 'svg', 'jpg', 'jpeg', 'gif', 'webp'];
-const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
+export const IMAGE_EXTS = ['png', 'svg', 'jpg', 'jpeg', 'gif', 'webp'];
+export const VIDEO_EXTS = ['mp4', 'webm', 'mov', 'm4v'];
 
 // Kept while moving between admin screens.
 const view = { tab: null, query: '' };
 const collapsed = new Set();
 let lastFolders = [];   // [{ key, label }] for the upload screen's Destination
-let flash = '';         // a one-off notice for the library after an upload
+let flash = '';         // a one-off notice for the library after an upload or a delete
+
+let flashDetail = '';
+const REBUILD = 'It shows on the site once the site has rebuilt, in a few minutes.';
+/** Something for the library to say the next time it is shown. */
+export const setFlash = (text, detail = REBUILD) => { flash = text; flashDetail = detail; };
 
 /** A repo path under docs/ → where the built site serves it. */
-const siteUrl = path => '/' + String(path).replace(/^docs\//, '').split('/').map(encodeURIComponent).join('/');
+export const siteUrl = path => '/' + String(path).replace(/^docs\//, '').split('/').map(encodeURIComponent).join('/');
 
-async function loadTabs() {
+export async function loadTabs() {
   const [paths, meta] = await Promise.all([listMediaPaths(), readCaptureMeta()]);
   const tabs = groupMediaPaths(paths, MEDIA_ROOT)
     .map(group => ({ ...group, nodes: buildMediaNodes(group.paths, { root: group.root }) }))
@@ -43,7 +48,9 @@ async function loadTabs() {
 
 // Which pages use a file: the usage index plus page titles from the nav.
 let usagePromise = null;
-function loadUsage() {
+/** Forget the usage read so far: the next ask reads the index again. */
+export const resetUsage = () => { usagePromise = null; };
+export function loadUsage() {
   usagePromise ??= Promise.all([readMediaUsage(), readRepoText('zensical.toml')]).then(([index, toml]) => {
     const titles = new Map();
     const live = new Set();
@@ -64,7 +71,7 @@ function loadUsage() {
   return usagePromise;
 }
 
-function pillsFor(entry, meta) {
+export function pillsFor(entry, meta) {
   const pills = [];
   if (isSystemUpdateCapturePath(entry.light || entry.single)) pills.push('<span class="mb-adm-pill --system">System update</span>');
   if (meta?.resized) pills.push('<span class="mb-adm-pill --drafting">Resized</span>');
@@ -75,40 +82,29 @@ function pillsFor(entry, meta) {
   return pills.join('');
 }
 
-function detailHtml(entry) {
-  const files = [entry.light, entry.dark, entry.single].filter(Boolean);
-  const figure = (path, caption, scheme) => `
-    <figure class="mb-adm-figure${scheme ? ' --' + scheme : ''}">
-      <div class="mb-adm-figure__frame"><img src="${escapeHtml(siteUrl(path))}" alt="${escapeHtml(caption)}" loading="lazy" data-adm-media="${escapeHtml(path)}"></div>
-      <figcaption>${escapeHtml(caption)}</figcaption>
-    </figure>`;
-  let preview;
-  if (VIDEO_EXTS.includes(entry.ext)) {
-    preview = `<video class="mb-adm-video" controls preload="metadata" src="${escapeHtml(siteUrl(files[0]))}"></video>`;
-  } else if (IMAGE_EXTS.includes(entry.ext)) {
-    preview = entry.light
-      ? `<div class="mb-adm-figures">${figure(entry.light, 'Light mode', 'light')}${entry.dark ? figure(entry.dark, 'Dark mode', 'dark') : ''}</div>`
-      : `<div class="mb-adm-figures">${figure(entry.single, entry.label, '')}</div>`;
-  } else {
-    preview = '<p class="mb-adm-hint">This kind of file has no preview.</p>';
-  }
-  return `
-    ${preview}
-    <dl class="mb-adm-facts">
-      ${files.map(path => `
-        <div>
-          <dt>${files.length > 1 ? (path === entry.light ? 'Light file' : 'Dark file') : 'File'}</dt>
-          <dd>
-            <code>${escapeHtml(path.replace(/^docs\//, ''))}</code>
-            <button type="button" class="mb-adm-link" data-adm-copy="${escapeHtml(path.replace(/^docs\//, ''))}">Copy path</button>
-            <a class="mb-adm-link" href="${escapeHtml(siteUrl(path))}" target="_blank" rel="noopener">Open</a>
-          </dd>
-        </div>`).join('')}
-      <div>
-        <dt>Used on</dt>
-        <dd data-adm-usage="${escapeHtml(entry.id)}"><span class="mb-adm-hint">Checking the pages…</span></dd>
-      </div>
-    </dl>`;
+// A mediaTree leaf → the entry it stands for ({ id, label, light, dark, single, ext, tab }).
+function entryOf(node, tabKey) {
+  const a = node.attrs;
+  return {
+    id: a['data-media-light'] || a['data-media-single'] || a['data-media-dark'],
+    label: node.label,
+    light: a['data-media-light'], dark: a['data-media-dark'], single: a['data-media-single'],
+    ext: a['data-media-ext'],
+    tab: tabKey,
+  };
+}
+
+/** Every file in the library, as entries. */
+export function entriesOf(tabs) {
+  const out = [];
+  const walk = (nodes, tabKey) => {
+    for (const node of nodes) {
+      if (node.kind === 'folder') walk(node.children, tabKey);
+      else out.push(entryOf(node, tabKey));
+    }
+  };
+  for (const tab of tabs) walk(tab.nodes, tab.key);
+  return out;
 }
 
 export async function mountMedia(ctx) {
@@ -124,10 +120,10 @@ export async function mountMedia(ctx) {
 
   lastFolders = tabs.map(({ key, label }) => ({ key, label }));
   if (!tabs.some(t => t.key === view.tab)) view.tab = tabs[0]?.key ?? null;
-  let openId = null;
+  const all = entriesOf(tabs);   // for a row's url: two files can share a name
 
   ctx.body.innerHTML = `
-    <div data-adm-notice>${flash ? noticeHtml('success', flash, 'It shows on the site once the site has rebuilt, in a few minutes.') : ''}</div>
+    <div data-adm-notice>${flash ? noticeHtml('success', flash, flashDetail || REBUILD) : ''}</div>
     <div class="mb-adm-tabs" role="tablist" aria-label="Media folders">
       ${tabs.map(t => `<button type="button" role="tab" data-adm-tab="${escapeHtml(t.key)}">${escapeHtml(t.label)}</button>`).join('')}
     </div>
@@ -137,11 +133,11 @@ export async function mountMedia(ctx) {
     </div>
     <div data-adm-tree></div>`;
   flash = '';
+  flashDetail = '';
 
   const treeEl = ctx.body.querySelector('[data-adm-tree]');
   const searchEl = ctx.body.querySelector('.mb-adm-search');
   searchEl.value = view.query;
-  const entries = new Map();   // leaf id → entry, for the open row and its usage
 
   // mediaTree nodes → renderAdminTree nodes.
   const convert = (nodes, tab, trail = []) => nodes.map(node => {
@@ -149,45 +145,14 @@ export async function mountMedia(ctx) {
       const labels = [...trail, node.label];
       return { id: `f:${tab.key}/${labels.join('/')}`, label: node.label, children: convert(node.children, tab, labels) };
     }
-    const a = node.attrs;
-    const entry = {
-      id: a['data-media-light'] || a['data-media-single'] || a['data-media-dark'],
-      label: node.label,
-      light: a['data-media-light'], dark: a['data-media-dark'], single: a['data-media-single'],
-      ext: a['data-media-ext'],
-    };
-    entries.set(entry.id, entry);
-    const open = entry.id === openId;
+    const entry = entryOf(node, tab.key);
     return {
-      id: entry.id, label: node.label, open,
+      id: entry.id, label: node.label,
+      href: mediaEntryHref(entry, all),
       icon: VIDEO_EXTS.includes(entry.ext) ? 'film' : IMAGE_EXTS.includes(entry.ext) ? 'image' : 'file',
       pills: pillsFor(entry, PAIR_DIRS.includes(tab.key) ? meta[entry.light] : null),
-      detail: open ? detailHtml(entry) : '',
     };
   });
-
-  async function fillUsage(id) {
-    const entry = entries.get(id);
-    const slot = () => treeEl.querySelector(`[data-adm-usage="${CSS.escape(id)}"]`);
-    if (!entry || !slot()) return;
-    try {
-      const { index, titles, live } = await loadUsage();
-      const el = slot();
-      if (!el) return;
-      const bases = [...pageBasesUsingMedia(index, [entry.light, entry.dark, entry.single].filter(Boolean))];
-      if (!bases.length) { el.innerHTML = '<span class="mb-adm-hint">No page uses this file.</span>'; return; }
-      el.innerHTML = `<ul class="mb-adm-usage">${bases
-        .map(base => ({ base, title: titles.get(base) ?? base.replace(/\.md$/, '') }))
-        .sort((a, b) => a.title.localeCompare(b.title))
-        .map(({ base, title }) => {
-          const slug = encodeURIComponent(base.replace(/\.md$/, ''));
-          return `<li><a href="/${live.has(base) ? 'pages' : 'drafts'}/${slug}/">${escapeHtml(title)}</a></li>`;
-        }).join('')}</ul>`;
-    } catch {
-      const el = slot();
-      if (el) el.innerHTML = '<span class="mb-adm-hint">The pages using this file could not be checked.</span>';
-    }
-  }
 
   function draw() {
     ctx.body.querySelectorAll('[data-adm-tab]').forEach(b => {
@@ -196,7 +161,6 @@ export async function mountMedia(ctx) {
       b.tabIndex = on ? 0 : -1;
     });
     const tab = tabs.find(t => t.key === view.tab);
-    entries.clear();
     const out = renderAdminTree(tab ? convert(tab.nodes, tab) : [], {
       query: view.query, collapsed,
       empty: 'No media yet. Upload the first file with the button above.',
@@ -205,50 +169,24 @@ export async function mountMedia(ctx) {
     ctx.body.querySelector('[data-adm-summary]').textContent = view.query.trim()
       ? `${out.shown} of ${out.total}`
       : `${out.total} ${out.total === 1 ? 'file' : 'files'}`;
-    if (openId) fillUsage(openId);
   }
 
   ctx.body.addEventListener('input', e => {
     if (e.target === searchEl) { view.query = searchEl.value; draw(); }
   });
-  ctx.body.addEventListener('click', async e => {
+  ctx.body.addEventListener('click', e => {
     const t = e.target instanceof Element ? e.target : null;
     if (!t) return;
     const tab = t.closest('[data-adm-tab]');
-    if (tab) { view.tab = tab.dataset.admTab; openId = null; draw(); return; }
-    const copy = t.closest('[data-adm-copy]');
-    if (copy) {
-      try {
-        await navigator.clipboard.writeText(copy.dataset.admCopy);
-        copy.textContent = 'Copied';
-      } catch { copy.textContent = 'Could not copy'; }
-      setTimeout(() => { copy.textContent = 'Copy path'; }, 1600);
-      return;
-    }
+    if (tab) { view.tab = tab.dataset.admTab; draw(); return; }
     const fold = t.closest('[data-adm-fold]');
     if (fold) {
       const id = fold.dataset.admFold;
       if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
       draw();
       treeEl.querySelector(`[data-adm-fold="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
-      return;
-    }
-    const leaf = t.closest('[data-adm-leaf]');
-    if (leaf) {
-      const id = leaf.dataset.admLeaf;
-      openId = openId === id ? null : id;
-      draw();
-      treeEl.querySelector(`[data-adm-leaf="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
     }
   });
-  // A file pushed moments ago is not on the built site yet: read it from the
-  // repo instead (once per image).
-  treeEl.addEventListener('error', async e => {
-    const img = e.target;
-    if (!(img instanceof HTMLImageElement) || !img.dataset.admMedia || img.dataset.admRetried) return;
-    img.dataset.admRetried = '1';
-    try { img.src = await readRepoDataUrl(img.dataset.admMedia); } catch { /* the broken image stands */ }
-  }, true);
 
   ctx.setActions([[{ act: 'upload', icon: 'upload', label: 'Upload a new file' }]], () => ctx.go('media-library/upload'));
   draw();

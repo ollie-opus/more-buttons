@@ -11,7 +11,7 @@
 
 import { readRepoText } from './repoClient.js';
 import { githubFetchAndPushFile } from './github.js';
-import { parseTagRegistry, writeTagRegistry, mergeTagRegistry } from './navToml.js';
+import { parseTagRegistry, writeTagRegistry, mergeTagRegistry, parseAudiences } from './navToml.js';
 import { AUDIENCE_TAG_NAMES } from './audienceTags.js';
 
 let _tomlPromise = null;
@@ -38,6 +38,12 @@ export async function loadTagRegistry() {
     _tagsCache = withAudienceFirst([]);
   }
   return _tagsCache;
+}
+
+/** The site's audience registry (zensical.toml mb_audiences), in its order:
+ *  [{ tag, name, colour, icon }]; [] when it can't be read. */
+export async function loadAudiences() {
+  try { return parseAudiences(await loadToml()); } catch { return []; }
 }
 
 /** Registered tag names (audience tags first) — the suggestion source. */

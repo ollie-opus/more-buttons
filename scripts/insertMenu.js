@@ -165,13 +165,24 @@ function positionMenu(menu, anchor) {
     menu.style.overflowY = 'auto';
   }
 
-  const placed = { x: place.x, width: menu.offsetWidth };
+  // Outer flyouts first (document order): a nested one flies out of the
+  // flyout holding it, so it is oriented against where that one will stand.
+  const boxes = new Map([[menu, { x: place.x, width: menu.offsetWidth }]]);
   for (const parent of menu.querySelectorAll('.mb-popup-menu__item--has-sub')) {
-    const sub = parent.querySelector('.mb-popup-submenu');
+    const sub = parent.querySelector(':scope > .mb-popup-submenu');
     if (!sub) continue;
-    const flip = resolveSubmenuFlip(parent.getBoundingClientRect(), measureHidden(sub), placed, viewport);
+    const holder = parent.parentElement.closest('.mb-popup-submenu');
+    const from = boxes.get(holder ?? menu) ?? boxes.get(menu);
+    // A nested flyout's ancestors are hidden while it is measured.
+    const chain = [];
+    for (let el = holder; el; el = el.parentElement.closest('.mb-popup-submenu')) chain.push(el);
+    for (const el of chain) { el.style.display = 'flex'; el.style.visibility = 'hidden'; }
+    const size = measureHidden(sub);
+    const flip = resolveSubmenuFlip(parent.getBoundingClientRect(), size, from, viewport);
+    for (const el of chain) { el.style.display = ''; el.style.visibility = ''; }
     parent.classList.toggle('--flip-left', flip.left);
     parent.classList.toggle('--flip-up', flip.up);
+    boxes.set(sub, { x: flip.left ? from.x - 6 - size.width : from.x + from.width + 6, width: size.width });
   }
 }
 
@@ -201,16 +212,21 @@ export function openPopupMenu(anchor, items, onPick, opts = {}) {
 
   const enabledItems = () =>
     [...menu.querySelectorAll('[data-pick]:not(.mb-popup-menu__item--disabled)')]
-      .filter(el => !el.closest('.mb-popup-submenu')
-        || el.closest('.mb-popup-menu__item--has-sub')?.classList.contains('--sub-open'));
+      .filter(el => {
+        // Reachable when every flyout it sits in has been opened.
+        for (let sub = el.closest('.mb-popup-submenu'); sub; sub = sub.parentElement.parentElement.closest('.mb-popup-submenu')) {
+          if (!sub.parentElement.classList.contains('--sub-open')) return false;
+        }
+        return true;
+      });
 
   menu.addEventListener('click', (e) => {
     const item = e.target.closest('[data-pick]');
     if (!item || item.classList.contains('mb-popup-menu__item--disabled')) return;
-    if (item.classList.contains('mb-popup-menu__item--has-sub')
-      && !e.target.closest('.mb-popup-submenu')) {
-      // Parent row: toggle the submenu open (for touch / keyboard).
-      item.classList.toggle('--sub-open');
+    if (item.classList.contains('mb-popup-menu__item--has-sub')) {
+      // Parent row: toggle the submenu open (for touch / keyboard). A parent
+      // never picks, so a click on its flyout's padding does nothing.
+      if (!item.querySelector(':scope > .mb-popup-submenu')?.contains(e.target)) item.classList.toggle('--sub-open');
       return;
     }
     e.stopPropagation();
@@ -233,9 +249,9 @@ export function openPopupMenu(anchor, items, onPick, opts = {}) {
     } else if (e.key === 'ArrowRight' && focused?.classList.contains('mb-popup-menu__item--has-sub')) {
       e.preventDefault();
       focused.classList.add('--sub-open');
-      focused.querySelector('.mb-popup-submenu [data-pick]')?.focus();
+      focused.querySelector(':scope > .mb-popup-submenu [data-pick]')?.focus();
     } else if (e.key === 'ArrowLeft') {
-      const parent = focused?.closest('.mb-popup-menu__item--has-sub');
+      const parent = focused?.parentElement?.closest('.mb-popup-menu__item--has-sub');
       if (parent) {
         e.preventDefault();
         parent.classList.remove('--sub-open');

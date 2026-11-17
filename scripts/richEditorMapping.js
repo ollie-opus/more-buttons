@@ -7,6 +7,10 @@
 
 import { supportMarkup, supportTextOffset, labelMarkup, labelTextOffset, iconMarkup, atomInnerText } from './markdownInline.js';
 
+// A label's text as the source can hold it: no tag can open or close inside
+// the span, and it stays on one line.
+const labelText = text => text.replace(/[<>\n\r]/g, '');
+
 const TEXT_NODE = 3, ELEMENT_NODE = 1;
 
 // Editor tag -> markdown delimiter. Mirrors renderHtml's TAG map and
@@ -80,16 +84,35 @@ export function buildSource(root, onText, onBoundary) {
             out += supportMarkup(txt);
           }
           else if (tag === 'span' && /(?:^|\s)mb-label(?:\s|$)/.test(child.getAttribute('class') || '')) {
-            // A label pill is atomic (like a support-widget link): re-emit the canonical
-            // class-only span from its slug + text, ignoring any inline colour
-            // style the preview painted, so the DOM->source sync can't corrupt it.
-            // Its text may hold icon atoms → atomInnerText re-emits their
-            // shortcodes (and never the painted <svg>).
+            // A label pill is typed into where it stands, so every piece of
+            // text inside it maps to its own place in the source. What is
+            // emitted is still the canonical class-only span: the colour comes
+            // from the slug alone (never the painted inline style), icon atoms
+            // go back to their shortcodes (never their <svg>), any other
+            // element the browser left inside is flattened to its text, and
+            // the text itself can hold no tag or line break. A pill emptied of
+            // its text is no pill: nothing is emitted for it.
             const cls = child.getAttribute('class') || '';
             const slug = (cls.match(/mb-label-([a-z0-9-]+)/) || [])[1] || '';
-            const txt = atomInnerText(child);
-            if (onText && child.firstChild && child.firstChild.nodeType === TEXT_NODE) onText(child.firstChild, out.length + labelTextOffset(slug));
-            out += labelMarkup(slug, txt);
+            const open = out.length;
+            let inner = '';
+            // (An emptied pill has no place in the source: a caret left in
+            // it maps to where the pill stood.)
+            const empty = !labelText(atomInnerText(child));
+            const at = () => (empty ? open : open + labelTextOffset(slug) + inner.length);
+            if (onBoundary) onBoundary(child, 0, at());
+            const parts = child.childNodes;
+            for (let j = 0; j < parts.length; j++) {
+              const part = parts[j];
+              if (part.nodeType === TEXT_NODE) {
+                if (part.nodeValue) { if (onText) onText(part, at()); inner += labelText(part.nodeValue); }
+              } else if (part.nodeType === ELEMENT_NODE) {
+                const icon = part.getAttribute && part.getAttribute('data-mb-icon');
+                inner += icon ? iconMarkup(icon) : labelText(atomInnerText(part));
+              }
+              if (onBoundary) onBoundary(child, j + 1, at());
+            }
+            if (inner) out += labelMarkup(slug, inner);
           }
           else if (tag === 'span' && child.getAttribute('data-mb-icon')) {
             // An icon atom has no text of its own: emit the shortcode from its

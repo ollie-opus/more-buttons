@@ -39,15 +39,16 @@ export function applyMetaUpserts(manifest, upserts) {
 }
 
 /**
- * Filename marker for captures taken with annotate/zapper state in play:
- * '-a' (annotated), '-z' (zapped), '-a-z' (both), '' (neither). Annotated
+ * Filename marker for captures taken with annotate/zapper/isolator state in
+ * play: '-a' (annotated), '-z' (zapped), '-i' (isolated), in that order when
+ * combined ('-a-z-i'), '' (none). Annotated
  * captures may also carry the annotated elements' label slugs right after the
  * '-a' flag ('-a-time-clock-z'): first three non-empty names in annotation
  * order, deduped against the capture's own base slug and each other (dupes and
  * empties don't consume slots). Applied to NEW captures only — recaptures keep
  * their creation-time name.
  */
-export function captureFlagSuffix(annotated, zapped, names = [], baseSlug = '') {
+export function captureFlagSuffix(annotated, zapped, names = [], baseSlug = '', isolated = false) {
   let nameStr = '';
   if (annotated) {
     const seen = new Set(baseSlug ? [baseSlug] : []);
@@ -60,7 +61,7 @@ export function captureFlagSuffix(annotated, zapped, names = [], baseSlug = '') 
     }
     nameStr = kept.map(n => `-${n}`).join('');
   }
-  return (annotated ? `-a${nameStr}` : '') + (zapped ? '-z' : '');
+  return (annotated ? `-a${nameStr}` : '') + (zapped ? '-z' : '') + (isolated ? '-i' : '');
 }
 
 /**

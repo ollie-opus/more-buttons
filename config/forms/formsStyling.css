@@ -12,7 +12,7 @@
 html.mb-kb-host[data-mb-theme="light"] { --mb-dark: 0; }
 html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
 
-.more-buttons-overlay-content, .mb-page-dock, .mb-popup, .mb-action-veil__card, .mb-kb-bar, html.mb-kb-host body > .mb-popup-menu, .mb-kb-status, .mb-kb-panel, .mb-kb-rail, .mb-rte-float {
+.more-buttons-overlay-content, .mb-page-dock, .mb-popup, .mb-action-veil__card, .mb-kb-bar, html.mb-kb-host body > .mb-popup-menu, .mb-kb-panel, .mb-kb-capwait, .mb-kb-cal, .mb-kb-typed, .mb-rte-float, .mb-fm {
   --mb-bg:               #ffffff;
   --mb-bg-subtle:        #f8fafc;
   --mb-bg-input:         #ffffff;
@@ -73,7 +73,7 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
 }
 
 @container style(--mb-dark: 1) {
-  .more-buttons-overlay-content, .mb-page-dock, .mb-popup, .mb-action-veil__card, .mb-kb-bar, html.mb-kb-host body > .mb-popup-menu, .mb-kb-status, .mb-kb-panel, .mb-kb-rail, .mb-rte-float {
+  .more-buttons-overlay-content, .mb-page-dock, .mb-popup, .mb-action-veil__card, .mb-kb-bar, html.mb-kb-host body > .mb-popup-menu, .mb-kb-panel, .mb-kb-capwait, .mb-kb-cal, .mb-kb-typed, .mb-rte-float, .mb-fm {
     --mb-bg:               #1e293b;
     --mb-bg-subtle:        #0f172a;
     --mb-bg-input:         #0f172a;
@@ -832,6 +832,7 @@ button.more-buttons-crumb:hover {
 }
 
 /* Colour accents — the same hues as the admonition cards (.mb-incident-card). */
+.more-buttons-radio-btn.--edit        { --mb-acc: var(--mb-edit, #9333ea); } /* the KB in-page editor's purple */
 .more-buttons-radio-btn.--green       { --mb-acc: rgb(102,187,106); }
 .more-buttons-radio-btn.--amber       { --mb-acc: rgb(255,179,0); }
 .more-buttons-radio-btn.--red         { --mb-acc: rgb(239,83,80); }
@@ -1983,26 +1984,26 @@ button.more-buttons-crumb:hover {
   left: -8px;
   width: 8px;
 }
-.mb-popup-menu__item--has-sub:hover .mb-popup-submenu,
-.mb-popup-menu__item--has-sub:focus-within .mb-popup-submenu,
-.mb-popup-menu__item--has-sub.--sub-open .mb-popup-submenu {
+.mb-popup-menu__item--has-sub:hover > .mb-popup-submenu,
+.mb-popup-menu__item--has-sub:focus-within > .mb-popup-submenu,
+.mb-popup-menu__item--has-sub.--sub-open > .mb-popup-submenu {
   display: flex;
 }
 /* Near the right viewport edge the flyout flips leftward (class set by
    positionMenu in insertMenu.js); the hover bridge moves to the right gap. */
-.mb-popup-menu__item--has-sub.--flip-left .mb-popup-submenu {
+.mb-popup-menu__item--has-sub.--flip-left > .mb-popup-submenu {
   left: auto;
   right: 100%;
   margin-left: 0;
   margin-right: 6px;
 }
-.mb-popup-menu__item--has-sub.--flip-left .mb-popup-submenu::before {
+.mb-popup-menu__item--has-sub.--flip-left > .mb-popup-submenu::before {
   left: auto;
   right: -8px;
 }
 /* Near the bottom edge the flyout hangs from the row's bottom instead of its
    top (same source), so it opens upward and stays on screen. */
-.mb-popup-menu__item--has-sub.--flip-up .mb-popup-submenu {
+.mb-popup-menu__item--has-sub.--flip-up > .mb-popup-submenu {
   top: auto;
   bottom: -4px;
 }
@@ -2961,14 +2962,76 @@ html.mb-extract-mode .mb-capture-selector,
 html.mb-extract-mode .mb-capture-padding-ring {
   --cb-hue: #a855f7; /* purple-500 */
 }
-/* Resize + padding shape what gets drawn/captured; zapper picks just delete
- * and extract lifts markup (no pixels to crop or pad), so the controls hide
- * rather than advertise dead affordances. */
+/* Isolator mode: same trick, sky blue. */
+html.mb-isolate-mode .mb-capture-bar,
+html.mb-isolate-mode .mb-capture-tab,
+html.mb-isolate-mode .mb-capture-glow,
+html.mb-isolate-mode .mb-capture-selector,
+html.mb-isolate-mode .mb-capture-padding-ring {
+  --cb-hue: #0ea5e9; /* sky-500 */
+}
+/* Resize + padding shape what gets drawn/captured; zapper picks just delete,
+ * extract lifts markup (no pixels to crop or pad) and isolator picks only
+ * mark, so the controls hide rather than advertise dead affordances. */
 html.mb-zap-mode .mb-capture-bar [data-bar-resize],
 html.mb-zap-mode .mb-capture-bar [data-bar-padding-wrap],
 html.mb-extract-mode .mb-capture-bar [data-bar-resize],
-html.mb-extract-mode .mb-capture-bar [data-bar-padding-wrap] {
+html.mb-extract-mode .mb-capture-bar [data-bar-padding-wrap],
+html.mb-isolate-mode .mb-capture-bar [data-bar-resize],
+html.mb-isolate-mode .mb-capture-bar [data-bar-resize-grow],
+html.mb-isolate-mode .mb-capture-bar [data-bar-resize-shrink],
+html.mb-isolate-mode .mb-capture-bar [data-bar-padding-wrap] {
   display: none;
+}
+/* Isolator's one option only shows in its own mode (the state it sets holds
+ * in every mode). */
+.mb-capture-bar [data-bar-isolate] {
+  display: none;
+}
+html.mb-isolate-mode .mb-capture-bar [data-bar-isolate] {
+  display: inline-flex;
+}
+
+/* ── Element isolation (scripts/captureIsolate.js) ──────────────────────────
+ * Solid: the page is hidden, never covered. The backdrop takes the lowest
+ * z-index in the root stacking context, so it paints over the canvas and
+ * under everything else; every element outside a marked subtree is
+ * visibility:hidden (layout kept, nothing moves) and the marked elements
+ * paint untouched, shadows included. Inside a marked subtree no rule applies,
+ * so whatever the page itself hides there stays hidden.
+ * Peek (Shift held in Isolator mode): the page shows again under a faint veil
+ * of the same colour, marks outlined. */
+.mb-isolate-backdrop {
+  position: fixed;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+html.mb-isolating > .mb-isolate-backdrop {
+  display: block;
+  z-index: -2147483648;
+}
+html.mb-isolate-peek > .mb-isolate-backdrop {
+  display: block;
+  z-index: 2147483600; /* over the page, under the capture-mode UI */
+  opacity: 0.25;
+}
+html.mb-isolating body:not([data-mb-isolated]),
+html.mb-isolating body *:not([data-mb-isolated], [data-mb-isolated] *, .mb-capture-resize, .mb-capture-resize *, .mb-capture-resize-hint, .mb-annotation-box) {
+  visibility: hidden !important;
+}
+/* The resize box, its hint and drawn annotation boxes are mounted in <body>:
+ * they are capture-mode's own and must stay usable over the hidden page. */
+html.mb-isolating [data-mb-isolated],
+html.mb-isolating .mb-capture-resize,
+html.mb-isolating .mb-capture-resize *,
+html.mb-isolating .mb-capture-resize-hint,
+html.mb-isolating .mb-annotation-box {
+  visibility: visible !important;
+}
+html.mb-isolate-peek [data-mb-isolated] {
+  outline: 2px solid #0ea5e9 !important;
+  outline-offset: 2px !important;
 }
 /* The colour swatch only makes sense while annotating — inverse of the zap
  * hides: hidden by default, shown when annotate mode is on. */
@@ -4079,7 +4142,7 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 /* display:block/flex below defeats the UA's [hidden] rule (host pages usually
    patch this globally, but don't depend on it) — restore it. The data-table
    editor also parks BOTH nodes hidden while no cell is being edited, and the
-   link/label popovers are created hidden. */
+   link/icon popovers are created hidden. */
 .mb-rte__surface[hidden],
 .mb-rte__input[hidden],
 .mb-rte__popover[hidden] {
@@ -4257,18 +4320,34 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   }
 }
 
-/* In the rich surface a pill is an atomic contenteditable=false node whose
-   click gesture opens the label popover (mirrors `.mb-rte__surface .mb-icon`)
-   — signal the affordance. */
-.mb-rte__surface .mb-label { cursor: pointer; }
-.mb-rte__surface .mb-label:hover { filter: brightness(0.94); }
-@container style(--mb-dark: 1) {
-  .mb-rte__surface .mb-label:hover { filter: brightness(1.18); }
-}
+/* An icon in a pill, as the site's labels.css has it for its own `.twemoji`:
+   centred on the text and out of baseline alignment. On the KB site that
+   stylesheet lines a pill's items up on the baseline, and an icon box's
+   baseline is its foot, so without this ours rides high. The gap stands in
+   for the space after the icon (whitespace between flex items collapses). */
+.mb-label { gap: 0.35em; }
+.mb-label .mb-icon { align-self: center; }
+/* In text being edited a pill is laid out as ordinary inline text, not as a
+   flex row: the browser will not carry a selection from one flex item into
+   the next, so an icon in a pill could not be highlighted with its text.
+   (`html` outranks the site's own `.md-typeset .mb-label` flex rule.) */
+html [contenteditable="true"] .mb-label { display: inline-block; }
 
-/* The Label popover is wider than the link one so the swatch grid fits more
-   pills per row (fewer rows → shorter popover). */
-.mb-rte__popover--label { width: 440px; }
+/* A pill in the text being edited is typed into where it stands
+   (labelPills.js). The one the caret is in is ringed in its own colour, and
+   its colours float just above it as loose pills, as an admonition's types
+   do: the editor's floating menu (.mb-fm, floatMenu.js), each pill a copy of
+   the label in that colour (.mb-fm__pill.--swatch), the one it is now ringed
+   and ticked.
+   Placed in window px (they follow the label as the page or a form scrolls)
+   and above the forms' overlay. */
+[contenteditable="true"] .mb-label { cursor: text; }
+.mb-label[data-mb-label-editing] { box-shadow: 0 0 0 2px var(--mb-label-ring, var(--mb-bg, #fff)), 0 0 0 3.5px currentColor; }
+html.mb-kb-host .mb-label[data-mb-label-editing] { --mb-label-ring: var(--md-default-bg-color, #fff); }
+.mb-fm.mb-label-pills {
+  position: fixed;
+  z-index: 2147483000;
+}
 
 /* Link popover: three tabs plus the Internal Page tree need more than the
    base 260px. */
@@ -4295,12 +4374,25 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   fill: none;
   stroke: currentColor;
 }
-/* In the surface a click on the atom selects it (the edit gesture); show it. */
 .mb-rte__surface .mb-icon { cursor: pointer; border-radius: 3px; }
 .mb-rte__surface .mb-icon:hover { background: rgba(127, 127, 127, 0.18); }
-/* An icon inside a label pill is part of the pill's text (its click opens the
-   label popover, not the icon one) — no separate hover target. */
-.mb-rte__surface .mb-label .mb-icon:hover { background: none; }
+/* An icon selects like a character (click, drag or Shift+arrow across it).
+   The atom has no text for the browser to tint, so richTextEditor marks the
+   ones inside the selection and this paints the selection colour behind the
+   glyph: a full line tall (1lh), as selected text beside it is, whatever the
+   line height. The isolation keeps the z-index: -1 above the page's ground. */
+.mb-icon.--selected { position: relative; isolation: isolate; background: none; }
+.mb-icon.--selected::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  top: calc(50% + 0.12em); /* the glyph box sits a touch above the middle of its line */
+  height: 1lh;
+  transform: translateY(-50%);
+  background: Highlight;
+}
 
 /* Icon popover: the search combobox + a small resolved-icon preview row. The
    picker's result list normally floats over the page; inside the popover it
@@ -4451,7 +4543,7 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
   color: var(--mb-text-muted);
 }
 
-/* Swatch grid inside the Label popover. `overflow-y: auto` also clips the x-axis,
+/* Swatch grid inside a colour popover (colourSwatchPopover.js). `overflow-y: auto` also clips the x-axis,
    which would crop the selected swatch's outline halo — the inner padding gives
    that 4px halo room (especially on the flush-left column). */
 .mb-rte__swatch-grid { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; padding: 4px; }
@@ -4484,7 +4576,7 @@ form[data-view-only] .mb-view-media-copy { display: flex; justify-content: flex-
 .mb-swatch-popover { z-index: 40; }
 
 /* Colour swatch grid used as a radio group (button editor). Same pill visuals
-   as the label popover swatches, but each pill is a real <label><input
+   as the colour popover's swatches, but each pill is a real <label><input
    type=radio> pair so form.js hydration/dirty-tracking and formValidation see
    ordinary fields. No max-height/scroll — it lives in a full form, not a
    popover. */
@@ -6071,9 +6163,7 @@ html.mb-builder-pick-mode .mb-capture-selector { border-style: dashed; border-ra
    correction; apply it to each piece of extension chrome. */
 html.mb-kb-host .more-buttons-overlay,
 html.mb-kb-host .mb-page-dock,
-html.mb-kb-host .mb-kb-status,
 html.mb-kb-host .mb-kb-panel,
-html.mb-kb-host .mb-kb-settings,
 html.mb-kb-host .mb-kb-bar {
   zoom: var(--mb-kb-zoom, 1);
 }
@@ -6083,8 +6173,8 @@ html.mb-kb-host .mb-kb-bar {
 html.mb-kb-host .more-buttons-overlay [hidden],
 html.mb-kb-host .mb-page-dock [hidden],
 html.mb-kb-host .mb-kb-panel [hidden],
-html.mb-kb-host .mb-kb-rail [hidden],
-html.mb-kb-host .mb-kb-rail[hidden],
+html.mb-kb-host .mb-kb-blockmenu [hidden],
+html.mb-kb-host .mb-kb-blockmenu[hidden],
 html.mb-kb-host .mb-kb-dropline[hidden],
 html.mb-kb-host .mb-rte-float [hidden],
 html.mb-kb-host .mb-rte-float[hidden],
@@ -6092,47 +6182,32 @@ html.mb-kb-host .mb-kb-bar [hidden] {
   display: none !important;
 }
 
-/* Edit mode: drop the left nav, the breadcrumbs and "On this page", and keep
-   the article at the width readers see it at, centred. The article ends clear
-   of the bottom bar. */
-html.mb-kb-editing .md-sidebar--primary,
-html.mb-kb-editing .md-sidebar--secondary,
+/* Edit mode: drop the breadcrumbs, and the left nav from sight. The nav keeps
+   its room, so the article stands where and as wide as readers see it, with
+   "On this page" on its right (kbToc.js keeps that drawn from the headings on
+   the page as edited, or hides it as the page's settings say) exactly as on
+   the live site. A page whose settings hide the navigation gives that room to
+   the article, as the site does: kbPageEditor.js (placePageChrome) sets the
+   sidebar `hidden`, and the theme's own rules do the rest. */
 html.mb-kb-editing .md-path {
   display: none !important;
 }
-html.mb-kb-editing .md-content {
-  max-width: 37rem;
-  margin-inline: auto;
+html.mb-kb-editing .md-sidebar--primary {
+  visibility: hidden !important;
 }
+/* The page ends 16px under the foot row (.mb-kb-foot), which is where the row
+   is held off the window's bottom while there is more page below: scrolled to
+   the very end it stands exactly where it stood all the way down. (The theme
+   leaves 1.2rem under the article; the row's own bottom margin is 0.) */
 html.mb-kb-editing article.md-content__inner {
-  padding-bottom: 96px;
+  margin-bottom: 16px;
 }
-
-/* The bottom bar: the form editors' action dock (same island, same square
-   tiles with floating tags), pinned to the window instead of a form tile. */
-.more-buttons-form-actions.mb-kb-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  transform: none;
-  width: fit-content;
-  max-width: calc(100% - 32px);
-  margin-inline: auto;
-  z-index: 9985;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  line-height: 1.25;
-  text-align: left;
-  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.16);
+/* What is brought into view (a block just added, the text being typed into)
+   stops clear of the header above and of the sticky foot row below
+   (.mb-kb-foot: its tiles, 16px off the window's bottom). */
+html.mb-kb-editing article.md-content__inner :is([data-mb-node], [data-mb-edit], .mb-kb-text) {
+  scroll-margin: 72px 0 108px;
 }
-/* A switched-on tile: a format the caret is inside, or a mode that is on. */
-.mb-kb-bar .more-buttons-button.--active {
-  --mb-acc: var(--mb-col-blue);
-  background: color-mix(in srgb, var(--mb-acc) 16%, transparent);
-  border-color: var(--mb-acc);
-  color: var(--mb-acc);
-}
-.mb-kb-bar [data-kb-act="create"].--active { --mb-acc: var(--mb-col-pink); }
-.mb-kb-bar [data-kb-act="markdown"].--active { --mb-acc: var(--mb-col-violet); }
 /* Text formatting floats at the text (richTextEditor's attachRichSurface): one
    host on body, placed in page px, holding the selection bar, the slash menu
    and the link / label / icon / AI popovers, one showing at a time. The host
@@ -6153,6 +6228,10 @@ html.mb-kb-editing article.md-content__inner {
 }
 .mb-rte-float[hidden], .mb-rte-float [hidden] { display: none; }
 .mb-rte-float > * { zoom: var(--mb-kb-zoom, 1); }
+/* The selection bar a size up from the form editors' toolbar: out on a page it
+   is a small target otherwise (--mb-kb-zoom alone left its buttons near 20px
+   on a wide window). Scaled whole. */
+.mb-rte-float > .mb-rte-float__bar { zoom: calc(var(--mb-kb-zoom, 1) * 1.4); }
 .mb-rte-float__bar {
   display: flex;
   align-items: center;
@@ -6223,12 +6302,10 @@ html.mb-kb-editing .mb-kb-text > :last-child { margin-bottom: 0; }
 html.mb-kb-editing .mb-kb-text { margin: 1em 0; }
 html.mb-kb-editing .admonition > .mb-kb-text,
 html.mb-kb-editing details > .mb-kb-text { margin: 0.6em 0; }
-/* A section with no text of its own takes no room. Inside a box that would
-   otherwise stand empty (an admonition, a tab, a grid cell), and everywhere in
-   create mode, the empty text is a faint line to click and type on. */
-html.mb-kb-editing .mb-kb-text.--empty { display: none; }
-html.mb-kb-editing :is(.admonition, details, .tabbed-block, .grid > div) > .mb-kb-text.--empty,
-html.mb-kb-create .mb-kb-text.--empty {
+/* A text block with no words yet (a new section, admonition, tab or cell
+   opens with one) is a faint line to click and type on. It is a block like
+   any other: its menu deletes it. */
+html.mb-kb-editing .mb-kb-text.--empty {
   display: block;
   min-height: 1.6em;
 }
@@ -6236,8 +6313,6 @@ html.mb-kb-editing .mb-kb-text.--empty::before {
   content: 'Click / to insert';
   opacity: 0.4;
 }
-/* Markdown view has no insert menu. */
-html.mb-kb-editing.mb-kb-markdown .mb-kb-text.--empty::before { content: 'Write something…'; }
 
 html.mb-kb-editing .mb-kb-editing-block,
 html.mb-kb-editing .mb-kb-editing-block:focus {
@@ -6259,13 +6334,64 @@ html.mb-kb-editing .mb-kb-editing-block:empty::before {
   pointer-events: none;
 }
 
-/* Markdown view: the text is its markdown source. */
-html.mb-kb-markdown .mb-kb-text {
+/* Markdown view: the whole file in the theme's own code block, read only.
+   Long paragraphs wrap (a guide's lines are prose, not code). */
+html.mb-kb-editing .md-typeset .mb-kb-rawmd__note {
+  margin: 0 0 .8rem;
+  color: var(--md-default-fg-color--light);
+  font-size: .64rem;
+}
+html.mb-kb-editing .md-typeset .mb-kb-rawmd pre > code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.85em;
+  cursor: text;
 }
+/* The icons beside the title float over the title's own box. A title hidden on
+   the site is dimmed here by opacity, which makes it a layer of its own and
+   paints it over the floats: every press landed on the title. They stand
+   above it. */
+html.mb-kb-editing .md-typeset .md-content__button { position: relative; z-index: 1; }
+/* The icons beside the title: a toggle that is on holds a faint accent tile
+   under an accent icon (the coloured icons' recipe below, in the accent
+   colour), a little stronger under the pointer. Markdown view is on while the
+   page shows the file; Edit log is on while its popup is open (the popup is
+   what says so, as the redraws put a new icon in the row; on a page outside
+   the editor too, where this sheet arrives with the popup). Delete draft waits
+   out its own run. */
+html.mb-kb-editing .md-typeset .md-content__button[aria-pressed="true"],
+html:has(.mb-editlog-popup) .md-typeset .md-content__button.mb-kb-log {
+  background-color: color-mix(in srgb, var(--mb-edit) 16%, transparent);
+  color: var(--mb-edit);
+}
+html.mb-kb-editing .md-typeset .md-content__button[aria-pressed="true"]:is(:hover, :focus),
+html:has(.mb-editlog-popup) .md-typeset .md-content__button.mb-kb-log:is(:hover, :focus) {
+  background-color: color-mix(in srgb, var(--mb-edit) 26%, transparent);
+  color: var(--mb-edit);
+}
+html.mb-kb-editing .md-typeset .md-content__button[aria-pressed="true"] svg,
+html:has(.mb-editlog-popup) .md-typeset .md-content__button.mb-kb-log svg { opacity: 1; }
+html.mb-kb-editing .md-content__button[aria-disabled="true"] { opacity: .4; pointer-events: none; }
+/* The two coloured icons: Publish in purple, Delete draft in red. The theme's
+   grey tile in a colour: the same recipe as the grey ones (a faint tile, a
+   part-strength icon, both stronger under the pointer), so they sit in the row
+   as two of them. They keep their colour on hover (the theme would turn them
+   the accent colour). */
+html.mb-kb-editing .md-typeset .md-content__button.mb-kb-publish { --mb-tint: var(--mb-kb-live-ink); }
+html.mb-kb-editing .md-typeset .md-content__button.mb-kb-delete { --mb-tint: #dc2626; }
+html.mb-kb-editing[data-mb-theme="dark"] .md-typeset .md-content__button.mb-kb-delete { --mb-tint: #f87171; }
+html.mb-kb-editing .md-typeset .md-content__button:is(.mb-kb-publish, .mb-kb-delete) {
+  background-color: color-mix(in srgb, var(--mb-tint) 14%, transparent);
+  color: var(--mb-tint);
+}
+/* Publish wears the Live tab's green (the same mixes as the tabs above the title). */
+html.mb-kb-editing .md-typeset .md-content__button.mb-kb-publish { background-color: color-mix(in oklch, var(--mb-kb-live) 28%, transparent); }
+html.mb-kb-editing .md-typeset .md-content__button:is(.mb-kb-publish, .mb-kb-delete) svg { opacity: .8; }
+html.mb-kb-editing .md-typeset .md-content__button:is(.mb-kb-publish, .mb-kb-delete):is(:hover, :focus) {
+  background-color: color-mix(in srgb, var(--mb-tint) 24%, transparent);
+  color: var(--mb-tint);
+}
+html.mb-kb-editing .md-typeset .md-content__button:is(.mb-kb-publish, .mb-kb-delete):is(:hover, :focus) svg { opacity: 1; }
+html.mb-kb-editing .md-typeset .md-content__button.mb-kb-publish:is(:hover, :focus) { background-color: color-mix(in oklch, var(--mb-kb-live) 42%, transparent); }
 
 /* Headings rename in place. */
 html.mb-kb-editing :is(h1, h2, h3)[data-mb-node] { cursor: text; }
@@ -6282,80 +6408,59 @@ html.mb-kb-editing [data-mb-title-hidden]::after {
 
 /* Components: a click selects one. Nothing is drawn on the thing itself. */
 html.mb-kb-editing [data-mb-kind="leaf"] { cursor: pointer; }
+/* A page title placed in the content (kbPageRender.js readPageTitle): typed in
+   place, as a heading is. It closes its block, so no gap hangs under it. */
+html.mb-kb-editing .md-typeset h1.mb-page-title { cursor: text; }
 
-/* The settings cog (kbPageEditor.js buildRail): a grey cog in the margin at
-   the top left of whatever the pointer is over, and the popup it opens. On
-   the page and scrolling with it, so sized in px; the popup's contents reuse
-   the form editors' groups and pills, so those are zoomed. The rail itself is
-   only a frame for placing the two (it takes no clicks and makes no stacking
-   context): the cog passes under the site's header, the popup sits over
-   everything but the bar. The greys are fixed mid-tones and the hover wash is
-   mixed from the cog's own colour, so it reads on the site's light and dark
-   schemes alike. */
-.mb-kb-rail {
+/* A block's menu (kbPageEditor.js buildBlockMenu): opened by a click with
+   Cmd / Ctrl held, out in the margin to the thing's right, level with its top.
+   On the page and scrolling with it, so placed in px. This box is only a frame
+   for placing the menu (it takes no clicks and makes no stacking context: the
+   menu's own z-index sets it over the wash and the blur). */
+.mb-kb-blockmenu {
   position: absolute;
   pointer-events: none;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.25;
   text-align: left;
 }
-.mb-kb-rail__btn {
-  appearance: none;
-  position: absolute;
-  z-index: 3;
-  left: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: rgb(148, 163, 184);
-  cursor: pointer;
-  pointer-events: auto;
-  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+.mb-kb-blockmenu__pop { left: 0; top: 0; }
+/* Where the page has no margin for the menu (no contents list beside it:
+   kbPageEditor.js placeBlockMenu), the menu's ground: the page's own colour
+   down the window's right side, its left edge soft so it is no box. Over the
+   wash and the blur, under the menu and the site's header; it takes no clicks
+   (one on it is a click away from the menu, as on the page it covers). */
+.mb-kb-menustrip {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9983;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--md-default-bg-color, #fff) 28px);
+  animation: mb-fm-veil-in 0.16s ease-out both;
 }
-.mb-kb-rail__icon { display: inline-flex; font-size: 18px; line-height: 1; }
-.mb-kb-rail__btn:hover,
-.mb-kb-rail__btn:focus-visible,
-.mb-kb-rail__btn.--open {
-  outline: none;
-  color: rgb(100, 116, 139);
-  background: color-mix(in srgb, currentColor 16%, transparent);
+.mb-kb-menustrip[hidden] { display: none !important; }
+html.mb-kb-sliding .mb-kb-menustrip { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-menustrip { animation: none; }
 }
-/* The grip beside the cog: press and drag to move the thing (kbPageDrag.js).
-   Same grey and hover wash as the cog, narrower, and a grabbing hand. */
-.mb-kb-rail__grip {
-  appearance: none;
-  position: absolute;
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 24px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: rgb(148, 163, 184);
-  cursor: grab;
-  pointer-events: auto;
-  touch-action: none;
-  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+/* The page's contents list stands where the menu does: it fades out while the
+   menu is open, and back when it closes. */
+html.mb-kb-host .md-sidebar--secondary { transition: opacity 0.18s ease, visibility 0s linear 0s; }
+html.mb-kb-menu-open .md-sidebar--secondary {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease, visibility 0s linear 0.18s;
 }
-.mb-kb-rail__grip .mb-kb-rail__icon { font-size: 16px; }
-.mb-kb-rail__grip:hover,
-.mb-kb-rail__grip:focus-visible {
-  outline: none;
-  color: rgb(100, 116, 139);
-  background: color-mix(in srgb, currentColor 16%, transparent);
+@media (prefers-reduced-motion: reduce) {
+  html.mb-kb-host .md-sidebar--secondary,
+  html.mb-kb-menu-open .md-sidebar--secondary { transition: none; }
 }
+/* A key is held and a click here would do something (Shift: select or move;
+   Cmd / Ctrl: the menu): the pointer says so, whatever it is over. */
+html.mb-kb-held,
+html.mb-kb-held * { cursor: pointer !important; }
 /* While something is dragged: it dims where it stands, a line shows where it
    would land, and nothing on the page is selected or pointed at by the way. */
 html.mb-kb-dragging,
@@ -6364,133 +6469,425 @@ html.mb-kb-dragging * {
   user-select: none !important;
 }
 html.mb-kb-dragging .mb-kb-dragged { opacity: 0.35; }
+
+/* Something selected (Shift and a click): a dashed line round it in edit
+   mode's purple (the "Edit mode" pill's), and no ground. The line is a box
+   kbPageEditor.js draws 6px off the thing (PICK_PAD; its menu stands 12px
+   off, clear of it), in a layer over the article's content: nothing of the
+   thing itself is restyled, so its own corners stay as the site drew them. */
+/* Edit mode's one accent: that purple, for whatever says "this is being
+   worked on" (selected, dragged to here, about to add, a title button that is
+   on). On the root, as the Edit log's button wears it outside the editor too. */
+html { --mb-edit: #9333ea; }
+/* How thick every dashed line of the editor is drawn: round what is selected or
+   pointed at, the Add card and the pieces joined to it, a capture in progress.
+   (kbPageEditor.js sizeFootPiece counts two of them: DASH.) */
+html { --mb-dash: 2px; }
+html[data-mb-theme="dark"] { --mb-edit: #c084fc; }
+html.mb-kb-editing article.md-content__inner { position: relative; isolation: isolate; }
+.mb-kb-picklayer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.mb-kb-pickbox {
+  position: absolute;
+  box-sizing: border-box;
+  border: var(--mb-dash, 2px) dashed var(--mb-edit);
+  border-radius: 8px;
+}
+/* Pointing at a thing with Shift or Cmd / Ctrl held: the same dashed line,
+   faint and grey, round what a click would act on (kbPageEditor.js
+   placeFrame). It stays for as long as the thing's menu is open; none shows
+   while anything is dragged. It lies in a layer of the article, as the
+   selection's lines do: over its content and under its foot (the Add card). */
+.mb-kb-hintlayer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.mb-kb-frame {
+  position: absolute;
+  box-sizing: border-box;
+  border: var(--mb-dash, 2px) dashed rgba(100, 116, 139, 0.45);
+  border-radius: 8px;
+  pointer-events: none;
+}
+.mb-kb-frame[hidden] { display: none; }
+/* While something is dragged only the lines round where a section could go
+   show (kbPageEditor nestOpen), and the one round a dragged subsection's own
+   section: it shows where that section ends, for as long as the drag lasts. */
+html.mb-kb-dragging .mb-kb-frame:not(.--bound) { display: none; }
+
 .mb-kb-dropline {
   position: fixed;
   z-index: 9983;
   height: 3px;
   margin-top: -1.5px;
   border-radius: 2px;
-  background: #2563eb;
+  background: var(--mb-edit);
   pointer-events: none;
 }
-.mb-kb-rail__pop {
+/* What goes with the pointer while something is dragged (kbPageDrag.js).
+   A block or a section: a copy of it, shrinking towards the pointer as it is
+   taken (carryBlocks), cut off below a certain height. It lies over the line. */
+.mb-kb-ghost {
+  position: fixed;
+  z-index: 9985;
+  pointer-events: none;
+  will-change: transform;
+}
+.mb-kb-ghost__card {
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: calc(8px / var(--mb-kb-carry, 1)) calc(12px / var(--mb-kb-carry, 1));
+  border-radius: calc(8px / var(--mb-kb-carry, 1));
+  background: var(--md-default-bg-color, #fff);
+  box-shadow: 0 0 0 calc(1px / var(--mb-kb-carry, 1)) rgba(100, 116, 139, 0.28);
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease;
+}
+.mb-kb-ghost__card.--carried {
+  transform: scale(var(--mb-kb-carry, 1));
+  box-shadow:
+    0 0 0 calc(1px / var(--mb-kb-carry, 1)) rgba(100, 116, 139, 0.28),
+    0 calc(8px / var(--mb-kb-carry, 1)) calc(26px / var(--mb-kb-carry, 1)) rgba(15, 23, 42, 0.24);
+}
+.mb-kb-ghost.--delete .mb-kb-ghost__card.--carried {
+  box-shadow:
+    0 0 0 calc(2px / var(--mb-kb-carry, 1)) #dc2626,
+    0 calc(8px / var(--mb-kb-carry, 1)) calc(26px / var(--mb-kb-carry, 1)) rgba(220, 38, 38, 0.3);
+}
+/* Several things going together: how many, on the copy's top right corner. */
+.mb-kb-ghost__count {
+  position: absolute;
+  min-width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 11px;
+  background: #9333ea; /* the light purple in both themes: its number is white */
+  color: #fff;
+  font: 700 12px/22px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.3);
+}
+.mb-kb-ghost.--delete .mb-kb-ghost__count { background: #dc2626; }
+/* Over a section's "sub-section under" tile: the Edit mode purple. */
+.mb-kb-ghost.--nest .mb-kb-ghost__card.--carried {
+  box-shadow:
+    0 0 0 calc(2px / var(--mb-kb-carry, 1)) var(--mb-edit),
+    0 calc(8px / var(--mb-kb-carry, 1)) calc(26px / var(--mb-kb-carry, 1)) color-mix(in srgb, var(--mb-edit) 30%, transparent);
+}
+.mb-kb-ghost__card > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+.mb-kb-ghost__card > * + * { margin-top: 0.8em !important; }
+/* A tab: its label, whole (carryTab). It swells once when it has drawn in what
+   the tab was showing, and reddens over the Delete area. */
+.mb-kb-tabghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9984;
+  pointer-events: none;
+  will-change: transform;
+}
+.mb-kb-tabghost__face {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 7px;
+  background: var(--md-default-bg-color, #fff);
+  font-size: 12px;
+  line-height: 16px;
+  box-shadow: 0 0 0 1px rgba(100, 116, 139, 0.28), 0 5px 14px rgba(15, 23, 42, 0.22);
+  white-space: nowrap;
+  transform: rotate(-2deg);
+  transition: color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+.mb-kb-tabghost.--full .mb-kb-tabghost__face { animation: mb-kb-tabghost-full 0.3s ease-out; }
+.mb-kb-tabghost.--delete .mb-kb-tabghost__face {
+  color: #dc2626 !important;
+  box-shadow: 0 0 0 2px #dc2626, 0 6px 18px rgba(220, 38, 38, 0.3);
+  transform: rotate(-2deg) scale(0.92);
+}
+@keyframes mb-kb-tabghost-full {
+  40% { transform: rotate(-2deg) scale(1.14); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-ghost__card,
+  .mb-kb-tabghost__face { transition: none; animation: none !important; }
+}
+/* Between tab labels the line stands upright (kbPageDrag tabTarget). */
+.mb-kb-dropline.--upright {
+  width: 3px;
+  height: auto;
+  margin-top: 0;
+  margin-left: -1.5px;
+}
+/* ── The floating menu (floatMenu.js) ─────────────────────────────────────────
+   Whatever opens on the page as a menu: an admonition's types, a label's
+   colours, the icons, a block's settings. Loose pills on the page with
+   no box around them, in groups under a small heading; the host only lays them
+   out (it takes no clicks between them). Sized in px: the site's root font
+   size is not ours.
+     --page  the ground a pill is solid over (the page's own colour)
+     --c     a pill's own colour: its border, and its ring when chosen
+     --tint  a wash of colour over the ground;  --bd its border;  --fg its text
+     --on    the ring of a chosen pill that has no colour of its own */
+.mb-fm {
+  --page: var(--md-default-bg-color, var(--mb-bg, #fff));
+  --ink: var(--md-default-fg-color, var(--mb-text, #1f2937));
+  --quiet: var(--md-default-fg-color--light, var(--mb-text-muted, #64748b));
+  --on: var(--mb-edit, #9333ea);
   position: absolute;
   z-index: 9984;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
   width: max-content;
-  max-width: calc(100vw - 16px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border: 1px solid var(--mb-border);
-  border-radius: 10px;
-  background: var(--mb-bg);
-  color: var(--mb-text);
-  pointer-events: auto;
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.2);
-}
-.mb-kb-settings {
-  width: 380px;
-  max-width: 100%;
-  font-size: 0.8125rem;
-}
-.mb-kb-settings__head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 8px 8px 14px;
-  border-bottom: 1px solid var(--mb-border-subtle);
-  background: var(--mb-bg-subtle);
-  font-size: 0.8125rem;
-}
-.mb-kb-settings__close {
-  appearance: none;
-  display: inline-flex;
-  padding: 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--mb-text-muted);
-  cursor: pointer;
-}
-.mb-kb-settings__close:hover { background: color-mix(in srgb, var(--mb-text-muted) 14%, transparent); color: var(--mb-text); }
-.mb-kb-settings__close .more-buttons-icon { font-size: 1rem; }
-.mb-kb-settings__body { padding: 14px 14px 0; }
-.mb-kb-settings__body .more-buttons-form-group { margin-bottom: 14px; }
-.mb-kb-settings__body .more-buttons-radio-btn { padding: 5px 10px; font-size: 0.8125rem; }
-.mb-kb-settings__body .more-buttons-radio-btn .more-buttons-icon { font-size: 1rem; }
-.mb-kb-settings__body :is(input[type="text"], input[type="number"], select) {
-  width: 100%;
-  margin: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--mb-border);
-  border-radius: 6px;
   box-sizing: border-box;
-  background-color: var(--mb-bg-input);
-  color: var(--mb-text);
-  font: inherit;
+  pointer-events: none;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.25;
+  text-align: left;
 }
-.mb-kb-settings__body :is(input[type="text"], input[type="number"], select):focus {
-  outline: none;
-  border-color: var(--mb-text-muted);
-  box-shadow: 0 0 0 1px var(--mb-text-muted);
-}
-.mb-kb-settings__body input::placeholder { color: var(--mb-text-placeholder); }
-.mb-kb-settings__size {
+.mb-fm[hidden],
+.mb-fm [hidden],
+.mb-fm-veil[hidden] { display: none !important; }
+.mb-fm__group {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+}
+/* A group's heading: the forms' eyebrow, plain text on the washed-back page. */
+.mb-fm__head {
+  color: var(--quiet);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mb-fm__hint {
+  margin-left: 6px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+/* A second part of a menu (the grid a cell is in, a button's Advanced). */
+.mb-fm__title {
+  margin: 6px 0 -4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+/* What the menu is for (a Grid, a Cell, an Admonition...): its first line. */
+.mb-fm__title.--top {
+  margin: 0 0 -2px;
+  font-size: 15px;
+}
+.mb-fm__note {
+  margin: -2px 0 0;
+  max-width: 100%;
+  color: var(--quiet);
+  font-size: 12px;
+}
+.mb-fm__unit { color: var(--quiet); font-size: 12px; }
+.mb-fm__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 6px;
+  max-width: 100%;
+}
+.mb-fm__break { flex-basis: 100%; height: 0; }
+
+.mb-fm__pill {
+  --c: rgb(148, 163, 184);
+  appearance: none;
+  position: relative;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--mb-text-muted);
-}
-.mb-kb-settings__body .mb-kb-settings__size select { width: auto; }
-.mb-kb-settings__body .mb-kb-settings__size input { width: 84px; }
-.mb-kb-settings__body .mb-kb-settings__size input:disabled { background-color: var(--mb-bg-disabled); }
-/* A second part of the popup: the grid a cell is in, a button's Advanced. */
-.mb-kb-settings__heading {
-  margin: 2px -14px 14px;
-  padding: 12px 14px 0;
-  border-top: 1px solid var(--mb-border-subtle);
-  font-weight: 600;
-  color: var(--mb-text);
-}
-.mb-kb-settings__note {
-  margin: -6px 0 14px;
-  font-size: 0.75rem;
-  color: var(--mb-text-muted);
-}
-.mb-kb-settings__acts { display: flex; flex-wrap: wrap; gap: 6px; }
-.mb-kb-settings__act {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  height: 28px;
+  max-width: 100%;
   margin: 0;
-  padding: 5px 10px 5px 8px;
-  border: 1px solid var(--mb-border);
-  border-radius: 7px;
-  background: transparent;
-  color: var(--mb-text-muted);
+  padding: 0 11px;
+  box-sizing: border-box;
+  border: 1px solid var(--bd, color-mix(in srgb, var(--c) 42%, var(--page)));
+  border-radius: 999px;
+  background: linear-gradient(var(--tint, transparent), var(--tint, transparent)), var(--page);
+  color: var(--fg, var(--ink));
   font: inherit;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.14s ease-out, border-color 0.14s ease-out, color 0.14s ease-out;
+  pointer-events: auto;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 5px 14px -4px rgba(0, 0, 0, 0.22);
+  transition: transform 0.14s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.14s ease-out, border-color 0.14s ease-out;
 }
-.mb-kb-settings__act .more-buttons-icon { font-size: 1rem; }
-.mb-kb-settings__act:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mb-text-muted) 12%, transparent);
-  border-color: var(--mb-text-muted);
-  color: var(--mb-text);
+.mb-fm__text { overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+/* A menu's pills come in one after another as it opens (playIn). */
+.mb-fm.--fresh :is(.mb-fm__pill, .mb-fm__input) {
+  animation: mb-fm-in 0.17s cubic-bezier(0.25, 1, 0.5, 1) both;
+  animation-delay: calc(min(var(--i, 0), 30) * 7ms);
 }
-.mb-kb-settings__act.--danger { color: var(--mb-acc-danger); }
-.mb-kb-settings__act.--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mb-acc-danger) 12%, transparent);
-  border-color: var(--mb-acc-danger);
-  color: var(--mb-acc-danger);
+.mb-fm.--fresh.--up :is(.mb-fm__pill, .mb-fm__input) { animation-name: mb-fm-in-up; }
+@keyframes mb-fm-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.96); }
 }
-.mb-kb-settings__act:disabled { opacity: 0.4; cursor: default; }
+@keyframes mb-fm-in-up {
+  from { opacity: 0; transform: translateY(5px) scale(0.96); }
+}
+/* A radio or a checkbox is in its pill, unseen. */
+.mb-fm__pill input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.mb-fm__pill:hover,
+.mb-fm__pill:focus-visible,
+.mb-fm__pill:has(input:focus-visible) {
+  outline: none;
+  border-color: var(--ring, var(--c));
+  transform: translateY(-1px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 9px 20px -6px rgba(0, 0, 0, 0.3);
+}
+.mb-fm__pill:focus-visible,
+.mb-fm__pill:has(input:focus-visible) { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--ring, var(--c)), 0 9px 20px -6px rgba(0, 0, 0, 0.3); }
+.mb-fm__pill:active { transform: none; }
+/* A tooltip drawn by kbSite.js for something in a menu: over the menu and its veil. */
+.md-tooltip2.mb-kb-tip { z-index: 9995; }
+.mb-fm__pill:is(:disabled, :has(input:disabled)) { opacity: 0.45; cursor: default; transform: none; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+/* The one it is now: a full ring, heavier text and a tick. */
+.mb-fm__pill:is([aria-checked="true"], [aria-pressed="true"], :has(input:checked)) {
+  padding-right: 8px;
+  border-color: var(--ring, var(--c));
+  box-shadow: 0 0 0 1px var(--ring, var(--c)), 0 5px 14px -4px rgba(0, 0, 0, 0.22);
+  font-weight: 650;
+}
+.mb-fm__pill.--option { --ring: var(--on); }
+.mb-fm__tick { display: none; margin-left: -2px; color: var(--ring, var(--c)); font-size: 14px; }
+.mb-fm__pill:is([aria-checked="true"], [aria-pressed="true"], :has(input:checked)) > .mb-fm__tick { display: inline-flex; }
+.mb-fm__tick svg { width: 1em; height: 1em; stroke-width: 3; }
+/* Art before a pill's text: an icon offered, or what a button does. */
+.mb-fm__glyph,
+.mb-fm__pill > .more-buttons-icon { display: inline-flex; flex: none; margin-left: -3px; font-size: 15px; }
+.mb-fm__glyph svg { width: 1em; height: 1em; }
+/* A colour (a label's, a button's): the pill is a copy of the thing in it. */
+.mb-fm__pill.--swatch {
+  --tint: var(--bg, transparent);
+  --fg: var(--text, var(--ink));
+  --bd: var(--border, color-mix(in srgb, var(--text, #64748b) 35%, transparent));
+  --ring: currentColor;
+  font-size: 12px;
+  font-weight: 600;
+}
+@container style(--mb-dark: 1) {
+  .mb-fm__pill.--swatch {
+    --tint: var(--bg-dark, transparent);
+    --fg: var(--text-dark, var(--ink));
+    --bd: var(--border-dark, color-mix(in srgb, var(--text-dark, #94a3b8) 35%, transparent));
+  }
+}
+.mb-fm__pill.--swatch:is([aria-pressed="true"], :has(input:checked)) { font-weight: 700; }
+/* Taking the thing off (a label, an icon): a plain dashed pill, last of all. */
+.mb-fm__pill.--remove {
+  border-style: dashed;
+  --bd: color-mix(in srgb, var(--quiet) 60%, transparent);
+  --fg: var(--quiet);
+}
+.mb-fm__pill.--danger {
+  --c: var(--mb-acc-danger, #dc2626);
+  --fg: var(--mb-acc-danger, #dc2626);
+}
+/* A field typed into, shaped as a pill. */
+.mb-fm__input {
+  appearance: none;
+  width: 300px;
+  max-width: 100%;
+  height: 28px;
+  margin: 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, rgb(148, 163, 184) 42%, var(--page));
+  border-radius: 999px;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  pointer-events: auto;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 5px 14px -4px rgba(0, 0, 0, 0.22);
+  transition: box-shadow 0.14s ease-out, border-color 0.14s ease-out;
+}
+.mb-fm__input.--short { width: 96px; }
+.mb-fm__input::placeholder { color: var(--quiet); opacity: 0.8; }
+.mb-fm__input:focus {
+  outline: none;
+  border-color: var(--on);
+  box-shadow: 0 0 0 1px var(--on), 0 5px 14px -4px rgba(0, 0, 0, 0.22);
+}
+.mb-fm__input:disabled { opacity: 0.5; }
+/* While a menu is open the page steps back: a box laid exactly over the thing
+   it is for, painting nothing itself and throwing the page's own colour over
+   all that is around it. The thing stays clear; the foot row stays above. */
+.mb-fm-veil {
+  position: absolute;
+  z-index: 9983;
+  pointer-events: none;
+  box-shadow: 0 0 0 200vmax color-mix(in srgb, var(--md-default-bg-color, #fff) 60%, transparent);
+  animation: mb-fm-veil-in 0.16s ease-out both;
+}
+/* And goes soft: a layer over the window, the thing's box cut out of it
+   (floatMenu.js sets the hole), blurring what is behind. Beside the veil, not
+   in it: inside a thing that is fading in there is nothing behind to blur. */
+.mb-fm-veil__blur {
+  position: fixed;
+  inset: 0;
+  z-index: 9983;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(3px);
+          backdrop-filter: blur(3px);
+}
+.mb-fm-veil__blur[hidden] { display: none !important; }
+/* The site's header stays over all of it, as it is: not washed, not blurred,
+   and a menu scrolled up the page goes behind it. (A label's colours stand
+   over the forms' overlay elsewhere; on this site they go behind it too.) */
+html.mb-fm-open .md-header { z-index: 9990; }
+html.mb-kb-host .mb-fm.mb-label-pills { z-index: 9984; }
+
+/* The editor's foot row (the Add card, the selection and Save pieces) is put
+   away while a menu is open. It keeps its room: the page must not change length. */
+html.mb-fm-open .mb-kb-foot {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes mb-fm-veil-in {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mb-fm.--fresh :is(.mb-fm__pill, .mb-fm__input) { animation: none; }
+  .mb-fm__pill, .mb-fm__input { transition: none; }
+  .mb-fm-veil { animation: none; }
+}
+
+/* An admonition's types: each pill is a small copy of its admonition, with
+   what the theme gives that type read at the moment it opens (kbTypePicker.js
+   sets --c the icon's colour, --tint the admonition's ground, --bd its border
+   where it draws one, --fg its title's colour). */
+.mb-kb-types__pill { padding-left: 9px; }
+.mb-kb-types__icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background-color: var(--c);
+  -webkit-mask: center / contain no-repeat;
+          mask: center / contain no-repeat;
+}
 
 /* The pieces typed into where they stand, beyond text blocks and headings:
    admonition titles, tab labels, table cells, button labels, code, code
@@ -6510,6 +6907,121 @@ html.mb-kb-editing [data-mb-edit="diagram"] {
   display: block;
   min-height: 1.4em;
 }
+/* Code blocks (kbCode.js), as the live page draws them. The grey tile is the
+   <pre>'s, so the code (typed into or not) stays on it and the highlighted
+   lines can be painted under the code, as Zensical's .hll are. */
+html.mb-kb-editing .md-typeset .mb-kb-code > pre {
+  position: relative;
+  isolation: isolate; /* the highlights stand behind the code, the open bubble above its tooltip */
+  background-color: var(--md-code-bg-color);
+  border-radius: 0.4rem;
+}
+/* The tile with a tooltip open stands over what follows it on the page. */
+html.mb-kb-editing .md-typeset .mb-kb-code > pre:has(> .mb-kb-anntip) { z-index: 7; } /* over the foot row (6) too */
+html.mb-kb-editing .md-typeset .mb-kb-code > .filename + pre { border-top-left-radius: 0; border-top-right-radius: 0; }
+/* Two columns: the line numbers (when on) and the code. The highlights fill
+   the code's column only, as Zensical's .hll fill the code cell. */
+html.mb-kb-editing .md-typeset .mb-kb-code > pre {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+html.mb-kb-editing .md-typeset .mb-kb-code > pre > code {
+  grid-column: 2;
+  grid-row: 1;
+  background-color: transparent !important;
+}
+/* The site's .highlighttable .linenos / .linenodiv, for one gutter. */
+.mb-kb-code-nums {
+  grid-column: 1;
+  grid-row: 1;
+  display: block;
+  padding: 0.8203125em 0.5882352941em 0.8203125em 1.25em;
+  font-family: var(--md-code-font-family);
+  font-size: 0.8533333333em;
+  color: var(--md-default-fg-color--light);
+  text-align: right;
+  white-space: pre;
+  box-shadow: -0.05rem 0 var(--md-default-fg-color--lightest) inset;
+  user-select: none;
+  cursor: default;
+}
+.mb-kb-code-hls {
+  position: absolute;
+  grid-column: 2;
+  grid-row: 1;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.mb-kb-code-hl {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background-color: var(--md-code-hl-color--light);
+  box-shadow: 2px 0 0 0 var(--md-code-hl-color) inset;
+}
+/* A bubble is one piece of its line: pressed, it opens its tooltip. */
+html.mb-kb-editing .mb-kb-code .mb-kb-ann { cursor: pointer; }
+/* Straight over its tooltip: Zensical's own z-index transition would leave
+   the tooltip over the bubble for a moment. */
+html.mb-kb-editing .mb-kb-code .mb-kb-ann.--open > .md-annotation__index { z-index: 3; transition: none; }
+html.mb-kb-editing .mb-kb-code .mb-kb-ann.--open > .md-annotation__index::after {
+  transform: rotate(45deg);
+  background-color: var(--md-accent-fg-color);
+}
+/* Zensical's tooltip, its corner at the bubble (placed by openAnnTip). */
+html.mb-kb-editing .md-typeset .mb-kb-anntip {
+  z-index: 2;
+  white-space: normal;
+  cursor: auto;
+  transition: none;
+}
+html.mb-kb-editing .mb-kb-anntip > .md-tooltip__inner { min-height: 1.6em; }
+html.mb-kb-editing .mb-kb-anntip > .md-tooltip__inner:empty::before {
+  content: attr(data-placeholder);
+  opacity: 0.45;
+}
+/* The line pointed at: Add / Remove annotation and Highlight line at the
+   tile's right edge, styled as the site's own code buttons, a short fade of
+   the tile behind them where a long line runs under. */
+.mb-kb-codebtns {
+  position: absolute;
+  right: 0.25em;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.15rem 0 1.6em;
+  background: linear-gradient(to right, transparent, var(--md-code-bg-color) 1.4em);
+  white-space: normal;
+}
+.mb-kb-codebtn {
+  display: grid;
+  place-items: center;
+  width: 1.5em;
+  height: 1.5em;
+  max-height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0.1rem;
+  background: none;
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+  transition: color 0.25s;
+}
+.mb-kb-codebtn > svg { width: 1.05em; height: 1.05em; }
+.mb-kb-codebtn:hover { color: var(--md-accent-fg-color); }
+.mb-kb-codebtn.--danger:hover { color: #dc2626; }
+.mb-kb-codebtn.--on { color: var(--mb-edit, #9333ea); }
+.mb-kb-codebtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.mb-kb-codebtn:disabled:hover { color: var(--md-default-fg-color--light); }
+@container style(--mb-dark: 1) {
+  .mb-kb-codebtn.--on { color: #c084fc; }
+  .mb-kb-codebtn.--danger:hover { color: #f87171; }
+}
+
 /* A diagram's source: shown while the diagram is selected, and in place of the
    site's drawing once that no longer matches (a new or changed diagram). */
 .mb-kb-source { display: none; }
@@ -6526,7 +7038,7 @@ html.mb-kb-editing .mb-kb-placeholder:not(.--filled) + .mb-kb-source {
   gap: 2px;
   margin: 1em 0;
   padding: 10px 12px;
-  border: 1px dashed rgba(100, 116, 139, 0.6);
+  border: var(--mb-dash, 2px) dashed rgba(100, 116, 139, 0.6);
   border-radius: 6px;
   font-size: 0.7rem;
   opacity: 0.85;
@@ -6540,68 +7052,25 @@ html.mb-kb-editing .mb-kb-placeholder:not(.--filled) + .mb-kb-source {
   opacity: 1;
 }
 
-/* Create mode: a dashed "Insert new" line at every place a component can go,
-   and the "Add new" card under the page. Both are in the page all the time and
-   only shown while the mode is on, so switching it never redraws the article.
-   Sized in px: they sit in the article, under the site's enlarged root. */
-.mb-kb-insert,
-.mb-kb-addnew {
+/* Every place a component can go has a marker in the page (kbPageRender's
+   insert slots): never seen, it is where an addition is drawn. The "Add" card
+   under the page is always there. Sized in px: it sits in the article, under
+   the site's enlarged root. */
+.mb-kb-insert {
   display: none;
 }
-html.mb-kb-create .mb-kb-insert {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  height: 26px;
-  margin: 6px 0;
-}
-html.mb-kb-create .mb-kb-insert::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  border-top: 1px dashed rgba(100, 116, 139, 0.55);
-  transition: border-color 0.15s ease;
-}
-.mb-kb-insert__btn {
+.mb-kb-addnew {
   appearance: none;
-  position: relative;
-  margin: 0;
-  padding: 2px 12px;
-  border: 1px dashed rgba(100, 116, 139, 0.7);
-  border-radius: 999px;
-  background: var(--md-default-bg-color, #ffffff);
-  color: rgb(100, 116, 139);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 16px;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
-}
-html.mb-kb-create .mb-kb-insert:hover::before { border-top-color: #2563eb; }
-html.mb-kb-create .mb-kb-insert:hover .mb-kb-insert__btn,
-.mb-kb-insert__btn:focus-visible {
-  outline: none;
-  border-color: #2563eb;
-  border-style: solid;
-  background: #2563eb;
-  color: #ffffff;
-}
-html.mb-kb-create .mb-kb-addnew {
-  appearance: none;
-  display: flex;
+  /* Its faces (Add, Delete, a message: kbPageEditor paintFoot) lie one over
+     the other in the one cell, so the card keeps its size as they cross-fade. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  justify-items: center;
   width: 100%;
   margin: 28px 0 8px;
   padding: 22px;
-  border: 1px dashed rgba(100, 116, 139, 0.6);
+  border: var(--mb-dash, 2px) dashed rgba(100, 116, 139, 0.6);
   border-radius: 8px;
   background: transparent;
   color: rgb(100, 116, 139);
@@ -6613,17 +7082,952 @@ html.mb-kb-create .mb-kb-addnew {
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-html.mb-kb-create .mb-kb-addnew:hover,
-html.mb-kb-create .mb-kb-addnew:focus-visible {
+.mb-kb-addnew:hover,
+.mb-kb-addnew:focus-visible {
   outline: none;
-  border-color: #2563eb;
-  background: rgba(37, 99, 235, 0.06);
-  color: #2563eb;
+  border-color: var(--mb-edit);
+  background: color-mix(in srgb, var(--mb-edit) 6%, transparent);
+  color: var(--mb-edit);
 }
-.mb-kb-addnew__plus { font-size: 16px; line-height: 1; }
+/* While a block is dragged the card is where it is deleted (kbPageEditor
+   onGripDown): red, saying Delete, and filled in a little with the block over it. */
+.mb-kb-addnew.--delete,
+.mb-kb-addnew.--delete:hover {
+  border-color: #dc2626;
+  background: color-mix(in srgb, #dc2626 8%, var(--md-default-bg-color, #fff));
+  color: #dc2626;
+}
+.mb-kb-addnew.--delete.--over {
+  border-style: solid;
+  background: color-mix(in srgb, #dc2626 18%, var(--md-default-bg-color, #fff));
+}
+/* While a section is dragged, each other section ends with a tile to drop it
+   on (kbPageEditor nestOpen): it goes under that section, as its last
+   subsection. The Delete card's shape, in the Edit mode purple. */
+.mb-kb-nest {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 20px 0 8px;
+  padding: 22px; /* as tall as the Add / Delete card */
+  border: var(--mb-dash, 2px) dashed var(--mb-edit);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mb-edit) 8%, var(--md-default-bg-color, #fff));
+  color: var(--mb-edit);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: 0.02em;
+  text-align: center;
+  transition: background-color 0.12s ease;
+}
+.mb-kb-nest em { font-style: italic; }
+.mb-kb-nest.--over {
+  border-style: solid;
+  background: color-mix(in srgb, var(--mb-edit) 18%, var(--md-default-bg-color, #fff));
+}
+
+/* The foot of the page (kbPageEditor buildFoot): the Add card with, joined to
+   it, the selection's piece on its left and Save on its right, each sliding in
+   when it has something to do. It closes the article and is held 16px off the
+   bottom of the window for as long as the page ends below that (FOOT_GAP). */
+.mb-kb-foot {
+  /* Frosted glass: the page's own colour, most of the way opaque, over a
+     heavy blur of whatever the row stands over. Heavy on purpose: the words
+     on the row must read whatever scrolls under it. Every piece's colour is
+     mixed over --foot-bg, so each tint is glass too. */
+  --foot-bg: color-mix(in srgb, var(--md-default-bg-color, #fff) 86%, transparent);
+  /* Save wears the Draft tab's yellow, and turns the Live tab's green once it
+     has saved (the same mixes as the tabs above the title, over the page's
+     colour: the foot stands over the page). */
+  --save-bg: color-mix(in oklch, var(--mb-kb-draft) 28%, var(--foot-bg));
+  --save-bg-hover: color-mix(in oklch, var(--mb-kb-draft) 42%, var(--foot-bg));
+  --save-ink: var(--mb-kb-draft-ink);
+  --saved-bg: color-mix(in oklch, var(--mb-kb-live) 28%, var(--foot-bg));
+  --saved-ink: var(--mb-kb-live-ink);
+  --picks-bg: color-mix(in srgb, var(--mb-edit) 12%, var(--foot-bg));
+  --picks-ink: color-mix(in srgb, var(--mb-edit) 80%, var(--md-default-fg-color, #000));
+  --save-line: var(--mb-kb-draft);
+  --saved-line: var(--mb-kb-live);
+  --picks-line: var(--mb-edit);
+  position: sticky;
+  bottom: 16px;
+  z-index: 6;
+  display: flex;
+  align-items: stretch;
+  /* As wide as the page's content, edge to edge with an admonition (not the
+     6px wider of the dashed line round a selected block). */
+  margin: 28px 0 0;
+  border-radius: 8px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+          backdrop-filter: blur(28px) saturate(1.4);
+  transition: box-shadow 0.15s ease;
+}
+/* No blur to be had: the row is solid again. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mb-kb-foot { --foot-bg: var(--md-default-bg-color, #fff); }
+}
+.mb-kb-foot.--stuck { box-shadow: 0 6px 24px rgba(15, 23, 42, 0.18); }
+.mb-kb-foot.--idle { display: none; }
+.mb-kb-foot > .mb-kb-addnew {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--foot-bg);
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, border-radius 0.38s ease-in-out,
+    max-width 0.38s ease-in-out, padding 0.38s ease-in-out, border-width 0.38s ease-in-out, opacity 0.3s ease;
+}
+.mb-kb-foot > .mb-kb-addnew:not(.--delete, .--note):hover,
+.mb-kb-foot > .mb-kb-addnew:not(.--delete, .--note):focus-visible {
+  background: color-mix(in srgb, var(--mb-edit) 6%, var(--foot-bg));
+}
+/* Over glass the card's words and dashed line are drawn stronger than on the
+   bare page: the slate, taken a third of the way to the page's own text colour. */
+.mb-kb-foot > .mb-kb-addnew:not(.--delete, :hover, :focus-visible) {
+  border-color: color-mix(in srgb, rgb(100, 116, 139) 72%, var(--md-default-fg-color, #000));
+  color: color-mix(in srgb, rgb(100, 116, 139) 68%, var(--md-default-fg-color, #000));
+}
+/* The live content and Markdown view have nothing to add to. */
+.mb-kb-foot.--live > .mb-kb-addnew,
+.mb-kb-foot.--bare > .mb-kb-addnew { display: none; }
+.mb-kb-foot.--live,
+.mb-kb-foot.--bare { width: fit-content; margin-inline: auto; }
+.mb-kb-foot.--live > *,
+.mb-kb-foot.--bare > * { border-radius: 8px !important; }
+/* The two pieces at its sides: no width until they are wanted, then exactly
+   the width of what they hold (--w, measured: kbPageEditor sizeFootPiece), so
+   they slide in as slowly as they slide away. Each carries the card's dashed
+   line on round itself, in its own colour. */
+.mb-kb-save,
+.mb-kb-foot__picks {
+  flex: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 0;
+  margin: 0;
+  padding: 0;
+  border: var(--mb-dash, 2px) dashed transparent;
+  border-inline-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  font: inherit;
+  transition: max-width 0.38s ease-in-out, width 0.38s ease-in-out, flex-grow 0.38s ease-in-out, opacity 0.38s ease-in-out,
+    border-color 0.2s ease, border-radius 0.38s ease-in-out, background-color 0.2s ease, color 0.2s ease;
+}
+/* Shown, a piece is as wide as --w itself, not only at most that: when what it
+   holds gets shorter ("Copied" back to "Copy") it shrinks as smoothly as it grew. */
+.mb-kb-foot.--save > .mb-kb-save,
+.mb-kb-foot.--picks > .mb-kb-foot__picks { width: var(--w, auto); }
+.mb-kb-foot__in { flex: none; display: inline-flex; align-items: center; }
+.mb-kb-save {
+  appearance: none;
+  border-radius: 0 8px 8px 0;
+  background: var(--save-bg);
+  color: var(--save-ink);
+  cursor: pointer;
+}
+.mb-kb-save > .mb-kb-foot__in { gap: 8px; padding: 0 20px; }
+.mb-kb-foot.--save > .mb-kb-save {
+  max-width: var(--w, 300px);
+  border-inline-width: var(--mb-dash, 2px);
+  border-color: var(--save-line);
+  opacity: 1;
+  pointer-events: auto;
+}
+.mb-kb-foot.--save > .mb-kb-addnew { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-color: transparent; }
+.mb-kb-save[data-look="dirty"]:is(:hover, :focus-visible) { outline: none; background: var(--save-bg-hover); }
+.mb-kb-save[data-look="saving"] { cursor: default; }
+.mb-kb-save[data-look="saved"] { background: var(--saved-bg); color: var(--saved-ink); cursor: default; }
+.mb-kb-foot.--save > .mb-kb-save[data-look="saved"] { border-color: var(--saved-line); }
+.mb-kb-foot__icon { display: flex; flex: none; width: 16px; height: 16px; }
+.mb-kb-foot__icon svg { display: block; width: 16px; height: 16px; }
+.mb-kb-save[data-look="saving"] .mb-kb-foot__icon { animation: mb-kb-foot-spin 0.9s linear infinite; }
+@keyframes mb-kb-foot-spin { to { transform: rotate(360deg); } }
+.mb-kb-foot__picks {
+  /* Always centred: at its usual width (exactly what it holds) that changes
+     nothing, and growing or shrinking for Shift (--wide) what it holds glides
+     to and from the middle with it, never jumping when the key is let go. */
+  justify-content: center;
+  border-radius: 8px 0 0 8px;
+  background: var(--picks-bg);
+  color: var(--picks-ink);
+}
+.mb-kb-foot__picks > .mb-kb-foot__in { gap: 2px; padding: 0 8px 0 16px; }
+.mb-kb-foot.--picks > .mb-kb-foot__picks {
+  max-width: var(--w, 420px);
+  border-inline-width: var(--mb-dash, 2px);
+  border-color: var(--picks-line);
+  opacity: 1;
+  pointer-events: auto;
+}
+.mb-kb-foot.--picks > .mb-kb-addnew { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: transparent; }
+.mb-kb-foot .mb-kb-picks__count { padding-right: 8px; font-size: 12px; }
+.mb-kb-foot__pick {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mb-kb-foot__pick .mb-kb-foot__icon,
+.mb-kb-foot__pick .mb-kb-foot__icon svg { width: 14px; height: 14px; }
+.mb-kb-foot__pick:not(:disabled):is(:hover, :focus-visible) { outline: none; background: color-mix(in srgb, currentColor 14%, transparent); }
+.mb-kb-foot__pick:disabled { opacity: .45; cursor: not-allowed; }
+/* While something is dragged the whole row is the Delete card: the side pieces
+   slide shut as they do when they have nothing to do (and open again when the
+   drag is over), while the card turns red and takes the room they leave. */
+.mb-kb-foot:has(> .mb-kb-addnew.--delete) > :is(.mb-kb-save, .mb-kb-foot__picks) {
+  max-width: 0;
+  border-inline-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.mb-kb-foot:has(> .mb-kb-addnew.--delete) > .mb-kb-addnew { border-radius: 8px; border-color: #dc2626; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-save,
+  .mb-kb-foot__picks,
+  .mb-kb-foot > .mb-kb-addnew { transition: none; }
+}
+/* The card's faces. The one showing (the card's data-face) is up and clear;
+   the others wait just under it, faded out. A new message while one shows
+   comes up afresh (--swap). */
+.mb-kb-addnew__face {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  /* Never wraps: while the card slides back in from nothing (Shift let go)
+     its words would wrap in the narrow room and the row grow taller. A
+     message longer than the card ends in an ellipsis. */
+  white-space: nowrap;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.3s ease;
+}
+.mb-kb-addnew[data-face="add"] > [data-face="add"],
+.mb-kb-addnew[data-face="delete"] > [data-face="delete"],
+.mb-kb-addnew[data-face="note"] > [data-face="note"] { opacity: 1; transform: none; }
+.mb-kb-addnew__face > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mb-kb-addnew__face.--swap { animation: mb-kb-note-swap 0.3s ease; }
+@keyframes mb-kb-note-swap { from { opacity: 0; transform: translateY(6px); } }
+.mb-kb-addnew[data-tone="busy"] .mb-kb-addnew__noteicon { animation: mb-kb-foot-spin 0.9s linear infinite; }
+/* Saying something, the card is not to be pressed, and wears the colour of
+   what it says: the Draft tab's yellow while something runs (or for a note),
+   the Live tab's green once it is done, red when it failed, and its own grey
+   for what a click does while Shift or Cmd / Ctrl is held. The colours
+   fade in and out with the card's own transition. */
+.mb-kb-foot > .mb-kb-addnew.--note { cursor: default; }
+.mb-kb-foot > .mb-kb-addnew.--note:is([data-tone="busy"], [data-tone="info"]) {
+  border-color: var(--save-line);
+  background: var(--save-bg);
+  color: var(--save-ink);
+}
+.mb-kb-foot > .mb-kb-addnew.--note[data-tone="ok"] {
+  border-color: var(--saved-line);
+  background: var(--saved-bg);
+  color: var(--saved-ink);
+}
+.mb-kb-foot > .mb-kb-addnew.--note[data-tone="error"] {
+  border-color: #dc2626;
+  background: color-mix(in srgb, #dc2626 10%, var(--foot-bg));
+  color: #dc2626;
+}
+/* A held key's hint stays the Add card's own grey, hovered or not. */
+.mb-kb-foot > .mb-kb-addnew.--note:is([data-tone="pick"], [data-tone="menu"]) {
+  border-color: color-mix(in srgb, rgb(100, 116, 139) 72%, var(--md-default-fg-color, #000));
+  background: var(--foot-bg);
+  color: color-mix(in srgb, rgb(100, 116, 139) 68%, var(--md-default-fg-color, #000));
+}
+/* Joined to a side piece, the card keeps no line of its own on that side. */
+.mb-kb-foot.--save > .mb-kb-addnew.--note { border-right-color: transparent; }
+.mb-kb-foot.--picks > .mb-kb-addnew.--note { border-left-color: transparent; }
+/* The live content and Markdown view have no Add card, but a message still
+   shows on it. */
+.mb-kb-foot.--live.--noting > .mb-kb-addnew,
+.mb-kb-foot.--bare.--noting > .mb-kb-addnew { display: grid; animation: mb-kb-note-swap 0.3s ease; }
+/* Shift held with something selected: the card makes way and the
+   selection's piece takes the whole row (but Save's), what it holds centred
+   (.mb-kb-foot__picks). */
+.mb-kb-foot.--wide > .mb-kb-addnew {
+  max-width: 0;
+  padding-inline: 0;
+  border-inline-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.mb-kb-foot.--wide > .mb-kb-foot__picks {
+  flex-grow: 1;
+  max-width: 100%;
+  border-radius: 8px;
+}
+.mb-kb-foot.--wide.--save > .mb-kb-foot__picks { border-radius: 8px 0 0 8px; }
+.mb-kb-foot.--wide.--save > .mb-kb-save { border-left-color: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-addnew__face { transition: none; }
+  .mb-kb-addnew__face.--swap,
+  .mb-kb-foot.--noting > .mb-kb-addnew { animation: none; }
+}
+.mb-kb-addnew__plus { display: flex; flex: none; width: 16px; height: 16px; }
+.mb-kb-addnew__plus svg { display: block; width: 16px; height: 16px; }
+
+/* Content tabs in the editor (kbPageRender tabsHtml). The label row ends with
+   a ghost "New tab", shaped as the theme shapes a label. It does not show while something
+   is dragged. */
+.md-typeset .tabbed-labels > .mb-kb-newtab {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.35em;
+  margin: 0;
+  padding: 0.78125em 1.25em 0.625em;
+  border: 0;
+  border-bottom: 0.1rem solid transparent;
+  background: transparent;
+  color: rgb(100, 116, 139);
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: color 0.12s ease, opacity 0.12s ease;
+}
+.md-typeset .tabbed-labels > .mb-kb-newtab:hover,
+.md-typeset .tabbed-labels > .mb-kb-newtab:focus-visible {
+  outline: none;
+  color: var(--mb-edit);
+  opacity: 1;
+}
+.mb-kb-newtab__plus { display: flex; flex: none; width: 14px; height: 14px; }
+.mb-kb-newtab__plus svg { display: block; width: 14px; height: 14px; }
+html.mb-kb-dragging .mb-kb-newtab { visibility: hidden; }
+/* While a tab is dragged by its label: the Delete area at the right end of
+   its row (the pointer passes through it: kbPageDrag reads its box). */
+.md-typeset .tabbed-set > .mb-kb-tabzone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: #dc2626;
+  opacity: 0.7;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  pointer-events: none;
+}
+/* No ground of its own: with a tab held over it, it comes up to full strength. */
+.md-typeset .tabbed-set > .mb-kb-tabzone.--over {
+  opacity: 1;
+  transform: scale(1.06);
+}
+.mb-kb-tabzone__icon { display: flex; flex: none; width: 14px; height: 14px; }
+.mb-kb-tabzone__icon svg { display: block; width: 14px; height: 14px; }
+.mb-kb-confirm__text { margin: 0 0 16px; font-size: 14px; line-height: 1.45; }
+
+/* ── The System Updates drafts page (kbUpdates.js) ──────────────────────────
+   An update's title line: the type's name, then the title and the date of
+   release, both typed or picked where they stand. Empty, each says what it is
+   for in the title's own colour, faded; after a save or a publish that was
+   refused for them, the empty ones turn red until they are filled in. */
+html.mb-kb-editing .md-typeset .mb-kb-upd-title { cursor: text; }
+html.mb-kb-editing .md-typeset .mb-kb-upd-title:empty { display: inline-block; min-width: 1ch; }
+html.mb-kb-editing .md-typeset .mb-kb-upd-title:not(.mb-kb-editing-block):empty::before {
+  content: 'Update title';
+  opacity: 0.45;
+}
+html.mb-kb-editing .md-typeset summary > .mb-kb-upd-date {
+  width: fit-content;
+  cursor: pointer;
+  transition: opacity 0.12s ease-out;
+}
+html.mb-kb-editing .md-typeset summary > .mb-kb-upd-date.--empty { opacity: 0.45; }
+html.mb-kb-editing .md-typeset summary > .mb-kb-upd-date:is(:hover, :focus-visible) { opacity: 1; outline: none; text-decoration: underline; }
+html.mb-kb-editing .md-typeset.mb-kb-upd-check .mb-kb-upd-title.mb-kb-upd-title:empty::before,
+html.mb-kb-editing .md-typeset.mb-kb-upd-check summary > .mb-kb-upd-date.--empty {
+  color: #dc2626;
+  opacity: 1;
+}
+html.mb-kb-editing[data-mb-theme="dark"] .md-typeset.mb-kb-upd-check .mb-kb-upd-title.mb-kb-upd-title:empty::before,
+html.mb-kb-editing[data-mb-theme="dark"] .md-typeset.mb-kb-upd-check summary > .mb-kb-upd-date.--empty { color: #f87171; }
+html.mb-kb-editing .md-typeset .mb-kb-upd-none { color: var(--md-default-fg-color--light); }
+/* An update that has been published and is waiting for the site to build it:
+   it keeps its place in the list, grey and read only, under a line that says
+   so, until the live page shows it. */
+html.mb-kb-editing .md-typeset .mb-kb-upd-ghost { margin: 1.5625em 0; }
+html.mb-kb-editing .md-typeset .mb-kb-upd-ghost__note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--md-default-fg-color--light);
+  font-size: .64rem;
+  font-weight: 500;
+}
+html.mb-kb-editing .mb-kb-upd-ghost__spin {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: more-buttons-spin 0.8s linear infinite;
+}
+html.mb-kb-editing .mb-kb-upd-ghost.--late .mb-kb-upd-ghost__spin { animation: none; border-top-color: currentColor; opacity: 0.5; }
+html.mb-kb-editing .mb-kb-upd-ghost__body {
+  filter: grayscale(1);
+  opacity: 0.5;
+  cursor: default;
+  user-select: none;
+}
+/* It can still be opened and closed, to be read: only its title line takes a click. */
+html.mb-kb-editing .md-typeset .mb-kb-upd-ghost__body > details > summary { cursor: pointer; }
+html.mb-kb-editing .md-typeset .mb-kb-upd-ghost__body > details { margin: 0; }
+html.mb-kb-editing .mb-kb-upd-ghost__dismiss {
+  appearance: none;
+  margin: 0 0 0 4px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+html.mb-kb-editing .mb-kb-upd-ghost__dismiss:is(:hover, :focus-visible) { outline: none; color: var(--md-default-fg-color); }
+@media (prefers-reduced-motion: reduce) {
+  html.mb-kb-editing .mb-kb-upd-ghost__spin { animation-duration: 2.4s; }
+}
+
+/* The calendar that opens under an update's date (kbDatePicker.js). On
+   <body>, placed and sized in page px. */
+.mb-kb-cal {
+  position: absolute;
+  z-index: 9985;
+  width: 252px;
+  padding: 10px;
+  border: 1px solid var(--mb-border);
+  border-radius: 10px;
+  background: var(--mb-bg);
+  color: var(--mb-text);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: left;
+  user-select: none;
+}
+.mb-kb-cal [hidden] { display: none !important; }
+.mb-kb-cal button {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mb-kb-cal__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.mb-kb-cal__head strong { font-size: 13px; font-weight: 600; }
+.mb-kb-cal .mb-kb-cal__nav { width: 28px; height: 28px; border-radius: 6px; color: var(--mb-text-muted); font-size: 18px; line-height: 1; }
+.mb-kb-cal__week,
+.mb-kb-cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.mb-kb-cal__week { margin-bottom: 4px; color: var(--mb-text-label); font-size: 11px; font-weight: 600; text-align: center; }
+.mb-kb-cal .mb-kb-cal__day { height: 30px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.mb-kb-cal .mb-kb-cal__day.--out { color: var(--mb-text-disabled); }
+.mb-kb-cal .mb-kb-cal__day.--today { box-shadow: inset 0 0 0 1px var(--mb-border); font-weight: 700; }
+.mb-kb-cal .mb-kb-cal__nav:is(:hover, :focus-visible),
+.mb-kb-cal .mb-kb-cal__day:is(:hover, :focus-visible) { outline: none; background: color-mix(in srgb, var(--mb-text-muted) 16%, transparent); }
+.mb-kb-cal .mb-kb-cal__day.--picked,
+.mb-kb-cal .mb-kb-cal__day.--picked:is(:hover, :focus-visible) { background: var(--mb-acc-info); color: #fff; font-weight: 600; }
+.mb-kb-cal .mb-kb-cal__day:focus-visible { box-shadow: inset 0 0 0 2px var(--mb-acc-info); }
+.mb-kb-cal__foot { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--mb-border-subtle); }
+.mb-kb-cal .mb-kb-cal__link { padding: 4px 6px; border-radius: 5px; color: var(--mb-acc-info); font-size: 12px; font-weight: 600; }
+.mb-kb-cal .mb-kb-cal__link:is(:hover, :focus-visible) { outline: none; background: color-mix(in srgb, var(--mb-acc-info) 12%, transparent); }
+
+/* "Type its title to delete it" (kbPageEditor.js confirmByTyping): the last
+   step before something is taken off the live page. A native dialog, so the
+   page behind it is inert and Escape cancels; sized in px. */
+.mb-kb-typed {
+  width: min(440px, calc(100vw - 32px));
+  margin: auto;
+  padding: 20px;
+  border: 1px solid var(--mb-border);
+  border-radius: 12px;
+  background: var(--mb-bg);
+  color: var(--mb-text);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+}
+.mb-kb-typed::backdrop { background: rgba(15, 23, 42, 0.45); }
+.mb-kb-typed__title { margin: 0 0 8px; font-size: 16px; font-weight: 650; line-height: 1.3; }
+.mb-kb-typed__text { margin: 0 0 14px; color: var(--mb-text-muted); }
+.mb-kb-typed__text strong { color: var(--mb-text); font-weight: 600; overflow-wrap: anywhere; }
+.mb-kb-typed__label { display: block; margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--mb-text-muted); }
+.mb-kb-typed__input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--mb-border);
+  border-radius: 8px;
+  background: var(--mb-bg-subtle);
+  color: var(--mb-text);
+  font: inherit;
+}
+.mb-kb-typed__input:focus { outline: none; border-color: var(--mb-acc-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mb-acc-danger) 22%, transparent); }
+.mb-kb-typed__foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.mb-kb-typed__btn {
+  appearance: none;
+  height: 36px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid var(--mb-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mb-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mb-kb-typed__btn:is(:hover, :focus-visible) { outline: none; background: var(--mb-bg-subtle); }
+.mb-kb-typed__btn.--danger { border-color: var(--mb-acc-danger); background: var(--mb-acc-danger); color: #fff; }
+.mb-kb-typed__btn.--danger:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--mb-acc-danger) 88%, #000); }
+.mb-kb-typed__btn.--danger:disabled { opacity: 0.4; cursor: default; }
+
+/* The "Edit mode" pill in the site's header, right of its title
+   (kbPageEditor.js injectModePill). Purple, sized in px (the header's own type
+   is in the theme's enlarged rem), and never squeezed by a long title. */
+.mb-kb-modepill {
+  flex: none;
+  align-self: center;
+  margin-left: 12px;
+  padding: 5px 11px;
+  border: 1px solid color-mix(in srgb, #9333ea 55%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, #a855f7 18%, transparent);
+  color: #7e22ce;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+html[data-mb-theme="dark"] .mb-kb-modepill {
+  border-color: color-mix(in srgb, #c084fc 50%, transparent);
+  background: color-mix(in srgb, #a855f7 20%, transparent);
+  color: #c084fc;
+}
+
+/* The two states' colours, said once: yellow is the draft, green is live.
+   Everything that stands for one of them takes its hue from here (the title's
+   pill, the tabs above it, and on System Updates the buttons that send an
+   update to one side or the other). `-ink` is the hue as text: mixed into the
+   scheme's own foreground, so it reads on white and on the dark scheme alike. */
+html.mb-kb-editing {
+  --mb-kb-draft: oklch(0.82 0.17 86);
+  --mb-kb-live: oklch(0.72 0.2 149);
+}
+html.mb-kb-editing body {
+  --mb-kb-draft-ink: color-mix(in oklch, var(--mb-kb-draft) 52%, var(--md-default-fg-color));
+  --mb-kb-live-ink: color-mix(in oklch, var(--mb-kb-live) 62%, var(--md-default-fg-color));
+}
+
+/* Which of the two the page shows, at the end of its title (kbPageEditor.js
+   paintTitlePill): "Draft" in yellow, "Live" in green. The manage pages tree's
+   state pill (kbAdmin.css .mb-adm-pill: one hue, mixed into the scheme's own
+   foreground so it holds in light and dark), a size up to stand by an H1. */
+.md-typeset h1 > .mb-kb-statepill {
+  --pill: var(--mb-kb-draft);
+  --ink: var(--mb-kb-draft-ink);
+  display: inline-flex;
+  align-items: center;
+  margin-left: .9em;
+  padding: .4em .73em;
+  border-radius: .47em;
+  background-color: color-mix(in oklch, var(--pill) 30%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--pill) 70%, transparent) inset;
+  color: var(--ink);
+  /* Sized off the title (15px beside a 32px H1), and lifted so the middle of
+     its capitals meets the middle of the title's: half the difference between
+     the two cap heights, in the pill's own em. `middle` hangs it off the
+     title's x-height, which reads low beside a capital. */
+  font-size: .47em;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  vertical-align: .4em;
+  user-select: none;
+}
+.md-typeset h1 > .mb-kb-statepill.--live { --pill: var(--mb-kb-live); --ink: var(--mb-kb-live-ink); }
+
+/* Its copy in the site's header, after the page's title there (kbPageEditor.js
+   paintHeaderTopic): the same pill at the "Edit mode" pill's size, which
+   follows it. */
+.md-header__topic > .mb-kb-statepill.--header {
+  --pill: var(--mb-kb-draft);
+  --ink: var(--mb-kb-draft-ink);
+  flex: none;
+  align-self: center;
+  margin-left: 12px;
+  padding: 5px 11px;
+  border-radius: 7px;
+  background-color: color-mix(in oklch, var(--pill) 30%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--pill) 70%, transparent) inset;
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  user-select: none;
+}
+.md-header__topic > .mb-kb-statepill.--header.--live { --pill: var(--mb-kb-live); --ink: var(--mb-kb-live-ink); }
+.md-header__topic > .mb-kb-statepill.--header + .mb-kb-modepill { margin-left: 8px; }
+/* Exit edit mode, right of the "Edit mode" pill (kbPageEditor.js exitButton):
+   the theme's own header icon button, as the light / dark toggle and the admin
+   button beside the search are, so it takes their size, hover and colours. */
+.md-header__topic > .mb-kb-exit {
+  flex: none;
+  align-self: center;
+  margin: 0 0 0 .3rem;
+  font-weight: normal;
+  /* The header's own ink, as its other buttons have: in dark the theme makes
+     the title (which this sits in) pure white, brighter than they are. */
+  color: var(--md-default-fg-color);
+}
+
+/* Edit mode's tabs above the title (kbPageEditor.js buildModeNav): "Draft" and
+   "Live", half each of a rule the width of the text column. The one shown takes the hue
+   of the pill that ends the title (yellow, green; the same mix, so it holds in
+   light and dark) as its ground and the line under it; the other is grey
+   until the pointer is on it. */
+.mb-kb-modenav {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+.mb-kb-modenav__tab {
+  --pill: var(--mb-kb-draft);
+  --ink: var(--mb-kb-draft-ink);
+  appearance: none;
+  display: inline-flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  margin: 0 0 -1px;
+  padding: 0 18px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--md-default-fg-color--light);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s ease-out, background-color 0.12s ease-out, border-color 0.12s ease-out;
+}
+.mb-kb-modenav__tab.--live { --pill: var(--mb-kb-live); --ink: var(--mb-kb-live-ink); }
+.mb-kb-modenav__tab:is(:hover, :focus-visible):not(:disabled, .--on) {
+  outline: none;
+  color: var(--ink);
+  background-color: color-mix(in oklch, var(--pill) 12%, transparent);
+}
+.mb-kb-modenav__tab.--on {
+  outline: none;
+  border-bottom-color: var(--pill);
+  background-color: color-mix(in oklch, var(--pill) 28%, transparent);
+  color: var(--ink);
+  cursor: default;
+}
+.mb-kb-modenav__tab:focus-visible { box-shadow: 0 0 0 2px color-mix(in oklch, var(--pill) 45%, transparent) inset; }
+.mb-kb-modenav__tab:disabled { opacity: .45; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-modenav__tab { transition: none; }
+}
+/* While the page slides between the draft and the live content, what is on
+   its way out or in must not give the window a sideways scroll, and nothing
+   stands in the margin for a block that is moving. */
+html.mb-kb-sliding .md-main { overflow-x: clip; }
+html.mb-kb-sliding .mb-kb-blockmenu { display: none; }
+
+/* The live content, shown in edit mode (state.liveView): the same drawing, read
+   only. Nothing is typed into, so nothing shows a text caret or a place to
+   type; an admonition's icon changes nothing; Shift only selects. The bar
+   has no Undo, Redo or Save there: it is on the page only while something is
+   selected (it keeps its place unseen). */
+html.mb-kb-editing.mb-kb-live-view .mb-kb-text,
+html.mb-kb-editing.mb-kb-live-view :is(h1, h2, h3)[data-mb-node],
+html.mb-kb-editing.mb-kb-live-view [data-mb-edit],
+html.mb-kb-editing.mb-kb-live-view [data-mb-kind="leaf"] { cursor: auto; }
+html.mb-kb-editing.mb-kb-live-view .mb-kb-text.--empty { display: none; }
+/* A live update's date is read, not picked. */
+html.mb-kb-editing.mb-kb-live-view .md-typeset summary > .mb-kb-upd-date { cursor: inherit; }
+html.mb-kb-editing.mb-kb-live-view .md-typeset summary > .mb-kb-upd-date:is(:hover, :focus-visible) { text-decoration: none; }
+
+/* The two text buttons either side of an update (kbUpdateSide.js): Delete in
+   red to its left, Push to live in green to its right, in the empty margin. They
+   start tucked in against the update, unseen, and slide out as the pointer
+   comes onto it. Placed in page px on <body>; the holder takes
+   no room and no clicks. */
+.mb-kb-upd-side {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+html.mb-kb-dragging .mb-kb-upd-side { display: none; }
+.mb-kb-upd-side__btn {
+  appearance: none;
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  margin: 0;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--mb-tint);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.16s ease-out, transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 0.12s ease-out, visibility 0s linear 0.24s;
+}
+.mb-kb-upd-side__btn.--delete { --mb-tint: #dc2626; transform: translateX(18px); }
+/* Push to live is live's green; Clone to draft and Cancel publish (back to
+   the draft) are the draft's yellow. Their ground on hover is the hue itself,
+   not the darker ink the words are in. */
+.mb-kb-upd-side__btn.--publish { --mb-tint: var(--mb-kb-live-ink); --mb-tint-bg: var(--mb-kb-live); transform: translateX(-18px); }
+html[data-mb-theme="dark"] .mb-kb-upd-side__btn.--delete { --mb-tint: #f87171; }
+/* The live content's pair: Create draft (blue) to the left, Delete to the right. */
+.mb-kb-upd-side__btn.--draft { --mb-tint: var(--mb-kb-draft-ink); --mb-tint-bg: var(--mb-kb-draft); transform: translateX(18px); }
+/* "View draft" (the update is in the drafts already) only goes there: grey. */
+.mb-kb-upd-side__btn.--draft.--view { --mb-tint: #64748b; --mb-tint-bg: #64748b; }
+html[data-mb-theme="dark"] .mb-kb-upd-side__btn.--draft.--view { --mb-tint: #94a3b8; --mb-tint-bg: #94a3b8; }
+/* Beside an update being published: Cancel publish, alone on the left (amber). */
+.mb-kb-upd-side__btn.--cancel { --mb-tint: var(--mb-kb-draft-ink); --mb-tint-bg: var(--mb-kb-draft); transform: translateX(18px); }
+.mb-kb-upd-side__btn.--delete.--right { transform: translateX(-18px); }
+.mb-kb-upd-side.--on .mb-kb-upd-side__btn {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+/* The pair an update has just lost to another (kbUpdateSide.js leaveGhosts):
+   copies that finish sliding back in where they stand, whatever the holder
+   says the real pair is doing. */
+.mb-kb-upd-side .mb-kb-upd-side__btn.--ghost,
+.mb-kb-upd-side.--on .mb-kb-upd-side__btn.--ghost {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition-delay: 0s, 0s, 0s, 0.24s;
+}
+.mb-kb-upd-side .mb-kb-upd-side__btn.--ghost.--left,
+.mb-kb-upd-side.--on .mb-kb-upd-side__btn.--ghost.--left { transform: translateX(18px); }
+.mb-kb-upd-side .mb-kb-upd-side__btn.--ghost.--right,
+.mb-kb-upd-side.--on .mb-kb-upd-side__btn.--ghost.--right { transform: translateX(-18px); }
+.mb-kb-upd-side__btn:is(:hover, :focus-visible),
+.mb-kb-upd-side__btn.--confirm {
+  outline: none;
+  background: color-mix(in srgb, var(--mb-tint-bg, var(--mb-tint)) 18%, transparent);
+}
+.mb-kb-upd-side__btn.--confirm:hover { background: color-mix(in srgb, var(--mb-tint-bg, var(--mb-tint)) 28%, transparent); }
+.mb-kb-upd-side__icon { display: inline-flex; flex: none; width: 19px; height: 19px; transition: transform 0.16s ease-out; }
+.mb-kb-upd-side__icon svg { display: block; width: 19px; height: 19px; }
+/* The arrow leans the way the update will go. */
+.mb-kb-upd-side__btn.--delete:hover:not(.--spin) .mb-kb-upd-side__icon { transform: translateX(-3px); }
+.mb-kb-upd-side__btn.--publish:hover:not(.--spin) .mb-kb-upd-side__icon { transform: translateX(3px); }
+.mb-kb-upd-side__btn.--draft:hover:not(.--spin) .mb-kb-upd-side__icon { transform: translateX(-3px); }
+.mb-kb-upd-side__btn.--cancel:hover:not(.--spin) .mb-kb-upd-side__icon { transform: translateX(-3px); }
+.mb-kb-upd-side__btn.--delete.--right:hover:not(.--spin) .mb-kb-upd-side__icon { transform: translateX(3px); }
+/* Running: its button waits with a spinner, the other steps back. */
+.mb-kb-upd-side__btn:disabled { cursor: default; }
+.mb-kb-upd-side__btn.--spin { pointer-events: none; }
+.mb-kb-upd-side__btn.--spin .mb-kb-upd-side__icon { animation: more-buttons-spin 0.8s linear infinite; }
+.mb-kb-upd-side.--on .mb-kb-upd-side__btn.--dim { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-upd-side__btn,
+  .mb-kb-upd-side__icon { transition: none; }
+  .mb-kb-upd-side__btn.--delete,
+  .mb-kb-upd-side__btn.--draft,
+  .mb-kb-upd-side__btn.--publish { transform: none; }
+}
 
 /* The media library and the paste box, drawn in the page at the point their
    result will land. In the article, so every size is in px. */
+/* "Capture in progress": stands where a capture will go while another tab is
+   taking it (kbPageEditor drawCaptureWait). The Draft tab's yellow, in the
+   same mixes as Save changes to draft: it is work on its way into the draft.
+   The body brings that tab back alongside (its hint shows only while the two
+   are not split); the light red end calls the capture off, and widens on
+   hover to say so. */
+.mb-kb-capwait {
+  --cw-bg: color-mix(in oklch, var(--mb-kb-draft) 28%, var(--md-default-bg-color, #fff));
+  --cw-bg-hover: color-mix(in oklch, var(--mb-kb-draft) 42%, var(--md-default-bg-color, #fff));
+  --cw-line: var(--mb-kb-draft);
+  --cw-ink: var(--mb-kb-draft-ink);
+  --cw-muted: color-mix(in srgb, var(--mb-kb-draft-ink) 80%, transparent);
+  --cw-cancel-bg: #fee2e2;
+  --cw-cancel-bg-hover: #fecaca;
+  --cw-cancel-ink: #b91c1c;
+  --cw-cancel-line: #f87171;
+  display: flex;
+  align-items: stretch;
+  margin: 12px 0;
+  border-radius: 10px;
+  background-color: var(--cw-bg);
+  color: var(--cw-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  user-select: none;
+}
+@container style(--mb-dark: 1) {
+  .mb-kb-capwait {
+    --cw-cancel-bg: #4a1f1f;
+    --cw-cancel-bg-hover: #5c2525;
+    --cw-cancel-ink: #fca5a5;
+    --cw-cancel-line: #b91c1c;
+  }
+}
+.mb-kb-capwait [hidden] { display: none !important; }
+.mb-kb-capwait button {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mb-kb-capwait__main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 12px 16px;
+  /* The dashed outline is drawn by the two halves, each in its own colour. */
+  border: var(--mb-dash, 2px) dashed var(--cw-line) !important;
+  border-right: 0 !important;
+  border-radius: 10px 0 0 10px !important;
+  text-align: left;
+}
+.mb-kb-capwait__main:hover { background-color: var(--cw-bg-hover); }
+/* "Inserting capture": the whole box, nothing to press. */
+.mb-kb-capwait.--inserting .mb-kb-capwait__main {
+  border-right: var(--mb-dash, 2px) dashed var(--cw-line) !important;
+  border-radius: 10px !important;
+  background-color: transparent;
+  color: inherit;
+  cursor: default;
+}
+.mb-kb-capwait__main > .more-buttons-icon { flex: 0 0 auto; font-size: 20px; color: var(--cw-muted); }
+.mb-kb-capwait__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mb-kb-capwait__text strong { font-weight: 600; }
+.mb-kb-capwait__hint { color: var(--cw-muted); font-size: 12px; }
+.mb-kb-capwait__cancel {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 17px;
+  border: var(--mb-dash, 2px) dashed var(--cw-cancel-line) !important;
+  border-radius: 0 10px 10px 0 !important;
+  background-color: var(--cw-cancel-bg) !important;
+  color: var(--cw-cancel-ink) !important;
+  font-weight: 600 !important;
+}
+.mb-kb-capwait__cancel .more-buttons-icon { flex: 0 0 auto; font-size: 18px; }
+/* The word is there all along, folded shut; hovering opens it. */
+.mb-kb-capwait__cancel-label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition: max-width 0.32s ease, margin-left 0.32s ease, opacity 0.24s ease;
+}
+.mb-kb-capwait__cancel:hover,
+.mb-kb-capwait__cancel:focus-visible { background-color: var(--cw-cancel-bg-hover) !important; }
+.mb-kb-capwait__cancel:hover .mb-kb-capwait__cancel-label,
+.mb-kb-capwait__cancel:focus-visible .mb-kb-capwait__cancel-label {
+  max-width: 5em;
+  margin-left: 6px;
+  opacity: 1;
+}
+.mb-kb-capwait button:focus-visible { outline: 2px solid var(--cw-line); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-capwait__cancel-label { transition: none; }
+}
+
 .mb-kb-panel {
   margin: 12px 0;
   border: 1px solid var(--mb-border);
@@ -6696,6 +8100,14 @@ html.mb-kb-create .mb-kb-addnew:focus-visible {
   object-fit: contain;
   background-color: var(--mb-bg-disabled);
 }
+/* The paste box: a popup in the menus' look, where the menu it was picked from stood. */
+.mb-popup-menu.mb-kb-pastepop { width: 620px; max-width: calc(100vw - 16px); padding: 12px; box-sizing: border-box; }
+.mb-kb-pastepop .mb-kb-panel__paste { height: min(380px, 50vh); min-height: 120px; }
+.mb-kb-pastepop .mb-kb-typed__foot { margin-top: 10px; }
+.mb-kb-pastepop__go { border-color: #9333ea; background: #9333ea; color: #fff; }
+.mb-kb-pastepop__go:is(:hover, :focus-visible) { background: #7e22ce; }
+.mb-kb-pastepop__go:disabled { opacity: 0.4; cursor: default; }
+.mb-kb-pastepop__title { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--mb-text-muted); }
 .mb-kb-panel__paste {
   display: block;
   width: 100%;
@@ -6711,40 +8123,3 @@ html.mb-kb-create .mb-kb-addnew:focus-visible {
   resize: vertical;
 }
 
-/* Bottom-left status pill: loading, a hint after an edit, and "Saved". */
-.mb-kb-status {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 9980;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: min(480px, calc(100vw - 32px));
-  padding: 7px 12px;
-  border: 1px solid var(--mb-border);
-  border-radius: 999px;
-  background-color: var(--mb-bg);
-  color: var(--mb-text-muted);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.3;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.15);
-}
-.mb-kb-status[hidden] { display: none; }
-.mb-kb-status::before {
-  content: '';
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #f59e0b;
-}
-.mb-kb-status.--busy::before { animation: mb-kb-pulse 0.9s ease-in-out infinite; }
-.mb-kb-status.--ok::before { background-color: #16a34a; }
-.mb-kb-status.--error::before { background-color: #dc2626; }
-@keyframes mb-kb-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
-}

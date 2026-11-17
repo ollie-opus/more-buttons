@@ -867,10 +867,38 @@ async function discardGuideDraft(formEl) {
   }
 }
 
-// Permanently delete a guide: removes the live .md from GitHub and drops it from
-// both nav and draft_nav. Only offered from the no-draft entry view, so there is
-// normally no draft file — we still delete it defensively (a no-op on 404) so a
-// stale draft can't linger. Returns to the (refreshed) KB list on success.
+/**
+ * Permanently delete a guide: its live file, its draft (a no-op when there is
+ * none) and its entries in nav, draft_nav and unlisted_nav. Shared by the form
+ * editor's Delete guide and the in-page editor's (on the Live tab).
+ */
+export async function deleteGuideFiles({ livePath, draftPath, title }, onProgress = () => {}) {
+  const commit = `Delete guide: ${title}`;
+  await githubDeleteFile(livePath, onProgress, { commit });
+  await githubDeleteFile(draftPath, onProgress, { commit });
+  onProgress('Updating navigation…');
+  const value = navValueOf(livePath);
+  await githubFetchAndPushFile('zensical.toml', onProgress, md => {
+    const navItems = parseNavBlock(md, 'nav').items;
+    const draftItems = parseNavBlock(md, 'draft_nav').items;
+    removeByValue(navItems, value);
+    removeByValueSlug(draftItems, valueSlug(value));
+    let out = replaceNavBlock(md, 'nav', navItems);
+    out = replaceNavBlock(out, 'draft_nav', draftItems);
+    // Also drop any unlisted_nav entry, else deleting an unlisted page leaves
+    // an orphan. Guarded on presence so a repo without the array doesn't get
+    // one auto-created at EOF (wrong TOML section — see replaceNavBlock).
+    const unlistedBlock = parseNavBlock(md, 'unlisted_nav');
+    if (unlistedBlock.start !== -1) {
+      removeByValueSlug(unlistedBlock.items, valueSlug(value));
+      out = replaceNavBlock(out, 'unlisted_nav', unlistedBlock.items);
+    }
+    return out;
+  });
+}
+
+// Only offered from the no-draft entry view, so there is normally no draft
+// file. Returns to the (refreshed) KB list on success.
 async function deleteGuide(formEl) {
   if (!currentGuide) return;
   const label = formEl.dataset.guideLabel || guideBaseName(formEl.dataset.livePath);
@@ -880,27 +908,7 @@ async function deleteGuide(formEl) {
   setButtonBusy(btn, 'Deleting page…');
 
   try {
-    await githubDeleteFile(currentGuide.livePath, s => setButtonBusy(btn, s));
-    await githubDeleteFile(currentGuide.draftPath, s => setButtonBusy(btn, s));
-    setButtonBusy(btn, 'Updating navigation…');
-    const value = navValueOf(currentGuide.livePath);
-    await githubFetchAndPushFile('zensical.toml', s => setButtonBusy(btn, s), md => {
-      const navItems = parseNavBlock(md, 'nav').items;
-      const draftItems = parseNavBlock(md, 'draft_nav').items;
-      removeByValue(navItems, value);
-      removeByValueSlug(draftItems, valueSlug(value));
-      let out = replaceNavBlock(md, 'nav', navItems);
-      out = replaceNavBlock(out, 'draft_nav', draftItems);
-      // Also drop any unlisted_nav entry, else deleting an unlisted page leaves
-      // an orphan. Guarded on presence so a repo without the array doesn't get
-      // one auto-created at EOF (wrong TOML section — see replaceNavBlock).
-      const unlistedBlock = parseNavBlock(md, 'unlisted_nav');
-      if (unlistedBlock.start !== -1) {
-        removeByValueSlug(unlistedBlock.items, valueSlug(value));
-        out = replaceNavBlock(out, 'unlisted_nav', unlistedBlock.items);
-      }
-      return out;
-    });
+    await deleteGuideFiles({ ...currentGuide, title: label }, s => setButtonBusy(btn, s));
     currentGuide = null;
     await navigateBack();
   } catch (e) {
@@ -2399,11 +2407,21 @@ function readPageSettingsFields(formEl) {
 // `search: exclude` to the live md; Public reverses both. No-op when the toml
 // already matches, so an ordinary settings save spawns no extra commits.
 async function applyPageVisibility(visibility, onProgress) {
+  return setGuideVisibility(currentGuide.livePath, visibility, onProgress);
+}
+
+/** Whether the guide at `livePath` is unlisted (has an unlisted_nav entry in zensical.toml). */
+export async function isGuideUnlisted(livePath) {
+  return isUnlistedInToml(await readRepoText('zensical.toml'), livePath);
+}
+
+/** applyPageVisibility for any guide, by its live path (the in-page editor's Page settings). */
+export async function setGuideVisibility(livePath, visibility, onProgress = () => {}) {
   const unlisted = visibility === 'unlisted';
-  const value = navValueOf(currentGuide.livePath);
+  const value = navValueOf(livePath);
   const slug = valueSlug(value);
 
-  if (isUnlistedInToml(await readRepoText('zensical.toml'), currentGuide.livePath) === unlisted) return;
+  if (isUnlistedInToml(await readRepoText('zensical.toml'), livePath) === unlisted) return;
 
   onProgress('Updating visibility…');
   await githubFetchAndPushFile('zensical.toml', onProgress, md => {
@@ -2421,7 +2439,7 @@ async function applyPageVisibility(visibility, onProgress) {
     removeByValueSlug(from, slug);
     setPathByValueSlug(to, slug, loc?.segments ?? [], {
       value,
-      fallbackName: loc?.leafName ?? guideBaseName(currentGuide.livePath),
+      fallbackName: loc?.leafName ?? guideBaseName(livePath),
     });
     let out = replaceNavBlock(md, 'nav', navItems);
     out = replaceNavBlock(out, 'unlisted_nav', unlistedItems);
@@ -2431,8 +2449,8 @@ async function applyPageVisibility(visibility, onProgress) {
   // Keep the live page's frontmatter in lockstep. A never-published guide has
   // no live file yet — publishGuideDraft derives the exclusion from
   // unlisted_nav when the page first goes live.
-  if (await readRepoText(currentGuide.livePath)) {
-    await githubFetchAndPushFile(currentGuide.livePath, onProgress,
+  if (await readRepoText(livePath)) {
+    await githubFetchAndPushFile(livePath, onProgress,
       md => writeFrontmatterSearchExclude(md, unlisted), { commit: 'Edited page settings' });
   }
 }

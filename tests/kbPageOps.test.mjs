@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {
-  OPS, TABLE, CODE, applyOps, commitForOps, findComponent, findOwner, readContainer, walkPage,
-  newComponent, newTab, newCell, mediaComponent, mediaFiles,
+  OPS, TABLE, CODE, applyOps, dropEmptyText, commitForOps, findComponent, findOwner, readContainer, walkPage,
+  newComponent, newTab, newCell, mediaComponent, mediaFiles, parsePastedPage, readPageSettings,
 } from '../scripts/kbPageOps.js';
 import { TEXT_KIND, renderGuidePage } from '../scripts/kbPageRender.js';
 import { readSectionDescription, buildSectionTree } from '../scripts/sections.js';
-import { parsePastedComponents } from '../scripts/components.js';
+import { parsePastedComponents, uuidOfComponent } from '../scripts/components.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -304,6 +304,15 @@ test('code block: code, options and annotations stay bound to their markers', ()
   cb = findComponent(out, 'code').component.cb;
   assert.deepEqual(cb.annotations, ['Second note'], 'an emptied annotation goes, the rest renumber');
   assert.equal(cb.code, 'print(1)\nprint(2) # (1)!');
+  out = run(out, edit(c => CODE.addAnnotation(c, 'Top note', 0)));
+  cb = findComponent(out, 'code').component.cb;
+  assert.deepEqual(cb.annotations, ['Top note', 'Second note'], 'a marker added above takes the first number');
+  out = run(out, edit(c => CODE.removeAnnotation(c, 0)));
+  cb = findComponent(out, 'code').component.cb;
+  assert.deepEqual([cb.code, cb.annotations], ['print(1)\nprint(2) # (1)!', ['Second note']], 'removed with its marker');
+  out = run(out, edit(c => CODE.setLanguage(c, 'js')));
+  cb = findComponent(out, 'code').component.cb;
+  assert.equal(cb.code, 'print(1)\nprint(2) // (1)!', 'a new language writes its own comments');
 });
 
 test('media picks become components; a replacement keeps the size settings', () => {
@@ -312,7 +321,8 @@ test('media picks become components; a replacement keeps the size settings', () 
   const vid = mediaComponent('video', { single: 'docs/assets/media/videos/demo.mp4' });
   const out = run(PAGE, OPS.insertComponents(section('s2'), 0, [cap, img, vid]));
   assert.deepEqual(kinds(out, section('s2')), ['capture', 'image', 'video', 'grid', 'codeblock']);
-  assert.match(out, /!\[\]\(\.\.\/assets\/media\/occ-captures\/x-light-mode\.png#only-light\)\n!\[\]\(\.\.\/assets\/media\/occ-captures\/x-dark-mode\.png#only-dark\)/);
+  // A library capture starts as the Auto preset: its own size, corners rounded.
+  assert.match(out, /!\[\]\(\.\.\/assets\/media\/occ-captures\/x-light-mode\.png#only-light\)\{ style="border-radius: 8px" loading=lazy \}\n!\[\]\(\.\.\/assets\/media\/occ-captures\/x-dark-mode\.png#only-dark\)\{ style="border-radius: 8px" loading=lazy \}/);
   assert.match(out, /!\[\]\(\.\.\/assets\/media\/buttons\/save\.svg\)/);
   assert.equal(findComponent(out, vid.vid.uuid).component.vid.single, true);
 
@@ -328,6 +338,43 @@ test('pasted component markdown inserts with fresh identities', () => {
   const { components } = parsePastedComponents('!!! tip "Pasted"\n\n    Body.\n\n[Go](x.md){ .md-button }');
   const out = run(PAGE, OPS.insertComponents(section('s2'), 3, components));
   assert.deepEqual(kinds(out, section('s2')), ['grid', 'codeblock', 'admonition', 'button']);
+});
+
+test('pasted headings become sections of their own, each with an identity', () => {
+  const pasted = parsePastedPage('Lead in.\n\n## Pasted one\n\nUnder one.\n\n```md\n## not a heading\n```\n\n### Pasted deeper\n\n!!! tip "Hi"\n\n    Body.\n\n## Pasted empty');
+  assert.equal(pasted.error, null);
+  assert.deepEqual(pasted.sections.map(s => [s.level, s.title, s.components.map(c => c.kind)]),
+    [[2, 'Pasted one', ['text', 'codeblock']], [3, 'Pasted deeper', ['admonition']], [2, 'Pasted empty', ['text']]]);
+  assert.deepEqual(pasted.components.map(c => c.kind), ['text']);
+
+  const before = blocks(PAGE, section('s1'));
+  const op = OPS.pasteSections(section('s1'), 1, pasted.components, pasted.sections);
+  const out = run(PAGE, op);
+  assert.equal(run(PAGE, op), out); // replayed, it is the same page
+  // Every heading on the page has an identity, and the page keeps its end.
+  const all = buildSectionTree(out).sections;
+  assert.ok(all.every(s => s.uuid));
+  assert.equal(out.endsWith('\n'), PAGE.endsWith('\n'));
+  // What stood above the paste stays; what stood below follows the last pasted section.
+  const [one, deeper, empty] = pasted.sections.map(s => section(s.uuid));
+  assert.deepEqual(blocks(out, section('s1')), [before[0], 'text']);
+  assert.deepEqual(texts(out, one), ['Under one.']);
+  assert.deepEqual(kinds(out, deeper), ['admonition']);
+  assert.deepEqual(blocks(out, empty), ['text', ...before.slice(1)]);
+  assert.ok(readContainer(out, section('s2'))); // the sections after are as they were
+  assert.deepEqual(blocks(out, section('s2')), blocks(PAGE, section('s2')));
+  // Drawn, each new heading is a thing of the page.
+  const { html } = renderGuidePage(out);
+  for (const s of pasted.sections) assert.ok(html.includes(`data-mb-node="${s.uuid}" data-mb-kind="section"`));
+  assert.ok(!html.includes('data-mb-node=""'));
+  assert.equal(commitForOps(PAGE, [op]), "Added 3 sections after 'First'");
+});
+
+test('a pasted page title moves every pasted heading one level down', () => {
+  const pasted = parsePastedPage('# Page\n\nIntro.\n\n## Part\n\n### Detail');
+  assert.deepEqual(pasted.sections.map(s => [s.level, s.title]), [[2, 'Page'], [3, 'Part'], [3, 'Detail']]);
+  assert.deepEqual(parsePastedPage('Just text.').sections, []);
+  assert.ok(parsePastedPage('  ').error);
 });
 
 // ── Replaying and describing ────────────────────────────────────────────────
@@ -365,6 +412,287 @@ test('commitForOps: one change keeps the form editors\' subject; several are cou
     subject: 'Made 3 changes to the page',
     bodyLines: ["- Added Data table in 'Second'", "- Edited Data table in 'Second'", "- Edited section 'Renamed'"],
   });
+});
+
+// ── Empty text blocks ───────────────────────────────────────────────────────
+
+test('a new section, admonition, tab and cell each open with an empty text block', () => {
+  let out = run(PAGE, OPS.addSection({ uuid: 'new', title: 'Added', parentUuid: 'h1', level: 2, textUuid: 'newtext' }));
+  assert.deepEqual(readContainer(out, section('new')).components, [{ kind: 'text', txt: { uuid: 'newtext', body: '' } }]);
+  for (const kind of ['admonition', 'tabs', 'grid']) {
+    const comp = newComponent(kind);
+    out = run(out, OPS.insertComponents(section('new'), 1, [comp]));
+    const inside = kind === 'admonition' ? [{ kind: TEXT_KIND.admonition, uuid: comp.adm.uuid }]
+      : kind === 'tabs' ? comp.grp.tabs.map(t => ({ kind: TEXT_KIND.tab, uuid: t.uuid }))
+        : comp.grid.cells.map(c => ({ kind: TEXT_KIND.cell, uuid: c.uuid }));
+    for (const c of inside) assert.deepEqual(texts(out, c), [''], `${kind} opens with one empty text block`);
+  }
+});
+
+test('an empty text block survives edits around it, takes typing, stays when emptied, and can be deleted', () => {
+  let out = run(PAGE, OPS.addSection({ uuid: 'new', title: 'Added', parentUuid: 'h1', level: 2, textUuid: 'newtext' }));
+  out = run(out, OPS.insertComponents(section('new'), 1, [newComponent('table')]), OPS.setSectionTitle('new', 'Renamed'));
+  assert.deepEqual(blocks(out, section('new')), ['text', 'table']);
+  assert.equal(findComponent(out, 'newtext').component.txt.body, '');
+  out = run(out, OPS.putText('newtext', 'Hello.'));
+  assert.deepEqual(texts(out, section('new')), ['Hello.']);
+  out = run(out, OPS.putText('newtext', ''));
+  assert.deepEqual(texts(out, section('new')), [''], 'emptied, the block stays');
+  out = run(out, OPS.deleteComponent('newtext'));
+  assert.deepEqual(blocks(out, section('new')), ['table']);
+});
+
+test('dropEmptyText: empty text blocks are not saved, at any depth; everything else is', () => {
+  assert.equal(dropEmptyText(PAGE), PAGE);
+  const adm = newComponent('admonition');
+  const grid = newComponent('grid');
+  const out = run(PAGE,
+    OPS.addSection({ uuid: 'new', title: 'Added', parentUuid: 'h1', level: 2, textUuid: 'newtext' }),
+    OPS.insertComponents(section('new'), 1, [adm, grid]));
+  const saved = dropEmptyText(out);
+  assert.ok(!saved.includes('<!-- -->'));
+  // A row whose columns held nothing else is not saved either.
+  assert.deepEqual(blocks(saved, section('new')), ['admonition']);
+  assert.deepEqual(blocks(saved, { kind: TEXT_KIND.admonition, uuid: adm.adm.uuid }), []);
+  assert.deepEqual(texts(saved, section('s1')), texts(PAGE, section('s1')));
+});
+
+// ── Rows (blocks side by side) ───────────────────────────────────────────────
+
+const ids = (md, container) => readContainer(md, container).components.map(uuidOfComponent);
+const cell = uuid => ({ kind: TEXT_KIND.cell, uuid });
+const columns = (md, block) => {
+  const owner = findOwner(md, 'cell', findComponent(md, block).container.uuid);
+  return owner.component.grid.cells.map(c => ids(md, cell(c.uuid)));
+};
+
+test('moveBeside: a block dropped beside one in no row makes a row of the two', () => {
+  const s1 = ids(PAGE, section('s1'));
+  const right = OPS.moveBeside(['btn'], { block: 'adm' }, 'right');
+  const out = right.apply(PAGE);
+  assert.deepEqual(columns(out, 'btn'), [['adm'], ['btn']]);
+  assert.equal(right.apply(PAGE), out, 'the same page each time it is applied');
+  const row = findOwner(out, 'cell', findComponent(out, 'btn').container.uuid);
+  assert.equal(row.component.grid.flavor, 'generic');
+  assert.deepEqual(row.container, section('s1'));
+  assert.equal(ids(out, section('s1')).length, s1.length - 1, 'the row stands where the block stood');
+  assert.deepEqual(columns(OPS.moveBeside(['btn'], { block: 'adm' }, 'left').apply(PAGE), 'btn'), [['btn'], ['adm']]);
+  // Several go into the one column, in page order; what was inside a block goes with it.
+  const many = OPS.moveBeside(['btn', 'tbl'], { block: 'adm' }, 'right').apply(PAGE);
+  assert.deepEqual(columns(many, 'btn'), [['adm'], ['btn', 'tbl']]);
+  assert.ok(findComponent(many, 'cap'), 'the capture inside the admonition is still there');
+  // Beside itself, or beside something inside itself: nowhere to go.
+  assert.equal(OPS.moveBeside(['adm'], { block: 'adm' }, 'left').apply(PAGE), PAGE);
+  assert.equal(OPS.moveBeside(['adm'], { block: 'cap' }, 'left').apply(PAGE), PAGE);
+});
+
+// The fixture's second column holds nothing: here it holds a line of text.
+const ROW = run(PAGE, OPS.setText(cell('c2'), 'Cell two.'));
+
+test('moveBeside: a column added to a row; a row keeps its style and its columns their settings', () => {
+  let out = run(ROW, OPS.editChildren('cell', 'c1', (cells, i) => { cells[i].valign = 'middle'; }));
+  out = run(out, OPS.moveBeside(['btn'], { cell: 'c1' }, 'right'));
+  const grid = findComponent(out, 'grid').component.grid;
+  assert.equal(grid.cells.length, 3);
+  assert.deepEqual([grid.cells[0].uuid, grid.cells[2].uuid], ['c1', 'c2']);
+  assert.deepEqual(ids(out, cell(grid.cells[1].uuid)), ['btn']);
+  assert.equal(grid.flavor, 'card');
+  assert.equal(grid.cells[0].valign, 'middle');
+  // Beside a block that is in a column is beside its column: no row inside a row.
+  const inner = ids(out, cell('c1'))[0];
+  const again = run(out, OPS.moveBeside(['tbl'], { block: inner }, 'left'));
+  const cells = findComponent(again, 'grid').component.grid.cells;
+  assert.equal(cells.length, 4);
+  assert.deepEqual(ids(again, cell(cells[0].uuid)), ['tbl']);
+  assert.equal(cells[1].uuid, 'c1');
+});
+
+test('a column that loses its last block goes; a row down to one column is no row', () => {
+  // Three columns: the button's own goes when the button leaves.
+  const three = run(ROW, OPS.moveBeside(['btn'], { cell: 'c2' }, 'right'));
+  let out = run(three, OPS.moveTo('btn', section('s1'), 0));
+  assert.deepEqual(findComponent(out, 'grid').component.grid.cells.map(c => c.uuid), ['c1', 'c2']);
+  assert.deepEqual(findComponent(run(three, OPS.deleteComponent('btn')), 'grid').component.grid.cells.map(c => c.uuid), ['c1', 'c2']);
+  // Two columns: with one emptied, what the other holds stands where the row stood.
+  const s2 = ids(ROW, section('s2'));
+  const [one] = ids(ROW, cell('c1'));
+  const two = ids(ROW, cell('c2'));
+  out = run(ROW, OPS.moveTo(one, section('s1'), 0));
+  assert.equal(findComponent(out, 'grid'), null);
+  assert.deepEqual(ids(out, section('s2')), s2.flatMap(u => (u === 'grid' ? two : [u])));
+  // Swapping two columns: the block dropped the other side of its neighbour.
+  out = run(ROW, OPS.moveBeside(ids(ROW, cell('c1')), { cell: 'c2' }, 'right'));
+  const cells = findComponent(out, 'grid').component.grid.cells;
+  assert.deepEqual(cells.map(c => ids(out, cell(c.uuid))), [two, ids(ROW, cell('c1'))]);
+  // All a column holds, dropped beside that same column: nothing moves.
+  assert.equal(OPS.moveBeside(ids(ROW, cell('c1')), { cell: 'c1' }, 'left').apply(ROW), ROW);
+  // Every block of a row moved away: the row goes.
+  out = run(ROW, OPS.moveManyTo([...ids(ROW, cell('c1')), ...two], section('s1'), 0));
+  assert.equal(findComponent(out, 'grid'), null);
+  // A row that lost nothing is left alone, one column or not.
+  out = run(ROW, OPS.editChildren('cell', 'c2', (list, i) => { list.splice(i, 1); }), OPS.moveTo('btn', section('s2'), 0));
+  assert.equal(findComponent(out, 'grid').component.grid.cells.length, 1);
+});
+
+test('moveCellBeside: a cell moves whole, within its grid, to another, or beside a block', () => {
+  const base = run(ROW, OPS.editChildren('cell', 'c1', (cells, i) => { cells[i].valign = 'bottom'; cells[i].spill = true; }));
+  const cellsOf = (md, grid = 'grid') => findComponent(md, grid).component.grid.cells;
+  const held = { c1: ids(base, cell('c1')), c2: ids(base, cell('c2')) };
+  // Within its own grid: the other side of its neighbour. Where it is already: nothing moves.
+  let out = run(base, OPS.moveCellBeside('c1', { cell: 'c2' }, 'right'));
+  assert.deepEqual(cellsOf(out).map(c => [c.uuid, c.valign, c.spill]), [['c2', 'default', false], ['c1', 'bottom', true]]);
+  assert.deepEqual(ids(out, cell('c1')), held.c1);
+  assert.equal(OPS.moveCellBeside('c1', { cell: 'c2' }, 'left').apply(base), base);
+  assert.equal(OPS.moveCellBeside('c1', { cell: 'c1' }, 'left').apply(base), base);
+  assert.equal(OPS.moveCellBeside('c1', { block: held.c1[0] }, 'left').apply(base), base, 'beside something it holds');
+  // Beside a block in no grid: a new grid of the same style; the grid it left, down to one cell, is no grid.
+  out = run(base, OPS.moveCellBeside('c1', { block: 'btn' }, 'left'));
+  assert.equal(findComponent(out, 'grid'), null);
+  assert.deepEqual(ids(out, section('s2')).filter(u => held.c2.includes(u)), held.c2, 'what the other cell held stands in the section');
+  const made = findOwner(out, 'cell', 'c1');
+  assert.equal(made.component.grid.flavor, 'card');
+  assert.deepEqual(made.component.grid.cells.map(c => c.uuid === 'c1' ? 'c1' : ids(out, cell(c.uuid))), ['c1', ['btn']]);
+  assert.deepEqual([made.component.grid.cells[0].valign, made.component.grid.cells[0].spill], ['bottom', true]);
+  assert.deepEqual(ids(out, cell('c1')), held.c1);
+  // Into another grid: from a grid of three, which keeps its other two.
+  const two = run(base, OPS.moveBeside(['btn'], { block: 'adm' }, 'right'), OPS.moveBeside(['tbl'], { cell: 'c2' }, 'right'));
+  const dest = findOwner(two, 'cell', findComponent(two, 'btn').container.uuid);
+  out = run(two, OPS.moveCellBeside('c1', { block: 'btn' }, 'left'));
+  assert.equal(cellsOf(out).length, 2);
+  assert.deepEqual(cellsOf(out, dest.component.grid.uuid).map(c => ids(out, cell(c.uuid))), [['adm'], held.c1, ['btn']]);
+  // Deleted: the same rule for the grid it leaves.
+  assert.equal(cellsOf(run(two, OPS.deleteCell('c1'))).length, 2);
+  out = run(base, OPS.deleteCell('c1'));
+  assert.equal(findComponent(out, 'grid'), null);
+  assert.equal(findComponent(out, held.c1[0]), null);
+  assert.ok(findComponent(out, held.c2[0]));
+});
+
+// ── Several at once (a selection, dragged) ───────────────────────────────────
+
+const secs = md => buildSectionTree(md).sections.filter(x => x.level > 1).map(x => x.uuid);
+
+test('moveManyTo: blocks from here and there land together, in page order', () => {
+  const s1 = ids(PAGE, section('s1'));
+  const s2 = ids(PAGE, section('s2'));
+  // The button and the table (both in First) to the top of Second.
+  const out = OPS.moveManyTo(['btn', 'tbl'], section('s2'), 0).apply(PAGE);
+  assert.deepEqual(ids(out, section('s2')), ['btn', 'tbl', ...s2]);
+  assert.deepEqual(ids(out, section('s1')), s1.filter(u => u !== 'btn' && u !== 'tbl'));
+  // Within their own section: gathered at the place, counted before the move.
+  const at = s1.indexOf('tbl') + 1;
+  const same = OPS.moveManyTo(['btn', 'tbl'], section('s1'), at).apply(PAGE);
+  const rest = s1.filter(u => u !== 'btn' && u !== 'tbl');
+  const expect = [...s1.slice(0, at).filter(u => u !== 'btn' && u !== 'tbl'), 'btn', 'tbl', ...s1.slice(at).filter(u => u !== 'btn' && u !== 'tbl')];
+  assert.deepEqual(ids(same, section('s1')), expect);
+  assert.equal(rest.length + 2, s1.length);
+  // One from inside an admonition and one from the section, into a tab.
+  const mixed = OPS.moveManyTo(['cap', 'btn'], { kind: TEXT_KIND.tab, uuid: 't2' }, 0).apply(PAGE);
+  assert.deepEqual(ids(mixed, { kind: TEXT_KIND.tab, uuid: 't2' }).slice(0, 2), ['cap', 'btn']);
+  assert.ok(!ids(mixed, section('s1')).includes('btn'));
+});
+
+test('moveManyTo: nothing moves into one of the moved, or when already there together', () => {
+  assert.equal(OPS.moveManyTo(['btn', 'tabs'], { kind: TEXT_KIND.tab, uuid: 't1' }, 0).apply(PAGE), PAGE);
+  const s1 = ids(PAGE, section('s1'));
+  const i = s1.indexOf('btn');
+  assert.equal(s1[i + 1], 'tabs');
+  assert.equal(OPS.moveManyTo(['btn', 'tabs'], section('s1'), i).apply(PAGE), PAGE);
+  assert.throws(() => OPS.moveManyTo(['btn', 'nope'], section('s2'), 0).apply(PAGE));
+});
+
+test('moveSectionsTo: sections of a level land together, in order', () => {
+  let md = PAGE;
+  md = OPS.addSection({ uuid: 'sa', title: 'Aa', parentUuid: 'h1', level: 2 }).apply(md);
+  md = OPS.addSection({ uuid: 'sb', title: 'Bb', parentUuid: 'h1', level: 2 }).apply(md);
+  const was = secs(md).filter(u => ['s1', 's2', 'sa', 'sb'].includes(u));
+  assert.deepEqual(was, ['s1', 's2', 'sa', 'sb']);
+  const top = out => buildSectionTree(out).sections.filter(x => x.level === 2).map(x => x.uuid);
+  assert.deepEqual(top(OPS.moveSectionsTo(['s2', 'sb'], null, 0).apply(md)), ['s2', 'sb', 's1', 'sa']);
+  assert.deepEqual(top(OPS.moveSectionsTo(['s1', 'sa'], null, 4).apply(md)), ['s2', 'sb', 's1', 'sa']);
+  assert.deepEqual(top(OPS.moveSectionsTo(['s1', 'sb'], null, 2).apply(md)), ['s2', 's1', 'sb', 'sa']);
+});
+
+test('moveSectionTo: a section dropped on another becomes its last subsection', () => {
+  // What the "Insert as a sub-section under" tile does: an index past the end.
+  const END = Number.MAX_SAFE_INTEGER;
+  let md = PAGE;
+  for (const [uuid, title] of [['sa', 'Aa'], ['sb', 'Bb'], ['sc', 'Cc'], ['sd', 'Dd']]) {
+    md = OPS.addSection({ uuid, title, parentUuid: 'h1', level: 2 }).apply(md);
+  }
+  const under = (out, parent) => buildSectionTree(out).sections.filter(x => x.level === 3 && x.parentUuid === parent).map(x => x.uuid);
+  const one = OPS.moveSectionTo('sb', 'sa', END);
+  assert.equal(one.subject(md), "Moved section 'Bb' under 'Aa'");
+  md = one.apply(md);
+  assert.deepEqual(under(md, 'sa'), ['sb']);
+  // The next lands after it, and several land together in page order.
+  md = OPS.moveSectionsTo(['sc', 'sd'], 'sa', END).apply(md);
+  assert.deepEqual(under(md, 'sa'), ['sb', 'sc', 'sd']);
+  assert.ok(!buildSectionTree(md).sections.some(x => x.level === 2 && ['sb', 'sc', 'sd'].includes(x.uuid)));
+  // And out again: a subsection dropped between the sections of the page is one of them, with nothing else taken along.
+  const top = out => buildSectionTree(out).sections.filter(x => x.level === 2).map(x => x.uuid);
+  const before = top(md);
+  const at = before.indexOf('sa');
+  const out = OPS.moveSectionTo('sc', null, at + 1).apply(md);
+  assert.deepEqual(top(out), [...before.slice(0, at + 1), 'sc', ...before.slice(at + 1)]);
+  assert.deepEqual(under(out, 'sa'), ['sb', 'sd']);
+  assert.deepEqual(top(OPS.moveSectionTo('sc', null, 0).apply(md)), ['sc', ...before]);
+  assert.deepEqual(top(OPS.moveSectionsTo(['sb', 'sd'], null, before.length).apply(md)), [...before, 'sb', 'sd']);
+});
+
+test('together: several changes are one op, and the commit lists each', () => {
+  const op = OPS.together([OPS.deleteComponent('btn'), OPS.deleteSection('s2')]);
+  const out = op.apply(PAGE);
+  assert.ok(!findComponent(out, 'btn') && !secs(out).includes('s2'));
+  const commit = commitForOps(PAGE, [op]);
+  assert.equal(commit.subject, 'Made 2 changes to the page');
+  assert.deepEqual(commit.bodyLines, ["- Deleted Button 'Go' in 'First'", "- Deleted section 'Second'"]);
+  assert.equal(commitForOps(PAGE, [OPS.together([OPS.deleteComponent('btn')])]), "Deleted Button 'Go' in 'First'");
+});
+
+// The editor shows Save only while the page differs from the saved draft
+// (kbPageEditor isDirty), so an edit undone by hand must leave the very same file.
+test('a block moved and moved back leaves the page exactly as it was', () => {
+  // A page whose text blocks all carry their span already (a first move gives one to any that does not).
+  let base = PAGE;
+  for (const h of [...walkPage(PAGE)]) {
+    const u = uuidOfComponent(h.component);
+    try { base = OPS.moveComponent(u, 'down').apply(OPS.moveComponent(u, 'up').apply(base)); } catch { /* cannot move */ }
+  }
+  let trips = 0;
+  for (const h of [...walkPage(base)]) {
+    const u = uuidOfComponent(h.component);
+    if (!u) continue;
+    const list = readContainer(base, h.container).components;
+    const from = list.findIndex(c => uuidOfComponent(c) === u);
+    for (let at = 0; at <= list.length; at++) {
+      const moved = OPS.moveTo(u, h.container, at).apply(base);
+      if (moved === base) continue;
+      const now = readContainer(moved, h.container).components.findIndex(c => uuidOfComponent(c) === u);
+      assert.equal(OPS.moveTo(u, h.container, from > now ? from + 1 : from).apply(moved), base, `${h.component.kind} ${from} → ${at} and back`);
+      trips++;
+    }
+  }
+  assert.ok(trips > 10);
+});
+
+test('pageSettings changes only what it is given, keeping the audience tag apart and other hides in place', () => {
+  const md = '---\nicon: lucide/book\ntags:\n  - Using OCC\n  - System\nhide:\n  - toc\n  - footer\n---\n\n# Hi\n';
+  assert.deepEqual(readPageSettings(md), {
+    icon: 'lucide/book', writtenFor: 'users', tags: ['System'],
+    hide: { navigation: false, toc: true, path: false, writtenFor: false },
+  });
+  const out = OPS.pageSettings({ writtenFor: 'admins', tags: ['System', 'Other'], hide: { toc: false, path: true } }).apply(md);
+  assert.deepEqual(readPageSettings(out), {
+    icon: 'lucide/book', writtenFor: 'admins', tags: ['System', 'Other'],
+    hide: { navigation: false, toc: false, path: true, writtenFor: false },
+  });
+  assert.match(out, /hide:\n  - footer\n  - path\n/); // a hide value with no pill is kept
+  const none = OPS.pageSettings({ writtenFor: 'none', icon: '' }).apply(out);
+  assert.deepEqual(readPageSettings(none).tags, ['System', 'Other']);
+  assert.equal(readPageSettings(none).writtenFor, 'none');
+  assert.doesNotMatch(none, /icon:/);
+  assert.equal(OPS.pageSettings({}).subject(md), 'Edited page settings');
 });
 
 console.log(`\nkbPageOps: ${passed} passed`);

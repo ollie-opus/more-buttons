@@ -12,10 +12,9 @@
  *   .mb-kb-text  data-mb-text="block"  data-mb-uuid="<text uuid>"
  *                              (a text block: a leaf like any other, its node
  *                              carrying data-mb-comp="text")
- *   .mb-kb-text.--empty  data-mb-text="<container kind>"  data-mb-uuid="<uuid>"
- *                  data-mb-at="0"
- *                              (the place to start typing in a container that
- *                              does not open with text: typing makes the block)
+ *                              carrying data-mb-comp="text"; `.--empty` when
+ *                              it holds no words yet)
+ *   .mb-kb-newtab  data-mb-newtab="<tab group uuid>"   (opts.insertSlots: ends a label row)
  *   .mb-kb-insert  data-mb-insert-kind="<container kind>"  data-mb-insert-uuid
  *                  data-mb-insert-at="<component index>"
  *                              (opts.insertSlots: every place a component can go)
@@ -25,10 +24,6 @@
  *                              (+ data-mb-row / data-mb-col, row -1 = header),
  *                              btn-label, code, annotation (+ data-mb-index),
  *                              diagram)
- *
- * opts.markdown draws the page's text as its markdown source instead (the
- * editor's Markdown view): text blocks and headings hold the raw markdown,
- * components are drawn as usual.
  *
  * The markup mirrors the theme's (admonition / tabbed-set / grid / md-button …)
  * so the site's own stylesheets do the styling. Two kinds can't be drawn
@@ -45,6 +40,10 @@ import { parseCellMedia } from './dataTables.js';
 import { iconToShortcode } from './mdButtons.js';
 import { GUIDE_ADMONITION_TYPES_RE, ADMONITION_TYPE_LABELS, splitTitleMeta } from './admonitions.js';
 import { parseInline, renderHtml, renderDocHtml, matchListLine } from './markdownInline.js';
+import { codeInnerHtml, markerLines, lineNumbers, lineCount } from './kbCode.js';
+import { readFrontmatterTags, readFrontmatterHide } from './frontmatter.js';
+import { writtenForPills } from './audienceTags.js';
+import { UPDATE_TYPE_LABELS, splitUpdateTitle, updateComponents, updatesPageTitle, liveUpdateGroups } from './kbUpdates.js';
 
 // Registry kinds (componentContainers.js) of the four things that own text.
 export const TEXT_KIND = {
@@ -57,7 +56,36 @@ export const TEXT_KIND = {
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const escAttr = s => esc(s).replace(/"/g, '&quot;');
 // A container's body as one ordered list of blocks, its text among them.
-const parseBody = (body, opts) => ({ components: parseBlocks(body ?? '', GUIDE_ADMONITION_TYPES_RE, opts).blocks });
+// What an empty text block holds in the working draft. The page format has no
+// empty text block (a span with nothing under it is no block), so one that is
+// still to be typed into carries this, and reads everywhere as ''. It never
+// reaches the saved file: kbPageOps.dropEmptyText takes such blocks out.
+export const EMPTY_TEXT = '<!-- -->';
+/** Blocks as the editors hold them: an empty text block's body is ''. */
+export const readBlocks = blocks => blocks.map(c =>
+  (c.kind === 'text' && c.txt.body.trim() === EMPTY_TEXT ? { kind: 'text', txt: { ...c.txt, body: '' } } : c));
+
+const parseBody = (body, opts) => ({ components: readBlocks(parseBlocks(body ?? '', GUIDE_ADMONITION_TYPES_RE, opts).blocks) });
+
+// A page title placed in the content. A page whose own title (its `#` line)
+// is hidden can show a title anywhere else: a text block holding one line,
+//
+//   <h1 class="mb-page-title">Its words</h1>
+//
+// An h1 tag and not a `#` line: at the top of a section a `#` line would be
+// read as a section. Plain words only. A page holds at most one
+// (kbPageOps.js keeps it so: it is never copied, and a paste leaves it out).
+const PAGE_TITLE_RE = /^<h1 class="mb-page-title">(.*)<\/h1>$/;
+/** Every placed-title line in a run of markdown, however deep it is indented. */
+export const PAGE_TITLE_LINES_RE = /^[ \t]*<h1 class="mb-page-title">.*<\/h1>[ \t]*\n?/gm;
+const unesc = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+/** The words of a placed page title, when a text block's body is one; else null. */
+export function readPageTitle(body) {
+  const m = PAGE_TITLE_RE.exec(String(body ?? '').trim());
+  return m ? unesc(m[1]) : null;
+}
+/** A text block's body for a placed page title. */
+export const pageTitleBody = text => `<h1 class="mb-page-title">${esc(String(text ?? '').replace(/\s+/g, ' ').trim())}</h1>`;
 
 const UUID_SPAN_RE = /<span[^>]*data-uuid="[^"]*"[^>]*><\/span>/g;
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)(?:\{([^}]*)\})?/g;
@@ -114,7 +142,6 @@ function makeCtx(opts) {
   return {
     assetUrl: opts.assetUrl ?? (src => src),
     insertSlots: !!opts.insertSlots,
-    markdown: !!opts.markdown,
     tabSeq: 0,
   };
 }
@@ -182,20 +209,14 @@ export function textHtml(ctx, description) {
 
 // A text block, as the leaf it is.
 function textBlock(ctx, txt) {
-  const html = ctx.markdown ? esc(String(txt.body ?? '').trim()) : textHtml(ctx, txt.body);
-  return `<div class="mb-kb-text${ctx.markdown ? ' --md' : ''}${html ? '' : ' --empty'}" data-mb-text="block" data-mb-uuid="${escAttr(txt.uuid)}">${html}</div>`;
+  const html = textHtml(ctx, txt.body);
+  return `<div class="mb-kb-text${html ? '' : ' --empty'}" data-mb-text="block" data-mb-uuid="${escAttr(txt.uuid)}">${html}</div>`;
 }
 
-// Where typing starts in a container that does not open with text.
-function textSlot(ctx, container, components) {
-  if (!container?.uuid || components?.[0]?.kind === 'text') return '';
-  return `<div class="mb-kb-text${ctx.markdown ? ' --md' : ''} --empty" data-mb-text="${container.kind}" data-mb-uuid="${escAttr(container.uuid)}" data-mb-at="0"></div>`;
-}
-
-// A container's whole content: the typing place when it needs one, then its blocks.
+// A container's whole content: its blocks. Nothing stands in for text that is
+// not there; a new container is given an empty text block of its own.
 function bodyHtml(ctx, body, container, opts) {
-  const { components } = parseBody(body, opts);
-  return textSlot(ctx, container, components) + componentsHtml(ctx, components, container);
+  return componentsHtml(ctx, parseBody(body, opts).components, container);
 }
 
 /** A text block's inner HTML on its own (the editor redraws one block with it). */
@@ -213,7 +234,7 @@ export function renderInlineHtml(text, opts = {}) {
 // with an identity get slots: the insert flows address them by uuid.
 function insertSlot(ctx, container, at) {
   if (!ctx.insertSlots || !container?.uuid) return '';
-  return `<div class="mb-kb-insert" data-mb-insert-kind="${container.kind}" data-mb-insert-uuid="${escAttr(container.uuid)}" data-mb-insert-at="${at}"><button type="button" class="mb-kb-insert__btn">+ Insert new</button></div>`;
+  return `<div class="mb-kb-insert" data-mb-insert-kind="${container.kind}" data-mb-insert-uuid="${escAttr(container.uuid)}" data-mb-insert-at="${at}"></div>`;
 }
 
 // ── Leaves ───────────────────────────────────────────────────────────────────
@@ -246,11 +267,21 @@ export function annotationHtml(text) {
   return neutraliseHrefs(renderHtml(parseInline(String(text ?? ''))));
 }
 
+// Drawn as the live page draws it (kbCode.js): markers are Zensical's (+)
+// bubbles, highlighted lines are painted behind the code from `data-mb-hl`.
+// Only annotations no marker points at are listed under the block.
 function codeBlockHtml(cb) {
   const title = cb.title ? `<span class="filename">${esc(cb.title)}</span>` : '';
-  const notes = (cb.annotations ?? []).length
-    ? `<ol class="mb-kb-annotations">${cb.annotations.map((a, i) => `<li${editAttrs(cb.uuid, 'annotation', ` data-mb-index="${i}"`)}>${annotationHtml(a)}</li>`).join('')}</ol>` : '';
-  return `<div class="highlight${cb.language ? ` language-${escAttr(cb.language)}` : ''}">${title}<pre><code${editAttrs(cb.uuid, 'code')}>${esc(cb.code)}</code></pre></div>${notes}`;
+  const markers = markerLines(cb.code).length;
+  const orphans = (cb.annotations ?? []).slice(markers);
+  const notes = orphans.length
+    ? `<ol class="mb-kb-annotations" start="${markers + 1}">${orphans.map((a, i) => `<li${editAttrs(cb.uuid, 'annotation', ` data-mb-index="${markers + i}"`)}>${annotationHtml(a)}</li>`).join('')}</ol>` : '';
+  const block = cb.uuid ? ` data-mb-code="${escAttr(cb.uuid)}"` : '';
+  // Line numbers in a gutter left of the code, as the site's table style draws them.
+  const nums = cb.linenums ? ` data-mb-linenums="${escAttr(cb.linenums)}"` : '';
+  const gutter = cb.linenums ? `<span class="mb-kb-code-nums" aria-hidden="true">${lineNumbers(lineCount(cb.code), cb.linenums)}</span>` : '';
+  return `<div class="highlight mb-kb-code${cb.language ? ` language-${escAttr(cb.language)}` : ''}"${block}>${title}`
+    + `<pre data-mb-hl="${escAttr(cb.hlLines ?? '')}"${nums}>${gutter}<code${editAttrs(cb.uuid, 'code')}>${codeInnerHtml(cb.code)}</code></pre></div>${notes}`;
 }
 
 const BUTTON_LINE_RE = /^\[(.*)\]\(([^)]*)\)\{\s*(.*?)\s*\}\s*$/;
@@ -318,28 +349,77 @@ function nodeAttrs(uuid, kind, extra = '') {
 
 function admonitionHtml(ctx, adm) {
   const { title, meta } = splitTitleMeta(adm.title ?? '');
-  const shown = inlineHtml(ctx, title || ADMONITION_TYPE_LABELS[adm.type] || adm.type);
-  // A step numbers itself and takes no title of its own.
-  const own = adm.type === 'step' ? shown : `<span${editAttrs(adm.uuid, 'adm-title')}>${shown}</span>`;
+  // A step numbers itself and takes no title of its own. One with a meta
+  // holds the meta alone: the site writes its "Step N" above that itself
+  // (admonitions.css), and the type's name here would be a second title.
+  const step = adm.type === 'step';
+  const shown = step && meta && !title ? '' : inlineHtml(ctx, title || ADMONITION_TYPE_LABELS[adm.type] || adm.type);
+  const own = step ? shown : `<span${editAttrs(adm.uuid, 'adm-title')}>${shown}</span>`;
   const titleHtml = own + (meta ? `<span class="meta">${esc(meta)}</span>` : '');
   const inner = bodyHtml(ctx, adm.body, { kind: TEXT_KIND.admonition, uuid: adm.uuid });
   const type = escAttr(adm.type);
-  if ((adm.prefix ?? '').startsWith('???')) {
-    return `<details class="${type}" open${nodeAttrs(adm.uuid, 'admonition')}><summary data-mb-title>${titleHtml}</summary>${inner}</details>`;
+  const prefix = adm.prefix ?? '';
+  if (prefix.startsWith('???')) {
+    // Drawn as configured: `???+` open, `???` closed. The editor keeps the
+    // ones its user has folded or opened that way through a redraw.
+    const open = prefix.startsWith('???+') ? ' open' : '';
+    return `<details class="${type}"${open}${nodeAttrs(adm.uuid, 'admonition', ` data-mb-fold="${escAttr(prefix)}"`)}><summary data-mb-title>${titleHtml}</summary>${inner}</details>`;
   }
   return `<div class="admonition ${type}"${nodeAttrs(adm.uuid, 'admonition')}><p class="admonition-title" data-mb-title>${titleHtml}</p>${inner}</div>`;
 }
+
+// An update on the System Updates drafts page (kbUpdates.js). Its title line
+// is three pieces: the type's name (the type is changed from the icon), the
+// update's own title (typed in place) and its release date (picked from a
+// calendar). The last two are required, and show what they are for while empty.
+export const UPDATE_TITLE_PLACEHOLDER = 'Update title';
+export const UPDATE_DATE_PLACEHOLDER = 'Date of release';
+function updateHtml(ctx, adm) {
+  const { title, date } = splitUpdateTitle(adm.type, adm.title);
+  const label = `<span class="mb-kb-upd-label">${esc(UPDATE_TYPE_LABELS[adm.type] ?? adm.type)}: </span>`;
+  const own = `<span class="mb-kb-upd-title"${editAttrs(adm.uuid, 'adm-title')}>${inlineHtml(ctx, title)}</span>`;
+  const when = `<span class="meta mb-kb-upd-date${date ? '' : ' --empty'}" data-mb-date="${escAttr(adm.uuid)}" role="button" tabindex="0" aria-label="${UPDATE_DATE_PLACEHOLDER}">${esc(date || UPDATE_DATE_PLACEHOLDER)}</span>`;
+  const inner = bodyHtml(ctx, adm.body, { kind: TEXT_KIND.admonition, uuid: adm.uuid });
+  // Closed, as on the live page: the editor opens the ones its user has opened.
+  return `<details class="${escAttr(adm.type)}"${nodeAttrs(adm.uuid, 'admonition', ' data-mb-update')}><summary data-mb-title>${label}${own}${when}</summary>${inner}</details>`;
+}
+
+// An update that has been published and is waiting for the site to build it
+// (kbPageEditor.js keeps the list). It is no longer in the drafts file: it is
+// drawn from the copy kept at publish, greyed, with nothing in it to edit or
+// point at (no identities, no editing hooks). It can still be opened and
+// closed, to be read: the editor makes what is under its title line inert.
+export const PUBLISHING_NOTE = 'Publishing: building and deploying to the live page. This usually takes a few minutes.';
+function publishingHtml(ctx, { adm, open }) {
+  const slots = ctx.insertSlots;
+  ctx.insertSlots = false; // nothing is added to it
+  const html = updateHtml(ctx, adm);
+  ctx.insertSlots = slots;
+  const drawn = html
+    .replace(/ data-mb-[a-z-]+(?:="[^"]*")?/g, '')
+    .replace(/ (?:role="button"|tabindex="0")/g, '')
+    .replace(/^<details /, open ? '<details open ' : '<details ');
+  return `<div class="mb-kb-upd-ghost" data-mb-ghost="${escAttr(adm.uuid)}">`
+    + `<p class="mb-kb-upd-ghost__note" role="status"><span class="mb-kb-upd-ghost__spin" aria-hidden="true"></span><span class="mb-kb-upd-ghost__text">${esc(PUBLISHING_NOTE)}</span></p>`
+    + `<div class="mb-kb-upd-ghost__body">${drawn}</div></div>`;
+}
+
+// In the editor (insert slots on) a group's label row ends with a ghost
+// "New tab". (A tab has no Add card of its own: the plus beside its text adds
+// below it, and anything can be dragged in.)
+// Neither is a label or a block: both are the editor's own chrome.
+const editButton = (cls, attr, uuid, text) =>
+  `<button type="button" class="${cls}" ${attr}="${escAttr(uuid)}"><span class="${cls}__plus" aria-hidden="true"></span><span>${text}</span></button>`;
 
 function tabsHtml(ctx, grp) {
   const n = ++ctx.tabSeq;
   const tabs = grp.tabs ?? [];
   const inputs = tabs.map((_, i) => `<input${i === 0 ? ' checked="checked"' : ''} id="__mbtab_${n}_${i + 1}" name="__mbtab_${n}" type="radio">`).join('');
   const labels = tabs.map((t, i) => `<label for="__mbtab_${n}_${i + 1}"${editAttrs(t.uuid, 'tab-title')}>${inlineHtml(ctx, t.title ?? '')}</label>`).join('');
-  const blocks = tabs.map(t =>
-    `<div class="tabbed-block"${nodeAttrs(t.uuid, 'tab')}>${bodyHtml(ctx, t.body, { kind: TEXT_KIND.tab, uuid: t.uuid })}</div>`).join('');
-  return `<div class="tabbed-set tabbed-alternate" data-tabs="${n}:${tabs.length}"${nodeAttrs(grp.uuid, 'tabs')}>${inputs}<div class="tabbed-labels">${labels}</div><div class="tabbed-content">${blocks}</div></div>`;
+  const newTab = ctx.insertSlots && grp.uuid ? editButton('mb-kb-newtab', 'data-mb-newtab', grp.uuid, 'New tab') : '';
+  const blocks = tabs.map(t => `<div class="tabbed-block"${nodeAttrs(t.uuid, 'tab')}>${bodyHtml(ctx, t.body, { kind: TEXT_KIND.tab, uuid: t.uuid })}</div>`).join('');
+  return `<div class="tabbed-set tabbed-alternate" data-tabs="${n}:${tabs.length}"${nodeAttrs(grp.uuid, 'tabs')}>${inputs}<div class="tabbed-labels">${labels}${newTab}</div><div class="tabbed-content">${blocks}</div></div>`;
 }
-
 const ALIGN_SELF = { top: 'start', middle: 'center', bottom: 'end' };
 function gridHtml(ctx, grid) {
   const cells = (grid.cells ?? []).map(cell => {
@@ -361,6 +441,9 @@ function componentsHtml(ctx, components, container = null) {
     if (c.kind === 'admonition') parts.push(admonitionHtml(ctx, c.adm));
     else if (c.kind === 'tabs') parts.push(tabsHtml(ctx, c.grp));
     else if (c.kind === 'grid') parts.push(gridHtml(ctx, c.grid));
+    else if (c.kind === 'text' && readPageTitle(c.txt.body) != null) {
+      parts.push(`<div class="mb-kb-leaf"${nodeAttrs(c.txt.uuid, 'leaf', ' data-mb-comp="title"')}><h1 class="mb-page-title"${editAttrs(c.txt.uuid, 'page-title')}>${esc(readPageTitle(c.txt.body))}</h1></div>`);
+    }
     else if (c.kind === 'text') parts.push(`<div class="mb-kb-leaf"${nodeAttrs(c.txt.uuid, 'leaf', ' data-mb-comp="text"')}>${textBlock(ctx, c.txt)}</div>`);
     else parts.push(`<div class="mb-kb-leaf"${nodeAttrs(uuidOfComponent(c), 'leaf', ` data-mb-comp="${c.kind}"`)}>${leafHtml(ctx, c)}</div>`);
   });
@@ -373,22 +456,81 @@ const headingId = title => String(title ?? '').toLowerCase().replace(/<[^>]*>/g,
 
 /**
  * @param {string} markdown - the page file (frontmatter and all)
- * @param {{assetUrl?: (src: string) => string, insertSlots?: boolean, markdown?: boolean}} [opts]
+ * @param {{assetUrl?: (src: string) => string, insertSlots?: boolean, updates?: boolean}} [opts]
+ *   `updates`: the page is the System Updates drafts page, a list of updates
+ *   under a title that is not edited (kbUpdates.js). `publishing`: updates
+ *   published and not yet on the live site, `{ adm, index, open }` each, drawn
+ *   greyed and read only at the place (`index`) they had in the list.
+ *   `updatesLive`: the page is the live System Updates page, drawn as its
+ *   headings and updates only (kbUpdates.js liveUpdateGroups).
  * @returns {{ html: string, title: string }} `title` is the H1's text ('' when
  *   the page has no sections).
  */
 export function renderGuidePage(markdown, opts = {}) {
   const ctx = makeCtx(opts);
   const md = markdown ?? '';
+  if (opts.updatesLive) {
+    // The live System Updates page: its headings and its updates, nothing else.
+    const title = updatesPageTitle(md);
+    const groups = liveUpdateGroups(md).map(g =>
+      [`<h${g.level} id="${escAttr(headingId(g.heading))}">${inlineHtml(ctx, g.heading)}</h${g.level}>`, ...g.updates.map(adm => updateHtml(ctx, adm))].join('\n'));
+    return { html: `<h1>${inlineHtml(ctx, title)}</h1>\n${groups.join('\n')}`, title };
+  }
+  if (opts.updates) {
+    const title = updatesPageTitle(md);
+    const updates = updateComponents(md).map(c => updateHtml(ctx, c.adm));
+    for (const ghost of [...(opts.publishing ?? [])].sort((a, b) => a.index - b.index)) {
+      updates.splice(Math.max(0, Math.min(ghost.index ?? updates.length, updates.length)), 0, publishingHtml(ctx, ghost));
+    }
+    const none = updates.length ? '' : '\n<p class="mb-kb-upd-none">No updates are waiting to be published.</p>';
+    return { html: `<h1>${inlineHtml(ctx, title)}</h1>\n${updates.join('\n')}${none}`, title };
+  }
   const tree = buildSectionTree(md);
+  // Two headings of one name get distinct ids, as the site gives them
+  // (`name`, `name_1`, …): "On this page" links to each (kbToc.js).
+  const used = new Map();
+  const uniqueId = title => {
+    const id = headingId(title);
+    const n = used.get(id) ?? 0;
+    used.set(id, n + 1);
+    return n ? `${id}_${n}` : id;
+  };
   const html = (tree.sections ?? []).map(s => {
     const { descriptionMarkdown, hideTitle } = readSectionDescription(md, s.uuid);
     const container = { kind: TEXT_KIND.section, uuid: s.uuid };
     const hidden = hideTitle ? ' data-mb-title-hidden' : '';
-    const heading = ctx.markdown ? esc(s.title) : inlineHtml(ctx, s.title);
-    return `<h${s.level} id="${escAttr(headingId(s.title))}"${nodeAttrs(s.uuid, 'section')}${hidden}>${heading}</h${s.level}>\n`
+    const heading = inlineHtml(ctx, s.title);
+    return `<h${s.level} id="${escAttr(uniqueId(s.title))}"${nodeAttrs(s.uuid, 'section')}${hidden}>${heading}</h${s.level}>\n`
       + bodyHtml(ctx, descriptionMarkdown, container, { ownSpan: false, owner: s.uuid });
   }).join('\n');
   const h1 = (tree.sections ?? []).find(s => s.level === 1);
   return { html, title: h1?.title ?? tree.title ?? '' };
+}
+
+/**
+ * What the site adds around a page's content from its frontmatter, as its
+ * build writes them: the "Written for" line that follows the H1
+ * (overrides/partials/content.html: the audience tag's pills, unless
+ * `hide: [written-for]`) and the tags row that closes the article (the theme's
+ * partials/tags.html: every tag, the audience's among them, in their order).
+ * An icon is an empty `.twemoji[data-mb-lucide]` for the caller to fill.
+ * @param {string} markdown
+ * @param {{ audiences?: {tag: string, name: string, colour?: string, icon?: string}[] }} [opts]
+ *   the site's audience registry (audienceTags.js AUDIENCE_PILLS when not given)
+ * @returns {{ writtenFor: string, tags: string }} '' for one the page does not have
+ */
+export function pageChromeHtml(markdown, opts = {}) {
+  const md = markdown ?? '';
+  const tags = readFrontmatterTags(md);
+  const hide = readFrontmatterHide(md);
+  const slug = v => String(v ?? '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const pills = hide.includes('written-for') ? [] : writtenForPills(tags, opts.audiences?.length ? opts.audiences : undefined);
+  const pill = a => {
+    const icon = slug(String(a.icon ?? '').replace(/^lucide\//, ''));
+    return `<span class="mb-label mb-label-${slug(a.colour) || 'grey'}">${icon ? `<span class="twemoji" data-mb-lucide="${icon}"></span>` : ''}${esc(a.name)}</span>`;
+  };
+  return {
+    writtenFor: pills.length ? `<p class="mb-written-for"><span class="mb-written-for__label">Written for</span>${pills.map(pill).join('')}</p>` : '',
+    tags: tags.length ? `<nav class="md-tags"${hide.includes('tags') ? ' hidden' : ''}>${tags.map(t => `<span class="md-tag">${esc(t)}</span>`).join('')}</nav>` : '',
+  };
 }

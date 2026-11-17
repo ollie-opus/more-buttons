@@ -63,4 +63,5 @@ export { applyReportTypePreset } from './applyReportTypePreset.js';
 export { siteListFocusIcons } from './siteListFocusIcons.js';
 export { attachColorPresetPills } from './attachColorPresetPills.js';
 export { enterCaptureMode, restoreCaptureMode } from './captureMode.js';
+export { startKbSiteCapture, abortKbSiteCapture } from './kbSiteCapture.js';
 export { toggleMoreButtonsActive } from './toggleMoreButtonsActive.js';

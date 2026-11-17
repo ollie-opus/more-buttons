@@ -85,7 +85,7 @@ export function resolveCaptures(list) {
   return list.map(c => {
     if (c.lightDataUrl && c.addToLibrary === false) {
       const id = generateUUID();
-      const suffix = captureFlagSuffix(!!c.annotated, !!c.zapped, c.annotationNames || []);
+      const suffix = captureFlagSuffix(!!c.annotated, !!c.zapped, c.annotationNames || [], '', !!c.isolated);
       // Keep the pair's extension (.png screenshots, .svg extracts).
       const ext = c.lightFilename?.match(/\.([a-z0-9]+)$/)?.[1] ?? 'png';
       return {
@@ -423,6 +423,7 @@ registerFormAction('reenterComponentCapture', () => {
     }
   };
   enterCaptureMode({
+    resume: true, // the retake keeps the last shot's annotations, zaps and isolation
     formStackSnapshot: pending.snapshot,
     intent: { action: 'completeComponentCaptureInsert', container: pending.container, insertAt: pending.insertAt },
     maxCaptures: 1,

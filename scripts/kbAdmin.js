@@ -1,5 +1,5 @@
 /**
- * kbAdmin.js — the Knowledge Base admin area on the published site
+ * kbAdmin.js — the Knowledge base admin area on the published site
  * (support.opus-safety.co.uk/admin and the pages under it).
  *
  * The site has nothing at these urls: they are its 404 page. kbSite.js spots
@@ -14,6 +14,7 @@
  *   /admin/pages/new/             a new page as a draft                 (kbAdminPages.js)
  *   /admin/media-library/         the media folders                     (kbAdminMedia.js)
  *   /admin/media-library/upload/  add a file                            (kbAdminMedia.js)
+ *   /admin/media-library/<path>/  one file: recapture, replace, delete  (kbAdminMediaEntry.js)
  *   /admin/settings/              the tag registry                      (kbAdminSettings.js)
  *
  * Moving between screens is done here (history.pushState): each real load of
@@ -21,7 +22,8 @@
  * and may return `{ canLeave, destroy }`.
  */
 
-import { ADMIN_ROUTES, classifyAdminPath } from './kbSite.js';
+import { ADMIN_ROUTES, MEDIA_FILE_ROUTE, classifyAdminPath, setThemeTip } from './kbSite.js';
+import { mediaEntryUrl } from './kbMediaEntry.js';
 import { loadLucideBodies, lucideSvg } from './lucideIcons.js';
 import { searchMatches } from './kbTree.js';
 
@@ -41,6 +43,8 @@ const SCREENS = {
     blurb: 'The captures, images and videos the pages use, and where each one appears.',
   },
   'media-library/upload': { title: 'Upload a file', parent: 'media-library', module: 'kbAdminMedia.js', mount: 'mountUpload' },
+  // One file's own page: its url is the file's path (ctx.params.file), and it names itself (ctx.setTitle).
+  [MEDIA_FILE_ROUTE]: { title: 'Media file', parent: 'media-library', module: 'kbAdminMediaEntry.js', mount: 'mountMediaEntry' },
   settings: {
     title: 'Settings', icon: 'settings', nav: true, module: 'kbAdminSettings.js', mount: 'mountSettings',
     blurb: 'The tags pages can carry, and the colour each one shows in.',
@@ -82,9 +86,12 @@ let actions = null;
 const TONES = new Set(['accent', 'pink']);
 
 /**
- * @param {Array<Array<{act:string, icon:string, label:string, colour?:string, pressed?:boolean, disabled?:boolean}>>} groups
+ * @param {Array<Array<{act:string, icon:string, label:string, colour?:string, pressed?:boolean, disabled?:boolean, iconOnly?:boolean}>>} groups
  *   `colour`: 'accent' for the button that needs emphasis (the one that saves,
  *   uploads or publishes), in the theme's accent colour; 'pink' for a mode that is on.
+ *   `iconOnly`: drawn as the theme's own page icons are (Switch to edit mode),
+ *   its label in the theme's tooltip. A bar with one keeps the title's top
+ *   right corner however long the title is, instead of dropping under it.
  * @param {(act:string, btn:HTMLElement) => void} onAct
  * @param {{at?: 'top'|'end'}} [opts]
  */
@@ -100,7 +107,10 @@ function setActions(groups, onAct, { at = 'top' } = {}) {
   el.className = 'mb-adm-actions';
   el.setAttribute('role', 'toolbar');
   el.setAttribute('aria-label', 'Page actions');
-  el.innerHTML = shown.map(group => `<div class="mb-adm-actions__group">${group.map(b => `
+  el.classList.toggle('--pinned', shown.some(group => group.some(b => b.iconOnly)));
+  el.innerHTML = shown.map(group => `<div class="mb-adm-actions__group">${group.map(b => b.iconOnly ? `
+      <button type="button" class="md-content__button md-icon mb-adm-iconbtn" data-adm-act="${escapeHtml(b.act)}" data-adm-tip="${escapeHtml(b.label)}"
+        ${b.disabled ? 'aria-disabled="true"' : ''}>${icon(b.icon)}</button>` : `
       <button type="button" class="mb-adm-button${TONES.has(b.colour) ? ` --${b.colour}` : ''}" data-adm-act="${escapeHtml(b.act)}"
         ${b.pressed != null ? `aria-pressed="${b.pressed}"` : ''} ${b.disabled ? 'aria-disabled="true"' : ''}>
         ${icon(b.icon)}<span>${escapeHtml(b.label)}</span></button>`).join('')}</div>`).join('');
@@ -109,6 +119,7 @@ function setActions(groups, onAct, { at = 'top' } = {}) {
     if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
     onAct?.(btn.dataset.admAct, btn);
   });
+  for (const btn of el.querySelectorAll('[data-adm-tip]')) setThemeTip(document, btn, btn.dataset.admTip);
   slot.appendChild(el);
   actions = el;
   if (focused) actionButton(focused)?.focus({ preventScroll: true });
@@ -218,10 +229,10 @@ export function noticeHtml(kind, title, text = '') {
 // ── The shell ────────────────────────────────────────────────────────────────
 
 const ARTICLE = 'article.md-content__inner';
-let current = null;   // { route, handle } for the mounted screen
+let current = null;   // { route, file, handle } for the mounted screen (`file`: the media file's page only)
 let mounting = 0;
 
-const routeUrl = route => ADMIN_ROUTES[route] ?? ADMIN_ROUTES.home;
+const routeUrl = (route, file) => (route === MEDIA_FILE_ROUTE && file ? mediaEntryUrl(file) : ADMIN_ROUTES[route] ?? ADMIN_ROUTES.home);
 
 function drawSidebar(route) {
   const inner = document.querySelector('.md-sidebar--primary .md-sidebar__inner');
@@ -269,7 +280,7 @@ function drawPath(route) {
 
 function mountHome(ctx) {
   ctx.body.innerHTML = `
-    <p class="mb-adm-lead">Manage what the Knowledge Base holds. Editing a page's content happens on the page itself: open it and use the pencil beside its title.</p>
+    <p class="mb-adm-lead">Management tools for this knowledge base.</p>
     <div class="grid cards mb-adm-tiles">
       <ul>${Object.entries(SCREENS).filter(([, s]) => s.nav).map(([key, s]) => `
         <li>
@@ -283,14 +294,16 @@ function mountHome(ctx) {
     </div>`;
 }
 
-async function show(route) {
+const pageTitle = title => `${title === 'Admin' ? 'Admin' : `${title} - Admin`} - ${SITE_NAME}`;
+
+async function show(route, { file = null } = {}) {
   const screen = SCREENS[route] ?? SCREENS.home;
   const token = ++mounting;
   try { current?.handle?.destroy?.(); } catch (err) { console.error('MB Error: admin screen teardown failed', err); }
-  current = { route, handle: null };
+  current = { route, file, handle: null };
   setActions(null);
 
-  document.title = `${screen.title === 'Admin' ? 'Admin' : `${screen.title} - Admin`} - ${SITE_NAME}`;
+  document.title = pageTitle(screen.title);
   drawSidebar(route);
   drawPath(route);
 
@@ -305,6 +318,14 @@ async function show(route) {
   const ctx = {
     body,
     heading: article.querySelector('h1'),
+    /** What the url carries beyond the screen: `file`, a media file's key. */
+    params: { file },
+    /** For a screen that only knows its name once it has loaded. */
+    setTitle(text) {
+      if (token !== mounting) return;
+      ctx.heading.textContent = text;
+      document.title = pageTitle(text);
+    },
     go,
     setActions,
     actionButton,
@@ -331,14 +352,14 @@ function okToLeave() {
   try { return current?.handle?.canLeave?.() !== false; } catch { return true; }
 }
 
-/** Go to another admin screen (a key of ADMIN_ROUTES). */
-export function go(route, { replace = false, force = false } = {}) {
+/** Go to another admin screen (a key of ADMIN_ROUTES; `file` with the media file's page). */
+export function go(route, { replace = false, force = false, file = null } = {}) {
   if (!force && !okToLeave()) return false;
-  const url = routeUrl(route);
+  const url = routeUrl(route, file);
   if (replace) history.replaceState({ mbAdmin: route }, '', url);
   else if (location.pathname !== url) history.pushState({ mbAdmin: route }, '', url);
   window.scrollTo(0, 0);
-  show(route);
+  show(route, { file });
   return true;
 }
 
@@ -346,17 +367,24 @@ function wire() {
   // Links between admin screens stay on the page; anything else is a real link.
   document.addEventListener('click', e => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    const a = e.target instanceof Element && e.target.closest('a[data-adm-route]');
-    if (!a) return;
+    const a = e.target instanceof Element && e.target.closest('a[href]');
+    if (!a || a.target || a.hasAttribute('download')) return;
+    if (a.dataset.admRoute) { e.preventDefault(); go(a.dataset.admRoute); return; }
+    // Any other link to an admin url (a media file's page): no 404 round trip.
+    if (a.origin !== location.origin) return;
+    if (a.hash && a.pathname === location.pathname) return;   // a place on this page (the theme's skip link)
+    const admin = classifyAdminPath(a.pathname);
+    if (!admin) return;
     e.preventDefault();
-    go(a.dataset.admRoute);
+    go(admin.route, { file: admin.file ?? null });
   });
   window.addEventListener('popstate', () => {
     const admin = classifyAdminPath(location.pathname);
     if (!admin) { location.reload(); return; }
-    if (admin.route === current?.route) return;
-    if (!okToLeave()) { history.pushState({ mbAdmin: current.route }, '', routeUrl(current.route)); return; }
-    show(admin.route);
+    const file = admin.file ?? null;
+    if (admin.route === current?.route && file === (current?.file ?? null)) return;
+    if (!okToLeave()) { history.pushState({ mbAdmin: current.route }, '', routeUrl(current.route, current.file)); return; }
+    show(admin.route, { file });
   });
   // A real navigation away (a site link, closing the tab) with unsaved work.
   window.addEventListener('beforeunload', e => {
@@ -378,5 +406,5 @@ export async function startKbAdmin() {
   ]);
   document.documentElement.classList.add('mb-kb-admin');
   wire();
-  await show(admin.route);
+  await show(admin.route, { file: admin.file ?? null });
 }

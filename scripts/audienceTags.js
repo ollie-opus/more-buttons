@@ -26,6 +26,28 @@ export const AUDIENCES = Object.freeze([
   Object.freeze({ value: 'admins',   tag: 'Administering OCC', label: 'Administrators only' }),
 ]);
 
+// How the site draws each audience on its "Written for" line, as zensical.toml's
+// mb_audiences has it. Only what the in-page editor shows until that file has
+// been read (tagRegistry.js loadAudiences), and if it can't be.
+export const AUDIENCE_PILLS = Object.freeze([
+  Object.freeze({ tag: 'Using OCC',         name: 'Users',          colour: 'blue',   icon: 'lucide/user' }),
+  Object.freeze({ tag: 'Managing OCC',      name: 'Managers',       colour: 'purple', icon: 'lucide/user-shield' }),
+  Object.freeze({ tag: 'Administering OCC', name: 'Administrators', colour: 'pink',   icon: 'lucide/user-cog' }),
+]);
+
+/**
+ * The pills of a page's "Written for" line, as the KB build picks them
+ * (overrides/partials/content.html): from the first registry entry whose tag
+ * the page carries, that entry and every later one. [] when it carries none.
+ * @param {string[]} tags  the page's frontmatter tags
+ * @param {{tag: string, name: string, colour?: string, icon?: string}[]} [registry]
+ */
+export function writtenForPills(tags, registry = AUDIENCE_PILLS) {
+  const list = Array.isArray(tags) ? tags : [];
+  const first = registry.findIndex(a => list.includes(a.tag));
+  return first === -1 ? [] : registry.slice(first);
+}
+
 /** The radio value meaning "no audience tag". */
 export const AUDIENCE_NONE = 'none';
 

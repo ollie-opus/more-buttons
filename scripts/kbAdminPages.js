@@ -70,7 +70,7 @@ function toTreeNode(node, data, trail = []) {
   const drafting = !DRAFT_PILL_EXEMPT.has(base) && data.drafts.has(base);
   const unlisted = data.unlisted.has(base);
   const pills = [
-    drafting ? `<a class="mb-adm-pill --drafting" href="/drafts/${encodeURIComponent(slug)}/" title="Open the draft">Drafting</a>` : '',
+    drafting ? `<a class="mb-adm-pill --drafting" href="/drafts/${encodeURIComponent(slug)}/" title="Open the draft">Draft</a>` : '',
     live ? '<span class="mb-adm-pill --live">Live</span>' : '',
     unlisted ? '<span class="mb-adm-pill --unlisted">Unlisted</span>' : '<span class="mb-adm-pill --public">Public</span>',
   ].join('');

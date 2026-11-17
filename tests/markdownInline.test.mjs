@@ -216,7 +216,7 @@ test('parseInline: label among text keeps neighbours', () => {
 // Rendered pill (surface/preview HTML): atomic contenteditable=false, unlike
 // the canonical class-only SOURCE span (L above) — the caret must never enter
 // a pill in the rich surface, mirroring icon atoms.
-const LR = (slug, t) => `<span class="mb-label mb-label-${slug}" contenteditable="false">${t}</span>`;
+const LR = (slug, t) => `<span class="mb-label mb-label-${slug}">${t}</span>`;
 
 test('renderHtml: label → atomic contenteditable=false span (colour painted later)', () => {
   assert.equal(renderHtml(parseInline(L('slate', 'x'))), LR('slate', 'x'));

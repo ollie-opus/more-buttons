@@ -48,7 +48,7 @@ export function paintIcons(root) {
 
 // Prefix matches outrank substring matches; `lucide/` is ignored while typing
 // so a saved value like "lucide/user-plus" still filters sensibly on refocus.
-function rankMatches(names, query) {
+export function rankMatches(names, query) {
   const q = query.toLowerCase().trim().replace(/^lucide\//, '');
   if (!q) return names.slice(0, MAX_RESULTS);
   const prefix = [], substr = [];

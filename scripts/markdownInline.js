@@ -71,7 +71,7 @@ export function matchSupport(text, i) {
 // colour). The in-editor preview reads the slug from the class and paints the
 // pill from labelColours.json; serialize re-emits this canonical, class-only form.
 // Inner text is plain — no '<', so the lazy `[^<]*` can't swallow a following tag.
-const LABEL_RE = /^<span class="mb-label mb-label-([a-z0-9-]+)">([^<]*)<\/span>/;
+const LABEL_RE = /^<span class=["']mb-label mb-label-([a-z0-9-]+)["']>([^<]*)<\/span>/;
 
 // Build the canonical label span around `text` for the given colour `slug`.
 export function labelMarkup(slug, text) {
@@ -336,12 +336,11 @@ export function renderHtml(nodes) {
     if (n.type === 'support') return `<a href="#" class="mb-support-link" data-support="1">${escapeHtml(n.text)}</a>`;
     // Editor preview: same classes the source span carries (the round-trip
     // marker is the `mb-label` class itself); richTextEditor paints the colour.
-    // contenteditable=false makes the pill one indivisible atom in the surface
-    // (caret can never enter it, so typing beside it stays OUTSIDE the pill —
-    // its text is edited via the label popover); inert in read-only previews.
+    // The pill's text is typed where it stands in the surface (labelPills.js
+    // keeps the caret's side of its edges straight); the icons in it stay atoms.
     // Pill text is plain but may hold icon shortcodes → iconTextHtml renders
     // them as icon atoms inside the pill (the KB does the same via pymdownx.emoji).
-    if (n.type === 'label') return `<span class="mb-label mb-label-${n.slug}" contenteditable="false">${iconTextHtml(n.text)}</span>`;
+    if (n.type === 'label') return `<span class="mb-label mb-label-${n.slug}">${iconTextHtml(n.text)}</span>`;
     if (n.type === 'icon') return iconAtomHtml(n.name);
     if (n.type === 'link') return `<a href="${escapeAttr(n.href)}">${renderHtml(n.children)}</a>`;
     return `<${TAG[n.type]}>${renderHtml(n.children)}</${TAG[n.type]}>`;

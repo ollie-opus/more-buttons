@@ -138,6 +138,34 @@ chrome.storage.local.get("moreButtonsActive", (data) => {
 
 // Listen for action requests from the popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // The Knowledge Base's in-page editor asking (through the service worker)
+    // for a capture to be taken in this webapp tab. The answer says whether
+    // capture mode started, so the worker knows whether to switch tabs.
+    if (message.type === "kbCaptureArm") {
+        if (ON_KB_SITE) return;
+        getActions()
+            .then(module => sendResponse(module.startKbSiteCapture(message.origin)))
+            .catch(() => sendResponse({ error: "Could not start capture mode in that tab. Reload it and try again." }));
+        return true;
+    }
+    // Is the capture a Knowledge Base draft waits on still going in this tab:
+    // capture mode's session, or the page shown after the shot. Answered from
+    // the page alone, so a check never imports the capture stack.
+    if (message.type === "kbCaptureAlive") {
+        let session = null;
+        try { session = window.sessionStorage.getItem(CAPTURE_SESSION_KEY); } catch {}
+        const page = document.querySelector(".mb-kbcap");
+        sendResponse({ alive: !ON_KB_SITE && (!!session?.includes(message.token) || page?.dataset.token === message.token) });
+        return;
+    }
+    // The draft cancelled its capture: leave capture mode here, quietly.
+    if (message.type === "kbCaptureAbort") {
+        if (ON_KB_SITE) return;
+        getActions()
+            .then(module => { const res = module.abortKbSiteCapture(message.token); sendResponse({ ok: true, busy: !!res?.busy }); })
+            .catch(() => sendResponse({ ok: false }));
+        return true;
+    }
     if (message.type !== "runAction") return;
     const { actionName, params } = message;
     getActions().then(module => {

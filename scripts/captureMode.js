@@ -38,6 +38,7 @@ import { extractSvgForTheme } from './svgExtract.js';
 import { getFormAction } from './formActions.js';
 import { captureSizeField, wireCaptureSizeField, readCaptureSizeField } from './captureCards.js';
 import { captureFlagSuffix, appendCaptureSuffix, captureBaseSlug } from './captureMeta.js';
+import { createIsolation, isolationPhase } from './captureIsolate.js';
 
 const STORAGE_KEY = 'moreButtonsCaptureSettings';
 const SESSION_KEY = 'moreButtonsCaptureSession';
@@ -68,6 +69,13 @@ function ensureStylesheet() {
 }
 
 let active = null; // { settings, sessionBuffer, returnTo, exit, bar, ... }
+// What the page looked like when a session ended on a capture: its settings,
+// annotation rings, zaps and isolation. The page itself is put back on every
+// exit (the review form must not sit over a zapped or isolated page); this is
+// only the memory of it, re-applied when the review is cancelled and capture
+// mode is re-entered with `resume` to take the shot again. Same JS context
+// only — it holds live elements, so a hard navigation rightly loses it.
+let parked = null;
 let starting = false; // synchronous re-entry guard while loadSettings() awaits
 
 /**
@@ -78,10 +86,13 @@ let starting = false; // synchronous re-entry guard while loadSettings() awaits
  * through the form-action registry, or null when nothing should happen:
  * a live returnTo owns the exit, cancel means discard, an empty buffer has
  * nothing to commit, and sessions entered without an intent (standalone
- * capture mode) have nowhere to deliver to.
+ * capture mode) have nowhere to deliver to. A cancel is dispatched only for
+ * an intent that names a `cancelAction` (a flow with somewhere to go back
+ * to, like the Knowledge Base tab a capture was asked for from).
  */
 export function planColdExit({ cancelled, hasLiveReturnTo, intent, formStackSnapshot, sessionBuffer }) {
-  if (hasLiveReturnTo || cancelled) return null;
+  if (hasLiveReturnTo) return null;
+  if (cancelled) return intent?.cancelAction ? { action: intent.cancelAction, payload: { intent } } : null;
   if (!intent?.action || !sessionBuffer?.length) return null;
   return { action: intent.action, payload: { intent, formStackSnapshot, sessionBuffer } };
 }
@@ -128,7 +139,8 @@ async function loadSettings() {
   const s = stored[STORAGE_KEY] ?? {};
   return {
     resizeMode:       false, // ephemeral — never restored from storage
-    pickMode:         'capture', // 'capture' | 'annotate' | 'zap' | 'extract'; ephemeral — never restored
+    pickMode:         'capture', // 'capture' | 'annotate' | 'zap' | 'extract' | 'isolate'; ephemeral — never restored
+    isolation:        false, // ephemeral — Isolator's "Enable element isolation" toggle; outlives mode flips, not the session
     annotateColour:   ANNOTATE_DEFAULT_SLUG, // session-scoped — restored from sessionStorage only, so fresh sessions start green
     capturePadding:   0,
     forceResizeMode:  'none', // ephemeral; bar "Force Resize" advanced setting
@@ -176,6 +188,10 @@ function buildBar({ settings }) {
         title="Shift + click extracts the SVG icon as light/dark files" aria-pressed="false">
         <span class="more-buttons-icon" aria-hidden="true">shapes</span>Extract
       </button>
+      <button type="button" class="mb-capture-bar__mode-btn" data-mode-isolate
+        title="Shift + click shows the element alone on a flat background" aria-pressed="false">
+        <span class="more-buttons-icon" aria-hidden="true">bring-to-front</span>Isolator
+      </button>
     </div>
 
     <div class="mb-capture-bar__divider" aria-hidden="true"></div>
@@ -221,6 +237,13 @@ function buildBar({ settings }) {
         <span class="mb-capture-bar__toggle-label" data-bar-restore-count>Restore</span>
       </button>
 
+      <button type="button" class="mb-capture-bar__toggle ${settings.isolation ? '--on' : ''}" data-bar-isolate
+        title="Hide the page behind a flat background; hold Shift to see it and pick the elements to keep"
+        aria-pressed="${settings.isolation ? 'true' : 'false'}">
+        <span class="more-buttons-icon" aria-hidden="true">bring-to-front</span>
+        <span class="mb-capture-bar__toggle-label">Enable element isolation</span>
+      </button>
+
       <div class="mb-capture-bar__stepper" data-bar-padding-wrap>
         <button type="button" class="mb-capture-bar__step" data-bar-padding-dec aria-label="Decrease padding">−</button>
         <input class="mb-capture-bar__step-value" type="number" inputmode="numeric" min="0"
@@ -264,6 +287,9 @@ function buildBar({ settings }) {
  *   — the registered handler (captures.js / captureEntry.js) replays the form
  *   stack and commits the buffer. Without it a cold Done silently drops the
  *   session buffer, because returnTo closures cannot survive a hard nav.
+ * @param {boolean} [opts.resume] — this entry retakes a capture whose review
+ *   was just cancelled: put the last session's settings, annotations, zaps and
+ *   isolation back. Any other entry starts clean.
  */
 export async function enterCaptureMode(opts = {}) {
   // Re-entry while already active = exit. Matches the prior toggle behaviour
@@ -285,6 +311,9 @@ export async function enterCaptureMode(opts = {}) {
   }
   const restored = opts.__restored ?? null;
   if (restored?.settings) Object.assign(settings, restored.settings);
+  const resumed = opts.resume ? parked : null;
+  parked = null;
+  if (resumed) Object.assign(settings, resumed.settings);
   const hasReturnTo = !!opts.returnTo;
 
   // Hold prefers-reduced-motion for the whole armed session, not just the
@@ -618,14 +647,36 @@ export async function enterCaptureMode(opts = {}) {
     return { annotated: hits.length > 0, names: hits.map(h => h.slug).filter(Boolean) };
   }
 
-  const MODE_TAB_LABEL = { capture: 'Capture mode', annotate: 'Annotate mode', zap: 'Zapper mode', extract: 'Extract mode' };
+  // ── Isolator mode ─────────────────────────────────────────────────────────
+  // Picks mark elements to keep; with the bar's toggle on, everything else is
+  // hidden behind a flat backdrop (captureIsolate.js). The toggle is the whole
+  // state: on, isolation holds in every mode, so switching back to Capture
+  // shoots the marked elements on the flat colour. Holding Shift in Isolator
+  // mode peeks at the page to pick. Toggling off shows the page again but
+  // keeps the marks for the next toggle; they die with the session.
+  const isolation = createIsolation();
+  let shiftArmed = false;
+  function syncIsolation() {
+    isolation.sync(isolationPhase({ on: settings.isolation, mode: settings.pickMode, armed: shiftArmed }));
+  }
+  $('[data-bar-isolate]').addEventListener('click', () => {
+    settings.isolation = !settings.isolation;
+    const btn = $('[data-bar-isolate]');
+    btn.classList.toggle('--on', settings.isolation);
+    btn.setAttribute('aria-pressed', settings.isolation ? 'true' : 'false');
+    syncIsolation();
+  });
+
+  const MODE_TAB_LABEL = { capture: 'Capture mode', annotate: 'Annotate mode', zap: 'Zapper mode', extract: 'Extract mode', isolate: 'Isolator mode' };
 
   function setPickMode(mode) {
     settings.pickMode = mode;
     document.documentElement.classList.toggle('mb-annotate-mode', mode === 'annotate');
     document.documentElement.classList.toggle('mb-zap-mode', mode === 'zap');
     document.documentElement.classList.toggle('mb-extract-mode', mode === 'extract');
-    for (const name of ['capture', 'annotate', 'zap', 'extract']) {
+    document.documentElement.classList.toggle('mb-isolate-mode', mode === 'isolate');
+    syncIsolation(); // peeking is Isolator-only
+    for (const name of ['capture', 'annotate', 'zap', 'extract', 'isolate']) {
       const btn = $(`[data-mode-${name}]`);
       btn.classList.toggle('--on', mode === name);
       btn.setAttribute('aria-pressed', mode === name ? 'true' : 'false');
@@ -642,6 +693,7 @@ export async function enterCaptureMode(opts = {}) {
   $('[data-mode-annotate]').addEventListener('click', () => setPickMode('annotate'));
   $('[data-mode-zap]').addEventListener('click', () => setPickMode('zap'));
   $('[data-mode-extract]').addEventListener('click', () => setPickMode('extract'));
+  $('[data-mode-isolate]').addEventListener('click', () => setPickMode('isolate'));
   $('[data-bar-clear-annotations]').addEventListener('click', clearAllAnnotations);
   $('[data-bar-restore-zapped]').addEventListener('click', restoreAllZapped);
 
@@ -828,24 +880,41 @@ export async function enterCaptureMode(opts = {}) {
 
   // ── Selector + capture pipeline ───────────────────────────────────────────
   function installPickSelector() {
+    // A fresh selector starts un-armed and only reports CHANGES, so a Shift
+    // released while the old one was torn down would otherwise stay "held".
+    shiftArmed = false;
+    syncIsolation();
     return installSelector({
       onPick,
-      // Zapper and Extract have no padding concept (the stepper is hidden);
-      // 0 kills the ring.
-      getPadding: () => ((settings.pickMode === 'zap' || settings.pickMode === 'extract') ? 0 : settings.capturePadding),
+      // Zapper, Extract and Isolator have no padding concept (the stepper is
+      // hidden); 0 kills the ring.
+      getPadding: () => (['zap', 'extract', 'isolate'].includes(settings.pickMode) ? 0 : settings.capturePadding),
       // Extract mode only picks SVGs: remap the hovered element to its
       // nearest <svg> (closest is self-inclusive); null suppresses the
       // highlight and the pick. Read dynamically — the selector is not
       // reinstalled on mode flips.
-      resolveTarget: el => (settings.pickMode === 'extract' ? el.closest('svg') : el),
+      // Isolator picks nothing until its toggle is on; inside a marked
+      // element the target is that element (a second pick un-marks it).
+      resolveTarget: el => {
+        if (settings.pickMode === 'extract') return el.closest('svg');
+        if (settings.pickMode === 'isolate') return settings.isolation ? isolation.pickTarget(el) : null;
+        return el;
+      },
       onArmedChange: isArmed => {
+        shiftArmed = isArmed;
+        syncIsolation();
         bar.classList.toggle('--armed', isArmed);
         tab.classList.toggle('--armed', isArmed);
       },
     });
   }
 
-  async function onPick(target) {
+  // The box of the last resized capture, kept so a retake reopens on it.
+  let lastResize = null; // { target, rect } | null
+
+  // `startBox` (doc coords): open the resize box there instead of on the
+  // element's own bounds — a retake's remembered box.
+  async function onPick(target, startBox = null) {
     // Annotate/zap picks stay armed — no screenshot, and they never count
     // against maxCaptures.
     if (settings.pickMode === 'annotate') {
@@ -883,6 +952,10 @@ export async function enterCaptureMode(opts = {}) {
       zapElement(target);
       return;
     }
+    if (settings.pickMode === 'isolate') {
+      if (settings.isolation) isolation.toggleMark(target);
+      return;
+    }
     if (settings.pickMode === 'extract') {
       if (capturing) return;
       if (ctx.maxCaptures && sessionBuffer.length >= ctx.maxCaptures) return;
@@ -895,7 +968,7 @@ export async function enterCaptureMode(opts = {}) {
       try {
         const light = await extractSvgForTheme(target, { theme: 'light', settings });
         const dark  = await extractSvgForTheme(target, { theme: 'dark',  settings });
-        if (light && dark) handleExtract(light, dark);
+        if (light && dark) handleExtract(light, dark, { ...describeSubject(target), svg: true });
       } finally {
         capturing = false;
         bar.classList.remove('--capturing');
@@ -915,9 +988,10 @@ export async function enterCaptureMode(opts = {}) {
     selectorCleanup?.();
     selectorCleanup = null;
 
-    const finishCapture = (light, dark, resized, anno) => {
+    // `box` is what was shot: the element, or the resized box drawn over it.
+    const finishCapture = (light, dark, resized, anno, box = null) => {
       if (!light || !dark) return;
-      handleCapture(light, dark, resized, anno);
+      handleCapture(light, dark, resized, anno, describeSubject(target, box));
     };
 
     try {
@@ -937,15 +1011,17 @@ export async function enterCaptureMode(opts = {}) {
             // exactly like a non-resize-mode capture. Only an adjusted box
             // captures the raw region (whose corner radii are unknowable).
             const customRect = untouched ? null : rect;
+            lastResize = customRect ? { target, rect: customRect } : null;
             // rect is doc coords (same space addBoxAnnotation positions with).
             const anno = annotationsInShot(untouched ? docRect(target) : rect);
             const light = await screenshotElement(target, { theme: 'light', customRect, settings });
             const dark  = await screenshotElement(target, { theme: 'dark',  customRect, settings });
-            finishCapture(light, dark, resized, anno);
+            finishCapture(light, dark, resized, anno, customRect);
             resolve();
-          }, () => resolve());
+          }, () => resolve(), startBox);
         });
       } else {
+        lastResize = null;
         bar.classList.add('--capturing');
         if (document.activeElement && typeof document.activeElement.blur === 'function') {
           document.activeElement.blur();
@@ -966,14 +1042,15 @@ export async function enterCaptureMode(opts = {}) {
     }
   }
 
-  function handleCapture(light, dark, resized, anno) {
-    // New captures carry the annotate/zap marker in the filename (-a / -z /
-    // -a-z), with the annotated elements' label slugs riding after -a
+  function handleCapture(light, dark, resized, anno, subject = null) {
+    // New captures carry the annotate/zap/isolate marker in the filename (-a /
+    // -z / -i, combined -a-z-i), with the annotated elements' label slugs riding after -a
     // (-a-time-clock-z); recaptures never see these names — they replace bytes
     // at the stored path (captureEntry.js) — so names are fixed at creation.
     const wasZapped = zapped.size > 0;
     const baseSlug = captureBaseSlug(light.filename);
-    const suffix = captureFlagSuffix(anno.annotated, wasZapped, anno.names, baseSlug);
+    const wasIsolated = settings.isolation && isolation.hasLiveMarks();
+    const suffix = captureFlagSuffix(anno.annotated, wasZapped, anno.names, baseSlug, wasIsolated);
     commitBufferEntry({
       lightDataUrl: light.dataUrl,
       lightFilename: appendCaptureSuffix(light.filename, suffix),
@@ -984,15 +1061,17 @@ export async function enterCaptureMode(opts = {}) {
       annotated: anno.annotated,
       annotationNames: anno.names,
       zapped: wasZapped,
+      isolated: wasIsolated,
       dimMode: 'height',
       dimValue: 50,
       addToLibrary: true,
+      subject,
     });
   }
 
   // Extract-mode entries carry no -a/-z flags: annotation rings and zaps are
   // pixel-space concepts that can't appear in serialized SVG bytes.
-  function handleExtract(light, dark) {
+  function handleExtract(light, dark, subject = null) {
     commitBufferEntry({
       lightDataUrl: light.dataUrl,
       lightFilename: light.filename,
@@ -1006,6 +1085,7 @@ export async function enterCaptureMode(opts = {}) {
       dimMode: 'height',
       dimValue: 50,
       addToLibrary: true,
+      subject,
     });
   }
 
@@ -1028,8 +1108,57 @@ export async function enterCaptureMode(opts = {}) {
     bar.classList.add('--sweep');
   }
 
+  // ── Page state: park on a capture, put back on a retake ───────────────────
+  function parkPageState() {
+    return {
+      settings: { ...settings },
+      resize: lastResize,
+      annotationSeq,
+      rings: [...annotations].filter(([el]) => el.isConnected).map(([el, saved]) => ({
+        el,
+        seq: saved.seq,
+        outline: el.style.getPropertyValue('outline'),
+        outlineOffset: el.style.getPropertyValue('outline-offset'),
+      })),
+      boxes: [...boxAnnotations].filter(box => box.isConnected),
+      zapped: [...zapped.keys()].filter(el => el.isConnected),
+      isolated: isolation.marks(),
+    };
+  }
+
+  function applyPageState(state) {
+    annotationSeq = state.annotationSeq;
+    for (const ring of state.rings) {
+      if (!ring.el.isConnected) continue;
+      annotations.set(ring.el, {
+        outline: ring.el.style.getPropertyValue('outline'),
+        outlineOffset: ring.el.style.getPropertyValue('outline-offset'),
+        seq: ring.seq,
+      });
+      ring.el.style.setProperty('outline', ring.outline, 'important');
+      ring.el.style.setProperty('outline-offset', ring.outlineOffset, 'important');
+    }
+    // A Turbo body swap since the shot means a different page: its boxes go.
+    for (const box of state.boxes) {
+      if (!document.body) break;
+      document.body.appendChild(box);
+      boxAnnotations.add(box);
+    }
+    refreshClearButton();
+    for (const el of state.zapped) if (el.isConnected) zapElement(el);
+    for (const el of state.isolated) if (el.isConnected) isolation.toggleMark(el);
+    setPickMode(settings.pickMode); // also brings isolation back if its toggle was on
+  }
+  if (resumed) applyPageState(resumed);
+
   // ── Initial selector install ──────────────────────────────────────────────
   selectorCleanup = installPickSelector();
+
+  // A retake of a resized capture reopens the box where it was drawn, on the
+  // same element: Enter shoots it again, Esc drops it and picking is free.
+  if (resumed?.resize?.target.isConnected && settings.resizeMode && settings.pickMode === 'capture') {
+    onPick(resumed.resize.target, resumed.resize.rect);
+  }
 
   // ── Exit ──────────────────────────────────────────────────────────────────
   // `cancelled` is true when the user dismissed via ✕ / Esc (discard intent)
@@ -1051,10 +1180,15 @@ export async function enterCaptureMode(opts = {}) {
     selectorCleanup?.();
     selectorCleanup = null;
     // Annotations and zaps never outlive the mode — every exit path (✕, Esc,
-    // Done / limit-reached, cold) lands here.
+    // Done / limit-reached, cold) lands here. An exit that carries a capture
+    // remembers them first, in case its review is cancelled for a retake.
+    parked = (!cancelled && sessionBuffer.length) ? parkPageState() : null;
+    // Parked boxes are detached, not destroyed: clearAllAnnotations removes
+    // them from the page and the parked list keeps the nodes.
     clearAllAnnotations();
     restoreAllZapped();
-    document.documentElement.classList.remove('mb-annotate-mode', 'mb-zap-mode', 'mb-extract-mode');
+    isolation.destroy();
+    document.documentElement.classList.remove('mb-annotate-mode', 'mb-zap-mode', 'mb-extract-mode', 'mb-isolate-mode');
     popover.remove();
     colourPopover.remove();
 
@@ -1110,6 +1244,24 @@ export async function enterCaptureMode(opts = {}) {
   }
 
   ctx.exit = exitCaptureMode;
+}
+
+// What was captured, for whoever places it (capturePresets.looksLikeButton):
+// its size on the page in CSS px, and whether it is (or sits in) a control.
+// `box` is a resized capture's own rectangle, used in place of the element's.
+const CONTROL_SELECTOR = 'button, [role="button"], a, input, select, summary, svg, [class*="btn"], [class*="button"], [class*="badge"], [class*="chip"], [class*="icon"]';
+function describeSubject(el, box = null) {
+  try {
+    const r = box ?? el.getBoundingClientRect();
+    return { width: Math.round(r.width), height: Math.round(r.height), control: !!el.closest?.(CONTROL_SELECTOR) };
+  } catch {
+    return null;
+  }
+}
+
+/** True while capture mode is armed (or arming) on this page. */
+export function isCaptureModeActive() {
+  return !!active || starting;
 }
 
 /** Imperative exit (e.g. for testing, or if a future caller needs it). */

@@ -7,7 +7,7 @@ import { GUIDE_ADMONITION_TYPES_RE as RE } from '../scripts/admonitions.js';
 import { OPS, applyOps, findComponent, readContainer, splitParagraphs } from '../scripts/kbPageOps.js';
 import { TEXT_KIND } from '../scripts/kbPageRender.js';
 import { buildSectionTree } from '../scripts/sections.js';
-import { gapIndex, edgeSpeed, gapLineY } from '../scripts/kbPageDrag.js';
+import { gapIndex, edgeSpeed, gapLineY, rowGap, sideOf, sideProbes, carriedScale, drawnIn } from '../scripts/kbPageDrag.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -166,13 +166,14 @@ test('moveTo replays over a draft that changed underneath it', () => {
   assert.deepEqual(ids(out, section('s2')), ['s1t']);
 });
 
-test('putText: typing into an empty place makes the block; emptying a block takes it away', () => {
+test('putText: typing into an empty place makes the block; an emptied block stays, empty, until it is deleted', () => {
   let out = run(PAGE, OPS.putText('new', 'Typed.', section('s4'), 0));
   assert.deepEqual(ids(out, section('s4')), ['new']);
   out = run(out, OPS.putText('new', 'Typed more.', section('s4'), 0));
   assert.equal(findComponent(out, 'new').component.txt.body, 'Typed more.');
   out = run(out, OPS.putText('new', '  '));
-  assert.equal(findComponent(out, 'new'), null);
+  assert.equal(findComponent(out, 'new').component.txt.body, '');
+  assert.equal(findComponent(run(out, OPS.deleteComponent('new')), 'new'), null);
   assert.equal(run(PAGE, OPS.putText('new', '', section('s4'), 0)), PAGE, 'nothing typed: nothing made');
   // Between two blocks.
   out = run(PAGE, OPS.putText('mid', 'Between.', section('s1'), 2));
@@ -218,6 +219,56 @@ test('moveSectionTo: among its own level, and a subsection under another section
 });
 
 // ── Drag geometry ───────────────────────────────────────────────────────────
+
+test('sideOf: the end of a block the pointer is at, in a strip that keeps within limits', () => {
+  const wide = { left: 100, right: 900 };   // 18% is 144px: the strip is the most it may be
+  assert.equal(sideOf(wide, 100), 'left');
+  assert.equal(sideOf(wide, 148), 'left');
+  assert.equal(sideOf(wide, 149), null);
+  assert.equal(sideOf(wide, 500), null);
+  assert.equal(sideOf(wide, 852), 'right');
+  assert.equal(sideOf(wide, 70), 'left');   // out past the end: still that end
+  assert.equal(sideOf(wide, 930), 'right');
+  const small = { left: 0, right: 50 };     // 18% is 9px: the strip is the least it may be
+  assert.equal(sideOf(small, 14), 'left');
+  assert.equal(sideOf(small, 25), null);
+  assert.equal(sideOf(small, 36), 'right');
+  const narrow = { left: 0, right: 20 };    // no room for both strips: the nearer end
+  assert.equal(sideOf(narrow, 8), 'left');
+  assert.equal(sideOf(narrow, 12), 'right');
+});
+
+test('sideProbes: on the pointer first, then in towards a block either side, out to the margin', () => {
+  assert.deepEqual(sideProbes(), [0, 22, -22, 44, -44]);
+});
+
+test('rowGap: the gap between tab labels the pointer is at, and where its line stands', () => {
+  assert.deepEqual(rowGap([], 50), { at: 0, lineX: null });
+  const row = [{ left: 0, right: 100 }, { left: 110, right: 210 }, { left: 220, right: 320 }];
+  assert.deepEqual(rowGap(row, 40), { at: 0, lineX: -4 });
+  assert.deepEqual(rowGap(row, 105), { at: 1, lineX: 105 });
+  assert.deepEqual(rowGap(row, 200), { at: 2, lineX: 215 });
+  assert.deepEqual(rowGap(row, 400), { at: 3, lineX: 324 });
+
+test('a carried block is always smaller than it stood, and never too small to tell', () => {
+  assert.equal(carriedScale(900), 0.2);
+  assert.equal(carriedScale(600), 0.3);
+  assert.equal(carriedScale(200), 0.35); // a narrow one still shrinks
+  assert.equal(carriedScale(4000), 0.2);
+  assert.equal(carriedScale(0), 0.35);
+});
+
+test('the pieces of a tab are drawn into its label one after another, gathering speed', () => {
+  assert.equal(drawnIn(0, 0), 0);
+  assert.equal(drawnIn(340, 0), 1);
+  assert.equal(drawnIn(170, 0), 0.125);
+  assert.equal(drawnIn(45, 1), 0);       // the second sets off after the first
+  assert.equal(drawnIn(385, 1), 1);
+  assert.equal(drawnIn(610, 50), 1);     // a long tab does not take all day
+  assert.equal(drawnIn(5000, 3), 1);
+});
+
+});
 
 test('gapIndex: the gap the pointer is in, counted from the blocks\' middles', () => {
   assert.equal(gapIndex([], 50), 0);
