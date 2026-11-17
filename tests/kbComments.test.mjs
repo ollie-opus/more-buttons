@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIssue, parseIssue, withText, withPage, makeAnchor, findAnchor, commentsForGuide, orderComments, stackTops } from '../scripts/kbComments.js';
+import { buildIssue, parseIssue, withText, withPage, makeAnchor, findAnchor, commentsForGuide, orderComments, stackTops, clampTops } from '../scripts/kbComments.js';
 
 const anchor = { guide: 'g1', page: 'docs/pages/overview.md', block: 'b1', quote: 'click Save', before: 'Then ', after: ' to finish' };
 const issueOf = (built, extra = {}) => ({ number: 7, body: built.body, title: built.title, user: { login: 'ollie-opus' }, created_at: '2026-11-17T10:00:00Z', comments: 2, html_url: 'https://github.com/x/y/issues/7', ...extra });
@@ -186,4 +186,19 @@ test('stackTops never overlaps and honours the pinned card', () => {
   assert.deepEqual([...stackTops(items)], [[1, 100], [2, 188], [3, 400]]);
   assert.deepEqual([...stackTops(items, { pinned: 2 })], [[1, 32], [2, 120], [3, 400]]);
   assert.deepEqual([...stackTops([], {})], []);
+});
+
+test('clampTops keeps cards in the room: none above its top, none overlapping', () => {
+  const items = [{ id: 1, want: 10, height: 80 }, { id: 2, want: 30, height: 50 }, { id: 3, want: 60, height: 40 }];
+  // Pinned on the last card, the two above it stack upward past the top of the room.
+  const up = stackTops(items, { pinned: 3 });
+  assert.ok(up.get(1) < 0);
+  const kept = clampTops(items, up, { gap: 8, floor: 0 });
+  assert.deepEqual([...kept], [[1, 0], [2, 88], [3, 146]]);
+  // Tops clear of the floor are left exactly where stackTops put them (the pinned card keeps its line).
+  const clear = stackTops(items.map(it => ({ ...it, want: it.want + 300 })), { pinned: 3 });
+  assert.deepEqual([...clampTops(items, clear)], [...clear]);
+  // A floor other than 0, and nothing at all.
+  assert.deepEqual([...clampTops([{ id: 'a', height: 10 }], new Map([['a', -5]]), { floor: 20 })], [['a', 20]]);
+  assert.deepEqual([...clampTops([], new Map())], []);
 });

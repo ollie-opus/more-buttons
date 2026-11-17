@@ -233,3 +233,23 @@ export function stackTops(items, { gap = 8, pinned = null } = {}) {
   // restore page order in the map
   return new Map(items.map(it => [it.id, tops.get(it.id)]));
 }
+
+/**
+ * Tops from stackTops kept at or below `floor` (the top of the room the cards are drawn in): cards that
+ * stacked upward past it from a pinned card are pushed back down, in page order, each just below the
+ * one above, so none is drawn above the room and none overlaps. Tops already clear of it stay as they are.
+ *
+ * @param {{id: *, height: number}[]} items - in page order, as given to stackTops
+ * @param {Map<*, number>} tops - from stackTops
+ * @returns {Map<*, number>} id to top
+ */
+export function clampTops(items, tops, { gap = 8, floor = 0 } = {}) {
+  const out = new Map();
+  let min = floor;
+  for (const it of items) {
+    const top = Math.max(tops.get(it.id) ?? min, min);
+    out.set(it.id, top);
+    min = top + it.height + gap;
+  }
+  return out;
+}

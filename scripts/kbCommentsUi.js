@@ -12,9 +12,15 @@
  * background: startKbComments returns at once, and a token that cannot reach
  * the comments repo leaves the page exactly as it was.
  *
- * Where the list goes is one swappable piece (PLACEMENTS): under the theme's
- * "On this page" list when the view has that margin, otherwise in a pull-out
- * panel opened from a button in the site's header (kbCommentsPanel.js).
+ * Where the list goes is one swappable piece (PLACEMENTS): on the live page,
+ * under the theme's "On this page" list when the view has that margin; in edit
+ * mode, beside the text in the empty left-hand margin (kbCommentsMargin.js);
+ * otherwise in a pull-out panel opened from a button in the site's header
+ * (kbCommentsPanel.js). In edit mode every card can also be resolved, and in
+ * the draft the comment icon joins the format buttons that float over
+ * highlighted text (richTextEditor.js) instead of standing on its own.
+ *
+ * One instance per document: starting one takes away any other still there.
  *
  * Everything that came from GitHub reaches the page as text (textContent),
  * never as markup, and nothing read back from an issue is used to build a url
@@ -32,6 +38,7 @@ import { setThemeTip, KB_HOST } from './kbSite.js';
 import { currentGithubLogin } from './repoClient.js';
 import { attachThread } from './kbCommentsThread.js';
 import { mountHeaderButton, mountPanel, titleFromDocument } from './kbCommentsPanel.js';
+import { mountMargin, marginRoom } from './kbCommentsMargin.js';
 
 const HIGHLIGHT = 'mb-kb-comment';
 const STYLESHEET_ID = 'mb-kb-comments-stylesheet';
@@ -133,9 +140,18 @@ const MARKER = 'span[data-uuid], [data-mb-node]';
 /** Is this one of this module's own elements (or inside one)? */
 const isOurs = el => !!el?.closest?.('[class^="mb-kb-comments"], [class*=" mb-kb-comments"]');
 
+// What the extension puts in the article around the guide's words: the icons
+// by the title (kbSite.js), and in edit mode the Draft / Live tabs, the pill
+// in the title, the foot row, the add slots, a capture being waited for and
+// the layers under the blocks (kbPageEditor.js). Not the guide's: never read
+// into the model, never commented on.
+const CHROME = '.md-content__button, .mb-kb-modenav, .mb-kb-statepill, .mb-kb-foot, .mb-kb-insert, .mb-kb-newtab, '
+  + '.mb-kb-panel, .mb-kb-capwait, .mb-kb-upd-ghost, .mb-kb-hintlayer, .mb-kb-picklayer';
+const isChrome = el => !!el?.closest?.(CHROME);
+
 function skipped(el, view) {
   if (SKIPPED.has(el.tagName) || el.namespaceURI === 'http://www.w3.org/2000/svg' || el.hidden) return true;
-  if ([...el.classList].some(c => c.startsWith('mb-kb-comments'))) return true;
+  if ([...el.classList].some(c => c.startsWith('mb-kb-comments')) || el.matches(CHROME)) return true;
   // A content tab that is not showing is display:none, but its words are on
   // the page all the same: a comment on them shows the tab when clicked.
   if (el.classList.contains('tabbed-block')) return false;
@@ -167,19 +183,27 @@ function walk(article) {
  *
  * Live page: the build writes the H1 section's hidden id span on a line of its
  * own straight after the title, so it is the first child of the paragraph
- * after the H1: `article > h1 + p > span[data-uuid]:first-child` (checked on
- * /pages/overview/, 2026-11-17: `<h1 id="overview">Overview</h1>
- * <p><span data-uuid="f00a359d-…" style="display:none"></span></p>`; every
- * section's span sits alone in its paragraph like that, the first text
- * block's span starts the next one). The page's own buttons (kbSite.js) go in
- * before the H1, never between it and that paragraph.
- * Editor: the title is drawn as `h1[data-mb-kind="section"][data-mb-node]`.
- * '' when there is neither (a page never given ids).
+ * after the H1 (checked on /pages/overview/, 2026-11-17: `<h1 id="overview">
+ * Overview</h1><p><span data-uuid="f00a359d-…" style="display:none"></span>
+ * </p>`; every section's span sits alone in its paragraph like that, the first
+ * text block's span starts the next one). The site's "Written for" line
+ * (`p.mb-written-for`, from its content.html) comes between the two on a page
+ * with an audience (checked on /pages/adding-a-contractor/), and a hidden
+ * title's `<style data-mb-hide-section-title>` after the span. The page's own
+ * buttons (kbSite.js) go in before the H1.
+ * Editor (Draft and Live tabs): the title is drawn as
+ * `h1[data-mb-kind="section"][data-mb-node]`, its node id the same span's id;
+ * a hidden title is drawn too (`data-mb-title-hidden`), and a placed "Page
+ * title" block is an `h1.mb-page-title` inside its own block, never this one.
+ * '' when there is neither (a page never given ids, the page with no draft).
  */
 function guideIdOf(article) {
-  const span = article.querySelector(':scope > h1 + p > span[data-uuid]:first-child');
-  if (span) return span.dataset.uuid || '';
-  return article.querySelector(':scope > h1[data-mb-kind="section"][data-mb-node]')?.dataset.mbNode || '';
+  const drawn = article.querySelector(':scope > h1[data-mb-kind="section"][data-mb-node]');
+  if (drawn) return drawn.dataset.mbNode || '';
+  let next = article.querySelector(':scope > h1')?.nextElementSibling;
+  while (next?.matches('.mb-written-for')) next = next.nextElementSibling;
+  const span = next?.matches('p') ? next.querySelector(':scope > span[data-uuid]:first-child') : null;
+  return span?.dataset.uuid || '';
 }
 
 /**
@@ -275,6 +299,9 @@ const PLACEMENTS = {
   /** Over the right-hand side of the page, below the header (the header button toggles it). */
   panel: (doc, list, { close }) => mountPanel(doc, list, { onClose: close }),
 
+  /** Edit mode: in the left-hand margin, each card level with its words. */
+  margin: (doc, list, ctx) => mountMargin(doc, list, ctx),
+
   /** Under the theme's "On this page", as a second list of the same kind: its title is the same element. */
   toc(doc, list) {
     const inner = doc.querySelector('.md-sidebar--secondary .md-sidebar__inner');
@@ -293,14 +320,17 @@ const PLACEMENTS = {
 };
 
 /**
- * Where the list can go in this view: 'toc' when the theme's right-hand
- * sidebar is on the page beside the article, 'panel' otherwise. The sidebar
- * is asked, not a width: it is gone (display: none) when the theme hides its
- * sidebars on a narrow window, `hidden` on a page that hides its contents
- * (`hide: [toc]`), and an off-canvas drawer is not a margin either.
- * (Task 8 adds 'margin' for the editor.)
+ * Where the list can go in this view. On the live page: 'toc' when the theme's
+ * right-hand sidebar is on the page beside the article, 'panel' otherwise. In
+ * edit mode: 'margin' when the left-hand margin is there (marginRoom), 'panel'
+ * otherwise; never 'toc' (edit mode adds nothing to the right-hand sidebar,
+ * which kbToc.js redraws). The sidebars are asked, not a width: they are gone
+ * (display: none) when the theme hides them on a narrow window, `hidden` on a
+ * page that hides them (`hide: [toc]`, `hide: [navigation]`), and an
+ * off-canvas drawer is not a margin either.
  */
-function placement(doc) {
+function placement(doc, mode) {
+  if (mode === 'edit') return marginRoom(doc) ? 'margin' : 'panel';
   const side = doc.querySelector('.md-sidebar--secondary');
   const inner = side?.querySelector('.md-sidebar__inner');
   if (!side || !inner || side.hidden || !side.getClientRects().length) return 'panel';
@@ -352,6 +382,10 @@ function acquireSheet(doc) {
   };
 }
 
+// The instance on each document: a second would fight the first over the
+// highlight and the selection, so starting one ends the one before.
+const instances = new WeakMap(); // document → handle
+
 const el = (doc, tag, cls, text) => {
   const e = doc.createElement(tag);
   if (cls) e.className = cls;
@@ -363,20 +397,27 @@ const el = (doc, tag, cls, text) => {
  * Comments on the guide in `article`.
  *
  * @param {{article: HTMLElement, mode: 'live'|'edit', page: {livePath: string, liveUrl: string},
- *   canResolve?: () => boolean, shown?: () => boolean, client?: object}} opts
+ *   canResolve?: () => boolean, shown?: () => boolean, quiet?: () => boolean, client?: object}} opts
+ *   `shown`: false hides the cards, the header button and the icon (the editor's Markdown view);
+ *   `quiet`: true while a selection is not for commenting on (a block being dragged, a menu open)
  * @returns {{reanchor(): void, destroy(): void}|null} null when there is no article or page
  */
 export function startKbComments(opts) {
   const { article, page } = opts ?? {};
   if (!article || !page?.livePath) return null;
+  const mode = opts.mode === 'edit' ? 'edit' : 'live';
   const shown = opts.shown ?? (() => true);
+  const quiet = opts.quiet ?? (() => false);
+  const canResolve = opts.canResolve ?? (() => false);
   const doc = article.ownerDocument;
   const win = doc.defaultView;
+  instances.get(doc)?.destroy();
 
   let dead = false;
   let client = null;
   let login = null;
   let comments = [];       // every comment on this guide, as loaded and as posted
+  let pool = [];           // the open comments not (yet) known to be this guide's
   const cards = new Map(); // comment number → its card
   const threads = new Map(); // comment number → its replies and edit tools
   let compose = null;      // the open comment box: { li, anchor, busy }
@@ -389,16 +430,23 @@ export function startKbComments(opts) {
   let sheet = null;        // our hold on the stylesheet
   let pop = null;          // the selection's comment icon
   let pending = null;      // the anchor the icon would comment on
+  let onBar = false;       // the icon for `pending` is the one on the format bar
   let pointerDown = false;
   let checkTimer = 0;
   let observer = null;
+  let queued = false;      // a reanchor waiting for the end of the editor's redraw
+  let retry = 0;           // a second look for the format buttons, which show a moment after the selection
+  const bars = new Set();  // the format bars our comment button has been put in
   const off = [];          // listeners to take away again
 
   const list = el(doc, 'ol', 'md-nav__list mb-kb-comments__list');
 
-  /** The guide's title: its heading, or, on a page that hides it, the document's (without the site's name). */
-  const guideTitle = () => (article.querySelector(':scope > h1')?.textContent ?? '').replace(/\s+/g, ' ').trim()
-    || titleFromDocument(doc.title);
+  /** The guide's title: its heading's words (not the editor's pill and buttons in it), or, on a page that hides it, the document's (without the site's name). */
+  const guideTitle = () => {
+    const h1 = article.querySelector(':scope > h1')?.cloneNode(true);
+    h1?.querySelectorAll(`${CHROME}, button, svg, style, script`).forEach(e => e.remove());
+    return (h1?.textContent ?? '').replace(/\s+/g, ' ').trim() || titleFromDocument(doc.title);
+  };
 
   // The model is built again only after the article has changed.
   let model = null;
@@ -439,9 +487,12 @@ export function startKbComments(opts) {
       return card;
     });
     arrange(els);
-    const where = shown() ? placement(doc) : null;
-    // A box being typed in goes with the list into the panel, which opens so it stays in sight.
-    if (where === 'panel' && hostKind === 'toc' && compose) panelOpen = true;
+    const where = shown() ? placement(doc, mode) : null;
+    // The panel comes back closed after the view has had a margin again, but a
+    // box being typed in goes with the list into it, and it opens so the box
+    // stays in sight.
+    if (where !== 'panel') panelOpen = false;
+    else if (hostKind && hostKind !== 'panel' && compose) panelOpen = true;
     syncButton(where === 'panel');
     const want = where === 'panel' ? panelOpen : where != null && els.length > 0;
     if (host && (!want || hostKind !== where)) {
@@ -455,7 +506,7 @@ export function startKbComments(opts) {
   }
 
   function mount(where, had) {
-    host = PLACEMENTS[where]?.(doc, list, { close: () => setPanel(false) }) ?? null;
+    host = PLACEMENTS[where]?.(doc, list, { close: () => setPanel(false), article, wants, pinned: pinnedCard }) ?? null;
     hostKind = host ? where : null;
     if (had?.isConnected && doc.activeElement !== had) had.focus({ preventScroll: true });
   }
@@ -464,7 +515,8 @@ export function startKbComments(opts) {
   function syncButton(want) {
     if (want && !button) button = mountHeaderButton(doc, { onToggle: () => setPanel(!panelOpen) });
     else if (!want && button) { button.remove(); button = null; }
-    button?.set({ count: comments.length, open: panelOpen });
+    // A box closed away in the panel keeps its words: the button says one is waiting there.
+    button?.set({ count: comments.length, open: panelOpen, unsent: !!compose && !panelOpen });
   }
 
   function setPanel(open) {
@@ -472,7 +524,38 @@ export function startKbComments(opts) {
     panelOpen = open;
     draw();
     if (!open) button?.el.focus({ preventScroll: true });
+    else compose?.li.querySelector('textarea')?.focus({ preventScroll: true });
   }
+
+  /** Where each card's words start on the page (page y), or null when they are not on it. */
+  function wants() {
+    const out = new Map();
+    for (const e of entries()) {
+      const li = e.compose ? compose.li : cards.get(e.comment.number);
+      if (li) out.set(li, topOf(e.at));
+    }
+    return out;
+  }
+
+  function topOf(at) {
+    if (!at) return null;
+    const range = getModel().rangeFor(at.start, at.found ? at.end : at.start);
+    if (!range) return null;
+    const box = [...range.getClientRects()].find(r => r.width || r.height);
+    if (box) return box.top + win.scrollY;
+    // Words not showing (a tab not shown, a closed admonition): the nearest box round them that is.
+    for (let e = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement; e && article.contains(e); e = e.parentElement) {
+      const r = e.getBoundingClientRect();
+      if (r.width || r.height) return r.top + win.scrollY;
+    }
+    return null;
+  }
+
+  /** The card that keeps its exact place beside its words: the box being written, else the one clicked. */
+  const pinnedCard = () => compose?.li ?? (active != null ? cards.get(active) : null) ?? null;
+
+  /** Cards moved for a card opened or closed. */
+  const relayout = () => host?.refresh?.();
 
   function makeCard(c) {
     const li = el(doc, 'li', 'mb-kb-comment');
@@ -483,7 +566,9 @@ export function startKbComments(opts) {
     const time = el(doc, 'time', 'mb-kb-comment__date', relativeDate(c.createdAt));
     if (c.createdAt) time.dateTime = c.createdAt;
     meta.append(time);
-    li.append(meta, el(doc, 'p', 'mb-kb-comment__text', c.text));
+    const text = el(doc, 'p', 'mb-kb-comment__text', c.text);
+    li.append(meta, text);
+    if (canResolve()) addResolve(meta, text, c);
     // The replies, the reply box and the own-comment tools are in the thread; shown while the card is open.
     li.append(el(doc, 'div', 'mb-kb-comment__replies'));
     threads.set(c.number, attachThread(li, c, {
@@ -496,6 +581,35 @@ export function startKbComments(opts) {
       onChanged: () => draw(),
     }));
     return li;
+  }
+
+  /** Resolve (edit mode only): closes the issue as done, and the card leaves the list. No confirm. */
+  function addResolve(meta, text, c) {
+    const btn = el(doc, 'button', 'mb-kb-comments__icon mb-kb-comment__resolve');
+    btn.type = 'button';
+    btn.innerHTML = lucideSvg('check'); // the extension's own bundled markup
+    setThemeTip(doc, btn, 'Resolve');
+    const err = el(doc, 'p', 'mb-kb-comments__error');
+    err.setAttribute('role', 'alert');
+    err.hidden = true;
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      btn.disabled = true;
+      err.hidden = true;
+      try {
+        await client.closeComment(c.number, 'completed');
+        if (dead) return;
+        removeComment(c.number);
+      } catch (failed) {
+        if (dead) return;
+        err.textContent = failed?.message || "Couldn't resolve that.";
+        err.hidden = false;
+        btn.disabled = false;
+      }
+    });
+    meta.append(btn);
+    text.after(err);
   }
 
   /** The "Original text changed" note and the old words, when the words are not on the page. */
@@ -520,6 +634,7 @@ export function startKbComments(opts) {
     cards.get(active)?.classList.remove('--active');
     active = null;
     win.CSS?.highlights?.delete(HIGHLIGHT);
+    relayout();
   }
 
   /** Show the content tabs and open the collapsed admonitions that hold `node`. */
@@ -571,6 +686,7 @@ export function startKbComments(opts) {
     active = c.number;
     card.classList.add('--active');
     const at = findAnchor(getModel(), c.anchor);
+    relayout(); // beside the text, it takes its words' line and the others give way
     if (at) highlight(at, { scroll: true });
     threads.get(c.number)?.open();
   }
@@ -651,7 +767,7 @@ export function startKbComments(opts) {
     send.addEventListener('click', post);
 
     hidePop();
-    if (placement(doc) === 'panel') panelOpen = true; // the box must be where it can be seen
+    if (shown() && placement(doc, mode) === 'panel') panelOpen = true; // the box must be where it can be seen
     draw();
     box.focus({ preventScroll: true });
     li.scrollIntoView?.({ block: 'nearest' });
@@ -682,16 +798,58 @@ export function startKbComments(opts) {
 
   function hidePop() {
     pending = null;
+    onBar = false;
     if (pop) pop.hidden = true;
+    for (const bar of bars) {
+      if (bar.isConnected) setBarButton(bar, false); else bars.delete(bar); // that text's editing has ended
+    }
   }
 
-  /** The selection's range, when it is words in the article (not in our own elements). */
+  /** The selection's range, when it is words in the article (not in our own elements, nor the editor's around them). */
   function articleSelection() {
     const sel = doc.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
     const range = sel.getRangeAt(0);
-    const inside = n => article.contains(n) && !isOurs(n.nodeType === 1 ? n : n.parentElement);
+    const inside = n => {
+      const e = n.nodeType === 1 ? n : n.parentElement;
+      return article.contains(n) && !isOurs(e) && !isChrome(e);
+    };
     return inside(range.startContainer) && inside(range.endContainer) ? range : null;
+  }
+
+  // ── The comment button on the draft's format buttons ──
+  // In the draft the format buttons float over highlighted text
+  // (richTextEditor.js attachRichSurface: one `.mb-rte-float` host per text
+  // being typed in, on <body>). The comment icon joins the end of that bar,
+  // after a line like the bar's own edge, instead of standing apart.
+
+  /** The format bar showing over the selection, or null. */
+  const formatBar = () => doc.querySelector('.mb-rte-float:not([hidden]) > .mb-rte-float__bar:not([hidden])');
+
+  function setBarButton(bar, on) {
+    let btn = bar.querySelector(':scope > .mb-kb-comments-barbtn');
+    if (!btn && !on) return;
+    if (!btn) {
+      const line = el(doc, 'span', 'mb-kb-comments-barsep');
+      line.setAttribute('aria-hidden', 'true');
+      btn = el(doc, 'button', 'mb-rte__btn mb-kb-comments-barbtn');
+      btn.type = 'button';
+      btn.setAttribute('aria-label', 'Add a comment');
+      btn.innerHTML = lucideSvg('message-square-plus'); // the extension's own bundled markup
+      setThemeTip(doc, btn, 'Add a comment');
+      // Pressing it must not take the selection out of the text.
+      btn.addEventListener('mousedown', e => e.preventDefault());
+      btn.addEventListener('click', () => { if (pending) openCompose(pending); });
+      bar.append(line, btn);
+      bars.add(bar);
+    }
+    btn.hidden = !on;
+    btn.previousElementSibling.hidden = !on;
+  }
+
+  function inSurface(range) {
+    const n = range.commonAncestorContainer;
+    return !!(n.nodeType === 1 ? n : n.parentElement)?.closest('[contenteditable="true"]');
   }
 
   function placePop(range) {
@@ -705,9 +863,10 @@ export function startKbComments(opts) {
     pop.style.top = `${spot.top}px`;
   }
 
-  function checkSelection() {
+  function checkSelection(again = false) {
     checkTimer = 0;
-    if (dead || !shown()) return hidePop();
+    if (retry) { win.clearTimeout(retry); retry = 0; }
+    if (dead || !shown() || quiet()) return hidePop();
     const range = articleSelection();
     if (!range) return hidePop();
     const m = getModel();
@@ -715,12 +874,28 @@ export function startKbComments(opts) {
     const anchor = at && makeAnchor(m, at.start, at.end, { guide: m.guideId, page: page.livePath });
     if (!anchor) return hidePop();
     pending = anchor;
+    const bar = formatBar();
+    for (const b of bars) if (b !== bar) setBarButton(b, false);
+    if (bar) {
+      pop.hidden = true;
+      onBar = true;
+      setBarButton(bar, true);
+      return;
+    }
+    onBar = false;
+    // Text being typed in has its format buttons, which come up a moment
+    // after the selection does: look once more before standing the icon alone.
+    if (!again && inSurface(range)) {
+      pop.hidden = true;
+      retry = win.setTimeout(() => { retry = 0; checkSelection(true); }, 80);
+      return;
+    }
     placePop(range);
   }
   const queueCheck = () => { if (!checkTimer) checkTimer = win.setTimeout(checkSelection, 0); };
 
   function follow() {
-    if (!pending || !pop) return;
+    if (!pending || !pop || onBar) return; // the format bar follows its text itself
     const range = articleSelection();
     if (range) placePop(range); else hidePop();
   }
@@ -745,8 +920,13 @@ export function startKbComments(opts) {
       if (!frame) frame = win.requestAnimationFrame(() => { frame = 0; draw(); });
     }, { passive: true });
     listen(doc, 'keydown', e => {
-      // Escape closes the panel, unless a box in it has just used the key itself.
-      if (e.key === 'Escape' && panelOpen && !e.defaultPrevented) { e.preventDefault(); setPanel(false); }
+      // Escape closes the panel, unless a box in it has just used the key
+      // itself, or it was pressed in a reply or an edit with words in it.
+      if (e.key !== 'Escape' || !panelOpen || e.defaultPrevented) return;
+      const t = e.target;
+      if (t instanceof win.HTMLTextAreaElement && list.contains(t) && t.value.trim()) return;
+      e.preventDefault();
+      setPanel(false);
     });
     list.addEventListener('click', e => {
       const card = e.target.closest('li.mb-kb-comment');
@@ -769,8 +949,8 @@ export function startKbComments(opts) {
         if (res?.reason !== 'no-access') console.warn('MB Warn: could not load the comments on this page', res?.status ?? '');
         return;
       }
-      const m = getModel();
-      comments = commentsForGuide(res.comments, { guide: m.guideId, page: page.livePath, blockIds: m.blockIds });
+      pool = res.comments;
+      adopt();
       sheet = acquireSheet(doc); // taken now, so a destroy while loading lets it go
       await Promise.all([sheet.ready, loadLucideBodies(), currentGithubLogin().then(l => { login = l; }, () => {})]);
       if (dead) return;
@@ -781,28 +961,58 @@ export function startKbComments(opts) {
     }
   }
 
+  /**
+   * Take on the open comments that belong to this guide as the article now
+   * shows it. In edit mode the Draft and Live tabs hold different blocks: a
+   * comment found by a block id in one stays in the list in the other (as
+   * "Original text changed" there), it is never dropped again.
+   */
+  function adopt() {
+    if (!pool.length) return;
+    const m = getModel();
+    const mine = new Set(commentsForGuide(pool, { guide: m.guideId, page: page.livePath, blockIds: m.blockIds }));
+    if (!mine.size) return;
+    comments.push(...pool.filter(c => mine.has(c)));
+    pool = pool.filter(c => !mine.has(c));
+  }
+
+  function reanchorNow() {
+    queued = false;
+    if (dead) return;
+    model = null;
+    if (!client || !observer) return; // still loading: it draws when it is ready
+    if (!shown()) hidePop();
+    adopt();
+    draw(); // also finds out again where the list belongs
+    if (active != null) {
+      win.CSS?.highlights?.delete(HIGHLIGHT);
+      const c = comments.find(x => x.number === active);
+      const at = c && findAnchor(getModel(), c.anchor);
+      if (at) highlight(at, { scroll: false });
+    }
+  }
+
   load();
 
-  return {
-    /** The article has been drawn again: find every comment's words afresh. */
+  const handle = {
+    /**
+     * The article has been drawn again: find every comment's words afresh.
+     * Called several times in one redraw (the editor's render and the page
+     * chrome after it), it is done once, when that redraw has finished and
+     * before the page is painted.
+     */
     reanchor() {
-      if (dead) return;
-      model = null;
-      if (!client || !observer) return; // still loading: it draws when it is ready
-      if (!shown()) hidePop();
-      draw(); // also finds out again where the list belongs
-      if (active != null) {
-        win.CSS?.highlights?.delete(HIGHLIGHT);
-        const c = comments.find(x => x.number === active);
-        const at = c && findAnchor(getModel(), c.anchor);
-        if (at) highlight(at, { scroll: false });
-      }
+      if (dead || queued) return;
+      queued = true;
+      queueMicrotask(reanchorNow);
     },
     /** Take away everything this added: elements, listeners, the highlight, the stylesheet. */
     destroy() {
       if (dead) return;
       dead = true;
+      if (instances.get(doc) === handle) instances.delete(doc);
       if (checkTimer) win.clearTimeout(checkTimer);
+      if (retry) win.clearTimeout(retry);
       off.splice(0).forEach(f => f());
       observer?.disconnect();
       if (frame) win.cancelAnimationFrame(frame);
@@ -811,10 +1021,14 @@ export function startKbComments(opts) {
       button?.remove();
       button = null;
       pop?.remove();
+      for (const bar of bars) bar.querySelectorAll(':scope > .mb-kb-comments-barbtn, :scope > .mb-kb-comments-barsep').forEach(e => e.remove());
+      bars.clear();
       list.remove();
       if (active != null) win.CSS?.highlights?.delete(HIGHLIGHT);
       sheet?.release();
       sheet = null;
     },
   };
+  instances.set(doc, handle);
+  return handle;
 }

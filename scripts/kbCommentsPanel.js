@@ -39,7 +39,7 @@ const el = (doc, tag, cls, text) => {
  *
  * @param {Document} doc
  * @param {{onToggle: () => void}} opts
- * @returns {{el: HTMLElement, set(state: {count: number, open: boolean}): void, remove(): void}|null}
+ * @returns {{el: HTMLElement, set(state: {count: number, open: boolean, unsent?: boolean}): void, remove(): void}|null}
  *   null when the page has no header
  */
 export function mountHeaderButton(doc, { onToggle }) {
@@ -64,13 +64,17 @@ export function mountHeaderButton(doc, { onToggle }) {
   }
   return {
     el: a,
-    set({ count, open }) {
+    // `unsent`: a comment box closed away in the panel still holds its words:
+    // the badge says so with a "+" after the count (or alone), and so does the tip.
+    set({ count, open, unsent = false }) {
       const label = countLabel(count);
-      badge.textContent = label;
-      badge.hidden = !label;
-      const tip = open ? 'Hide comments' : 'Show comments';
+      badge.textContent = unsent ? `${label}+` : label;
+      badge.hidden = !badge.textContent;
+      badge.classList.toggle('--unsent', unsent);
+      const tip = open ? 'Hide comments' : unsent ? 'Show comments: your comment is not posted yet' : 'Show comments';
       setThemeTip(doc, a, tip);
-      if (count > 0) a.setAttribute('aria-label', `${tip}, ${count} open`);
+      if (count > 0 || unsent) a.setAttribute('aria-label', unsent ? tip : `${tip}, ${count} open`);
+      else a.removeAttribute('aria-label');
       a.setAttribute('aria-expanded', String(open));
       a.classList.toggle('--open', open);
     },

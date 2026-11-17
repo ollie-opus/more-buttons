@@ -151,6 +151,7 @@ import { MENU_GAP, MENU_MAX_WIDTH, createVeil, menuBreak, menuGroup, menuInput, 
 import { iconMatchPills, typedIconName } from './iconPills.js';
 import { loadLucideNames, rankMatches } from './iconPicker.js';
 import { attachToc } from './kbToc.js';
+import { startKbComments } from './kbCommentsUi.js';
 import { readFrontmatterHide } from './frontmatter.js';
 import { currentKbPage, refreshKbSite, injectLogButton, injectPageButton, injectCreateDraftButton, setThemeTip } from './kbSite.js';
 import { captureMenuItem, captureTabPick, deliveredCaptureComponent } from './kbCaptureTabs.js';
@@ -199,6 +200,7 @@ const EDITABLE = '.mb-kb-text, h1[data-mb-node], h2[data-mb-node], h3[data-mb-no
  *   customCaptures: Set<string>,
  *   markdownView: boolean, saving: boolean, busyIcon: string|null, leaving: boolean,
  *   liveView: boolean, liveMd: string, nav: HTMLElement, sliding: boolean,
+ *   comments?: {reanchor(): void, destroy(): void}|null,
  * }}
  */
 let state = null;
@@ -310,6 +312,18 @@ export async function kbEnterEditMode(page, { hasLive = true, noDraft = false } 
   // Updates page never shows it in Edit mode, draft or live: its headings are
   // the updates themselves.
   state.toc = attachToc(article, { hidden: () => !!state && (state.updates || readFrontmatterHide(shownMd()).includes('toc')) });
+  // Comments on the guide (kbCommentsUi.js), in the left-hand margin; they load
+  // in the background. None on the System Updates page, none in the Markdown
+  // view, and none on the page with no draft until its live content is shown
+  // (it holds no words of the guide). A selection made while a block is
+  // dragged or a menu is open is not offered for commenting.
+  if (!state.updates) {
+    state.comments = startKbComments({
+      article, mode: 'edit', page, canResolve: () => true,
+      shown: () => !!state && (state.liveView || (!state.markdownView && !state.noDraft)),
+      quiet: () => !state || state.sliding || !!state.menu?.open || !!state.menu?.dragging,
+    });
+  }
   loadLabelPalette().then(loaded => {
     palette = loaded;
     if (state) syncBlockMenu();
@@ -924,6 +938,7 @@ async function deleteDraft() {
       s => setStatus(state.status, s, { busy: true }));
     // The draft is gone: this url has nothing left to edit.
     state.leaving = true;
+    state.comments?.destroy();
     location.href = hasLive ? page.liveUrl : '/';
   } catch (err) {
     setBusyIcon(null);
@@ -955,6 +970,7 @@ async function deleteGuide() {
       s => setStatus(state.status, s, { busy: true }));
     // The guide is gone: this url has nothing left to show.
     state.leaving = true;
+    state.comments?.destroy();
     location.href = '/';
   } catch (err) {
     setBusyIcon(null);
@@ -1533,6 +1549,7 @@ function exitEditMode() {
   settle();
   if (isDirty() && !confirm('Leave without saving your changes?')) return;
   state.leaving = true;
+  state.comments?.destroy();
   location.href = state.hasLive ? state.page.liveUrl : '/';
 }
 
@@ -1673,6 +1690,7 @@ async function slideToView(live, afterRender = null) {
   } finally {
     root.classList.remove('mb-kb-sliding');
     state.sliding = false;
+    state.comments?.reanchor();
   }
 }
 
@@ -1729,8 +1747,8 @@ function render() {
   const scrollY = window.scrollY;
   const live = state.liveView;
   const md = shownMd();
-  if (state.noDraft && !live) { renderNoDraft(); return; }
-  if (state.markdownView && !live) { renderSource(md); return; }
+  if (state.noDraft && !live) { renderNoDraft(); state.comments?.reanchor(); return; }
+  if (state.markdownView && !live) { renderSource(md); state.comments?.reanchor(); return; }
 
   // Which tab each group shows must survive the redraw.
   const shownTabs = new Set();
@@ -1797,6 +1815,7 @@ function render() {
   window.scrollTo(0, scrollY);
   select(state.sel);
   paintPicked();
+  state.comments?.reanchor();
 }
 
 // A page with no draft yet: what kbSite.js puts there (it is on the page before
@@ -2740,6 +2759,7 @@ function placePageChrome() {
     const foot = article.querySelector(':scope > .mb-kb-foot');
     if (foot) foot.insertAdjacentHTML('beforebegin', chrome.tags); else article.insertAdjacentHTML('beforeend', chrome.tags);
   }
+  state.comments?.reanchor(); // the navigation's room may have come or gone
 }
 
 // ── Page settings ────────────────────────────────────────────────────────────

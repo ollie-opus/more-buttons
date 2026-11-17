@@ -376,3 +376,63 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
 @media (prefers-reduced-motion: reduce) {
   .mb-kb-comments-panel { animation: none; }
 }
+
+/* ── Edit mode: beside the text, in the left-hand margin (kbCommentsMargin.js) ──
+   A column over the navigation's room (hidden in edit mode, its room kept),
+   on <body> and in page px: it scrolls with the page. The cards are placed by
+   script, each level with its words; the type is the sidebar's, as in the
+   panel. Under the header (4), the selection icon (3) and the panel (2). */
+
+.mb-kb-comments-margin {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  padding-inline: .6rem .8rem;
+  color: var(--md-default-fg-color);
+  font-size: .7rem;
+  line-height: 1.3;
+}
+.mb-kb-comments-margin .mb-kb-comments__list {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mb-kb-comments-margin .mb-kb-comment,
+.mb-kb-comments-margin .mb-kb-comments__compose {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin-inline: 0;
+}
+/* Neighbours giving way to a card clicked, or to one that grew, glide there. */
+.mb-kb-comments-margin.--placed .mb-kb-comment,
+.mb-kb-comments-margin.--placed .mb-kb-comments__compose {
+  transition: top .22s cubic-bezier(.16, 1, .3, 1), background-color .25s, box-shadow .25s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-comments-margin.--placed .mb-kb-comment,
+  .mb-kb-comments-margin.--placed .mb-kb-comments__compose { transition: background-color .25s, box-shadow .25s; }
+}
+
+/* Resolve: on every card in edit mode, beside the date. */
+.mb-kb-comments__icon[hidden] { display: none; }
+.mb-kb-comment__resolve { flex-shrink: 0; margin-left: .2rem; }
+.mb-kb-comment__resolve:hover:not(:disabled) { color: var(--md-accent-fg-color); }
+
+/* ── The comment button at the end of the draft's format bar ────────────────
+   The bar is the extension's (richTextEditor.js, formsStyling.css): the
+   button is one of its own buttons, after a line drawn like the bar's edge. */
+
+.mb-rte-float__bar > .mb-kb-comments-barsep {
+  align-self: stretch;
+  flex: none;
+  width: 1px;
+  margin: 4px 3px;
+  background-color: var(--mb-border);
+}
+.mb-rte-float__bar > .mb-kb-comments-barbtn svg { width: 18px; height: 18px; }
+.mb-rte-float__bar > :is(.mb-kb-comments-barsep, .mb-kb-comments-barbtn)[hidden] { display: none; }
+
+/* The header button's badge with a comment box waiting in the closed panel. */
+.mb-kb-comments-btn__count.--unsent { padding-right: .15rem; }
