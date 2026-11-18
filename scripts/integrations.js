@@ -1,6 +1,6 @@
 import { createForm } from './form.js';
-import { authHeader } from './repoClient.js';
-import { commentsAccess } from './kbCommentsClient.js';
+import { authHeader, REPO } from './repoClient.js';
+import { commentsWriteAccess, probeResult } from './kbCommentsClient.js';
 import { registerFormAction } from './formActions.js';
 import { GEMINI_STORAGE_KEY, loadAiPrompts, buildGeminiRequest, parseGeminiResponse } from './aiReword.js';
 
@@ -56,24 +56,83 @@ export async function openIntegrations() {
     github: !!store.moreButtonsIntegrations?.githubPAT,
     gemini: !!store[GEMINI_STORAGE_KEY]?.geminiApiKey,
   };
+  const show = (el, text, cls) => {
+    el.textContent = text;
+    el.classList.toggle('--ok', cls === '--ok');
+    el.classList.toggle('--warn', cls === '--warn');
+  };
   formEl.querySelectorAll('[data-integration-status]').forEach(el => {
-    const ok = connected[el.dataset.integrationStatus];
-    el.textContent = ok ? 'Connected' : 'Not connected';
-    el.classList.toggle('--ok', ok);
-    el.classList.toggle('--warn', !ok);
+    const name = el.dataset.integrationStatus;
+    if (!connected[name]) return show(el, 'Not connected', '--warn');
+    if (name !== 'github') return show(el, 'Connected', '--ok');
+    // GitHub: a saved token is only "Connected" when it can read and write
+    // both repositories (the GitHub screen's two tiles). One that can't is
+    // "Incomplete"; a check GitHub didn't answer is not held against it.
+    show(el, 'Checking…', null);
+    Promise.all(Object.values(ACCESS_CHECKS).map(check => check().catch(() => 'error'))).then(states => {
+      if (!el.isConnected) return;
+      const short = states.some(s => s === 'read-only' || s === 'no-access');
+      show(el, short ? 'Incomplete' : 'Connected', short ? '--warn' : '--ok');
+    });
   });
 }
 
-// Comments live in a second repo; show the note only when a token is saved
-// and it can't reach that repo. Never blocks the form (errors just hide it).
-async function populateCommentsAccess(note) {
-  if (!note) return;
+// Can the saved token read AND write the knowledge-base repo itself?
+// 'ok' | 'read-only' (Contents is Read-only) | 'no-access' | 'error'
+// (a rate limit, or GitHub not answering, is an error: never read as no access).
+// Writing is asked with a request that can never write anything: a file PUT
+// with no content and no message (kbCommentsClient.js probeResult).
+async function kbAccess() {
   try {
-    const store = await chrome.storage.local.get('moreButtonsIntegrations');
-    const access = store.moreButtonsIntegrations?.githubPAT ? await commentsAccess() : 'ok';
-    note.hidden = access !== 'no-access';
+    const api = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
+    const headers = { Authorization: await authHeader(), Accept: 'application/vnd.github+json' };
+    const res = await fetch(api, { headers, cache: 'no-store' });
+    if (!res.ok) {
+      const limited = res.status === 429
+        || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.get('retry-after') !== null));
+      return !limited && [401, 403, 404].includes(res.status) ? 'no-access' : 'error';
+    }
+    const probe = await fetch(`${api}/contents/.mb-access-check`, {
+      method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store',
+    });
+    return probeResult(probe);
   } catch {
-    note.hidden = true;
+    return 'error';
+  }
+}
+
+const ACCESS_CHECKS = { kb: kbAccess, comments: () => commentsWriteAccess() };
+const ACCESS_WORDS = {
+  ok: ['This token can read and write ', '.'],
+  'read-only': ['This token can only read ', '.'],
+  'no-access': ["This token can't reach ", '.'],
+  error: ["Couldn't check ", '.'],
+};
+
+// The two access tiles: one per repository the token needs, each saying
+// whether the SAVED token reaches it. Hidden while no token is saved. Each
+// tile is checked on its own, so one slow answer does not hold the other.
+// Never blocks the form.
+async function populateAccess(root) {
+  const pair = root.querySelector('[data-access-pair]');
+  if (!pair) return;
+  let token = null;
+  try {
+    token = (await chrome.storage.local.get('moreButtonsIntegrations')).moreButtonsIntegrations?.githubPAT;
+  } catch { /* no storage: nothing to say */ }
+  pair.hidden = !token;
+  if (!token) return;
+  for (const tile of pair.querySelectorAll('[data-access]')) {
+    const text = tile.querySelector('[data-access-text]');
+    tile.dataset.state = 'checking';
+    text.textContent = 'Checking…';
+    ACCESS_CHECKS[tile.dataset.access]().then(state => {
+      const [before, after] = ACCESS_WORDS[state];
+      const repo = document.createElement('strong');
+      repo.textContent = tile.dataset.repo;
+      text.replaceChildren(before, repo, after);
+      tile.dataset.state = state;
+    });
   }
 }
 
@@ -86,13 +145,12 @@ export async function openGithubIntegration() {
 
   // PAT may not be set yet — try anyway; the error renders as a normal message.
   populateRateLimit(panel);
-  const note = contentEl.querySelector('[data-comments-access]');
-  populateCommentsAccess(note);
+  populateAccess(contentEl);
 
   contentEl.addEventListener('click', (e) => {
     if (e.target.closest('[data-rate-limit-refresh]')) {
       populateRateLimit(panel);
-      populateCommentsAccess(note);
+      populateAccess(contentEl);
     }
   });
 }

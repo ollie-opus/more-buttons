@@ -13,7 +13,8 @@
  * the comments repo leaves the page exactly as it was.
  *
  * Where the list goes is one swappable piece (PLACEMENTS): on the live page,
- * under the theme's "On this page" list when the view has that margin; in edit
+ * in the right-hand margin under the theme's "On this page" list, each card
+ * level with its words (kbCommentsMargin.js), when the view has that margin; in edit
  * mode, beside the text in the empty left-hand margin (kbCommentsMargin.js);
  * otherwise in a pull-out panel opened from a button in the site's header
  * (kbCommentsPanel.js). In edit mode every card can also be resolved, and in
@@ -32,7 +33,7 @@
  * Node-tested; the rest needs a DOM.
  */
 
-import { buildIssue, makeAnchor, findAnchor, commentsForGuide, orderComments, BODY_MAX } from './kbComments.js';
+import { buildIssue, makeAnchor, findAnchor, commentsForGuide, orderComments, authorEl, BODY_MAX } from './kbComments.js';
 import { loadLucideBodies, lucideSvg } from './lucideIcons.js';
 import { setThemeTip, KB_HOST } from './kbSite.js';
 import { currentGithubLogin } from './repoClient.js';
@@ -313,7 +314,35 @@ const PLACEMENTS = {
   /** Edit mode: in the left-hand margin, each card level with its words. */
   margin: (doc, list, ctx) => mountMargin(doc, list, ctx),
 
-  /** Under the theme's "On this page", as a second list of the same kind: its title is the same element. */
+  /**
+   * The live page: beside the text in the right-hand margin, under the theme's
+   * "On this page", each card level with its words where it can be. The cards
+   * scroll with the page and pass under the list (which stays put); none is
+   * placed where the list stands at the top of the page.
+   */
+  beside(doc, list, ctx) {
+    const root = doc.documentElement;
+    const side = doc.querySelector('.md-sidebar--secondary');
+    let at = null; // as measured for the layout being done
+    const room = () => {
+      at = besideRoom(doc);
+      // The ground the cards pass under: the sidebar's top, down to just under the list (kbComments.css).
+      if (at) side.style.setProperty('--mb-kb-comments-cover', `${Math.round(at.under + 6)}px`);
+      return at?.room ?? null;
+    };
+    root.classList.add('mb-kb-comments-beside');
+    const host = mountMargin(doc, list, { ...ctx, room, floor: () => at?.floor ?? 0, side: 'right' });
+    return {
+      ...host,
+      remove() {
+        host.remove();
+        root.classList.remove('mb-kb-comments-beside');
+        side.style.removeProperty('--mb-kb-comments-cover');
+      },
+    };
+  },
+
+  /** Under the theme's "On this page", as a second list of the same kind: its title is the same element (used when the list leaves too little room beside the text). */
   toc(doc, list) {
     const inner = doc.querySelector('.md-sidebar--secondary .md-sidebar__inner');
     if (!inner) return null;
@@ -330,9 +359,37 @@ const PLACEMENTS = {
   },
 };
 
+// Under "On this page" there must be this much of the window left for cards
+// beside the text; with less (a long list of headings) they go in the list's
+// own scrolling column instead.
+const BESIDE_MIN = 240;
+
 /**
- * Where the list can go in this view. On the live page: 'toc' when the theme's
- * right-hand sidebar is on the page beside the article, 'panel' otherwise. In
+ * The room beside the text on the live page: the right-hand sidebar's box in
+ * the window, and the page y the cards may start at (just under "On this
+ * page" as it stands with the page scrolled to the top: the sidebar is sticky,
+ * so where it stands now is not asked). Null when there is too little window
+ * left under the list.
+ */
+function besideRoom(doc) {
+  const win = doc.defaultView;
+  const side = doc.querySelector('.md-sidebar--secondary');
+  if (!side) return null;
+  const room = side.getBoundingClientRect();
+  const toc = [...side.querySelectorAll('nav.md-nav--secondary')].find(n => !n.hidden && n.getClientRects().length);
+  const under = toc ? toc.getBoundingClientRect().bottom - room.top : 0; // the list's height, from the sidebar's top
+  const sticky = parseFloat(win.getComputedStyle(side).top) || 0;       // where the sidebar's top rests once stuck
+  if (win.innerHeight - sticky - under < BESIDE_MIN) return null;
+  const content = doc.querySelector('.md-content')?.getBoundingClientRect();
+  const rest = Math.min(room.top, content?.top ?? room.top) + win.scrollY; // the sidebar's top with the page at the top
+  return { room, under, floor: rest + under };
+}
+
+/**
+ * Where the list can go in this view. On the live page: 'beside' when the
+ * theme's right-hand sidebar is on the page beside the article and leaves room
+ * under "On this page", 'toc' (in the sidebar itself) when it does not, 'panel'
+ * when there is no sidebar. In
  * edit mode: 'margin' when the left-hand margin is there (marginRoom), 'panel'
  * otherwise; never 'toc' (edit mode adds nothing to the right-hand sidebar,
  * which kbToc.js redraws). The sidebars are asked, not a width: they are gone
@@ -347,7 +404,7 @@ function placement(doc, mode) {
   if (!side || !inner || side.hidden || !side.getClientRects().length) return 'panel';
   const style = doc.defaultView.getComputedStyle(side);
   if (style.visibility === 'hidden' || style.position === 'fixed' || !inner.getClientRects().length) return 'panel';
-  return 'toc';
+  return besideRoom(doc) ? 'beside' : 'toc';
 }
 
 // ── The comments on the page ─────────────────────────────────────────────────
@@ -572,11 +629,13 @@ export function startKbComments(opts) {
     const li = el(doc, 'li', 'mb-kb-comment');
     li.tabIndex = 0;
     li.dataset.number = String(c.number);
+    // The head: the name with the date under it, and the card's buttons kept in the top right corner.
     const meta = el(doc, 'div', 'mb-kb-comment__meta');
-    meta.append(el(doc, 'span', 'mb-kb-comment__author', c.author));
+    const who = el(doc, 'div', 'mb-kb-comment__who');
     const time = el(doc, 'time', 'mb-kb-comment__date', relativeDate(c.createdAt));
     if (c.createdAt) time.dateTime = c.createdAt;
-    meta.append(time);
+    who.append(authorEl(doc, c.author), time);
+    meta.append(who);
     const text = el(doc, 'p', 'mb-kb-comment__text', c.text);
     li.append(meta, text);
     if (canResolve()) addResolve(meta, text, c);
@@ -713,7 +772,8 @@ export function startKbComments(opts) {
     }
     const li = el(doc, 'li', 'mb-kb-comments__compose');
     const meta = el(doc, 'div', 'mb-kb-comment__meta');
-    const who = el(doc, 'span', 'mb-kb-comment__author', login ?? '');
+    const who = el(doc, 'div', 'mb-kb-comment__who');
+    who.append(authorEl(doc, login));
     meta.append(who);
     const quote = el(doc, 'blockquote', 'mb-kb-comment__quote', anchor.quote);
     const box = el(doc, 'textarea', 'mb-kb-comments__input');

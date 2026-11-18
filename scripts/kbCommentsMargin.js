@@ -48,15 +48,19 @@ export function marginRoom(doc) {
  *
  * @param {Document} doc
  * @param {HTMLElement} list
- * @param {{article: HTMLElement, wants: () => Map<Element, number|null>, pinned: () => Element|null}} opts
+ * @param {{article: HTMLElement, wants: () => Map<Element, number|null>, pinned: () => Element|null,
+ *   room?: () => DOMRect|null, floor?: () => number, side?: 'left'|'right'}} opts
  *   `wants`: for each card in the list, the page y its words start at (null: not on the page);
- *   `pinned`: the card that keeps its exact place, or null
+ *   `pinned`: the card that keeps its exact place, or null;
+ *   `room`: the column's box in the window (the left-hand margin when not given);
+ *   `floor`: a page y no card is placed above (the article's top is always one);
+ *   `side`: which margin it is, for the column's own padding (kbComments.css)
  * @returns {{el: HTMLElement, refresh(): void, remove(): void}}
  */
-export function mountMargin(doc, list, { article, wants, pinned }) {
+export function mountMargin(doc, list, { article, wants, pinned, room: roomOf = () => marginRoom(doc), floor: floorOf = null, side = 'left' }) {
   const win = doc.defaultView;
   const host = doc.createElement('div');
-  host.className = 'mb-kb-comments-margin';
+  host.className = `mb-kb-comments-margin --${side}`;
   host.setAttribute('role', 'complementary');
   host.setAttribute('aria-label', 'Comments');
   host.append(list);
@@ -68,7 +72,7 @@ export function mountMargin(doc, list, { article, wants, pinned }) {
 
   function layout() {
     if (dead) return;
-    const room = marginRoom(doc);
+    const room = roomOf();
     if (!room) return; // the core moves the list on (its resize handler asks placement() again)
     const box = article.getBoundingClientRect();
     const floor = box.top + win.scrollY;
@@ -85,8 +89,9 @@ export function mountMargin(doc, list, { article, wants, pinned }) {
       items.push({ id: li, want: top, height: li.offsetHeight });
     }
     const pin = pinned();
-    const stacked = clampTops(items, stackTops(items, { gap: GAP, pinned: items.some(it => it.id === pin) ? pin : null }), { gap: GAP, floor: 0 });
-    const tops = boundTops(items, stacked, { gap: GAP, floor: 0, ceiling: box.height });
+    const min = floorOf ? Math.max(0, floorOf() - floor + GAP) : 0; // in the column's own px
+    const stacked = clampTops(items, stackTops(items, { gap: GAP, pinned: items.some(it => it.id === pin) ? pin : null }), { gap: GAP, floor: min });
+    const tops = boundTops(items, stacked, { gap: GAP, floor: min, ceiling: box.height });
     for (const it of items) {
       const top = `${Math.round(tops.get(it.id))}px`;
       if (it.id.style.top !== top) it.id.style.top = top;

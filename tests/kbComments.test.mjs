@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIssue, parseIssue, withText, withPage, makeAnchor, findAnchor, commentsForGuide, orderComments, stackTops, clampTops, boundTops } from '../scripts/kbComments.js';
+import { buildIssue, parseIssue, withText, withPage, makeAnchor, findAnchor, commentsForGuide, orderComments, stackTops, clampTops, boundTops, authorHue, AUTHOR_HUES } from '../scripts/kbComments.js';
 import { textModel } from '../scripts/kbCommentsUi.js';
 
 const anchor = { guide: 'g1', page: 'docs/pages/overview.md', block: 'b1', quote: 'click Save', before: 'Then ', after: ' to finish' };
@@ -301,4 +301,14 @@ test('boundTops keeps a pinned card in place when the cards under it fit', () =>
   assert.deepEqual([...boundTops(items, stacked, { gap: 8, ceiling: 360 })], [...stacked]);
   // A room of 340: 3 moves up to end at 340, pushing into the pin, so the pin gives 8.
   assert.deepEqual([...boundTops(items, stacked, { gap: 8, ceiling: 340 })], [[1, 0], [2, 192], [3, 300]]);
+});
+
+test("a user's colour: the same for the same login whatever its case, one of the hues, none for no login", () => {
+  assert.equal(authorHue('Ollie-Opus'), authorHue('ollie-opus'));
+  assert.ok(AUTHOR_HUES.includes(authorHue('sam-ops')));
+  assert.equal(authorHue('Ollie-Opus'), 235, 'a colour of their own: light blue');
+  assert.equal(authorHue(''), null);
+  assert.equal(authorHue(null), null);
+  const seen = new Set(['priya-s', 'sam-ops', 'dana-k', 'kb-tester', 'ollie-opus'].map(authorHue));
+  assert.ok(seen.size >= 3, 'different people mostly get different colours');
 });

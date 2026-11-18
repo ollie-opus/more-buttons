@@ -1,4 +1,4 @@
-<form id="github-integration-form" data-storage-key="moreButtonsIntegrations" data-nav data-width="720px">
+<form id="github-integration-form" data-storage-key="moreButtonsIntegrations" data-nav="no-home" data-width="900px">
   <h2>GitHub</h2>
 
   <div class="more-buttons-form-group">
@@ -6,18 +6,47 @@
     <input class="more-buttons-input-text" type="password" name="githubPAT" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
   </div>
 
-  <p class="more-buttons-description">
-    Generate a fine-grained token in GitHub
-    <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">here</a>
-    or by navigating to:<br />
-    <strong>Settings</strong> → <strong>Developer settings</strong> → <strong>Personal access tokens</strong> → <strong>Fine-grained tokens</strong>.<br />
-    Set repository access to <strong>opus-knowledge-base</strong> and <strong>opus-knowledge-base-comments</strong> only, with <strong>Contents: Read and write</strong> and <strong>Issues: Read and write</strong>.
-  </p>
+  <!-- Does the saved token reach each repository? One tile per repo, filled in by integrations.js
+       (data-state: checking | ok | read-only | no-access | error); hidden while no token is saved. -->
+  <div class="mb-status-pair" data-access-pair hidden>
+    <div class="mb-status" data-access="kb" data-repo="opus-knowledge-base" data-state="checking" role="status">
+      <span class="mb-status__icon --ok more-buttons-icon">circle-check</span>
+      <span class="mb-status__icon --warn more-buttons-icon">triangle-alert</span>
+      <span class="mb-status__icon --unknown more-buttons-icon">circle-alert</span>
+      <div class="mb-status__body">
+        <div class="mb-status__eyebrow">Opus knowledge base</div>
+        <div class="mb-status__title" data-access-text>Checking…</div>
+        <p class="mb-status__desc --no-access">Edit the same token in GitHub, add this repository, and set <strong>Contents</strong> to <strong>Read and write</strong>.</p>
+        <p class="mb-status__desc --read-only">Guides can't be saved. Edit the same token in GitHub and set <strong>Contents</strong> to <strong>Read and write</strong>.</p>
+      </div>
+    </div>
+    <div class="mb-status" data-access="comments" data-repo="opus-knowledge-base-comments" data-state="checking" role="status">
+      <span class="mb-status__icon --ok more-buttons-icon">circle-check</span>
+      <span class="mb-status__icon --warn more-buttons-icon">triangle-alert</span>
+      <span class="mb-status__icon --unknown more-buttons-icon">circle-alert</span>
+      <div class="mb-status__body">
+        <div class="mb-status__eyebrow">Comments</div>
+        <div class="mb-status__title" data-access-text>Checking…</div>
+        <p class="mb-status__desc --no-access">Comments on guides are off. Edit the same token in GitHub, add this repository, and set <strong>Issues</strong> to <strong>Read and write</strong>.</p>
+        <p class="mb-status__desc --read-only">Comments can be read but not added. Edit the same token in GitHub and set <strong>Issues</strong> to <strong>Read and write</strong>.</p>
+      </div>
+    </div>
+  </div>
 
-  <p class="more-buttons-description" data-comments-access hidden>
-    This token can't reach <strong>opus-knowledge-base-comments</strong>, so comments on guides are switched off.
-    Edit the token in GitHub (the same token, no need to make a new one), add that repository, and set <strong>Issues</strong> to <strong>Read and write</strong>.
-  </p>
+  <div class="more-buttons-form-group">
+    <label class="more-buttons-label">Creating a token</label>
+    <ol class="mb-steps">
+      <li>
+        In GitHub, open
+        <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">Fine-grained tokens</a>
+        and click <strong>Generate new token</strong>.
+        <span class="mb-steps__path">Settings → Developer settings → Personal access tokens → Fine-grained tokens</span>
+      </li>
+      <li>Under <strong>Repository access</strong>, choose <strong>Only select repositories</strong> and pick <strong>opus-knowledge-base</strong> and <strong>opus-knowledge-base-comments</strong>.</li>
+      <li>Under <strong>Repository permissions</strong>, set <strong>Contents</strong> and <strong>Issues</strong> to <strong>Read and write</strong>.</li>
+      <li>Generate the token, paste it into the box above and press <strong>Save</strong>.</li>
+    </ol>
+  </div>
 
   <div class="mb-rate-limit" data-rate-limit hidden>
     <div class="mb-rate-limit__head">

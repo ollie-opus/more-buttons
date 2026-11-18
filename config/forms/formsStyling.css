@@ -1117,6 +1117,115 @@ button.more-buttons-crumb:hover {
   color: var(--mb-text-muted);
 }
 
+/* ── Integrations: a status block (is the token's access right?) and the
+   numbered steps for making a token ─────────────────────────────────────── */
+
+.mb-status-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 18px;
+}
+.mb-status-pair[hidden] { display: none; }
+
+.mb-status {
+  --mb-status: var(--mb-text-muted);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 76px;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--mb-status) 40%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mb-status) 9%, transparent);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.mb-status[data-state="ok"] { --mb-status: #16a34a; }
+.mb-status[data-state="no-access"],
+.mb-status[data-state="read-only"] { --mb-status: rgb(255, 179, 0); }
+/* One icon per state; only the state's own shows. */
+.mb-status__icon {
+  display: none;
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 1.375rem;
+  color: var(--mb-status);
+}
+.mb-status[data-state="ok"] > .mb-status__icon.--ok,
+.mb-status[data-state="no-access"] > .mb-status__icon.--warn,
+.mb-status[data-state="read-only"] > .mb-status__icon.--warn,
+.mb-status[data-state="error"] > .mb-status__icon.--unknown,
+.mb-status[data-state="checking"] > .mb-status__icon.--unknown { display: inline-flex; }
+.mb-status[data-state="checking"] > .mb-status__icon { opacity: 0.4; }
+.mb-status__body { min-width: 0; }
+.mb-status__eyebrow {
+  margin-bottom: 3px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mb-text-muted);
+}
+.mb-status__title {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--mb-text);
+  overflow-wrap: anywhere;
+}
+.mb-status__title strong { font-weight: 600; }
+.mb-status__desc {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--mb-text-muted);
+}
+/* What to change is said only when the token can't reach the repository. */
+.mb-status:not([data-state="no-access"]) .mb-status__desc.--no-access,
+.mb-status:not([data-state="read-only"]) .mb-status__desc.--read-only { display: none; }
+
+.mb-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: mb-step;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--mb-text);
+}
+.mb-steps > li {
+  counter-increment: mb-step;
+  position: relative;
+  padding-left: 32px;
+}
+.mb-steps > li::before {
+  content: counter(mb-step);
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--mb-bg-subtle);
+  border: 1px solid var(--mb-border-subtle);
+  color: var(--mb-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  box-sizing: border-box;
+}
+.mb-steps a { color: #2563eb; text-decoration: underline; }
+.mb-steps__path {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  color: var(--mb-text-muted);
+}
+
 /* ── Integrations hub tiles ───────────────────────────────────────────────── */
 
 .mb-integration-tiles {

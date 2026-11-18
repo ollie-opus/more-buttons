@@ -13,7 +13,7 @@
  * repliesLabel, isOwn and editedBody are pure and Node-tested.
  */
 
-import { withText, withPage, BODY_MAX } from './kbComments.js';
+import { withText, withPage, authorEl, BODY_MAX } from './kbComments.js';
 import { lucideSvg } from './lucideIcons.js';
 import { setThemeTip } from './kbSite.js';
 
@@ -195,10 +195,11 @@ export function attachThread(card, c, ctx) {
   function replyItem(r) {
     const li = el('li', 'mb-kb-reply');
     const rmeta = el('div', 'mb-kb-comment__meta');
-    rmeta.append(el('span', 'mb-kb-comment__author', r.author));
+    const who = el('div', 'mb-kb-comment__who');
     const time = el('time', 'mb-kb-comment__date', ctx.relativeDate(r.createdAt));
     if (r.createdAt) time.dateTime = r.createdAt;
-    rmeta.append(time);
+    who.append(authorEl(doc, r.author), time);
+    rmeta.append(who);
     const text = el('p', 'mb-kb-comment__text', r.text);
     li.append(rmeta, text);
     if (isOwn(ctx.login(), r.author)) {

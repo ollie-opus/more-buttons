@@ -51,31 +51,39 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
 }
 .mb-kb-comment.--active { cursor: default; }
 
+/* The head: the name with the date under it on the left; the card's buttons
+   (Resolve, Edit, Delete) stay in a row in the top right corner, whatever the
+   name's length. */
 .mb-kb-comment__meta {
   display: flex;
-  flex-wrap: wrap; /* the date drops below before the name is cut short */
-  align-items: baseline;
-  column-gap: .4rem;
+  align-items: flex-start;
+  gap: .1rem;
   min-width: 0;
 }
 .mb-kb-comment__meta[hidden] { display: none; }
-.mb-kb-comment__author {
+.mb-kb-comment__who {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-width: 0;
-  max-width: 100%; /* cut with an ellipsis only when the name alone is wider than the card */
+  margin-right: .2rem;
+}
+.mb-kb-comment__author {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 700;
+  /* Each user's name has its own hue (kbComments.js authorHue), dark enough to read on the grey tile. */
+  color: oklch(var(--mb-kb-author-light, 0.48) 0.15 var(--mb-kb-author-hue, 0));
 }
+.mb-kb-comment__author:not([style*="--mb-kb-author-hue"]) { color: inherit; }
 .mb-kb-comment__date {
-  flex-shrink: 0;
-  margin-left: auto;
   color: var(--md-default-fg-color--light);
   font-size: .6rem;
   white-space: nowrap;
 }
 .mb-kb-comment__text {
-  margin: .2rem 0 0;
+  margin: .25rem 0 0;
   white-space: pre-wrap;
   /* A long comment is read in full once opened. */
   display: -webkit-box;
@@ -138,7 +146,7 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
 
 /* The comment's own tools sit in its open card only; a reply's are always there (replies show only when open). */
 .mb-kb-comment:not(.--active) > .mb-kb-comment__meta .mb-kb-comments__tools { display: none; }
-.mb-kb-comments__tools { display: inline-flex; flex-shrink: 0; gap: .1rem; margin-left: .2rem; }
+.mb-kb-comments__tools { display: inline-flex; flex-shrink: 0; gap: .1rem; }
 .mb-kb-comments__icon {
   display: flex;
   align-items: center;
@@ -152,6 +160,9 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
   color: var(--md-default-fg-color--light);
   cursor: pointer;
   transition: color .25s, background-color .25s;
+  /* Level with the name's line, not taller than it. */
+  flex-shrink: 0;
+  margin-block: -.1rem;
 }
 .mb-kb-comments__icon:hover:not(:disabled) { color: var(--md-default-fg-color); background-color: var(--md-default-fg-color--lightest); }
 .mb-kb-comments__icon:disabled { opacity: .45; cursor: default; }
@@ -282,6 +293,8 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
   color: inherit;
 }
 @container style(--mb-dark: 1) {
+  .mb-kb-comment__author { color: oklch(0.8 0.12 var(--mb-kb-author-hue, 0)); }
+  .mb-kb-comment__author:not([style*="--mb-kb-author-hue"]) { color: inherit; }
   ::highlight(mb-kb-comment) {
     background-color: oklch(0.84 0.16 95 / .34);
   }
@@ -405,6 +418,24 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
   right: 0;
   margin-inline: 0;
 }
+/* The live page: the same column in the right-hand margin, under the theme's
+   "On this page". The sidebar is sticky and the cards scroll with the page, so
+   the sidebar goes over them with a piece of the page ground behind its list
+   (its height is set by kbCommentsUi.js): a card scrolled up to the list
+   passes under it. The sidebar's box is as tall as
+   the window, so only the list in it takes the pointer. */
+.mb-kb-comments-margin.--right { padding-inline: .2rem .2rem; }
+html.mb-kb-comments-beside .md-sidebar--secondary { z-index: 2; pointer-events: none; }
+html.mb-kb-comments-beside .md-sidebar--secondary .md-nav--secondary { pointer-events: auto; }
+html.mb-kb-comments-beside .md-sidebar--secondary::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 auto;
+  height: var(--mb-kb-comments-cover, 0);
+  background-color: var(--md-default-bg-color);
+}
+
 /* Neighbours giving way to a card clicked, or to one that grew, glide there. */
 .mb-kb-comments-margin.--placed .mb-kb-comment,
 .mb-kb-comments-margin.--placed .mb-kb-comments__compose {
@@ -415,9 +446,9 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
   .mb-kb-comments-margin.--placed .mb-kb-comments__compose { transition: background-color .25s, box-shadow .25s; }
 }
 
-/* Resolve: on every card in edit mode, beside the date. */
+/* Resolve: on every card in edit mode, first of the buttons in its corner. */
 .mb-kb-comments__icon[hidden] { display: none; }
-.mb-kb-comment__resolve { flex-shrink: 0; margin-left: .2rem; }
+.mb-kb-comment__resolve { flex-shrink: 0; }
 .mb-kb-comment__resolve:hover:not(:disabled) { color: var(--md-accent-fg-color); }
 
 /* ── The comment button at the end of the draft's format bar ────────────────

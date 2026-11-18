@@ -286,3 +286,39 @@ export function boundTops(items, tops, { gap = 8, floor = 0, ceiling = Infinity 
   }
   return clampTops(items, new Map(items.map(it => [it.id, up.get(it.id)])), { gap, floor });
 }
+
+// The hues a name can take (oklch degrees), spaced to stay apart from each
+// other; the lightness and chroma are the stylesheet's (kbComments.css), one
+// pair for each scheme.
+export const AUTHOR_HUES = [25, 55, 95, 145, 185, 225, 260, 295, 325, 355];
+
+// People given a colour of their own (lower-case login → hue); everyone else gets one from their login.
+export const AUTHOR_OWN_HUES = { 'ollie-opus': 235 }; // light (sky) blue
+// A lighter shade than the rest on the light scheme, for those who asked (oklch lightness; the dark scheme's is already light).
+const AUTHOR_OWN_LIGHT = { 'ollie-opus': 0.62 };
+
+/**
+ * The hue of a GitHub user's name: always the same for the same login (logins
+ * are not case sensitive), on every page. Two people can share one; null for
+ * no login.
+ */
+export function authorHue(login) {
+  const name = String(login ?? '').trim().toLowerCase();
+  if (!name) return null;
+  if (Object.hasOwn(AUTHOR_OWN_HUES, name)) return AUTHOR_OWN_HUES[name];
+  let h = 2166136261; // FNV-1a
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return AUTHOR_HUES[(h >>> 0) % AUTHOR_HUES.length];
+}
+
+/** An element for a user's name, in that user's colour. */
+export function authorEl(doc, login) {
+  const span = doc.createElement('span');
+  span.className = 'mb-kb-comment__author';
+  span.textContent = login ?? '';
+  const hue = authorHue(login);
+  if (hue != null) span.style.setProperty('--mb-kb-author-hue', String(hue));
+  const light = AUTHOR_OWN_LIGHT[String(login ?? '').trim().toLowerCase()];
+  if (light) span.style.setProperty('--mb-kb-author-light', String(light));
+  return span;
+}

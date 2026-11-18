@@ -718,7 +718,10 @@ export async function createForm(formName, opener, { rootEntry = false, baseline
         return el;
       };
       const rootIsHome = history[0]?.formName === HOME_FORM;
-      if (!rootIsHome && getFormAction(HOME_ACTION)) {
+      // A form with data-nav="no-home" (the Integrations screens) is not part
+      // of the Knowledge Base tool: its trail gets no virtual house.
+      const noHome = formEl.getAttribute('data-nav') === 'no-home';
+      if (!rootIsHome && !noHome && getFormAction(HOME_ACTION)) {
         const home = houseCrumb(false);
         home.dataset.navAction = 'home';
         crumbs.append(home, sepEl());

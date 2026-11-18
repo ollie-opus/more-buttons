@@ -133,3 +133,31 @@ export async function commentsAccess(deps) {
     return 'error';
   }
 }
+
+/**
+ * What a write probe's answer says about the token: a request that asks for a
+ * write but is missing everything a write needs. GitHub checks the token's
+ * permission before the request's contents, so with write permission it is
+ * turned down as invalid (422) and without it as forbidden; nothing is ever
+ * written either way. 'ok' | 'read-only' | 'error'.
+ */
+export function probeResult(res) {
+  if (res.status === 422) return 'ok';
+  if (rateLimited(res)) return 'error';
+  return NO_ACCESS.includes(res.status) ? 'read-only' : 'error';
+}
+
+/**
+ * Can this token read AND write the comments repository's issues?
+ * 'ok' | 'read-only' (Issues is Read-only) | 'no-access' | 'error'.
+ */
+export async function commentsWriteAccess(deps) {
+  const read = await commentsAccess(deps);
+  if (read !== 'ok') return read;
+  try {
+    return probeResult(await request('POST', '/issues', {}, deps)); // no title: can never make an issue
+  } catch {
+    return 'error';
+  }
+}
+

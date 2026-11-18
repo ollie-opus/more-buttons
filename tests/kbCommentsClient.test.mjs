@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildIssue } from '../scripts/kbComments.js';
 import {
   listOpenComments, createComment, updateCommentBody, closeComment,
-  listReplies, addReply, editReply, deleteReply, commentsAccess,
+  listReplies, addReply, editReply, deleteReply, commentsAccess, commentsWriteAccess,
 } from '../scripts/kbCommentsClient.js';
 
 const BASE = 'https://api.github.com/repos/opus-safety/opus-knowledge-base-comments';
@@ -137,6 +137,18 @@ test('commentsAccess: ok, no-access, error', async () => {
   assert.equal(await commentsAccess(stub([{ status: 404, json: {} }]).deps), 'no-access');
   assert.equal(await commentsAccess(stub([{ status: 500, json: {} }]).deps), 'error');
   assert.equal(await commentsAccess(stub([new Error('x')]).deps), 'error');
+});
+
+test('commentsWriteAccess: write is asked with an issue that can never be made', async () => {
+  const s = stub([{ status: 200, json: [] }, { status: 422, json: {} }]);
+  assert.equal(await commentsWriteAccess(s.deps), 'ok');
+  assert.equal(s.calls[1].url, `${BASE}/issues`);
+  assert.equal(s.calls[1].method, 'POST');
+  assert.deepEqual(s.calls[1].body, {});
+  assert.equal(await commentsWriteAccess(stub([{ status: 200, json: [] }, { status: 403, json: {} }]).deps), 'read-only');
+  assert.equal(await commentsWriteAccess(stub([{ status: 404, json: {} }]).deps), 'no-access');
+  assert.equal(await commentsWriteAccess(stub([{ status: 200, json: [] }, { status: 500, json: {} }]).deps), 'error');
+  assert.equal(await commentsWriteAccess(stub([{ status: 200, json: [] }, new Error('x')]).deps), 'error');
 });
 
 const LIMITS = [

@@ -60,14 +60,19 @@ function headingsOf(article) {
 
 // The theme's list, or one made in its place when the site built the page
 // with no headings under the title (it leaves the list out then).
+// A draft's url is the site's 404 page, whose list is an empty `<nav>`: no
+// title and no list. Both are put in, as the site builds them on a live page.
+const TITLE = '<label class="md-nav__title" for="__toc"><span class="md-nav__icon md-icon"></span>On this page</label>';
+
 function listOf(sidebar) {
   let nav = sidebar.querySelector('.md-nav--secondary');
   if (!nav) {
     const inner = sidebar.querySelector('.md-sidebar__inner');
     if (!inner) return null;
-    inner.insertAdjacentHTML('beforeend', '<nav class="md-nav md-nav--secondary" aria-label="On this page"><label class="md-nav__title" for="__toc"><span class="md-nav__icon md-icon"></span>On this page</label></nav>');
+    inner.insertAdjacentHTML('beforeend', '<nav class="md-nav md-nav--secondary" aria-label="On this page"></nav>');
     nav = inner.lastElementChild;
   }
+  if (!nav.querySelector(':scope > .md-nav__title')) nav.insertAdjacentHTML('afterbegin', TITLE);
   let list = nav.querySelector(':scope > ul.md-nav__list');
   if (!list) {
     nav.insertAdjacentHTML('beforeend', '<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix></ul>');
