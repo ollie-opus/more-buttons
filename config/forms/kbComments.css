@@ -424,7 +424,13 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
    (its height is set by kbCommentsUi.js): a card scrolled up to the list
    passes under it. The sidebar's box is as tall as
    the window, so only the list in it takes the pointer. */
-.mb-kb-comments-margin.--right { padding-inline: .2rem .2rem; }
+.mb-kb-comments-margin.--right { padding-inline: .2rem .2rem; z-index: auto; }
+/* The column holds no layer of its own here, so each card takes its own place
+   against the sidebar (2): the rest pass under it, and the one clicked, or the
+   box being written, is drawn over it (still under the theme's header, 4). */
+.mb-kb-comments-margin.--right .mb-kb-comment { z-index: 1; }
+.mb-kb-comments-margin.--right .mb-kb-comment.--active,
+.mb-kb-comments-margin.--right .mb-kb-comments__compose { z-index: 3; }
 html.mb-kb-beside-comments .md-sidebar--secondary { z-index: 2; pointer-events: none; }
 html.mb-kb-beside-comments .md-sidebar--secondary .md-nav--secondary { pointer-events: auto; }
 html.mb-kb-beside-comments .md-sidebar--secondary::before {
