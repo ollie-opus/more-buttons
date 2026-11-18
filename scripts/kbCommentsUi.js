@@ -44,6 +44,8 @@ import { mountMargin, marginRoom } from './kbCommentsMargin.js';
 const HIGHLIGHT = 'mb-kb-comment';
 const STYLESHEET_ID = 'mb-kb-comments-stylesheet';
 const SAVE_FAILED = "Couldn't save the comment.";
+// The room left between the site's header and the words a clicked comment scrolls to.
+const SCROLL_GAP = 32;
 
 // ── The text model ───────────────────────────────────────────────────────────
 
@@ -721,14 +723,18 @@ export function startKbComments(opts) {
     }
   }
 
+  /** Brings the start of the words to the top of the screen, just clear of the site's sticky header. */
   function scrollToRange(range) {
-    let r = range.getBoundingClientRect();
+    // The first line's box: a long selection's own box is the whole run, and its middle may be screens away.
+    let r = range.getClientRects?.()[0] || range.getBoundingClientRect();
     if (!r.width && !r.height) {
       const holder = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
       r = holder.getBoundingClientRect();
     }
+    const header = win.document.querySelector('.md-header')?.getBoundingClientRect();
+    const clear = Math.max(0, header?.bottom || 0) + SCROLL_GAP;
     const reduce = win.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    win.scrollTo({ top: Math.max(0, win.scrollY + r.top + r.height / 2 - win.innerHeight / 2), behavior: reduce ? 'auto' : 'smooth' });
+    win.scrollTo({ top: Math.max(0, win.scrollY + r.top - clear), behavior: reduce ? 'auto' : 'smooth' });
   }
 
   function highlight(at, { scroll }) {
