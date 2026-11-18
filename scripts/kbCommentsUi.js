@@ -330,13 +330,15 @@ const PLACEMENTS = {
       if (at) side.style.setProperty('--mb-kb-comments-cover', `${Math.round(at.under + 6)}px`);
       return at?.room ?? null;
     };
-    root.classList.add('mb-kb-comments-beside');
+    // Not an `mb-kb-comments…` name: on the root that would make the whole page
+    // "ours" (isOurs), and no words in it could be commented on.
+    root.classList.add('mb-kb-beside-comments');
     const host = mountMargin(doc, list, { ...ctx, room, floor: () => at?.floor ?? 0, side: 'right' });
     return {
       ...host,
       remove() {
         host.remove();
-        root.classList.remove('mb-kb-comments-beside');
+        root.classList.remove('mb-kb-beside-comments');
         side.style.removeProperty('--mb-kb-comments-cover');
       },
     };

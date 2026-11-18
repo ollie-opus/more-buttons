@@ -425,9 +425,9 @@ html.mb-kb-host[data-mb-theme="dark"]  { --mb-dark: 1; }
    passes under it. The sidebar's box is as tall as
    the window, so only the list in it takes the pointer. */
 .mb-kb-comments-margin.--right { padding-inline: .2rem .2rem; }
-html.mb-kb-comments-beside .md-sidebar--secondary { z-index: 2; pointer-events: none; }
-html.mb-kb-comments-beside .md-sidebar--secondary .md-nav--secondary { pointer-events: auto; }
-html.mb-kb-comments-beside .md-sidebar--secondary::before {
+html.mb-kb-beside-comments .md-sidebar--secondary { z-index: 2; pointer-events: none; }
+html.mb-kb-beside-comments .md-sidebar--secondary .md-nav--secondary { pointer-events: auto; }
+html.mb-kb-beside-comments .md-sidebar--secondary::before {
   content: "";
   position: absolute;
   z-index: -1;
