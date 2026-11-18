@@ -46,6 +46,12 @@ const STYLESHEET_ID = 'mb-kb-comments-stylesheet';
 const SAVE_FAILED = "Couldn't save the comment.";
 // The room left between the site's header and the words a clicked comment scrolls to.
 const SCROLL_GAP = 32;
+// The open comments are asked for again this often while the page is in view, and when it comes
+// back into view (never more often than the second figure): one small request each time.
+const REFRESH_MS = 60000;
+const REFRESH_MIN_MS = 15000;
+// A comment just posted is not taken for deleted if GitHub's list is a moment behind.
+const FRESH_MS = 120000;
 
 // ── The text model ───────────────────────────────────────────────────────────
 
@@ -510,6 +516,10 @@ export function startKbComments(opts) {
   let retry = 0;           // a second look for the format buttons, which show a moment after the selection
   const bars = new Set();  // the format bars our comment button has been put in
   const off = [];          // listeners to take away again
+  let refreshing = false;  // the open comments are being asked for again
+  let refreshedAt = 0;     // when they were last asked for
+  let refreshTimer = 0;
+  const posted = new Map(); // comment number → when it was posted from this page
 
   const list = el(doc, 'ol', 'md-nav__list mb-kb-comments__list');
 
@@ -825,6 +835,7 @@ export function startKbComments(opts) {
         if (!made) throw new Error(SAVE_FAILED);
         if (dead || compose !== mine) return;
         comments.push(made);
+        posted.set(made.number, Date.now());
         const card = makeCard(made);
         cards.set(made.number, card);
         li.replaceWith(card); // the new card takes the box's place
@@ -1018,6 +1029,8 @@ export function startKbComments(opts) {
     list.addEventListener('keydown', e => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('li.mb-kb-comment')) { e.preventDefault(); activate(e.target); }
     });
+    listen(doc, 'visibilitychange', () => { if (!doc.hidden) refresh(); });
+    refreshTimer = win.setInterval(refresh, REFRESH_MS);
     const MO = win.MutationObserver;
     observer = new MO(() => { model = null; });
     observer.observe(article, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
@@ -1041,6 +1054,40 @@ export function startKbComments(opts) {
       draw();
     } catch (err) {
       console.warn('MB Warn: could not load the comments on this page', err);
+    }
+  }
+
+  /**
+   * Ask for the open comments again, so what other people have done since the
+   * page loaded shows without a reload: a comment resolved or deleted leaves
+   * the list, a new one joins it. A card with something typed in it unsent is
+   * left alone (its Reply says why it can't be sent). A failed request changes
+   * nothing and says nothing; the next one tries again.
+   */
+  async function refresh() {
+    if (dead || refreshing || !client || !observer || doc.hidden) return;
+    if (Date.now() - refreshedAt < REFRESH_MIN_MS) return;
+    refreshing = true;
+    refreshedAt = Date.now();
+    try {
+      const res = await client.listOpenComments();
+      if (dead || !res?.ok) return;
+      const open = new Set(res.comments.map(c => c.number));
+      for (const c of [...comments]) {
+        if (open.has(c.number)) continue;
+        if (Date.now() - (posted.get(c.number) ?? 0) < FRESH_MS) continue;
+        if (threads.get(c.number)?.busy()) continue;
+        removeComment(c.number); // draws
+      }
+      const have = new Set(comments.map(c => c.number));
+      const before = comments.length;
+      pool = res.comments.filter(c => !have.has(c.number));
+      adopt();
+      if (comments.length !== before) draw();
+    } catch (err) {
+      console.warn('MB Warn: could not refresh the comments on this page', err);
+    } finally {
+      refreshing = false;
     }
   }
 
@@ -1096,6 +1143,7 @@ export function startKbComments(opts) {
       if (instances.get(doc) === handle) instances.delete(doc);
       if (checkTimer) win.clearTimeout(checkTimer);
       if (retry) win.clearTimeout(retry);
+      if (refreshTimer) win.clearInterval(refreshTimer);
       off.splice(0).forEach(f => f());
       observer?.disconnect();
       if (frame) win.cancelAnimationFrame(frame);

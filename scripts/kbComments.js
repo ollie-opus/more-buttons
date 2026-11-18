@@ -20,6 +20,9 @@ const TITLE_QUOTE_MAX = 60;
 const TITLE_MAX = 250;
 export const BODY_MAX = 60000;
 
+/** What a person is told about a comment that someone has since 'resolved' or 'deleted'. */
+export const goneMessage = how => (how === 'resolved' ? 'This comment has been resolved.' : 'This comment has been deleted.');
+
 /** The anchor as one line of JSON, with < and > escaped so "-->" can never close the comment early. */
 function dataBlock(anchor) {
   const { guide, page, block, quote, before, after } = anchor;

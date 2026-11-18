@@ -2,7 +2,7 @@
 // issue comment per reply, all in the private COMMENTS_REPO (never the
 // knowledge-base repo itself). Every function takes a last optional
 // `deps = { fetchImpl, auth }` so tests need neither `fetch` nor `chrome`.
-import { COMMENTS_REPO, parseIssue } from './kbComments.js';
+import { COMMENTS_REPO, parseIssue, goneMessage } from './kbComments.js';
 import { authHeader } from './repoClient.js';
 
 const API = `https://api.github.com/repos/${COMMENTS_REPO.owner}/${COMMENTS_REPO.name}`;
@@ -39,8 +39,8 @@ async function request(method, path, body, { fetchImpl = fetch, auth = authHeade
 
 // A write: throws a short readable Error unless GitHub answers 2xx; returns the response.
 // `gone`: a 404 means it is already gone, which is what was wanted. `long`: a 422
-// most likely means the text is over GitHub's limit.
-async function write(method, path, body, deps, { gone = false, long = false } = {}) {
+// most likely means the text is over GitHub's limit. `any`: the answer is returned whatever it is.
+async function write(method, path, body, deps, { gone = false, long = false, any = false } = {}) {
   let res;
   try {
     res = await request(method, path, body, deps);
@@ -48,10 +48,56 @@ async function write(method, path, body, deps, { gone = false, long = false } = 
     if (err?.message === NO_TOKEN_MESSAGE) throw err;
     throw new Error(UNREACHABLE_MESSAGE);
   }
-  if (res.ok || (gone && res.status === 404)) return res;
-  if (rateLimited(res)) throw new Error(RATE_LIMIT_MESSAGE);
-  if (long && res.status === 422) throw new Error(TOO_LONG_MESSAGE);
-  throw new Error(NO_ACCESS.includes(res.status) ? NO_WRITE_MESSAGE : `GitHub error ${res.status}.`);
+  if (any || res.ok || (gone && res.status === 404)) return res;
+  throw failure(res, long);
+}
+
+// What a turned-down request is told to the person as.
+function failure(res, long = false) {
+  if (rateLimited(res)) return new Error(RATE_LIMIT_MESSAGE);
+  if (long && res.status === 422) return new Error(TOO_LONG_MESSAGE);
+  return new Error(NO_ACCESS.includes(res.status) ? NO_WRITE_MESSAGE : `GitHub error ${res.status}.`);
+}
+
+// ── Is a comment still there? ──
+// A comment someone else resolved or deleted stays on a page that was loaded
+// before: Resolve and Delete close its issue, and an issue can also be deleted
+// outright on GitHub. GitHub takes a reply to a closed issue without complaint,
+// and answers for a deleted one with the same 404 as for a token with no access.
+
+// What the answer to "GET this issue" says: 'open' | 'resolved' | 'deleted' | null (it doesn't say).
+async function statusFrom(res, deps) {
+  if (res.ok) {
+    let issue;
+    try { issue = await res.json(); } catch { return null; }
+    if (issue?.state !== 'closed') return issue?.state === 'open' ? 'open' : null;
+    return issue.state_reason === 'completed' ? 'resolved' : 'deleted';
+  }
+  if (res.status === 410) return 'deleted';
+  // A 404 for one issue while the repository's list still answers: the issue was deleted.
+  if (res.status === 404 && await commentsAccess(deps) === 'ok') return 'deleted';
+  return null;
+}
+
+const isGone = status => status === 'resolved' || status === 'deleted';
+const goneError = how => Object.assign(new Error(goneMessage(how)), { gone: how });
+
+/** Is this comment still open? 'open' | 'resolved' | 'deleted' | null when GitHub couldn't be asked. Never throws. */
+export async function commentStatus(number, deps) {
+  try {
+    return await statusFrom(await request('GET', `/issues/${number}`, undefined, deps), deps);
+  } catch {
+    return null;
+  }
+}
+
+// Before a write to a comment: throws (with `gone` set) when it has been resolved or deleted,
+// and the usual readable Error when GitHub can't be asked at all.
+async function mustBeOpen(number, deps) {
+  const res = await write('GET', `/issues/${number}`, undefined, deps, { any: true });
+  const status = await statusFrom(res, deps);
+  if (isGone(status)) throw goneError(status);
+  if (!res.ok) throw failure(res);
 }
 
 // Every page of a list endpoint, following pages until one is short.
@@ -92,12 +138,16 @@ export async function createComment({ title, body }, deps) {
 }
 
 export async function updateCommentBody(number, body, deps) {
+  await mustBeOpen(number, deps);
   return parseIssue(await (await write('PATCH', `/issues/${number}`, { body }, deps, { long: true })).json());
 }
 
 /** reason: 'completed' (Resolve) or 'not_planned' (Delete). */
 export async function closeComment(number, reason, deps) {
-  await write('PATCH', `/issues/${number}`, { state: 'closed', state_reason: reason }, deps);
+  const res = await write('PATCH', `/issues/${number}`, { state: 'closed', state_reason: reason }, deps, { any: true });
+  if (res.ok) return;
+  if (await statusFrom(res, deps) === 'deleted') return; // deleted on GitHub: already gone, which is what was wanted
+  throw failure(res);
 }
 
 export async function listReplies(number, deps) {
@@ -111,6 +161,7 @@ export async function listReplies(number, deps) {
 }
 
 export async function addReply(number, text, deps) {
+  await mustBeOpen(number, deps);
   return toReply(await (await write('POST', `/issues/${number}/comments`, { body: text }, deps, { long: true })).json());
 }
 

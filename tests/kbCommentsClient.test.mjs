@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildIssue } from '../scripts/kbComments.js';
 import {
   listOpenComments, createComment, updateCommentBody, closeComment,
-  listReplies, addReply, editReply, deleteReply, commentsAccess, commentsWriteAccess,
+  listReplies, addReply, editReply, deleteReply, commentsAccess, commentsWriteAccess, commentStatus,
 } from '../scripts/kbCommentsClient.js';
 
 const BASE = 'https://api.github.com/repos/opus-safety/opus-knowledge-base-comments';
@@ -22,6 +22,8 @@ function stub(queue) {
   };
   return { calls, deps: { fetchImpl, auth } };
 }
+
+const OPEN = { status: 200, json: { state: 'open' } };
 
 function issue(n, text = 'hello') {
   const { body } = buildIssue({ text, guideTitle: 'Guide', liveUrl: 'https://x/y/', anchor: ANCHOR });
@@ -74,11 +76,12 @@ test('createComment posts title and body to the comments repo', async () => {
 });
 
 test('updateCommentBody patches the issue body', async () => {
-  const { calls, deps } = stub([{ status: 200, json: issue(7) }]);
+  const { calls, deps } = stub([OPEN, { status: 200, json: issue(7) }]);
   const c = await updateCommentBody(7, 'new body', deps);
-  assert.equal(calls[0].url, `${BASE}/issues/7`);
-  assert.equal(calls[0].method, 'PATCH');
-  assert.deepEqual(calls[0].body, { body: 'new body' });
+  assert.deepEqual([calls[0].method, calls[0].url], ['GET', `${BASE}/issues/7`]); // still open?
+  assert.equal(calls[1].url, `${BASE}/issues/7`);
+  assert.equal(calls[1].method, 'PATCH');
+  assert.deepEqual(calls[1].body, { body: 'new body' });
   assert.equal(c.number, 7);
 });
 
@@ -99,11 +102,12 @@ test('replies: list maps fields, add posts, edit patches, delete deletes', async
   assert.deepEqual(await listReplies(7, s.deps), [mapped]);
   assert.equal(s.calls[0].url, `${BASE}/issues/7/comments?per_page=100&page=1`);
 
-  s = stub([{ status: 201, json: raw }]);
+  s = stub([OPEN, { status: 201, json: raw }]);
   assert.deepEqual(await addReply(7, 'hi', s.deps), mapped);
-  assert.equal(s.calls[0].method, 'POST');
-  assert.equal(s.calls[0].url, `${BASE}/issues/7/comments`);
-  assert.deepEqual(s.calls[0].body, { body: 'hi' });
+  assert.deepEqual([s.calls[0].method, s.calls[0].url], ['GET', `${BASE}/issues/7`]); // still open?
+  assert.equal(s.calls[1].method, 'POST');
+  assert.equal(s.calls[1].url, `${BASE}/issues/7/comments`);
+  assert.deepEqual(s.calls[1].body, { body: 'hi' });
 
   s = stub([{ status: 200, json: raw }]);
   assert.deepEqual(await editReply(1, 'hi', s.deps), mapped);
@@ -127,7 +131,11 @@ test('a failed write throws a message a person can read', async () => {
   await assert.rejects(addReply(7, 'x', stub([{ status: 403, json: {} }]).deps), /can't write to the comments repository/);
   await assert.rejects(addReply(7, 'x', stub([{ status: 500, json: {} }]).deps), { message: 'GitHub error 500.' });
   await assert.rejects(addReply(7, 'x', stub([new Error('offline')]).deps), { message: "Couldn't reach GitHub." });
-  await assert.rejects(closeComment(7, 'completed', stub([{ status: 404, json: {} }]).deps), /can't write/);
+  // A read-only token: the comment is there to read, the write is turned down.
+  await assert.rejects(addReply(7, 'x', stub([OPEN, { status: 403, json: {} }]).deps), /can't write/);
+  // A 404 with the repository itself out of reach is still the token, not a deleted comment.
+  await assert.rejects(closeComment(7, 'completed', stub([{ status: 404, json: {} }, { status: 404, json: {} }]).deps), /can't write/);
+  await assert.rejects(addReply(7, 'x', stub([{ status: 404, json: {} }, { status: 404, json: {} }]).deps), /can't write/);
 });
 
 test('commentsAccess: ok, no-access, error', async () => {
@@ -190,8 +198,8 @@ test('deleting a reply that is already gone succeeds', async () => {
 test('a 422 on create, edit or reply says it may be too long', async () => {
   const message = 'GitHub rejected that: it may be too long.';
   await assert.rejects(createComment({ title: 't', body: 'b' }, stub([{ status: 422, json: {} }]).deps), { message });
-  await assert.rejects(updateCommentBody(7, 'b', stub([{ status: 422, json: {} }]).deps), { message });
-  await assert.rejects(addReply(7, 'x', stub([{ status: 422, json: {} }]).deps), { message });
+  await assert.rejects(updateCommentBody(7, 'b', stub([OPEN, { status: 422, json: {} }]).deps), { message });
+  await assert.rejects(addReply(7, 'x', stub([OPEN, { status: 422, json: {} }]).deps), { message });
   await assert.rejects(editReply(1, 'x', stub([{ status: 422, json: {} }]).deps), { message });
 });
 
@@ -199,4 +207,40 @@ test('listReplies: a server error reads like the write path; no answer is unreac
   await assert.rejects(listReplies(7, stub([{ status: 500, json: {} }]).deps), { message: 'GitHub error 500.' });
   await assert.rejects(listReplies(7, stub([new Error('offline')]).deps), { message: "Couldn't reach GitHub." });
   await assert.rejects(listReplies(7, stub([{ status: 404, json: {} }]).deps), /can't write to the comments repository/);
+});
+
+const RESOLVED = { status: 200, json: { state: 'closed', state_reason: 'completed' } };
+const CLOSED = { status: 200, json: { state: 'closed', state_reason: 'not_planned' } };
+const READABLE = { status: 200, json: [] }; // the repository's issue list still answers
+
+test('commentStatus: open, resolved, deleted (closed, 410, or a 404 in a repository that still reads), or unknown', async () => {
+  assert.equal(await commentStatus(7, stub([OPEN]).deps), 'open');
+  assert.equal(await commentStatus(7, stub([RESOLVED]).deps), 'resolved');
+  assert.equal(await commentStatus(7, stub([CLOSED]).deps), 'deleted');
+  assert.equal(await commentStatus(7, stub([{ status: 410, json: {} }]).deps), 'deleted');
+  assert.equal(await commentStatus(7, stub([{ status: 404, json: {} }, READABLE]).deps), 'deleted');
+  assert.equal(await commentStatus(7, stub([{ status: 404, json: {} }, { status: 404, json: {} }]).deps), null);
+  assert.equal(await commentStatus(7, stub([{ status: 500, json: {} }]).deps), null);
+  assert.equal(await commentStatus(7, stub([new Error('offline')]).deps), null);
+});
+
+test('a reply or an edit to a comment that is no longer open is not sent, and says why', async () => {
+  for (const [answers, message, gone] of [
+    [[RESOLVED], 'This comment has been resolved.', 'resolved'],
+    [[CLOSED], 'This comment has been deleted.', 'deleted'],
+    [[{ status: 410, json: {} }], 'This comment has been deleted.', 'deleted'],
+    [[{ status: 404, json: {} }, READABLE], 'This comment has been deleted.', 'deleted'],
+  ]) {
+    for (const call of [d => addReply(7, 'x', d), d => updateCommentBody(7, 'b', d)]) {
+      const s = stub(answers.map(a => ({ ...a })));
+      await assert.rejects(call(s.deps), { message, gone });
+      assert.ok(s.calls.every(c => c.method === 'GET'), 'nothing was written');
+    }
+  }
+});
+
+test('closing a comment that was deleted on GitHub succeeds: it is already gone', async () => {
+  const s = stub([{ status: 404, json: {} }, READABLE]);
+  assert.equal(await closeComment(7, 'not_planned', s.deps), undefined);
+  assert.equal(await closeComment(7, 'completed', stub([{ status: 410, json: {} }]).deps), undefined);
 });

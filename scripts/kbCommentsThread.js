@@ -7,13 +7,18 @@
  * object the list uses, and a failed one keeps what was typed and says why
  * under it. Nothing from GitHub is ever markup: all of it is set as text.
  *
+ * A comment someone else has resolved or deleted since the page loaded is
+ * found out when its card is opened (the card then leaves the list) and when
+ * a reply or an edit is sent (it is not sent, and the card says why; what was
+ * typed stays to be copied, and the card leaves when it is next opened).
+ *
  * The page path stored in a comment is refreshed only along with a write that
  * is happening anyway (an edit, or a reply), never on its own.
  *
  * repliesLabel, isOwn and editedBody are pure and Node-tested.
  */
 
-import { withText, withPage, authorEl, BODY_MAX } from './kbComments.js';
+import { withText, withPage, authorEl, goneMessage, BODY_MAX } from './kbComments.js';
 import { lucideSvg } from './lucideIcons.js';
 import { setThemeTip } from './kbSite.js';
 
@@ -43,7 +48,7 @@ export function editedBody(body, text, { livePath, liveUrl, guideTitle }) {
  * @param {{doc: Document, client: object, relativeDate: (iso: string) => string, login: () => string|null, dead: () => boolean,
  *   page: {livePath: string, liveUrl: string}, guideTitle: () => string, liveLink: () => string,
  *   onRemoved: (number: number) => void, onChanged: (c: object) => void}} ctx
- * @returns {{open(): void, sync(): void}}
+ * @returns {{open(): void, sync(): void, busy(): boolean}} `busy`: something typed in it is unsent, or being sent
  */
 export function attachThread(card, c, ctx) {
   const { doc, client } = ctx;
@@ -73,6 +78,17 @@ export function attachThread(card, c, ctx) {
     return p;
   };
   const say = (p, err, fallback) => { p.textContent = err?.message || fallback; p.hidden = false; };
+
+  // Set once the comment is known to have been resolved or deleted by someone else: 'resolved' | 'deleted'.
+  let gone = null;
+  const isGone = status => status === 'resolved' || status === 'deleted';
+  /** A failed write that says the comment is gone: nothing more can be sent from this card. */
+  const noteGone = err => {
+    if (!isGone(err?.gone) || gone) return;
+    gone = err.gone;
+    card.querySelectorAll('.mb-kb-comments__tools').forEach(t => { t.hidden = true; });
+    lock();
+  };
 
   /**
    * Edit and Delete for one item (the comment, or a reply), and the editor that
@@ -121,9 +137,11 @@ export function attachThread(card, c, ctx) {
         } catch (e) {
           if (ctx.dead()) return;
           say(eErr, e, SAVE_FAILED);
+          noteGone(e);
           busy = false;
           done.classList.remove('--busy'); done.removeAttribute('aria-busy');
-          cancel.disabled = false; box.readOnly = false; sync(); box.focus();
+          // Gone: what was typed stays (to be copied), and only Cancel is left.
+          cancel.disabled = false; box.readOnly = !!gone; sync(); if (gone) done.disabled = true; else box.focus();
         }
       };
       box.addEventListener('input', sync);
@@ -245,7 +263,7 @@ export function attachThread(card, c, ctx) {
 
   let posting = false;
   const syncSend = () => {
-    send.disabled = posting || !input.value.trim();
+    send.disabled = posting || !!gone || !input.value.trim();
     form.classList.toggle('--filled', !!input.value);
   };
   async function post() {
@@ -267,12 +285,17 @@ export function attachThread(card, c, ctx) {
     } catch (e) {
       if (ctx.dead()) return;
       say(formErr, e, SAVE_FAILED);
+      noteGone(e);
     } finally {
       posting = false;
       send.classList.remove('--busy'); send.removeAttribute('aria-busy');
-      input.readOnly = false; syncSend();
+      input.readOnly = !!gone; syncSend(); // gone: what was typed stays, to be copied
     }
   }
+  /** No more replies from this card (the comment is gone). */
+  function lock() { input.readOnly = true; syncSend(); say(formErr, { message: goneMessage(gone) }); }
+  /** Is something typed here unsent, or on its way? Such a card is never taken away under the person. */
+  const busy = () => posting || !!input.value.trim() || !!card.querySelector('.mb-kb-comment__edit');
   /** After a reply: bring a stale stored page path up to date (never sent alone, never awaited). */
   function refreshPage() {
     if (c.anchor.page === ctx.page.livePath) return;
@@ -289,6 +312,14 @@ export function attachThread(card, c, ctx) {
   send.addEventListener('click', post);
 
   async function open() {
+    if (gone) return ctx.onRemoved(c.number);
+    // Every time the card is opened: is the comment still open? (One small request; a client without the call is not asked.)
+    const status = Promise.resolve(client.commentStatus?.(c.number)).catch(() => null);
+    status.then(s => {
+      if (ctx.dead() || !isGone(s)) return;
+      if (busy()) noteGone({ gone: s }); // typing in it: it stays, and Reply says why it can't be sent
+      else ctx.onRemoved(c.number);
+    });
     if (state !== 'idle') return;
     state = 'loading';
     loadError.hidden = true;
@@ -304,12 +335,14 @@ export function attachThread(card, c, ctx) {
       state = 'ready';
       showCount();
     } catch (e) {
+      const s = await status;
       if (ctx.dead()) return;
-      say(loadError, e, "Couldn't load the replies.");
       state = 'idle'; // tried again the next time the card is opened
+      // A deleted comment's replies can't be read either: that is said as what it is, not as a token fault.
+      say(loadError, isGone(s) ? { message: goneMessage(s) } : e, "Couldn't load the replies.");
     }
   }
 
   showCount();
-  return { open, sync: showCount };
+  return { open, sync: showCount, busy };
 }
