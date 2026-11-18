@@ -87,10 +87,12 @@ const headerBottom = () => document.querySelector('.md-header')?.getBoundingClie
  * Keep the sidebar's list drawn from `article`'s headings.
  *
  * @param {HTMLElement} article
- * @param {{ hidden?: () => boolean }} [opts] - `hidden`: the page's settings hide the list (`hide: [toc]`)
+ * @param {{ hidden?: () => boolean, blank?: () => boolean }} [opts] - `hidden`: the page's settings hide the
+ *   list (`hide: [toc]`), and the theme gives its room to the article. `blank`: no list is drawn but the
+ *   sidebar keeps its room, so the article stands where and as wide as readers see it.
  * @returns {{ refresh: () => void }} refresh: draw again now (a settings change, say)
  */
-export function attachToc(article, { hidden = () => false } = {}) {
+export function attachToc(article, { hidden = () => false, blank = () => false } = {}) {
   const sidebar = document.querySelector('.md-sidebar--secondary');
   const parts = sidebar ? listOf(sidebar) : null;
   if (!sidebar || !parts) return { refresh() {} };
@@ -113,11 +115,12 @@ export function attachToc(article, { hidden = () => false } = {}) {
     queued = 0;
     const off = hidden();
     if (sidebar.hidden !== off) sidebar.hidden = off;
-    const all = headingsOf(article);
-    const key = off ? '' : JSON.stringify(all.map(h => [h.level, h.text, h.id, h.uuid]));
+    const none = off || blank();
+    const all = none ? [] : headingsOf(article);
+    const key = none ? '' : JSON.stringify(all.map(h => [h.level, h.text, h.id, h.uuid]));
     if (key !== drawn) {
       drawn = key;
-      const tree = off ? [] : tocTree(all);
+      const tree = tocTree(all);
       list.innerHTML = tocHtml(tree);
       nav.hidden = !tree.length;
       // In list order, which is page order without the title.

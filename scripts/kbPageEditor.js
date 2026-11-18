@@ -310,8 +310,13 @@ export async function kbEnterEditMode(page, { hasLive = true, noDraft = false } 
   // "On this page", drawn from the headings showing (hidden when the page's
   // settings hide it, as they stand in the draft being edited). The System
   // Updates page never shows it in Edit mode, draft or live: its headings are
-  // the updates themselves.
-  state.toc = attachToc(article, { hidden: () => !!state && (state.updates || readFrontmatterHide(shownMd()).includes('toc')) });
+  // the updates themselves. Its sidebar keeps its room all the same (blank,
+  // not hidden), or the article would spread into it and no longer stand
+  // where the live page's does.
+  state.toc = attachToc(article, {
+    hidden: () => !!state && !state.updates && readFrontmatterHide(shownMd()).includes('toc'),
+    blank: () => !!state && state.updates,
+  });
   // Comments on the guide (kbCommentsUi.js), in the left-hand margin; they load
   // in the background. None on the System Updates page, none in the Markdown
   // view, and none on the page with no draft until its live content is shown
