@@ -392,7 +392,7 @@
   },
   {
     "id": "mb-manage-knowledge-base-btn",
-    "displayText": "Manage OKB",
+    "displayText": "Manage OKB (old)",
     "descriptionText": "Content authoring and management tools for Opus Knowledge Base.",
     "icon": "book-open",
     "colour": "blue",
@@ -403,7 +403,7 @@
     "action": "openKnowledgeBaseManagement",
     "dockGroup": "System",
     "dockOrder": 10,
-    "surface": "both"
+    "surface": "popup"
   },
   {
     "id": "mb-clear-checkboxes-btn",
@@ -454,7 +454,7 @@
     "colour": "pink",
     "pageMatch": {
       "mode": "or",
-      "keywords": ["/"]
+      "keywords": ["cloud.opus-safety.co.uk/"]
     },
     "action": "openSeleniumCommandBuilder",
     "dockGroup": "System",
