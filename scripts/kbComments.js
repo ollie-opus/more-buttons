@@ -128,7 +128,6 @@ export function withPage(body, page, liveUrl, guideTitle) {
   return head.slice(0, linkAt) + line + eol + eol + dataBlock({ ...anchor, page });
 }
 
-const QUOTE_MAX = 300;
 const CONTEXT_LEN = 32;
 
 /**
@@ -137,7 +136,7 @@ const CONTEXT_LEN = 32;
  */
 export function makeAnchor(model, start, end, { guide, page }) {
   const raw = model.text.slice(start, end);
-  const quote = raw.trim().slice(0, QUOTE_MAX);
+  const quote = raw.trim(); // whole, however long: the marked run is the selection
   if (!quote) return null;
   const from = start + (raw.length - raw.trimStart().length);
   const to = from + quote.length;

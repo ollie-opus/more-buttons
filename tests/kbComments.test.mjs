@@ -163,10 +163,19 @@ test('a selection across two blocks is found from its first block', () => {
   assert.deepEqual(findAnchor(model, a), { start: s, end: e, found: true });
 });
 
-test('an empty quote is never found; a long quote is capped at 300', () => {
+test('an empty quote is never found; a long quote is kept whole and found whole', () => {
   assert.deepEqual(findAnchor(model, { guide: '', page: '', block: 'b1', quote: '', before: '', after: '' }), { start: 0, found: false });
   const big = { text: 'x'.repeat(400), blocks: [{ id: 'a', start: 0, end: 400 }] };
-  assert.equal(makeAnchor(big, 0, 400, { guide: '', page: '' }).quote.length, 300);
+  const whole = makeAnchor(big, 0, 400, { guide: '', page: '' });
+  assert.equal(whole.quote.length, 400);
+  assert.deepEqual(findAnchor(big, whole), { start: 0, end: 400, found: true });
+  const words = Array.from({ length: 2000 }, (_, i) => 'word' + i).join(' ');
+  const page = { text: 'Intro. ' + words + ' End.', blocks: [{ id: 'a', start: 0, end: 6 }, { id: 'b', start: 7, end: 7 + words.length }] };
+  const a = makeAnchor(page, 7, 7 + words.length, { guide: 'g', page: 'p' });
+  assert.equal(a.quote, words);
+  assert.deepEqual(findAnchor(page, a), { start: 7, end: 7 + words.length, found: true });
+  const { body } = buildIssue({ text: 'Hi', guideTitle: 'T', liveUrl: 'https://x/', anchor: a });
+  assert.equal(parseIssue({ number: 1, body }).anchor.quote, words);
 });
 
 test('commentsForGuide matches by guide id, then block, then path', () => {
