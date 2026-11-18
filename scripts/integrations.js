@@ -1,6 +1,6 @@
 import { createForm } from './form.js';
-import { authHeader, REPO } from './repoClient.js';
-import { commentsWriteAccess, probeResult } from './kbCommentsClient.js';
+import { authHeader, kbRepoAccess } from './repoClient.js';
+import { commentsWriteAccess } from './kbCommentsClient.js';
 import { registerFormAction } from './formActions.js';
 import { GEMINI_STORAGE_KEY, loadAiPrompts, buildGeminiRequest, parseGeminiResponse } from './aiReword.js';
 
@@ -77,31 +77,7 @@ export async function openIntegrations() {
   });
 }
 
-// Can the saved token read AND write the knowledge-base repo itself?
-// 'ok' | 'read-only' (Contents is Read-only) | 'no-access' | 'error'
-// (a rate limit, or GitHub not answering, is an error: never read as no access).
-// Writing is asked with a request that can never write anything: a file PUT
-// with no content and no message (kbCommentsClient.js probeResult).
-async function kbAccess() {
-  try {
-    const api = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
-    const headers = { Authorization: await authHeader(), Accept: 'application/vnd.github+json' };
-    const res = await fetch(api, { headers, cache: 'no-store' });
-    if (!res.ok) {
-      const limited = res.status === 429
-        || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.get('retry-after') !== null));
-      return !limited && [401, 403, 404].includes(res.status) ? 'no-access' : 'error';
-    }
-    const probe = await fetch(`${api}/contents/.mb-access-check`, {
-      method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store',
-    });
-    return probeResult(probe);
-  } catch {
-    return 'error';
-  }
-}
-
-const ACCESS_CHECKS = { kb: kbAccess, comments: () => commentsWriteAccess() };
+const ACCESS_CHECKS = { kb: kbRepoAccess, comments: () => commentsWriteAccess() };
 const ACCESS_WORDS = {
   ok: ['This token can read and write ', '.'],
   'read-only': ['This token can only read ', '.'],

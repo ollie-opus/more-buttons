@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { classifyKbPath, classifyAdminPath, injectAdminCog, ADMIN_ROUTES, injectEditButton, injectLogButton, injectPageButton, injectCreateDraftButton, isNotFoundPage, kbSchemeIsDark, KB_HOST } from '../scripts/kbSite.js';
+import { classifyKbPath, classifyAdminPath, injectAdminCog, ADMIN_ROUTES, injectEditButton, injectLogButton, injectPageButton, injectCreateDraftButton, isNotFoundPage, kbSchemeIsDark, KB_HOST, accessRefusal } from '../scripts/kbSite.js';
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
@@ -9,6 +9,16 @@ function test(name, fn) { fn(); passed++; console.log('  ok -', name); }
 const read = rel => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const buttons = JSON.parse(read('../config/buttons.json'));
 const manifest = JSON.parse(read('../manifest.json'));
+
+test('a token that cannot read and write the repo is refused on the click, an unanswered check is not', () => {
+  assert.equal(accessRefusal('ok'), null);
+  assert.equal(accessRefusal('error'), null);
+  assert.match(accessRefusal('no-access'), /can't reach the opus-knowledge-base repository/);
+  assert.match(accessRefusal('read-only'), /can only read the opus-knowledge-base repository/);
+  // The edit log only reads.
+  assert.equal(accessRefusal('read-only', { readOk: true }), null);
+  assert.match(accessRefusal('no-access', { readOk: true }), /can't reach/);
+});
 
 test('a live guide url maps to its page and draft files and urls', () => {
   assert.deepEqual(classifyKbPath('/pages/adding-a-new-employee/'), {

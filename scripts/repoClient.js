@@ -256,6 +256,32 @@ export async function listCommits(path, { page = 1, perPage = COMMITS_PAGE_SIZE,
   return result;
 }
 
+// Can the saved token read AND write the knowledge-base repo itself?
+// 'ok' | 'read-only' (Contents is Read-only) | 'no-access' | 'error'
+// (a rate limit, or GitHub not answering, is an error: never read as no access).
+// Writing is asked with a request that can never write anything: a file PUT
+// with no content and no message. GitHub checks the token's permission before
+// the request's contents, so with write permission it is turned down as
+// invalid (422) and without it as forbidden.
+export async function kbRepoAccess() {
+  const limited = res => res.status === 429
+    || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.get('retry-after') !== null));
+  const refused = res => !limited(res) && [401, 403, 404].includes(res.status);
+  try {
+    const api = `https://api.github.com/repos/${REPO.owner}/${REPO.name}`;
+    const headers = { Authorization: await authHeader(), Accept: 'application/vnd.github+json' };
+    const res = await fetch(api, { headers, cache: 'no-store' });
+    if (!res.ok) return refused(res) ? 'no-access' : 'error';
+    const probe = await fetch(`${api}/contents/.mb-access-check`, {
+      method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store',
+    });
+    if (probe.status === 422) return 'ok';
+    return refused(probe) ? 'read-only' : 'error';
+  } catch {
+    return 'error';
+  }
+}
+
 // The token owner's login, cached under its own key (form.js's generic save
 // overwrites the whole moreButtonsIntegrations object, so it can't live there).
 // The cache carries the PAT's last 8 chars, so changing the PAT invalidates it.

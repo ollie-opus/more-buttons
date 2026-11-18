@@ -53,7 +53,7 @@
  * Stays light: the editor stack (actions.js) is only loaded on a draft page.
  */
 
-import { readRepoText, currentGithubLogin } from './repoClient.js';
+import { readRepoText, currentGithubLogin, kbRepoAccess, REPO } from './repoClient.js';
 import { getLucideSvgMarkup, lucideSvg } from './lucideIcons.js';
 import { isUpdatesPage } from './kbUpdates.js';
 import { parseMediaEntryPath } from './kbMediaEntry.js';
@@ -115,6 +115,46 @@ export function classifyAdminPath(pathname) {
   return file ? { route: MEDIA_FILE_ROUTE, file } : null;
 }
 
+// ── Is the token allowed? Asked on the click, never on page load ─────────────
+// The buttons are drawn for anyone with a token GitHub knows. Whether that
+// token can read and write the knowledge-base repo is asked only when one of
+// them is clicked (two requests then, none while reading the site): a token
+// that can't is told why in place of being taken to a page that would fail.
+
+/**
+ * What to tell the owner of a token with this access (kbRepoAccess), or null
+ * when the click may go ahead. A check GitHub didn't answer ('error') is not
+ * held against the token. `readOk`: reading is all the button needs. Pure.
+ */
+export function accessRefusal(access, { readOk = false } = {}) {
+  const fix = ` In GitHub, edit the token, add the repository and set Contents to Read and write. The GitHub screen in the extension's Integrations shows what is missing.`;
+  if (access === 'no-access') return `Your GitHub token can't reach the ${REPO.name} repository.` + fix;
+  if (access === 'read-only' && !readOk) return `Your GitHub token can only read the ${REPO.name} repository.` + fix;
+  return null;
+}
+
+/** Run `go` if the token is allowed, else say why not. One check at a time. */
+let checkingAccess = false;
+async function withAccess(go, opts) {
+  if (checkingAccess) return;
+  checkingAccess = true;
+  let refusal = null;
+  try { refusal = accessRefusal(await kbRepoAccess(), opts); }
+  finally { checkingAccess = false; }
+  if (refusal) alert(refusal); else go();
+}
+
+// A link of ours that leads into the authoring tools: a plain click is checked
+// first, then followed. (A click with a key held, for a new tab, is the
+// browser's own and goes unchecked.)
+function guardLink(a) {
+  a.addEventListener('click', e => {
+    if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault?.();
+    withAccess(() => { location.href = a.href; });
+  });
+}
+
 /**
  * The way into the admin area: a button in the header (the sliders icon; the
  * cog is the Settings screen's), left of the search. It is
@@ -128,6 +168,7 @@ export function injectAdminCog(doc) {
   a.className = 'md-header__button md-icon mb-kb-admin-cog';
   a.href = ADMIN_ROUTES.home;
   setThemeTip(doc, a, 'Knowledge base admin');
+  guardLink(a);
   // The search is a label (small screens) followed by the search box; the cog
   // goes before both. With no search, it sits ahead of the "Ask" button.
   const before = header.querySelector('label[for="__search"]')
@@ -260,6 +301,7 @@ export function injectEditButton(doc, page) {
   a.className = 'md-content__button md-icon mb-kb-edit';
   a.href = page.draftUrl;
   setThemeTip(doc, a, 'Switch to edit mode');
+  guardLink(a);
   placeButton(doc, article, a);
   Promise.resolve().then(() => getLucideSvgMarkup('file-pen')).then(svg => { if (svg) a.innerHTML = svg; }).catch(() => {});
   return a;
@@ -612,7 +654,8 @@ export async function refreshKbSite() {
   document.documentElement.classList.toggle('mb-kb-no-draft', state === 'no-draft');
   if (state === 'live') {
     injectEditButton(document, page);
-    injectLogButton(document, page);
+    // The log only reads, so a read-only token may open it.
+    injectLogButton(document, page, (pg, btn) => withAccess(() => openEditLog(pg, btn), { readOk: true }));
     if (!isUpdatesPage(page)) startComments(page);
   }
   if (state === 'no-draft') {
