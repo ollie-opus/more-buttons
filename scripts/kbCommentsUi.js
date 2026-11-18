@@ -307,6 +307,28 @@ const liveLink = page => `https://${KB_HOST}${page.liveUrl}`;
 // Each placement takes the list element and puts it on the page; it returns
 // `{ remove() }`, or null when the page has no room of that kind.
 
+/**
+ * A list of the theme's own kind for its right-hand sidebar, put under "On
+ * this page" and titled "Comments" as that one is titled (the same element).
+ * It holds the comments themselves ('toc') or the title alone ('beside', the
+ * cards being in the margin under it). Null when the sidebar is not there.
+ */
+function sidebarNav(doc, list = null) {
+  const inner = doc.querySelector('.md-sidebar--secondary .md-sidebar__inner');
+  if (!inner) return null;
+  const nav = doc.createElement('nav');
+  nav.className = `md-nav md-nav--secondary mb-kb-comments${list ? '' : ' mb-kb-comments--title'}`;
+  nav.setAttribute('aria-label', 'Comments');
+  const title = doc.createElement('label');
+  title.className = 'md-nav__title';
+  title.textContent = 'Comments';
+  nav.append(title);
+  if (list) nav.append(list);
+  const toc = [...inner.children].find(el => el.matches('nav.md-nav--secondary') && !el.classList.contains('mb-kb-comments'));
+  if (toc) toc.after(nav); else inner.append(nav);
+  return nav;
+}
+
 const PLACEMENTS = {
   /** Over the right-hand side of the page, below the header (the header button toggles it). */
   panel: (doc, list, { close }) => mountPanel(doc, list, { onClose: close }),
@@ -316,13 +338,15 @@ const PLACEMENTS = {
 
   /**
    * The live page: beside the text in the right-hand margin, under the theme's
-   * "On this page", each card level with its words where it can be. The cards
-   * scroll with the page and pass under the list (which stays put); none is
-   * placed where the list stands at the top of the page.
+   * "On this page" and a "Comments" title of the same kind, each card level
+   * with its words where it can be. The cards scroll with the page and pass
+   * under the list and the title (which stay put); none is placed where they
+   * stand at the top of the page.
    */
   beside(doc, list, ctx) {
     const root = doc.documentElement;
     const side = doc.querySelector('.md-sidebar--secondary');
+    const title = sidebarNav(doc); // before the room is measured: the cards start under it
     let at = null; // as measured for the layout being done
     const room = () => {
       at = besideRoom(doc);
@@ -338,6 +362,7 @@ const PLACEMENTS = {
       ...host,
       remove() {
         host.remove();
+        title?.remove();
         root.classList.remove('mb-kb-beside-comments');
         side.style.removeProperty('--mb-kb-comments-cover');
       },
@@ -346,18 +371,8 @@ const PLACEMENTS = {
 
   /** Under the theme's "On this page", as a second list of the same kind: its title is the same element (used when the list leaves too little room beside the text). */
   toc(doc, list) {
-    const inner = doc.querySelector('.md-sidebar--secondary .md-sidebar__inner');
-    if (!inner) return null;
-    const nav = doc.createElement('nav');
-    nav.className = 'md-nav md-nav--secondary mb-kb-comments';
-    nav.setAttribute('aria-label', 'Comments');
-    const title = doc.createElement('label');
-    title.className = 'md-nav__title';
-    title.textContent = 'Comments';
-    nav.append(title, list);
-    const toc = [...inner.children].find(el => el.matches('nav.md-nav--secondary') && !el.classList.contains('mb-kb-comments'));
-    if (toc) toc.after(nav); else inner.append(nav);
-    return { remove: () => nav.remove() };
+    const nav = sidebarNav(doc, list);
+    return nav && { remove: () => nav.remove() };
   },
 };
 
@@ -378,10 +393,13 @@ function besideRoom(doc) {
   const side = doc.querySelector('.md-sidebar--secondary');
   if (!side) return null;
   const room = side.getBoundingClientRect();
-  const toc = [...side.querySelectorAll('nav.md-nav--secondary')].find(n => !n.hidden && n.getClientRects().length);
-  const under = toc ? toc.getBoundingClientRect().bottom - room.top : 0; // the list's height, from the sidebar's top
-  const sticky = parseFloat(win.getComputedStyle(side).top) || 0;       // where the sidebar's top rests once stuck
-  if (win.innerHeight - sticky - under < BESIDE_MIN) return null;
+  const toc = [...side.querySelectorAll('nav.md-nav--secondary')].find(n => !n.hidden && !n.classList.contains('mb-kb-comments') && n.getClientRects().length);
+  const listed = toc ? toc.getBoundingClientRect().bottom - room.top : 0; // the list's height, from the sidebar's top
+  const sticky = parseFloat(win.getComputedStyle(side).top) || 0;        // where the sidebar's top rests once stuck
+  // Asked of "On this page" alone, so the answer is the same before the "Comments" title is put under it and after.
+  if (win.innerHeight - sticky - listed < BESIDE_MIN) return null;
+  const title = side.querySelector('.mb-kb-comments--title');
+  const under = title ? Math.max(listed, title.getBoundingClientRect().bottom - room.top) : listed; // the cards start under the title
   const content = doc.querySelector('.md-content')?.getBoundingClientRect();
   const rest = Math.min(room.top, content?.top ?? room.top) + win.scrollY; // the sidebar's top with the page at the top
   return { room, under, floor: rest + under };
