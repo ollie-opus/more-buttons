@@ -87,8 +87,10 @@ test('a new update joins the end of the list with no title or date, and is not r
   const md = OPS.insertComponents(UPDATES_ROOT, null, [u]).apply(DRAFTS);
   assert.deepEqual(updateComponents(md).map(c => c.adm.uuid), ['u1', 'u2', u.adm.uuid]);
   assert.match(md, /\?\?\? feature-release "Feature release:"\n/);
-  assert.deepEqual(missingUpdateFields(md), [{ uuid: u.adm.uuid, title: true, date: true }]);
+  assert.deepEqual(missingUpdateFields(md), [{ uuid: u.adm.uuid, title: true, date: false }]);
+  assert.deepEqual(missingUpdateFields(md, { forPublish: true }), [{ uuid: u.adm.uuid, title: true, date: true }]);
   assert.deepEqual(missingUpdateFields(DRAFTS), []);
+  assert.deepEqual(missingUpdateFields(DRAFTS, { forPublish: true }), []);
   // The frontmatter and the title stay where they are.
   assert.equal(md.startsWith('---\nsearch:\n  exclude: true\n---\n\n# System update drafts\n'), true);
   // Its empty text block is only there while the page is open.
@@ -100,9 +102,13 @@ test('title, date and type are edits of the update; the rest of the file is unto
   const u = newUpdate('improvement');
   let md = OPS.insertComponents(UPDATES_ROOT, null, [u]).apply(DRAFTS);
   md = OPS.editComponent(u.adm.uuid, c => { c.adm.title = joinUpdateTitle(c.adm.type, 'Quicker saves', splitUpdateTitle(c.adm.type, c.adm.title).date); }).apply(md);
-  assert.deepEqual(missingUpdateFields(md), [{ uuid: u.adm.uuid, title: false, date: true }]);
-  md = OPS.editComponent(u.adm.uuid, c => { c.adm.title = joinUpdateTitle(c.adm.type, splitUpdateTitle(c.adm.type, c.adm.title).title, formatUpdateDate('2026-11-13')); }).apply(md);
+  // A titled update with no date saves to the draft, but may not go live.
   assert.deepEqual(missingUpdateFields(md), []);
+  assert.deepEqual(missingUpdateFields(md, { forPublish: true }), [{ uuid: u.adm.uuid, title: false, date: true }]);
+  assert.deepEqual(commitForUpdates(DRAFTS, md), { subject: "Saved draft update 'Quicker saves'", bodyLines: [`Item: ${u.adm.uuid}`] });
+  assert.deepEqual(updateComponents(dropEmptyText(md)).map(c => splitUpdateTitle(c.adm.type, c.adm.title)).at(-1), { title: 'Quicker saves', date: '' });
+  md = OPS.editComponent(u.adm.uuid, c => { c.adm.title = joinUpdateTitle(c.adm.type, splitUpdateTitle(c.adm.type, c.adm.title).title, formatUpdateDate('2026-11-13')); }).apply(md);
+  assert.deepEqual(missingUpdateFields(md, { forPublish: true }), []);
   md = OPS.editComponent(u.adm.uuid, c => {
     const t = splitUpdateTitle(c.adm.type, c.adm.title);
     c.adm.type = 'new-addition';
@@ -131,8 +137,9 @@ test('components go into an update as into any admonition', () => {
 });
 
 test('what is missing is said in words', () => {
-  assert.equal(missingMessage([{ uuid: 'a', title: true, date: true }]), 'This update still needs a title and a date of release.');
-  assert.equal(missingMessage([{ uuid: 'a', title: false, date: true }]), 'This update still needs a date of release.');
+  assert.equal(missingMessage([{ uuid: 'a', title: true, date: true }]), 'This update needs a title and a date of release before it can go live.');
+  assert.equal(missingMessage([{ uuid: 'a', title: false, date: true }]), 'This update needs a date of release before it can go live.');
+  assert.equal(missingMessage([{ uuid: 'a', title: true, date: false }]), 'This update still needs a title.');
   assert.equal(missingMessage([{ uuid: 'a', title: true, date: false }, { uuid: 'b', title: true, date: false }]), '2 updates still need a title.');
 });
 

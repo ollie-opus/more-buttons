@@ -11,7 +11,7 @@
  * The editor holds them as admonition components in one container of their
  * own (UPDATES_ROOT), so everything inside an update is edited as it is in a
  * guide. A title or a date still to be filled in is simply absent from the
- * title string; both are required before a save or a publish.
+ * title string. A save needs the title; a publish needs the date as well.
  *
  * Pure: no DOM, no network.
  */
@@ -146,15 +146,18 @@ export function updatesPageTitle(md) {
 }
 
 /**
- * The updates that may not be saved or published yet: one entry per update
- * with no title or no release date, saying which is missing.
+ * The updates that may not be saved (or, with `forPublish`, published) yet,
+ * saying what each is missing. A draft is saved with a title alone; the
+ * release date is only needed to go live.
+ * @param {string} md
+ * @param {{forPublish?: boolean}} [opts]
  * @returns {Array<{uuid: string, title: boolean, date: boolean}>}
  */
-export function missingUpdateFields(md) {
+export function missingUpdateFields(md, { forPublish = false } = {}) {
   const out = [];
   for (const { adm } of updateComponents(md)) {
     const { title, date } = splitUpdateTitle(adm.type, adm.title);
-    const noDate = !isoOfUpdateDate(date);
+    const noDate = forPublish && !isoOfUpdateDate(date);
     if (!title || noDate) out.push({ uuid: adm.uuid, title: !title, date: noDate });
   }
   return out;
@@ -165,7 +168,9 @@ export function missingMessage(missing) {
   const titles = missing.some(m => m.title);
   const dates = missing.some(m => m.date);
   const what = titles && dates ? 'a title and a date of release' : titles ? 'a title' : 'a date of release';
-  return missing.length > 1 ? `${missing.length} updates still need ${what}.` : `This update still needs ${what}.`;
+  if (missing.length > 1) return `${missing.length} updates still need ${what}.`;
+  // A missing date only ever stops a publish: say so, since the draft itself saves without one.
+  return dates ? `This update needs ${what} before it can go live.` : `This update still needs ${what}.`;
 }
 
 /**

@@ -371,7 +371,8 @@ function admonitionHtml(ctx, adm) {
 // An update on the System Updates drafts page (kbUpdates.js). Its title line
 // is three pieces: the type's name (the type is changed from the icon), the
 // update's own title (typed in place) and its release date (picked from a
-// calendar). The last two are required, and show what they are for while empty.
+// calendar). Both show what they are for while empty; the title is needed to
+// save, the date only to publish.
 export const UPDATE_TITLE_PLACEHOLDER = 'Update title';
 export const UPDATE_DATE_PLACEHOLDER = 'Date of release';
 function updateHtml(ctx, adm) {

@@ -7588,12 +7588,12 @@ html.mb-kb-editing .md-typeset summary > .mb-kb-upd-date {
 html.mb-kb-editing .md-typeset summary > .mb-kb-upd-date.--empty { opacity: 0.45; }
 html.mb-kb-editing .md-typeset summary > .mb-kb-upd-date:is(:hover, :focus-visible) { opacity: 1; outline: none; text-decoration: underline; }
 html.mb-kb-editing .md-typeset.mb-kb-upd-check .mb-kb-upd-title.mb-kb-upd-title:empty::before,
-html.mb-kb-editing .md-typeset.mb-kb-upd-check summary > .mb-kb-upd-date.--empty {
+html.mb-kb-editing .md-typeset.mb-kb-upd-check .mb-kb-upd-date-due > summary > .mb-kb-upd-date.--empty {
   color: #dc2626;
   opacity: 1;
 }
 html.mb-kb-editing[data-mb-theme="dark"] .md-typeset.mb-kb-upd-check .mb-kb-upd-title.mb-kb-upd-title:empty::before,
-html.mb-kb-editing[data-mb-theme="dark"] .md-typeset.mb-kb-upd-check summary > .mb-kb-upd-date.--empty { color: #f87171; }
+html.mb-kb-editing[data-mb-theme="dark"] .md-typeset.mb-kb-upd-check .mb-kb-upd-date-due > summary > .mb-kb-upd-date.--empty { color: #f87171; }
 html.mb-kb-editing .md-typeset .mb-kb-upd-none { color: var(--md-default-fg-color--light); }
 /* An update that has been published and is waiting for the site to build it:
    it keeps its place in the list, grey and read only, under a line that says

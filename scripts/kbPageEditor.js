@@ -88,8 +88,8 @@
  *     moved; the blocks inside it are.
  *   - The card under the page reads "New system update" and offers the three
  *     update types. A new update opens with an empty title ("Update title")
- *     and an empty date ("Date of release", picked from a calendar); both are
- *     required before Save or Publish.
+ *     and an empty date ("Date of release", picked from a calendar). Save
+ *     needs the title; Push to live needs the date as well.
  *   - Pointing at an update, or at anything inside it, slides a red "Delete from draft"
  *     out to its left and a purple "Push to live" out to its right
  *     (kbUpdateSide.js). Each acts on that one update, at once: Publish saves
@@ -810,7 +810,7 @@ async function save() {
   if (state.saving) return false;
   settle();
   if (!isDirty()) return true;
-  if (!checkUpdates()) return false; // an update with no title or date is not saved
+  if (!checkUpdates()) return false; // an update with no title is not saved (its date can wait for the publish)
   if (isDraftDirty() && !(await saveDraft())) return false;
   return saveVisibility();
 }
@@ -992,14 +992,17 @@ async function deleteGuide() {
 const isUpdateEl = el => !!el && 'mbUpdate' in el.dataset;
 
 /**
- * Every update (or just `only`) has its title and its date: true. Otherwise
- * the empty ones are shown in red, the first is brought into view, and the
- * foot's Add card says what is missing.
+ * Every update has its title (a save), or the update `only` has its title and
+ * its date (a publish): true. Otherwise what is empty is shown in red, the
+ * first is brought into view, and the foot's Add card says what is missing.
  */
 function checkUpdates(only = null) {
   if (!state.updates) return true;
-  const missing = missingUpdateFields(workingMd()).filter(m => !only || m.uuid === only);
+  const missing = missingUpdateFields(workingMd(), { forPublish: !!only }).filter(m => !only || m.uuid === only);
   state.article.classList.toggle('mb-kb-upd-check', missing.length > 0);
+  // Only the update being published owes a date: the other drafts' empty dates stay grey.
+  for (const el of state.article.querySelectorAll('.mb-kb-upd-date-due')) el.classList.remove('mb-kb-upd-date-due');
+  for (const m of missing) if (m.date) nodeEl(m.uuid)?.classList.add('mb-kb-upd-date-due');
   if (!missing.length) return true;
   setStatus(state.status, missingMessage(missing), { tone: 'error', hideAfter: 6000 });
   nodeEl(missing[0].uuid)?.scrollIntoView({ block: 'nearest' });
