@@ -25,10 +25,12 @@
  *                   editors name them) and its actions as the editor's
  *                   floating menu (floatMenu.js): loose pills in groups under
  *                   small headings, the rest of the page washed back.
- *   - An "Add" card under the page opens the menu of things to add at the end
- *     of the page (and adds sections); what is added is then dragged to where
- *     it belongs. A pick lands on the page at once, ready to type into; media
- *     is picked from a library panel drawn in the page at the insert point.
+ *   - An "Add" card under the page, clicked, opens to show an icon for each
+ *     thing that can be added (kbAddTray.js). An icon is dragged to where the
+ *     thing should go, exactly as a block is moved (a small copy goes with the
+ *     pointer, a line shows where it would land); clicked, the thing goes at
+ *     the end of the page. Either way it lands at once, ready to type into;
+ *     media is picked from a library panel drawn in the page at that place.
  *
  * The bottom bar (the form editors' action dock):
  *
@@ -86,10 +88,12 @@
  *   - No Delete draft or Publish icon beside the title, and the title itself
  *     is not edited. An update has no menu of its own and is not selected or
  *     moved; the blocks inside it are.
- *   - The card under the page reads "New system update" and offers the three
- *     update types. A new update opens with an empty title ("Update title")
- *     and an empty date ("Date of release", picked from a calendar). Save
- *     needs the title; Push to live needs the date as well.
+ *   - The Add card opens on the three update types, each clicked (a new
+ *     update goes at the end of the list), and on the components, which are
+ *     dragged there, never clicked: a component lives inside an update, so it
+ *     is dragged into one. A new update opens with an empty title ("Update
+ *     title") and an empty date ("Date of release", picked from a calendar).
+ *     Save needs the title; Push to live needs the date as well.
  *   - Pointing at an update, or at anything inside it, slides a red "Delete from draft"
  *     out to its left and a purple "Push to live" out to its right
  *     (kbUpdateSide.js). Each acts on that one update, at once: Publish saves
@@ -114,7 +118,7 @@ import { githubFetchAndPushFile, fetchFileMigratingIdentity } from './github.js'
 import { writeGuideDraft, publishGuideFiles, discardGuideDraftFiles, deleteGuideFiles, renameGuideInNav, isGuideUnlisted, setGuideVisibility } from './guides.js';
 import { watchIconSpans, getLucideSvgMarkup, lucideSvg } from './lucideIcons.js';
 import { attachRichSurface, paintInlineAtoms } from './richTextEditor.js';
-import { openPopupMenu, resolveMenuPlacement } from './insertMenu.js';
+import { resolveMenuPlacement } from './insertMenu.js';
 import { componentsMarkdown, uuidOfComponent, stripUUIDSpans } from './components.js';
 import { ADMONITION_TYPE_LABELS, splitTitleMeta, joinTitleMeta, generateUUID } from './admonitions.js';
 import { buildSectionTree, readSectionDescription, hasH3Children, locateSectionByUUID } from './sections.js';
@@ -130,8 +134,8 @@ import { needsFreezing, freezeCapturePick } from './captureFreeze.js';
 import { renderTree, applySearch } from './kbTree.js';
 import { renderGuidePage, pageChromeHtml, renderTextHtml, renderInlineHtml, annotationHtml, assetPathOf, TEXT_KIND, EMPTY_TEXT, UPDATE_TITLE_PLACEHOLDER, readPageTitle, pageTitleBody } from './kbPageRender.js';
 import {
-  OPS, TABLE, CODE, applyOps, dropEmptyText, commitForOps, findComponent, findOwner, readContainer,
-  newComponent, newUpdate, newTab, mediaComponent, mediaFiles, splitParagraphs, parsePastedPage,
+  OPS, TABLE, CODE, applyOps, dropEmptyText, seedEmptyText, commitForOps, findComponent, findOwner, readContainer,
+  newComponent, newUpdate, newTab, newText, mediaComponent, mediaFiles, splitParagraphs, parsePastedPage,
   findPageTitle, canPlacePageTitle, newPageTitle, withoutPageTitles,
   readPageSettings, PAGE_HIDES,
 } from './kbPageOps.js';
@@ -145,36 +149,19 @@ import {
 import { attachUpdateSide, slideOut } from './kbUpdateSide.js';
 import { openDatePicker, closeDatePicker } from './kbDatePicker.js';
 import { publishDraftAsSaved, deleteDraft as deleteDraftUpdate, draftLiveUpdate, publishDeleteUpdate, cancelPublishedUpdate } from './systemUpdates.js';
-import { followDrag, blockTarget, sideTarget, sectionTarget, tabTarget, labelAt, carryBlocks, carryTab, isOver } from './kbPageDrag.js';
+import { followDrag, blockTarget, sideTarget, sectionTarget, tabTarget, labelAt, carryBlocks, carryTab, carryChip, isOver, EDGE as SCROLL_EDGE } from './kbPageDrag.js';
 import { typePills } from './kbTypePicker.js';
-import { MENU_GAP, MENU_MAX_WIDTH, createVeil, menuBreak, menuGroup, menuInput, menuOption, menuPill, menuRow, playIn, stepPills } from './floatMenu.js';
+import { MENU_GAP, MENU_MAX_WIDTH, createVeil, menuBreak, menuGroup, menuHost, menuInput, menuMaxWidth, menuOption, menuPill, menuRow, menuView, placeAround, playIn, stepPills } from './floatMenu.js';
 import { iconMatchPills, typedIconName } from './iconPills.js';
 import { loadLucideNames, rankMatches } from './iconPicker.js';
 import { attachToc } from './kbToc.js';
 import { startKbComments } from './kbCommentsUi.js';
 import { readFrontmatterHide } from './frontmatter.js';
 import { currentKbPage, refreshKbSite, injectLogButton, injectPageButton, injectCreateDraftButton, setThemeTip } from './kbSite.js';
-import { captureMenuItem, captureTabPick, deliveredCaptureComponent } from './kbCaptureTabs.js';
+import { captureChoiceGroups, captureTabPick, deliveredCaptureComponent } from './kbCaptureTabs.js';
+import { addTrayItems, updateTypeOf, landsInUpdate, DRAG_ONLY_HINT } from './kbAddTray.js';
 import { mediaEntryKey, mediaEntryUrl } from './kbMediaEntry.js';
 import { CAPTURE_PRESETS, capturePresetOf, applyCapturePreset } from './capturePresets.js';
-
-// The add menu. "Capture" is built per open (captureMenuItem): a new capture
-// is taken on the webapp, so it lists the webapp tabs open at that moment.
-const INSERT_ITEMS = [
-  { id: 'text', label: 'Text' },
-  { id: 'admonition', label: 'Admonition' },
-  { id: 'capture' },
-  { id: 'tabs', label: 'Content tabs' },
-  { id: 'table', label: 'Data table' },
-  { id: 'image', label: 'Image' },
-  { id: 'video', label: 'Video' },
-  { id: 'button', label: 'Button' },
-  { id: 'navlinks', label: 'Nav links' },
-  { id: 'diagram', label: 'Diagram' },
-  { id: 'codeblock', label: 'Code block' },
-  { divider: true },
-  { id: 'paste', label: 'Paste copied markdown' },
-];
 
 const MEDIA_NOUN = { capture: 'capture', image: 'image', video: 'video' };
 const MEDIA_FIELD = { capture: 'cap', image: 'img', video: 'vid' };
@@ -193,6 +180,7 @@ const EDITABLE = '.mb-kb-text, h1[data-mb-node], h2[data-mb-node], h3[data-mb-no
  *   article: HTMLElement, orig: HTMLElement, built: Map<string, Element|null>,
  *   bar: HTMLElement, status: HTMLElement, menu: object,
  *   ops: object[], snaps: (string|null)[], redo: object[], frozen: number,
+ *   adding?: boolean,
  *   sel: string|null, picked: Set<string>, cellAt: null|{uuid: string, row: number, col: number},
  *   active: null | object, panel: null | {el: HTMLElement},
  *   mediaPaths: Promise<string[]>|null, destKinds: Map<string, string>,
@@ -274,8 +262,9 @@ export async function kbEnterEditMode(page, { hasLive = true, noDraft = false } 
   if (!article) return;
   ensureStylesheet();
   const status = null;
-  const md = noDraft ? '' : await loadDraft(page, status);
-  if (md == null) return;
+  const read = noDraft ? '' : await loadDraft(page, status);
+  if (read == null) return;
+  const md = seedEmptyText(read); // an empty update or admonition gets a line to type on
   // The editor draws the whole article: the site's stale copy of a deleted
   // draft needs no hiding once it has.
   document.documentElement.classList.remove('mb-kb-no-draft');
@@ -352,8 +341,9 @@ function dropDraft() {
 
 /** The draft has just been created: the page with none becomes its editor, in place. */
 async function takeUpDraft() {
-  const md = await loadDraft(state.page, state.status);
-  if (md == null) return;
+  const read = await loadDraft(state.page, state.status);
+  if (read == null) return;
+  const md = seedEmptyText(read);
   Object.assign(state, { md, loaded: md, ops: [], snaps: [md], redo: [], frozen: 0, noDraft: false, liveView: false });
   document.documentElement.classList.remove('mb-kb-no-draft', 'mb-kb-live-view');
   syncViewChrome();
@@ -548,17 +538,20 @@ function buildFoot() {
     `<button type="button" class="mb-kb-foot__pick" data-kb-act="${act}" title="${title}"><span class="mb-kb-foot__icon" data-icon="${icon}" aria-hidden="true"></span><span>${label}</span></button>`;
   // The plus is an icon, not a typed "+": a glyph sits
   // on the text's baseline, off the middle of the word beside it.
+  // The card is not itself a button: opened (its `tray` face, drawTray) it
+  // holds one for each thing that can be added. Its Add face is the button.
   foot.innerHTML = `
     <div class="mb-kb-foot__picks" role="toolbar" aria-label="Selection"><div class="mb-kb-foot__in">
       <span class="mb-kb-picks__count" role="status"></span>
       ${pick('copy', 'copy', 'Copy', 'Copy the selected markdown')}
       ${pick('unpick', 'x', 'Unselect all', 'Unselect all')}
     </div></div>
-    <button type="button" class="mb-kb-addnew" data-face="add"${state.updates ? ' aria-haspopup="menu"' : ''}>
-      <span class="mb-kb-addnew__face" data-face="add"><span class="mb-kb-addnew__plus" data-icon="plus" aria-hidden="true"></span><span>${state.updates ? 'New system update' : 'Add'}</span></span>
+    <div class="mb-kb-addnew" data-face="add">
+      <button type="button" class="mb-kb-addnew__face mb-kb-addnew__toggle" data-face="add" aria-expanded="false"><span class="mb-kb-addnew__plus" data-icon="plus" aria-hidden="true"></span><span>Add</span></button>
       <span class="mb-kb-addnew__face" data-face="delete" aria-hidden="true"><span class="mb-kb-addnew__plus" data-icon="trash-2" aria-hidden="true"></span><span>Delete</span></span>
       <span class="mb-kb-addnew__face" data-face="note" aria-hidden="true"><span class="mb-kb-addnew__plus mb-kb-addnew__noteicon" aria-hidden="true"></span><span class="mb-kb-addnew__note" role="status"></span></span>
-    </button>
+      <div class="mb-kb-addnew__face mb-kb-addnew__tray" data-face="tray" role="toolbar" aria-label="Add to the page" aria-hidden="true" inert></div>
+    </div>
     <button type="button" class="mb-kb-save" data-kb-act="save" tabindex="-1" aria-hidden="true"><span class="mb-kb-foot__in"><span class="mb-kb-foot__icon" aria-hidden="true"></span><span class="mb-kb-save__text"></span></span></button>`;
   foot.querySelectorAll('[data-icon]').forEach(slot => {
     getLucideSvgMarkup(slot.dataset.icon).then(svg => { if (svg) slot.innerHTML = svg; }).catch(() => {});
@@ -606,6 +599,7 @@ function placeFoot() {
   const { article, bar } = state;
   bar.classList.toggle('--bare', state.markdownView && !state.liveView);
   article.append(bar);
+  if (state.adding) drawTray(); // what can be added may have changed with the page
   paintStatus();
   bar.querySelectorAll('.mb-kb-save, .mb-kb-foot__picks').forEach(sizeFootPiece); // measurable now it is on the page
   // Save turned up with the change that caused this redraw: let it be seen sliding in.
@@ -631,7 +625,8 @@ function syncFootStuck() {
  * The Add card as it stands. Its faces, first that applies: Delete while
  * something is dragged; the message there is (setStatus: yellow and spinning
  * while something runs, green once it is done, red when it failed); what a
- * click does while Shift or Cmd / Ctrl is held; else Add. With Shift held and
+ * click does while Shift or Cmd / Ctrl is held; the things to add, once the
+ * card has been opened (`state.adding`: drawTray); else Add. With Shift held and
  * something selected the card makes way altogether (`--wide`): the
  * selection's piece takes its room. Faces cross-fade, colours fade, widths slide.
  */
@@ -641,12 +636,21 @@ function paintFoot() {
   if (!card) return;
   const plain = !foot.classList.contains('--live') && !foot.classList.contains('--bare'); // the card is there to be seen
   const deleting = card.classList.contains('--delete');
+  // Opened, it shuts when a block is dragged (the card is where that is
+  // deleted) and where there is nothing to add to. A message or a held key's
+  // hint only stands over it for as long as it shows.
+  if (!plain || deleting) state.adding = false;
   const mode = state.menu?.mode ?? null;
   const msg = !deleting ? note : null;
   const wide = plain && !msg && !deleting && mode === 'pick' && state.picked.size > 0;
   const hint = plain && !msg && !deleting && !wide && (mode === 'pick' || mode === 'menu') ? mode : null;
-  const face = deleting ? 'delete' : msg || hint ? 'note' : 'add';
+  const face = deleting ? 'delete' : msg || hint ? 'note' : state.adding ? 'tray' : 'add';
   foot.classList.toggle('--wide', wide);
+  card.classList.toggle('--open', face === 'tray');
+  // Opened, whatever stands over it, the card is as wide as its icons need:
+  // it grows to that and shrinks back from it (slideCardWidth), never jumps.
+  const widthWas = card.classList.contains('--adding') !== !!state.adding ? card.getBoundingClientRect().width : 0;
+  card.classList.toggle('--adding', !!state.adding);
   // On the live content and in Markdown view the card is there only to say something.
   foot.classList.toggle('--noting', !!msg);
   card.classList.toggle('--note', face === 'note');
@@ -671,8 +675,221 @@ function paintFoot() {
   }
   card.dataset.face = face;
   card.querySelectorAll(':scope > .mb-kb-addnew__face').forEach(f => f.setAttribute('aria-hidden', String(f.dataset.face !== face)));
-  card.tabIndex = wide ? -1 : 0;
+  const toggle = card.querySelector('.mb-kb-addnew__toggle');
+  toggle.tabIndex = face === 'add' && !wide ? 0 : -1;
+  toggle.setAttribute('aria-expanded', String(!!state.adding));
+  card.querySelector('.mb-kb-addnew__tray').inert = face !== 'tray';
   if (face === 'note') card.setAttribute('aria-disabled', 'true'); else card.removeAttribute('aria-disabled');
+  if (widthWas) slideCardWidth(foot, card, widthWas);
+}
+
+/**
+ * The card has just changed how wide it stands (opened: as wide as its icons;
+ * shut: the row's own width). It is taken from `from` px to where it now
+ * stands, growing and shrinking evenly to both sides (the foot's --sizing
+ * keeps it centred while it does).
+ */
+function slideCardWidth(foot, card, from) {
+  card._mbWidthSlide?.cancel();
+  const to = card.getBoundingClientRect().width;
+  if (Math.abs(to - from) < 1 || !card.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  foot.classList.add('--sizing');
+  const px = w => ({ minWidth: `${w}px`, maxWidth: `${w}px` });
+  const slide = card.animate([px(from), px(to)], { duration: 380, easing: 'ease-in-out' });
+  card._mbWidthSlide = slide;
+  const done = () => { if (card._mbWidthSlide === slide) { card._mbWidthSlide = null; foot.classList.remove('--sizing'); } };
+  slide.finished.then(done, done);
+}
+
+// ── The Add card, opened ─────────────────────────────────────────────────────
+// A click on the card opens it: in place of "Add" it shows an icon for each
+// thing the page can take (kbAddTray.js), each named in a tooltip. An icon is
+// pressed and dragged to where its thing should go (onAddDown), or clicked to
+// put it at the end of the page (clickAddItem). A click on its "Add" again, a
+// press anywhere else on the page, or Escape shuts it.
+
+const TRAY_TIP_GAP = 24; // px an icon's tooltip stands over it: clear of the card's own line
+
+/** What the opened card offers on this page as it stands. */
+const trayItems = () => addTrayItems({
+  updates: !!state.updates,
+  sections: !!state.updates || !!lastSectionTarget(),
+  pageTitle: !state.updates && canPlacePageTitle(workingMd()),
+});
+
+function setAdding(on) {
+  if (!state || !!state.adding === !!on) return;
+  state.adding = !!on;
+  if (on) drawTray();
+  paintFoot();
+}
+
+/** The opened card's buttons, drawn again only when what it offers has changed. */
+function drawTray() {
+  const tray = state.bar.querySelector('.mb-kb-addnew__tray');
+  const items = trayItems();
+  const sig = items.map(i => `${i.id}|${i.click}|${i.drag}`).join();
+  if (tray.dataset.sig === sig) return;
+  tray.dataset.sig = sig;
+  const paint = (slot, name) => { getLucideSvgMarkup(name).then(svg => { if (svg) slot.innerHTML = svg; }).catch(() => {}); };
+  const button = (cls, icon, text) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = cls;
+    const slot = document.createElement('span');
+    slot.className = 'mb-kb-addnew__plus';
+    slot.setAttribute('aria-hidden', 'true');
+    paint(slot, icon);
+    btn.append(slot);
+    if (text) { const label = document.createElement('span'); label.textContent = text; btn.append(label); }
+    return btn;
+  };
+  const rule = () => { const el = document.createElement('i'); el.className = 'mb-kb-addnew__rule'; el.setAttribute('aria-hidden', 'true'); return el; };
+  // Icons only, on one line (the card widens to hold them; Escape or a press elsewhere shuts it).
+  const parts = [];
+  items.forEach((item, i) => {
+    // The things clicked into place stand apart from the ones dragged there.
+    if (i && !!items[i - 1].named !== !!item.named) parts.push(rule());
+    const btn = button(`mb-kb-addnew__item${item.named ? ' --named' : ''}`, item.icon, item.named ? item.label : '');
+    btn.dataset.add = item.id;
+    if (item.drag) btn.dataset.drag = '';
+    if (item.named) btn.setAttribute('aria-label', `New update: ${item.label}`);
+    else setThemeTip(document, btn, item.click ? item.label : `${item.label}: drag into an update`, { above: TRAY_TIP_GAP });
+    parts.push(btn);
+  });
+  tray.replaceChildren(...parts);
+}
+
+/** A click on one of the opened card's icons: its thing goes at the end of the page. */
+function clickAddItem(id) {
+  const item = trayItems().find(i => i.id === id);
+  if (!item) return;
+  if (!item.click) {
+    // (The card stays open under the words: the icon is still to be dragged.)
+    setStatus(state.status, DRAG_ONLY_HINT, { hideAfter: 2600, keepTray: true });
+    return;
+  }
+  setAdding(false);
+  // The page is taken to its end first: that is where the thing will stand.
+  toPageEnd().then(() => {
+    if (!state || state.liveView || state.markdownView || state.noDraft) return;
+    const type = updateTypeOf(id);
+    if (type) { addUpdate(type); return; }
+    if (id === 'section') { addSection(null, 2); return; }
+    const target = lastSectionTarget();
+    if (target) addAt(id, target, pageEndBox());
+  });
+}
+
+/**
+ * An icon of the opened card, pressed: moved, it is dragged as a block is
+ * (kbPageDrag.js: a small copy with the pointer, the line where it would land,
+ * the same places to land), and let go over such a place its thing is added
+ * there. Let go anywhere else (or back on the foot), nothing is added. A press
+ * let go where it began is the icon's click.
+ */
+function onAddDown(e) {
+  if (e.button !== 0 || !state || state.liveView || !state.adding) return;
+  const btn = e.target instanceof Element ? e.target.closest('.mb-kb-addnew__item') : null;
+  if (!btn || !state.bar.contains(btn)) return;
+  const item = trayItems().find(i => i.id === btn.dataset.add);
+  if (!item?.drag) return;
+  const menu = state.menu;
+  const section = item.id === 'section';
+  // What is dragged is not on the page yet: this stands for it where the
+  // page is asked where a block (or a section) of its own could land.
+  const probe = document.createElement(section ? 'h2' : 'div');
+  const inUpdate = uuid => { const el = nodeEl(uuid); return !!el?.closest('[data-mb-update]') && !el.closest('.mb-kb-upd-ghost'); };
+  let carried = null;
+  // The foot is at the bottom of the view, where a pointer makes the page
+  // scroll: it does not until the pointer has first come up clear of there
+  // (else every drag would nudge the page down on its way out), nor while the
+  // pointer is back on the foot.
+  let onFoot = true;
+  let clear = false;
+  // Held over the label of a tab that is not showing, or over an update that
+  // is shut, it brings that tab forward, or opens the update, to be dropped in.
+  let hold = null;
+  const letGo = () => { if (hold) clearTimeout(hold.timer); hold = null; };
+  const holdOver = (x, y) => {
+    const label = labelAt(state.article, x, y);
+    const tab = label ? nodeFor(label) : null;
+    const hidden = tab?.dataset.mbKind === 'tab' && tab !== shownTabOf(label.closest('.tabbed-set'));
+    const under = label || !state.updates ? null : document.elementFromPoint(x, y);
+    const shut = under instanceof Element && state.article.contains(under) ? under.closest('details[data-mb-update]:not([open])') : null;
+    const el = hidden ? label : shut && !shut.closest('.mb-kb-upd-ghost') ? shut : null;
+    if (!el) { letGo(); return; }
+    if (hold?.el === el) return;
+    letGo();
+    hold = { el, timer: setTimeout(() => {
+      hold = null;
+      if (!state || !menu.dragging || !el.isConnected) return;
+      if (el === label) showTab(tab.dataset.mbNode); else el.open = true;
+      window.dispatchEvent(new Event('scroll')); // the page under the pointer changed: look again
+    }, TAB_HOLD) };
+  };
+  followDrag(e, {
+    handle: document.documentElement,
+    start: () => {
+      menu.dragging = true;
+      deactivate();
+      closeSettings();
+      closePanel();
+      window.getSelection()?.removeAllRanges();
+      // The click that ends this press is not the icon's: it was dragged.
+      const swallow = ev => { ev.stopPropagation(); ev.preventDefault(); };
+      window.addEventListener('click', swallow, true);
+      const done = () => {
+        window.removeEventListener('pointerup', done, true);
+        window.removeEventListener('pointercancel', done, true);
+        setTimeout(() => window.removeEventListener('click', swallow, true), 80);
+      };
+      window.addEventListener('pointerup', done, true);
+      window.addEventListener('pointercancel', done, true);
+    },
+    els: () => [],
+    carry: (_els, press) => (carried = carryChip(item.label, btn.querySelector('svg'), press)),
+    view: () => (onFoot || !clear ? { top: 0, bottom: 0 } : dragView()),
+    targetAt: (x, y) => {
+      onFoot = isOver(state.bar, x, y);
+      clear ||= y < dragView().bottom - SCROLL_EDGE;
+      if (onFoot) { letGo(); return null; }
+      if (section) return sectionTarget(state.article, y, probe);
+      holdOver(x, y);
+      const target = blockTarget(state.article, x, y, probe, TEXT_KIND, [], o => !isUpdateEl(o));
+      // On System Updates a component goes inside an update, and nowhere else.
+      if (state.updates && !landsInUpdate(target, TEXT_KIND.section, inUpdate)) return null;
+      return target;
+    },
+    drop: target => {
+      const box = lineBox(target.line);
+      setAdding(false);
+      if (section) { addSectionAt(target.at); return; }
+      addAt(item.id, target.beside ? { beside: target.beside, side: target.side } : { ...target.container, at: target.at }, box);
+    },
+    end: () => {
+      letGo();
+      carried = null;
+      menu.dragging = false;
+      syncBlockMenu();
+    },
+  });
+}
+
+// Where something is to be added, as a box on the page (page px): the line a
+// drop was let go on, or the end of the page. What is asked next (which
+// capture, the paste box) stands at it.
+const lineBox = line => ({
+  left: line.left + window.scrollX,
+  top: line.y + window.scrollY,
+  width: line.width ?? 0,
+  height: line.height ?? 0,
+});
+function pageEndBox() {
+  const tags = pageEndPlace().getBoundingClientRect();
+  const r = tags.height > 0 ? tags : state.bar.getBoundingClientRect(); // (tags that are hidden have no place)
+  const a = state.article.getBoundingClientRect();
+  return { left: a.left + window.scrollX, top: r.top + window.scrollY, width: a.width, height: 0 };
 }
 
 /** Where the part of the window the page shows in ends: at the foot while it is held there. */
@@ -849,20 +1066,26 @@ async function saveVisibility() {
 async function saveDraft() {
   const batch = state.ops.slice();
   const shown = workingMd();
+  const base = state.snaps[0];
   state.saving = true;
   state.frozen = batch.length; // typing during the save starts a new op
   refreshSaveState(); // Save spins until it is done
   let saved = null;
   try {
+    // The edits were made over the draft as it is held open, with a line to
+    // type on in each empty container (seedEmptyText): they are replayed over
+    // the same, and whatever is still empty then stays out of the saved file.
+    const held = md => seedEmptyText(md, base);
     saved = await githubFetchAndPushFile(state.page.draftPath, () => {},
-      md => dropEmptyText(applyOps(md, batch)),
-      { commit: ({ before }) => (state.updates ? commitForUpdates(before, dropEmptyText(applyOps(before, batch))) : commitForOps(before, batch)) });
+      md => dropEmptyText(applyOps(held(md), batch)),
+      { commit: ({ before }) => (state.updates ? commitForUpdates(before, dropEmptyText(applyOps(held(before), batch))) : commitForOps(held(before), batch)) });
   } catch (err) {
     alert('Failed to save: ' + err.message);
   }
   state.saving = false;
   state.frozen = 0;
   if (saved == null) { refreshSaveState(); return false; }
+  saved = seedEmptyText(saved, shown);
   flashSaved();
 
   // Anything done while the save was in flight stays pending, over the new draft.
@@ -1235,6 +1458,7 @@ function adopt(md) {
   deactivate();
   settle();
   const pending = state.ops.slice();
+  md = seedEmptyText(md, state.md);
   state.md = md;
   state.ops = [];
   state.snaps = [md];
@@ -1295,7 +1519,7 @@ async function publishUpdate(uuid) {
     if (!saved) { state.side.busy(null); syncSide(); return; }
   }
   // The update as it goes live, and where it stood: kept to draw it while the site builds.
-  const list = updateComponents(state.md);
+  const list = updateComponents(dropEmptyText(state.md)); // as saved: without the line an empty one is held open with
   const index = list.findIndex(c => c.adm.uuid === uuid);
   let replaced = null;
   const drafts = await runOnUpdate(uuid, 'publish', 'Failed to publish the update', async (progress) => {
@@ -1750,6 +1974,7 @@ function keepMedia(article, had) {
 function render() {
   if (deactivate()) return; // ending the edit in progress already redrew the page
   closePanel();
+  closeChoices?.(); // a question asked at a place on the page that is being redrawn
   closeDatePicker(); // so is the date it stood under
   const { article, orig } = state;
   const scrollY = window.scrollY;
@@ -2080,7 +2305,7 @@ function flashCopied() {
 // ── Pasting with the keyboard ────────────────────────────────────────────────
 // Ctrl/Cmd+V on the page (not in text being typed) pastes what is on the
 // clipboard as blocks: below the lowest of what is selected, or with nothing
-// selected at the end of the page. "Paste copied markdown" in the Add menu
+// selected at the end of the page. "Paste copied markdown" on the Add card
 // does the same at the place it was opened for.
 
 /** What pasting `text` into `target` would add, or { error }: headings only go into a section. */
@@ -4202,41 +4427,74 @@ function focusInto(uuid) {
 // ── Adding ───────────────────────────────────────────────────────────────────
 // Every place a component can go has an unseen marker in the page
 // (`.mb-kb-insert`, from kbPageRender): it names the place, and what is being
-// added (a new line of text, the media library, the paste box) is drawn at it.
+// added (a new line of text, the media library) is drawn at it. At the end of
+// the page that is the end of the last section, above the tags row: never
+// the foot, which stands under the tags.
 
 /**
- * The add menu for one place on the page. `target` is { kind, uuid, at }
- * (a container and a component index), or null on a page with no section to
- * insert into; `section` adds "Section". `place` is the element the addition
- * is drawn at (the place's marker; the menu's anchor without one).
+ * The marker of a place (`target`: a container and an index among its
+ * blocks), or null when the page has none for it.
  */
-async function openInsertMenu(anchor, target, section = false, place = anchor) {
-  const { tabs, hasLast } = target ? await webappTabs() : { tabs: [], hasLast: false };
-  if (!state || !anchor.isConnected) return; // the page moved on while the tabs were read
-  const items = [];
-  if (section) items.push({ id: 'section', label: 'Section' });
-  if (section && target) items.push({ divider: true });
-  if (target) items.push(...INSERT_ITEMS.map(item => (item.id === 'capture' ? captureMenuItem(tabs, hasLast) : item)));
-  // A title for the page, placed here: only while the page's own is hidden
-  // and none is placed yet (a page has one title).
-  if (target && canPlacePageTitle(workingMd())) items.splice(items.findIndex(i => i.id === 'text') + 1, 0, { id: 'pagetitle', label: 'Page title' });
-  openPopupMenu(anchor, items, id => pickInsert(id, target, place, anchor));
+function slotFor(target) {
+  return [...state.article.querySelectorAll(`.mb-kb-insert[data-mb-insert-kind="${target.kind}"]`)]
+    .find(s => s.dataset.mbInsertUuid === target.uuid && Number(s.dataset.mbInsertAt) === target.at) ?? null;
 }
 
-function pickInsert(id, target, place, anchor = place) {
-  if (id === 'section') { addSection(null, 2); return; }
-  const tabPick = captureTabPick(id);
-  if (tabPick) { startCapture(tabPick.tabId, target, !!tabPick.reopen); return; }
-  if (!place.isConnected) return; // the page was redrawn under the open menu
-  if (id === 'text') { startText(target, place); return; }
-  const container = { kind: target.kind, uuid: target.uuid };
+/**
+ * The end of the page's own content, as an element to put things before: the
+ * tags row that closes the article when the page has one (the tags always come
+ * last), else the foot.
+ */
+const pageEndPlace = () => state.article.querySelector(':scope > .md-tags') ?? state.bar;
+
+// `where` is a place for something new: { kind, uuid, at } (a container and
+// an index among its blocks), or { beside, side } (in a column of its own
+// beside a block or a column: kbPageDrag sideTarget).
+
+/** The container and index nearest a place: itself, or just after what it is beside. */
+function flatPlace(where) {
+  if (!where.beside) return where;
+  const md = workingMd();
+  const hit = where.beside.cell ? findOwner(md, 'cell', where.beside.cell) : findComponent(md, where.beside.block);
+  return hit ? { kind: hit.container.kind, uuid: hit.container.uuid, at: hit.index + 1 } : null;
+}
+
+/** The element of the page a place is drawn at: its marker, or what it is beside (a column's whole row). */
+function placeEl(where) {
+  if (!where.beside) return slotFor(where) ?? pageEndPlace();
+  const el = nodeEl(where.beside.cell ?? where.beside.block);
+  return el?.dataset.mbKind === 'cell' ? el.closest('[data-mb-kind="grid"]') ?? el : el;
+}
+
+/**
+ * Add the thing of an Add card's icon (`id`: kbAddTray.js) at `where`. `box`
+ * is that place on the page (page px): what has to be asked first stands there.
+ */
+function addAt(id, where, box) {
+  deactivate();
+  // A capture is a new one, taken on the webapp, or one from the library: asked first.
+  if (id === 'capture') askCapture(where, box); else placeNew(id, where, box);
+}
+
+function placeNew(id, where, box) {
+  const flat = flatPlace(where);
+  const place = flat && placeEl(where);
+  if (!place?.isConnected) return; // the page was redrawn, and the place is gone
   const insert = (components, focus = true) => {
     const first = uuidOfComponent(components[0]);
-    pushOp(OPS.insertComponents(container, target.at, components), () => {
+    const op = where.beside
+      ? OPS.insertBeside(components, where.beside, where.side)
+      : OPS.insertComponents({ kind: flat.kind, uuid: flat.uuid }, flat.at, components);
+    return pushOp(op, () => {
       select(first);
       if (focus) focusInto(first); else reveal(first);
     });
   };
+  if (id === 'text') {
+    // Beside something it needs its column made first: a block from the start.
+    if (where.beside) insert([newText()]); else startText(flat, place);
+    return;
+  }
   if (MEDIA_FIELD[id]) {
     openPicker(id, place, pick => insert([mediaComponent(id, pick)], false));
     return;
@@ -4244,8 +4502,9 @@ function pickInsert(id, target, place, anchor = place) {
   if (id === 'paste') {
     // Headings in what is pasted become sections of their own, which only a
     // section can be followed by.
-    openPastePanel(anchor.isConnected ? anchor : place, text => readPaste(text, target), pasted => {
-      pasteInto(target, pasted, added => { if (added.length) { select(added[0]); reveal(added[0]); } });
+    openPastePanel(box, text => readPaste(text, where.beside ? { kind: TEXT_KIND.cell } : flat), pasted => {
+      if (where.beside) { if (pasted.components.length) insert(pasted.components, false); return; }
+      pasteInto(flat, pasted, added => { if (added.length) { select(added[0]); reveal(added[0]); } });
     });
     return;
   }
@@ -4255,6 +4514,90 @@ function pickInsert(id, target, place, anchor = place) {
   insert([component], id !== 'navlinks');
   // Nav links are nothing until told what to list: ask straight away.
   if (id === 'navlinks' && state.sel === component.nav.uuid) openSettings();
+}
+
+// Which capture: a new one, taken in a webapp tab (the tabs open at that
+// moment, a new one, or the last-captured page again), or one from the
+// library. Asked at the place it is going to, in the editor's floating menu.
+async function askCapture(where, box) {
+  const draft = state;
+  const { tabs, hasLast } = await webappTabs();
+  if (state !== draft || state.liveView || state.markdownView) return; // the page moved on while the tabs were read
+  openChoices(box, 'Capture', captureChoiceGroups(tabs, hasLast), id => {
+    const tabPick = captureTabPick(id);
+    if (!tabPick) { placeNew('capture', where, box); return; }
+    const flat = flatPlace(where);
+    if (flat) startCapture(tabPick.tabId, flat, !!tabPick.reopen, where.beside ? where : null);
+  });
+}
+
+/**
+ * A question asked at a place on the page (`at`: page px), as the editor's
+ * floating menu (floatMenu.js): a heading, then `groups` of pills
+ * ({ title, items: [{ id, label, disabled? }] }). `onPick` gets the id picked;
+ * Escape or a press anywhere else puts the question away unanswered.
+ */
+let closeChoices = null;
+function openChoices(at, title, groups, onPick) {
+  closeChoices?.();
+  const host = menuHost('mb-kb-choices');
+  host.setAttribute('role', 'menu');
+  host.setAttribute('aria-label', title);
+  const head = document.createElement('div');
+  head.className = 'mb-fm__title --top';
+  head.textContent = title;
+  host.append(head);
+  for (const g of groups) {
+    const group = menuGroup(g.title);
+    // "Open a new tab" and "Reopen last tab" keep a line to themselves, above the tabs already open.
+    const opensTab = item => captureTabPick(item?.id)?.tabId === null;
+    g.items.forEach((item, i) => {
+      if (i && opensTab(g.items[i - 1]) && !opensTab(item)) group.row.append(menuBreak());
+      const pill = menuPill(item.label);
+      pill.setAttribute('role', 'menuitem');
+      pill.dataset.choice = item.id;
+      pill.disabled = !!item.disabled;
+      group.row.append(pill);
+    });
+    host.append(group.el);
+  }
+  document.body.append(host);
+  const veil = createVeil();
+  const box = { left: at.left - window.scrollX, top: at.top - window.scrollY, width: at.width, height: at.height };
+  host.hidden = false;
+  host.style.maxWidth = `${menuMaxWidth(box.width)}px`;
+  host.style.left = '0px';
+  host.style.top = '0px';
+  const spot = placeAround({ left: box.left, top: box.top, bottom: box.top + box.height },
+    { w: host.offsetWidth, h: host.offsetHeight }, menuView(), { fallbackTop: box.top });
+  host.classList.toggle('--up', spot.up);
+  host.style.left = `${Math.round(spot.x + window.scrollX)}px`;
+  host.style.top = `${Math.round(spot.y + window.scrollY)}px`;
+  veil.show(box, '2px');
+  playIn(host);
+
+  const onDown = e => { if (!host.contains(e.target)) close(); };
+  const onKey = e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+    stepPills(host, e);
+  };
+  const close = () => {
+    document.removeEventListener('mousedown', onDown, true);
+    document.removeEventListener('keydown', onKey, true);
+    veil.remove();
+    host.remove();
+    if (closeChoices === close) closeChoices = null;
+  };
+  closeChoices = close;
+  document.addEventListener('mousedown', onDown, true);
+  document.addEventListener('keydown', onKey, true);
+  host.addEventListener('click', e => {
+    const pill = e.target instanceof Element ? e.target.closest('[data-choice]') : null;
+    if (!pill || pill.disabled) return;
+    close();
+    onPick(pill.dataset.choice);
+  });
+  host.querySelector('button.mb-fm__pill:not(:disabled)')?.focus({ preventScroll: true });
 }
 
 // ── A new capture, taken on the webapp ───────────────────────────────────────
@@ -4298,16 +4641,18 @@ function captureAsk(type, extra = {}) {
 
 /**
  * `tabId` null opens a new webapp tab (`reopen`: on the page the last capture
- * was taken from). `target` is where the capture will go.
+ * was taken from). `target` is where the capture will go; `beside`
+ * ({ beside, side }) when that is in a column beside something, for as long as
+ * that thing is still on the page (`target` is then the place just after it).
  */
-async function startCapture(tabId, target, reopen = false) {
+async function startCapture(tabId, target, reopen = false, beside = null) {
   if (state.captureWait) {
     setStatus(state.status, 'A capture is already in progress. Finish or cancel it first.', { tone: 'error', hideAfter: 5000 });
     return;
   }
   deactivate();
   const token = generateUUID();
-  state.captureWait = { token, target, strikes: 0, split: true };
+  state.captureWait = { token, target, beside, strikes: 0, split: true };
   drawCaptureWait();
   showCaptureWait();
   const res = await captureAsk('kbCaptureStart', { tabId, token, reopen, frozen: !!state.updates });
@@ -4389,10 +4734,7 @@ function drawCaptureWait() {
     captureAsk('kbCaptureCancel', { token: wait.token });
   });
   const target = captureTarget(wait.target);
-  const slot = target && [...state.article.querySelectorAll(`.mb-kb-insert[data-mb-insert-kind="${target.kind}"]`)]
-    .find(s => s.dataset.mbInsertUuid === target.uuid && Number(s.dataset.mbInsertAt) === target.at);
-  if (slot) slot.before(el);
-  else (state.article.querySelector('.mb-kb-foot') ?? state.article.lastElementChild)?.before(el);
+  (target && slotFor(target) || pageEndPlace()).before(el);
   placeCaptureVeil();
 }
 
@@ -4463,7 +4805,11 @@ function insertDeliveredCapture(wait, component) {
   deactivate();
   const target = captureTarget(wait.target);
   if (!target) return false;
-  const added = pushOp(OPS.insertComponents({ kind: target.kind, uuid: target.uuid }, target.at, [component]), () => {
+  // Beside what it was dropped beside, if that is still there.
+  const md = workingMd();
+  const side = wait.beside && (wait.beside.beside.cell ? findOwner(md, 'cell', wait.beside.beside.cell) : findComponent(md, wait.beside.beside.block)) ? wait.beside : null;
+  const op = side ? OPS.insertBeside([component], side.beside, side.side) : OPS.insertComponents({ kind: target.kind, uuid: target.uuid }, target.at, [component]);
+  const added = pushOp(op, () => {
     select(component.cap.uuid);
     reveal(component.cap.uuid);
   });
@@ -4478,7 +4824,8 @@ globalThis.chrome?.runtime?.onMessage?.addListener((msg, _sender, sendResponse) 
 });
 
 // New text at an insert point: an empty line to type on, standing where the
-// block will go. Nothing joins the draft until something is typed.
+// block will go (`place`: that point's marker). Nothing joins the draft until
+// something is typed.
 function startText(target, place) {
   deactivate();
   if (!place.isConnected) return; // ending that edit redrew the page
@@ -4497,6 +4844,16 @@ function addSection(parentUuid, level) {
   const h1 = (buildSectionTree(workingMd()).sections ?? []).find(s => s.level === 1);
   const uuid = generateUUID();
   pushOp(OPS.addSection({ uuid, title: level === 3 ? 'New subsection' : 'New section', parentUuid: parentUuid ?? h1?.uuid ?? null, level, textUuid: generateUUID() }), () => {
+    select(uuid);
+    editPiece(nodeEl(uuid), true);
+  });
+}
+
+// A new top-level section dropped at place `at` among the page's sections.
+function addSectionAt(at) {
+  const h1 = (buildSectionTree(workingMd()).sections ?? []).find(s => s.level === 1);
+  const uuid = generateUUID();
+  pushOp(OPS.addSectionAt({ uuid, title: 'New section', parentUuid: h1?.uuid ?? null, textUuid: generateUUID() }, at), () => {
     select(uuid);
     editPiece(nodeEl(uuid), true);
   });
@@ -4534,8 +4891,9 @@ function openPanel(anchor, title) {
   el.querySelector('strong').textContent = title;
   el.querySelector('.mb-kb-panel__close').addEventListener('click', closePanel);
   el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePanel(); } });
-  // At the foot of the page it goes above the foot: the end of the page itself.
-  if (anchor.matches('.mb-kb-foot')) anchor.before(el); else anchor.after(el);
+  // At a place's marker, or at the end of the page (above the tags row, or the
+  // foot), it goes before it; else after the thing it is for.
+  if (anchor.matches('.mb-kb-insert, .md-tags, .mb-kb-foot')) anchor.before(el); else anchor.after(el);
   state.panel = { el };
   el.scrollIntoView({ block: 'nearest' });
   return el.querySelector('.mb-kb-panel__body');
@@ -4636,15 +4994,15 @@ async function onFrozenPick(pick, onPick) {
 }
 
 // "Paste copied markdown": what a component's Copy button put on the clipboard.
-// The box to paste into floats where the menu it was picked from stood, in
-// that menu's own look; what is pasted lands where the menu was adding to.
+// The box to paste into floats at the place what is pasted will land (`spot`,
+// page px: where the icon was dropped, or the end of the page).
 // `parse` reads the text ({ error } when it cannot go there).
 let closePaste = null;
 
-function openPastePanel(anchor, parse, onPasted) {
+function openPastePanel(spot, parse, onPasted) {
   closePanel();
-  const at = anchor.getBoundingClientRect(); // ending an edit may redraw the page under it
   deactivate();
+  const at = new DOMRect(spot.left - window.scrollX, spot.top - window.scrollY, spot.width, spot.height);
   const pop = document.createElement('div');
   pop.className = 'mb-popup-menu mb-kb-pastepop';
   pop.setAttribute('role', 'dialog');
@@ -4664,7 +5022,7 @@ function openPastePanel(anchor, parse, onPasted) {
     if (closePaste === close) closePaste = null;
   };
   closePaste = close;
-  // After the click that picked it from the menu.
+  // After the click that asked for it.
   setTimeout(() => {
     if (closePaste !== close) return;
     document.addEventListener('mousedown', onDown, true);
@@ -4731,6 +5089,7 @@ function wire() {
   article.addEventListener('mousedown', onArticleMouseDown, true);
   article.addEventListener('dblclick', onArticleDblClick);
   article.addEventListener('pointerdown', onLabelDown); // a tab's label, pressed and moved, drags the tab
+  article.addEventListener('pointerdown', onAddDown);   // an icon of the opened Add card, pressed and moved, is dragged into place
   // Which updates are open is remembered (see render).
   article.addEventListener('toggle', e => {
     const el = e.target;
@@ -4772,6 +5131,8 @@ function wire() {
       && !state.menu.el.contains(target) && !target.closest('.mb-popup-menu, .mb-rte-float, .mb-fm');
   };
   document.addEventListener('mousedown', e => {
+    // A press anywhere but on the opened Add card shuts it.
+    if (state.adding && !(e.target instanceof Element && e.target.closest('.mb-kb-addnew'))) setAdding(false);
     // A press on the page closes a block's menu (the bar and the menus do not).
     if (e.target instanceof Element && !state.menu.el.contains(e.target) && !state.bar.contains(e.target)
       && !e.target.closest('.mb-popup-menu, .mb-kb-pagesettings')) closeSettings();
@@ -4846,7 +5207,7 @@ function onKeyDown(e) {
     e.preventDefault();
     undo();
   } else if (e.key === 'Escape') {
-    if (state.menu.open) closeSettings(); else if (state.panel) closePanel(); else if (state.sel) select(null); else clearPicked();
+    if (state.adding) setAdding(false); else if (state.menu.open) closeSettings(); else if (state.panel) closePanel(); else if (state.sel) select(null); else clearPicked();
   }
   // No Delete key for the selection: nothing on the page shows what is
   // selected, so a stray key press could take out something unseen. Delete is
@@ -4979,19 +5340,20 @@ function onArticleClick(e) {
   const addNew = t.closest('.mb-kb-addnew');
   if (addNew) {
     e.preventDefault();
-    // Pressed with the mouse it keeps no focus: a key pressed later (Escape
-    // out of the menu) would otherwise give it the keyboard's focus ring, and
-    // it would stay purple until something else was clicked.
-    if (e.detail > 0) addNew.blur();
-    if (addNew.classList.contains('--note') || state.bar.classList.contains('--wide')) return; // saying something, not offering to add
-    // What it adds goes at the end of the page: the page is taken there first,
-    // then the menu opens. Text, a library panel, the paste box are placed by
-    // the foot as a whole (before it), never inside its row.
-    toPageEnd().then(() => {
-      if (!state || !addNew.isConnected || addNew.classList.contains('--delete') || addNew.classList.contains('--note')) return;
-      if (state.updates) openPopupMenu(addNew, UPDATE_TYPES.map(([id, label]) => ({ id, label })), type => addUpdate(type));
-      else openInsertMenu(addNew, lastSectionTarget(), true, state.bar);
-    });
+    // Pressed with the mouse a button of the card keeps no focus: a key
+    // pressed later (Escape) would otherwise give it the keyboard's focus
+    // ring, and it would stay purple until something else was clicked.
+    if (e.detail > 0) t.closest('button')?.blur();
+    // Saying something, or where a dragged block is deleted: not offering to add.
+    if (addNew.classList.contains('--note') || addNew.classList.contains('--delete') || state.bar.classList.contains('--wide')) return;
+    const item = t.closest('.mb-kb-addnew__item');
+    if (item) { clickAddItem(item.dataset.add); return; }
+    // Closed, the whole card opens it (Escape or a press elsewhere shuts it again).
+    if (!state.adding) {
+      setAdding(true);
+      // Opened from the keyboard, the focus goes to the first icon.
+      if (e.detail === 0) addNew.querySelector('.mb-kb-addnew__item')?.focus({ preventScroll: true });
+    }
     return;
   }
 
@@ -5049,8 +5411,10 @@ function ensureStylesheet() {
 let note = null;
 let statusTimer = null;
 let creatingSay = null; // the busy Create draft button's label, while it runs (kbCreateDraft)
-function setStatus(_el, text, { busy = false, tone = '', hideAfter = 0 } = {}) {
+function setStatus(_el, text, { busy = false, tone = '', hideAfter = 0, keepTray = false } = {}) {
   clearTimeout(statusTimer);
+  // Something to say shuts the opened Add card (`keepTray`: only stands over it for a moment).
+  if (text && !keepTray && state) state.adding = false;
   note = text ? { text, tone: busy ? 'busy' : tone === 'ok' || tone === 'error' ? tone : 'info' } : null;
   paintStatus();
   if (hideAfter) statusTimer = setTimeout(() => setStatus(null, ''), hideAfter);

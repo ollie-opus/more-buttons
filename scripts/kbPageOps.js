@@ -741,6 +741,18 @@ export const OPS = {
   },
 
   /**
+   * A new top-level section (addSection's `spec`, level 2) at place `at` among
+   * the sections of the page, as they stand before it is added: one change.
+   */
+  addSectionAt(spec, at) {
+    const add = OPS.addSection({ ...spec, level: 2 });
+    return {
+      subject: md => add.subject(md),
+      apply: md => OPS.moveSectionTo(spec.uuid, null, at).apply(add.apply(md)),
+    };
+  },
+
+  /**
    * Pasted markdown with headings in it (parsePastedPage), at index `at` of a
    * section: `components` join the section there, and `sections` follow the
    * section's own content as the file would have them. What stood below `at`
@@ -986,6 +998,48 @@ export const OPS = {
   },
 
   /**
+   * New components (already built, identities minted) put beside something,
+   * in a column of their own: moveBeside, for things that are not on the page
+   * yet. Beside a block that is in a column means beside its column.
+   *
+   * @param {object[]} components
+   * @param {{cell: string} | {block: string}} target
+   * @param {'left'|'right'} side
+   */
+  insertBeside(components, target, side) {
+    const column = generateUUID();
+    const other = generateUUID();
+    const row = generateUUID();
+    return {
+      subject: md => subjectOf(componentCommit('Added',
+        components.length === 1 ? componentKindLabel(components[0]) : `${components.length} components`, md, target.cell ?? target.block)),
+      apply: md => {
+        const adding = components.some(isPageTitle) && !canPlacePageTitle(md) ? components.filter(c => !isPageTitle(c)) : components;
+        if (!adding.length) return md;
+        const mine = columnWith(column, clone(adding));
+        let cell = target.cell ?? null;
+        const at = cell ? null : findComponent(md, target.block);
+        if (!cell && !at) throw gone();
+        if (at?.container.kind === TEXT_KIND.cell) cell = at.container.uuid;
+        if (cell) {
+          const owner = findOwner(md, 'cell', cell);
+          if (!owner) throw gone('column');
+          const next = owner.component.grid.cells.slice();
+          next.splice(owner.childIndex + (side === 'right' ? 1 : 0), 0, mine);
+          return replaceAt(md, owner, { ...owner.component, grid: { ...owner.component.grid, cells: next } });
+        }
+        // A row is not put inside a row: beside a grid is a new column of it.
+        if (at.component.kind === 'grid') {
+          const cells = at.component.grid.cells ?? [];
+          return replaceAt(md, at, { ...at.component, grid: { ...at.component.grid, cells: side === 'left' ? [mine, ...cells] : [...cells, mine] } });
+        }
+        const theirs = columnWith(other, [clone(at.component)]);
+        return replaceAt(md, at, { kind: 'grid', grid: { uuid: row, flavor: 'generic', cells: side === 'left' ? [mine, theirs] : [theirs, mine] } });
+      },
+    };
+  },
+
+  /**
    * A cell taken, whole (what it holds, its settings, its identity), to stand
    * beside something: a cell of its own grid or of another (`{ cell }`), or a
    * block that is in no grid (`{ block }`), which then becomes the other cell
@@ -1167,6 +1221,39 @@ export function dropEmptyText(md) {
     if (!hit) break;
     // A column that held nothing else goes with it (tidyRow).
     out = tidyRows(replaceAt(out, hit, null), [rowOf(out, hit.container)]);
+  }
+  return out;
+}
+
+// The containers a block is typed into that hold nothing at all: updates,
+// admonitions and tabs. Not a section (the Add card adds to it), and not a
+// grid cell: an empty one is a spacer someone left on purpose, and dropping a
+// cell's last block takes its column away (tidyRows).
+function* emptyContainers(md) {
+  const empty = body => !parseBody(body).components.length;
+  for (const { component: c } of walkPage(md)) {
+    if (c.kind === 'admonition' && c.adm.uuid && empty(c.adm.body)) yield { kind: TEXT_KIND.admonition, uuid: c.adm.uuid };
+    else if (c.kind === 'tabs') { for (const t of c.grp.tabs ?? []) if (t.uuid && empty(t.body)) yield { kind: TEXT_KIND.tab, uuid: t.uuid }; }
+  }
+}
+
+/**
+ * `md` as the editor holds it while the draft is open: every container with
+ * nothing in it gets an empty text block, the place to start typing (a saved
+ * file has none: dropEmptyText). Without it an update or admonition saved
+ * empty could never be written in again. `like` is the page as it was showing:
+ * a block it already had in that place keeps its identity, so a save changes
+ * nothing under the caret.
+ */
+export function seedEmptyText(md, like = null) {
+  let out = md;
+  for (let guard = 0; guard < 1000; guard++) {
+    const { value: container, done } = emptyContainers(out).next();
+    if (done) break;
+    const was = like && readContainer(like, container)?.components.find(c => c.kind === 'text' && !c.txt.body.trim());
+    const next = writeContainer(out, container, '', [was ? textBlock(was.txt.uuid, '') : newText()]);
+    if (next === out) break; // a container that will not take one: leave the page as it is
+    out = next;
   }
   return out;
 }

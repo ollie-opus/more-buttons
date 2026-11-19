@@ -486,6 +486,73 @@ test('moveBeside: a block dropped beside one in no row makes a row of the two', 
   assert.equal(OPS.moveBeside(['adm'], { block: 'cap' }, 'left').apply(PAGE), PAGE);
 });
 
+test('insertBeside: something new put beside a block makes a row of the two, as one change', () => {
+  const s1 = ids(PAGE, section('s1'));
+  const fresh = newComponent('button');
+  const uuid = fresh.btn.uuid;
+  const op = OPS.insertBeside([fresh], { block: 'adm' }, 'right');
+  const out = op.apply(PAGE);
+  assert.deepEqual(columns(out, uuid), [['adm'], [uuid]]);
+  assert.equal(op.apply(PAGE), out, 'the same page each time it is applied');
+  const row = findOwner(out, 'cell', findComponent(out, uuid).container.uuid);
+  assert.equal(row.component.grid.flavor, 'generic');
+  assert.deepEqual(row.container, section('s1'));
+  assert.equal(ids(out, section('s1')).length, s1.length, 'the row stands where the block stood');
+  assert.ok(findComponent(out, 'cap'), 'what the block held is still inside it');
+  assert.deepEqual(columns(OPS.insertBeside([fresh], { block: 'adm' }, 'left').apply(PAGE), uuid), [[uuid], ['adm']]);
+  assert.match(op.subject(PAGE), /^Added /);
+  // Several go into the one column, in the order given.
+  const more = newComponent('table');
+  assert.deepEqual(columns(OPS.insertBeside([fresh, more], { block: 'adm' }, 'right').apply(PAGE), uuid), [['adm'], [uuid, more.tbl.uuid]]);
+  // What it was to stand beside has gone: nothing is added.
+  assert.throws(() => OPS.insertBeside([fresh], { block: 'nope' }, 'left').apply(PAGE));
+});
+
+test('insertBeside: a new column of a row, by a column of it or by a block in one', () => {
+  const fresh = newComponent('button');
+  const uuid = fresh.btn.uuid;
+  const out = run(PAGE, OPS.insertBeside([fresh], { cell: 'c1' }, 'right'));
+  const grid = findComponent(out, 'grid').component.grid;
+  assert.equal(grid.cells.length, 3);
+  assert.deepEqual([grid.cells[0].uuid, grid.cells[2].uuid], ['c1', 'c2']);
+  assert.deepEqual(ids(out, cell(grid.cells[1].uuid)), [uuid]);
+  assert.equal(grid.flavor, 'card', 'the row keeps its style');
+  const onLeft = run(PAGE, OPS.insertBeside([fresh], { cell: 'c1' }, 'left'));
+  const left = findComponent(onLeft, 'grid').component.grid;
+  assert.equal(left.cells[1].uuid, 'c1');
+  assert.deepEqual(ids(onLeft, cell(left.cells[0].uuid)), [uuid]);
+  // Beside a block that is in a column means beside its column: no row inside a row.
+  const inner = ids(PAGE, cell('c1'))[0];
+  const again = run(PAGE, OPS.insertBeside([fresh], { block: inner }, 'right'));
+  const g2 = findComponent(again, 'grid').component.grid;
+  assert.equal(g2.cells.length, 3);
+  assert.deepEqual(ids(again, cell(g2.cells[1].uuid)), [uuid]);
+  assert.deepEqual(ids(again, cell('c1')), ids(PAGE, cell('c1')));
+  // A new empty text block beside something is kept while the draft is open, and never saved.
+  const text = { kind: 'text', txt: { uuid: 'newtext', body: '' } };
+  const typed = run(PAGE, OPS.insertBeside([text], { block: 'btn' }, 'left'));
+  assert.deepEqual(columns(typed, 'newtext'), [['newtext'], ['btn']]);
+  assert.equal(findComponent(dropEmptyText(typed), 'newtext'), null);
+});
+
+test('addSectionAt: a new section at a place among the page\'s sections, as one change', () => {
+  const titles = md => buildSectionTree(md).sections.filter(s => s.level === 2).map(s => s.title);
+  const before = titles(PAGE);
+  const spec = { uuid: 'new', title: 'New section', parentUuid: 'h1', textUuid: 'newtext' };
+  for (let at = 0; at <= before.length; at++) {
+    const op = OPS.addSectionAt(spec, at);
+    const out = op.apply(PAGE);
+    const want = before.slice();
+    want.splice(at, 0, 'New section');
+    assert.deepEqual(titles(out), want, `at ${at}`);
+    assert.equal(op.apply(PAGE), out);
+    // Nothing else moved: every block is still in the section it was in.
+    for (const s of buildSectionTree(PAGE).sections) assert.deepEqual(ids(out, section(s.uuid)), ids(PAGE, section(s.uuid)));
+    assert.deepEqual(ids(out, section('new')), ['newtext']);
+  }
+  assert.equal(commitForOps(PAGE, [OPS.addSectionAt(spec, 0)]), "Added section 'New section' under 'Adding an employee'");
+});
+
 // The fixture's second column holds nothing: here it holds a line of text.
 const ROW = run(PAGE, OPS.setText(cell('c2'), 'Cell two.'));
 

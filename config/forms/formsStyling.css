@@ -6682,6 +6682,30 @@ html.mb-kb-dragging .mb-kb-frame:not(.--bound) { display: none; }
 }
 .mb-kb-ghost__card > * { margin-top: 0 !important; margin-bottom: 0 !important; }
 .mb-kb-ghost__card > * + * { margin-top: 0.8em !important; }
+/* Something taken from the Add card's icons, not on the page yet (carryChip):
+   a small tile of its icon and name, in the Edit mode purple. */
+.mb-kb-addghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9985;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--md-default-bg-color, #fff);
+  color: var(--mb-edit);
+  box-shadow: 0 0 0 1.5px var(--mb-edit), 0 8px 26px rgba(15, 23, 42, 0.24);
+  font: 600 13px/18px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+}
+.mb-kb-addghost svg { display: block; flex: none; width: 16px; height: 16px; }
 /* A tab: its label, whole (carryTab). It swells once when it has drawn in what
    the tab was showing, and reddens over the Delete area. */
 .mb-kb-tabghost {
@@ -7192,7 +7216,7 @@ html.mb-kb-editing .mb-kb-placeholder:not(.--filled) + .mb-kb-source {
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 .mb-kb-addnew:hover,
-.mb-kb-addnew:focus-visible {
+.mb-kb-addnew:has(> .mb-kb-addnew__toggle:focus-visible) {
   outline: none;
   border-color: var(--mb-edit);
   background: color-mix(in srgb, var(--mb-edit) 6%, transparent);
@@ -7298,12 +7322,12 @@ html.mb-kb-editing .mb-kb-placeholder:not(.--filled) + .mb-kb-source {
     max-width 0.38s ease-in-out, padding 0.38s ease-in-out, border-width 0.38s ease-in-out, opacity 0.3s ease;
 }
 .mb-kb-foot > .mb-kb-addnew:not(.--delete, .--note):hover,
-.mb-kb-foot > .mb-kb-addnew:not(.--delete, .--note):focus-visible {
+.mb-kb-foot > .mb-kb-addnew:not(.--delete, .--note):has(> .mb-kb-addnew__toggle:focus-visible) {
   background: color-mix(in srgb, var(--mb-edit) 6%, var(--foot-bg));
 }
 /* Over glass the card's words and dashed line are drawn stronger than on the
    bare page: the slate, taken a third of the way to the page's own text colour. */
-.mb-kb-foot > .mb-kb-addnew:not(.--delete, :hover, :focus-visible) {
+.mb-kb-foot > .mb-kb-addnew:not(.--delete, :hover, :has(> .mb-kb-addnew__toggle:focus-visible)) {
   border-color: color-mix(in srgb, rgb(100, 116, 139) 72%, var(--md-default-fg-color, #000));
   color: color-mix(in srgb, rgb(100, 116, 139) 68%, var(--md-default-fg-color, #000));
 }
@@ -7504,6 +7528,107 @@ html.mb-kb-editing .mb-kb-placeholder:not(.--filled) + .mb-kb-source {
 }
 .mb-kb-addnew__plus { display: flex; flex: none; width: 16px; height: 16px; }
 .mb-kb-addnew__plus svg { display: block; width: 16px; height: 16px; }
+/* The card's Add face is its button (the card itself is only its ground: a
+   click anywhere on it is the card's). */
+.mb-kb-addnew__toggle {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: inherit;
+}
+.mb-kb-addnew__toggle:focus-visible { outline: none; }
+/* Opened (kbPageEditor drawTray): in place of "Add", an icon for each thing
+   that can be added, and nothing else. An icon is dragged into place or
+   clicked. The tray is one more face of the card, cross-faded like the rest;
+   it is given the height of a line of the card's words, its taller icons
+   standing out over the card's padding, so the card is exactly as tall
+   opened as shut and nothing moves but the faces and the colour. The icons
+   stay on one line: where they need more room than the row has, the card
+   grows wider than the page's column, evenly to both sides (--adding: for as
+   long as it is opened, a held key's hint over it included). Only a window
+   too narrow for that lets them wrap. */
+.mb-kb-addnew__tray {
+  flex-wrap: nowrap;
+  gap: 2px 4px;
+  height: 18px;
+  white-space: nowrap;
+}
+.mb-kb-addnew.--open > .mb-kb-addnew__tray {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.mb-kb-foot:has(> .mb-kb-addnew.--adding:not(.--delete)) { justify-content: center; }
+/* While the card slides between its two widths (kbPageEditor slideCardWidth). */
+.mb-kb-foot.--sizing { justify-content: center; }
+.mb-kb-foot.--sizing > .mb-kb-addnew { flex-shrink: 0; }
+.mb-kb-foot > .mb-kb-addnew.--adding:not(.--delete) { flex-shrink: 0; min-width: max-content; max-width: none; }
+@media (max-width: 960px) {
+  .mb-kb-addnew:not(.--open) > .mb-kb-addnew__tray { display: none; }
+  .mb-kb-addnew__tray { flex-wrap: wrap; height: auto; margin-block: -9px; white-space: normal; }
+  .mb-kb-foot > .mb-kb-addnew.--adding:not(.--delete) { flex-shrink: 1; min-width: 0; max-width: 100%; }
+}
+.mb-kb-foot > .mb-kb-addnew.--open:not(.--delete, .--note),
+.mb-kb-foot > .mb-kb-addnew.--open:not(.--delete, .--note):hover {
+  border-color: var(--mb-edit);
+  /* Opaque: widened, the card can stand over the site's own navigation, which must not show through. */
+  background: color-mix(in srgb, var(--mb-edit) 5%, var(--md-default-bg-color, #fff));
+  color: color-mix(in srgb, rgb(100, 116, 139) 68%, var(--md-default-fg-color, #000));
+  cursor: default;
+}
+/* (Widened under a held key's hint it is still over the navigation.) */
+.mb-kb-foot > .mb-kb-addnew.--adding.--note:is([data-tone="pick"], [data-tone="menu"]) { background: var(--md-default-bg-color, #fff); }
+/* A message over it keeps its own colour, made solid for the same reason. */
+.mb-kb-foot > .mb-kb-addnew.--adding.--note:is([data-tone="busy"], [data-tone="info"]) { background: color-mix(in oklch, var(--mb-kb-draft) 28%, var(--md-default-bg-color, #fff)); }
+.mb-kb-addnew__item {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-sizing: border-box;
+  min-width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+/* One that can be dragged says so; the page is not scrolled by a finger on it. */
+.mb-kb-addnew__item[data-drag] { cursor: grab; touch-action: none; }
+.mb-kb-addnew__item .mb-kb-addnew__plus,
+.mb-kb-addnew__item .mb-kb-addnew__plus svg { width: 18px; height: 18px; }
+.mb-kb-addnew__item.--named .mb-kb-addnew__plus,
+.mb-kb-addnew__item.--named .mb-kb-addnew__plus svg { width: 16px; height: 16px; }
+.mb-kb-addnew__item:is(:hover, :focus-visible) {
+  outline: none;
+  background: color-mix(in srgb, var(--mb-edit) 13%, transparent);
+  color: var(--mb-edit);
+}
+.mb-kb-addnew__rule {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: currentColor;
+  opacity: 0.3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mb-kb-addnew__item { transition: none; }
+}
 
 /* Content tabs in the editor (kbPageRender tabsHtml). The label row ends with
    a ghost "New tab", shaped as the theme shapes a label. It does not show while something

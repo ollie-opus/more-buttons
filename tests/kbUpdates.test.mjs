@@ -4,7 +4,7 @@ import {
   splitUpdateTitle, joinUpdateTitle, updateComponents, updatesPageTitle, missingUpdateFields, missingMessage, commitForUpdates,
   PUBLISH_WATCH, liveShowsUpdate, pendingPublishes,
 } from '../scripts/kbUpdates.js';
-import { OPS, newUpdate, newComponent, findComponent, readContainer, dropEmptyText, walkPage } from '../scripts/kbPageOps.js';
+import { OPS, newUpdate, newComponent, newTab, findComponent, readContainer, dropEmptyText, seedEmptyText, walkPage } from '../scripts/kbPageOps.js';
 import { renderGuidePage, TEXT_KIND } from '../scripts/kbPageRender.js';
 import { parseUpdateBlocks, insertUpdateIntoMarkdown } from '../scripts/systemUpdates.js';
 
@@ -123,6 +123,45 @@ test('title, date and type are edits of the update; the rest of the file is unto
   assert.equal(renamed, DRAFTS.replace('Faster reports', 'Fast reports'));
   // Deleting it gives the file back.
   assert.equal(OPS.deleteComponent(u.adm.uuid).apply(md).trimEnd(), DRAFTS.trimEnd());
+});
+
+test('an update saved empty is given a line to type on when the draft is opened again', () => {
+  const u = newUpdate('improvement');
+  let open = OPS.insertComponents(UPDATES_ROOT, null, [u]).apply(DRAFTS);
+  open = OPS.editComponent(u.adm.uuid, c => { c.adm.title = joinUpdateTitle(c.adm.type, 'Quicker saves', ''); }).apply(open);
+  const own = { kind: TEXT_KIND.admonition, uuid: u.adm.uuid };
+  const saved = dropEmptyText(open);
+  assert.deepEqual(readContainer(saved, own).components, []);
+  // Opened again: one empty text block, which typing fills and a save keeps.
+  const again = seedEmptyText(saved);
+  const [block] = readContainer(again, own).components;
+  assert.equal(readContainer(again, own).components.length, 1);
+  assert.equal(block.kind, 'text');
+  assert.equal(block.txt.body, '');
+  assert.equal(dropEmptyText(again), saved); // nothing to save, and nothing of it reaches the file
+  const typed = OPS.putText(block.txt.uuid, 'Saving is quicker.').apply(again);
+  assert.equal(dropEmptyText(typed).includes('Saving is quicker.'), true);
+  // The save replays the typing over the file as it is on GitHub (no such block there), held the same way.
+  assert.equal(dropEmptyText(OPS.putText(block.txt.uuid, 'Saving is quicker.').apply(seedEmptyText(saved, again))), dropEmptyText(typed));
+  assert.throws(() => OPS.putText(block.txt.uuid, 'Saving is quicker.').apply(saved));
+  // Straight after the save the block is the one that was showing, so the page does not change.
+  assert.equal(seedEmptyText(saved, open), open);
+  // Updates with something in them are left alone, and so is a page with nothing empty.
+  assert.equal(seedEmptyText(DRAFTS), DRAFTS);
+  assert.equal(seedEmptyText(seedEmptyText(saved, open)), open);
+});
+
+test('an empty admonition or tab inside an update gets its line back too', () => {
+  const adm = newComponent('admonition');
+  const tabs = newComponent('tabs');
+  const open = OPS.insertComponents({ kind: TEXT_KIND.admonition, uuid: 'u1' }, 1, [adm, tabs]).apply(DRAFTS);
+  const saved = dropEmptyText(open);
+  assert.equal(saved.includes('<!-- -->'), false);
+  assert.equal(seedEmptyText(saved, open), open);
+  const fresh = seedEmptyText(saved);
+  assert.equal(readContainer(fresh, { kind: TEXT_KIND.admonition, uuid: adm.adm.uuid }).components.length, 1);
+  for (const t of tabs.grp.tabs) assert.equal(readContainer(fresh, { kind: TEXT_KIND.tab, uuid: t.uuid }).components.length, 1);
+  assert.equal(dropEmptyText(fresh), saved);
 });
 
 test('components go into an update as into any admonition', () => {

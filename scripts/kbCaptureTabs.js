@@ -1,6 +1,6 @@
 /**
- * kbCaptureTabs.js — the "Capture" entry of the in-page editor's add menu
- * (support.opus-safety.co.uk), and the shape of a capture handed back to it.
+ * kbCaptureTabs.js — the choices behind "Capture" on the in-page editor's Add
+ * card (support.opus-safety.co.uk), and the shape of a capture handed back to it.
  *
  * A new capture is taken on the webapp, in another tab: "Create a new
  * capture" lists the webapp tabs that are open (plus "Open a new tab" and
@@ -43,25 +43,18 @@ export function captureTabChoices(tabs = [], hasLast = false) {
 }
 
 /**
- * The add menu's Capture item. `tabs` are the open webapp tabs
- * ([{id, title, url}]); 'capture' is the library pick the editor already knows.
- * `hasLast`: there is a last-captured page to reopen (without one the item
- * is there, disabled).
+ * What the editor asks once "Capture" has been added somewhere: the groups of
+ * its floating menu, each `{ title, items: [{ id, label, disabled? }] }`.
+ * A new capture is taken in one of `tabs` (the open webapp tabs,
+ * [{id, title, url}]), a new tab, or the last-captured page (`hasLast`;
+ * without one it is there, disabled); 'capture' is the pick from the library
+ * the editor already knows.
  */
-export function captureMenuItem(tabs = [], hasLast = false) {
-  const [fresh, last, ...open] = captureTabChoices(tabs, hasLast);
-  return {
-    id: 'capture-menu',
-    label: 'Capture',
-    submenu: [
-      {
-        id: 'capture-new',
-        label: 'Create a new capture',
-        submenu: [fresh, last, ...(open.length ? [{ divider: true }] : []), ...open],
-      },
-      { id: 'capture', label: 'Add from library' },
-    ],
-  };
+export function captureChoiceGroups(tabs = [], hasLast = false) {
+  return [
+    { title: 'Create a new capture', items: captureTabChoices(tabs, hasLast) },
+    { title: 'Existing capture', items: [{ id: 'capture', label: 'Add from library' }] },
+  ];
 }
 
 /**

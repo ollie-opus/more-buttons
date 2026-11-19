@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { captureTabLabel, captureMenuItem, captureTabChoices, captureTabPick, deliveredCaptureComponent } from '../scripts/kbCaptureTabs.js';
+import { captureTabLabel, captureChoiceGroups, captureTabChoices, captureTabPick, deliveredCaptureComponent } from '../scripts/kbCaptureTabs.js';
 
 globalThis.window = { sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } };
 const { planColdExit } = await import('../scripts/captureMode.js');
@@ -33,34 +33,30 @@ test('a long title is cut to fit the menu', () => {
   assert.ok(label.endsWith('…'));
 });
 
-test('Capture holds "Create a new capture" (new tab, rule, open tabs) and the library', () => {
-  const item = captureMenuItem(TABS);
-  assert.equal(item.label, 'Capture');
-  const [create, library] = item.submenu;
-  assert.equal(create.label, 'Create a new capture');
-  assert.deepEqual(create.submenu, [
+test('Capture asks where: a new capture (new tab, last tab, open tabs) or one from the library', () => {
+  const [create, library] = captureChoiceGroups(TABS);
+  assert.equal(create.title, 'Create a new capture');
+  assert.deepEqual(create.items, [
     { id: 'capture-tab:new', label: 'Open a new tab' },
     { id: 'capture-tab:last', label: 'Reopen last tab', disabled: true },
-    { divider: true },
     { id: 'capture-tab:11', label: 'Sites · Opus' },
     { id: 'capture-tab:12', label: '/admin/users/4' },
   ]);
-  assert.deepEqual(library, { id: 'capture', label: 'Add from library' });
+  assert.deepEqual(library.items, [{ id: 'capture', label: 'Add from library' }]);
 });
 
-test('with no webapp tab open there are only the two new-tab rows, and no rule', () => {
+test('with no webapp tab open there are only the two new-tab choices', () => {
   const rows = [{ id: 'capture-tab:new', label: 'Open a new tab' }, { id: 'capture-tab:last', label: 'Reopen last tab', disabled: true }];
-  assert.deepEqual(captureMenuItem([]).submenu[0].submenu, rows);
-  assert.deepEqual(captureMenuItem().submenu[0].submenu, rows);
+  assert.deepEqual(captureChoiceGroups([])[0].items, rows);
+  assert.deepEqual(captureChoiceGroups()[0].items, rows);
 });
 
-test('"Reopen last tab" stands under "Open a new tab", enabled once there is a last capture', () => {
-  assert.deepEqual(captureMenuItem(TABS, true).submenu[0].submenu.slice(0, 3), [
+test('"Reopen last tab" stands after "Open a new tab", enabled once there is a last capture', () => {
+  assert.deepEqual(captureChoiceGroups(TABS, true)[0].items.slice(0, 2), [
     { id: 'capture-tab:new', label: 'Open a new tab' },
     { id: 'capture-tab:last', label: 'Reopen last tab' },
-    { divider: true },
   ]);
-  assert.deepEqual(captureMenuItem([], true).submenu[0].submenu.map(i => i.id), ['capture-tab:new', 'capture-tab:last']);
+  assert.deepEqual(captureChoiceGroups([], true)[0].items.map(i => i.id), ['capture-tab:new', 'capture-tab:last']);
 });
 
 test('every tab row picks its own tab; other ids are not capture picks', () => {

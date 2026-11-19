@@ -5,7 +5,8 @@
  * Such a press that moves a few pixels becomes a drag: what is being
  * moved dims where it stands and a small copy of it goes with the pointer
  * (carryBlocks; a tab's label goes whole, and draws in what its tab is showing:
- * carryTab), a line shows where it would land, and the window scrolls when the
+ * carryTab; a thing dragged from the Add card's icons, not on the page yet, goes as a small
+ * tile of its icon and name: carryChip), a line shows where it would land, and the window scrolls when the
  * pointer nears its top or bottom edge. Letting go there makes the move (one
  * op, see kbPageOps moveTo / moveSectionTo); Escape, or letting go where there
  * is nowhere to land, leaves the page as it was.
@@ -33,7 +34,7 @@
  */
 
 const THRESHOLD = 4;   // px the pointer travels before a press is a drag
-const EDGE = 80;       // px from the top / bottom of the view where scrolling starts
+export const EDGE = 80; // px from the top / bottom of the view where scrolling starts
 const MAX_SPEED = 24;  // px per frame at the very edge
 const NEAR = 6;        // px inside a box's top / bottom that still mean "beside it"
 const ROW_GAP = 4;     // px the line stands off the first / last label of a tab row
@@ -521,6 +522,38 @@ export function carryBlocks(els, press, { anchor = els[0], count = 1 } = {}) {
       if (landed) { ghost.remove(); return; }
       card.classList.remove('--carried');
       sendBack(ghost, [{ transform: `translate(${dx}px, ${dy}px)`, opacity: 1 }, { transform: 'translate(0, 0)', opacity: 0 }]);
+    },
+  };
+}
+
+/**
+ * Something that is not on the page yet (a thing taken from the Add card's
+ * icons), going where the pointer goes: a small tile of its icon and name.
+ *
+ * @param {string} label
+ * @param {Element|null} icon - its icon as drawn (copied)
+ * @param {PointerEvent} press
+ * @returns {{ move(x: number, y: number): void, end(landed: boolean): void }}
+ */
+export function carryChip(label, icon, press) {
+  const ghost = document.createElement('div');
+  ghost.className = 'mb-kb-addghost';
+  ghost.inert = true;
+  if (icon) ghost.append(icon.cloneNode(true));
+  const text = document.createElement('span');
+  text.textContent = label;
+  ghost.append(text);
+  document.body.append(ghost);
+  // Held by its top left corner, a little off the pointer: the line it would
+  // land on stays in sight.
+  const at = (x, y) => `translate(${x + 10}px, ${y + 10}px)`;
+  let last = at(press.clientX, press.clientY);
+  ghost.style.transform = last;
+  return {
+    move(x, y) { last = at(x, y); ghost.style.transform = last; },
+    end(landed) {
+      if (landed) { ghost.remove(); return; }
+      sendBack(ghost, [{ transform: last, opacity: 1 }, { transform: at(press.clientX, press.clientY), opacity: 0 }]);
     },
   };
 }

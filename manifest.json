@@ -181,6 +181,7 @@
         "scripts/kbUpdateSide.js",
         "scripts/kbDatePicker.js",
         "scripts/kbPageDrag.js",
+        "scripts/kbAddTray.js",
         "scripts/kbTypePicker.js",
         "scripts/kbComments.js",
         "scripts/kbCommentsClient.js",

@@ -233,7 +233,10 @@ function showTip(doc, host) {
   set('--md-tooltip-host-x', r.x + view.scrollX);
   set('--md-tooltip-host-y', r.y + view.scrollY);
   set('--md-tooltip-x', r.width / 2);
-  set('--md-tooltip-y', 8 + r.height);
+  // Under its button; over it for one at the bottom of the window (`above`).
+  el.classList.toggle('md-tooltip2--bottom', !host.mbTipAbove);
+  el.classList.toggle('md-tooltip2--top', !!host.mbTipAbove);
+  set('--md-tooltip-y', host.mbTipAbove ? -(host.mbTipAbove + inner.offsetHeight) : 8 + r.height);
   set('--md-tooltip-width', inner.offsetWidth);
   set('--md-tooltip-tail', 0);
   el.classList.add('md-tooltip2--active');
@@ -241,12 +244,14 @@ function showTip(doc, host) {
 
 /**
  * Give a button of ours the theme's tooltip. An icon button is named by it too
- * (`aria-label`); one with a label of its own passes `name: false`.
+ * (`aria-label`); one with a label of its own passes `name: false`. `above`:
+ * the tooltip stands that many px over the button, not under it.
  */
-export function setThemeTip(doc, el, text, { name = true } = {}) {
+export function setThemeTip(doc, el, text, { name = true, above = 0 } = {}) {
   if (name) el.setAttribute('aria-label', text);
   const wired = !!el.mbTip;
   el.mbTip = text;
+  el.mbTipAbove = above;
   if (wired) return;
   el.addEventListener('mouseenter', () => showTip(doc, el));
   el.addEventListener('mouseleave', hideTip);
