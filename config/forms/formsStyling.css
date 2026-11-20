@@ -7564,6 +7564,13 @@ html.mb-kb-editing .mb-kb-placeholder:not(.--filled) + .mb-kb-source {
   pointer-events: auto;
 }
 .mb-kb-foot:has(> .mb-kb-addnew.--adding:not(.--delete)) { justify-content: center; }
+/* Wider than the column, the card reaches into the site's right-hand sidebar
+   ("On this page"), which is drawn after the article and so over it: it took
+   the pointer from the icons there (no tooltip, and a click on one shut the
+   card as a press elsewhere). The article is lifted over the sidebars for as
+   long as the card is opened or sliding; the site's header stays above. */
+html.mb-kb-editing article.md-content__inner:has(> .mb-kb-foot > .mb-kb-addnew.--adding),
+html.mb-kb-editing article.md-content__inner:has(> .mb-kb-foot.--sizing) { z-index: 1; }
 /* While the card slides between its two widths (kbPageEditor slideCardWidth). */
 .mb-kb-foot.--sizing { justify-content: center; }
 .mb-kb-foot.--sizing > .mb-kb-addnew { flex-shrink: 0; }
