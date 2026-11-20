@@ -295,4 +295,46 @@ test('renderHtml: icon → empty atomic span carrying the name (SVG painted late
     '<span class="mb-icon" data-mb-icon="check" contenteditable="false"></span>');
 });
 
+// Whitespace beside a marker, as the published site (pymdownx) reads it. Each
+// expected string is the site's own output for that source.
+const siteHtml = (src) => renderHtml(parseInline(src));
+test('a marker followed by a space does not open (the FAQ "Please note" line)', () => {
+  const src = ':lucide-triangle-alert:** Please note:** This';
+  assert.deepEqual(parseInline(src), [
+    { type: 'icon', name: 'triangle-alert' },
+    { type: 'text', value: '** Please note:** This' },
+  ]);
+  assert.equal(renderMarkdown(parseInline(src)), src);
+  assert.deepEqual(markSpans(src), []);
+  assert.equal(siteHtml('x** note** z'), 'x** note** z');
+  assert.equal(siteHtml('x* note* z'), 'x* note* z');
+  assert.equal(siteHtml('x== note== z'), 'x== note== z');
+  assert.equal(siteHtml('x^^ note^^ z'), 'x^^ note^^ z');
+  assert.equal(siteHtml('x~~ note~~ z'), 'x~~ note~~ z');
+  assert.equal(siteHtml('x *** a b*** z'), 'x *** a b*** z');
+});
+test('a marker preceded by a space does not close', () => {
+  assert.equal(siteHtml('x **note: **This'), 'x **note: **This');
+  assert.equal(siteHtml('x *note *z'), 'x *note *z');
+  assert.equal(siteHtml('x ==note ==z'), 'x ==note ==z');
+  assert.deepEqual(markSpans('x **note: **This'), []);
+});
+test('tight markers still mark, whatever sits outside them', () => {
+  assert.equal(siteHtml(':lucide-check:**note:** z'), '<span class="mb-icon" data-mb-icon="check" contenteditable="false"></span><strong>note:</strong> z');
+  assert.equal(siteHtml('x**note:**This'), 'x<strong>note:</strong>This');
+  assert.equal(siteHtml('a*b*c'), 'a<em>b</em>c');
+});
+test('a marker with a space on both sides is content of the run around it', () => {
+  assert.equal(siteHtml('x **a ** b** z'), 'x <strong>a ** b</strong> z');
+  assert.equal(siteHtml('x ==a == b== z'), 'x <mark>a == b</mark> z');
+  assert.equal(siteHtml('x 2 * 3 * 4 z'), 'x 2 * 3 * 4 z');
+});
+test('a second opener leaves the first literal', () => {
+  assert.equal(siteHtml('x **a **b** z'), 'x **a <strong>b</strong> z');
+  assert.equal(siteHtml('x ** a **b** z'), 'x ** a <strong>b</strong> z');
+});
+test('code spans are exempt from the whitespace rules', () => {
+  assert.equal(siteHtml('x ` code ` z'), 'x <code> code </code> z');
+});
+
 console.log(`\n${passed} passed`);

@@ -31,9 +31,35 @@ function matchDelim(text, i) {
 // strong["a*b"] + a literal "*" rather than nested strong>em. It still round-trips to
 // the same Markdown, so there is no data loss — only an in-editor rendering quirk for
 // that rare input.
+//
+// Whitespace rules, taken from what the published site does (pymdownx on the
+// live build; checked against it case by case). They hold for every marker
+// except the backtick:
+//   - a marker only OPENS when the character after it is not whitespace
+//     (`** note**` stays literal);
+//   - a marker only CLOSES when the character before it is not whitespace;
+//   - a marker with whitespace on both sides is plain content (`**a ** b**` is
+//     one bold run holding "a ** b");
+//   - a marker with whitespace before and text after is another opener, and the
+//     run being searched for never closes (`**a **b**` is literal "**a " then
+//     bold "b").
+const isSpace = (ch) => ch !== undefined && /\s/.test(ch);
+
+// True when `marker` at `i` may open a mark: the backtick always, any other
+// marker only with a non-whitespace character after it.
+function canOpen(text, i, marker) {
+  if (marker === '`') return true;
+  const next = text[i + marker.length];
+  return next !== undefined && !isSpace(next);
+}
+
 function findClosing(text, start, marker) {
   for (let j = start; j <= text.length - marker.length; j++) {
-    if (text.startsWith(marker, j)) return j;
+    if (!text.startsWith(marker, j)) continue;
+    if (marker === '`' || !isSpace(text[j - 1])) return j;
+    const next = text[j + marker.length];
+    if (next !== undefined && !isSpace(next)) return -1; // another opener
+    j += marker.length - 1; // loose marker, whitespace on both sides → content
   }
   return -1;
 }
@@ -213,7 +239,7 @@ export function parseInline(text) {
 
     const delim = matchDelim(text, i);
     if (delim) {
-      const close = findClosing(text, i + delim.len, delim.marker);
+      const close = canOpen(text, i, delim.marker) ? findClosing(text, i + delim.len, delim.marker) : -1;
       const inner = close === -1 ? '' : text.slice(i + delim.len, close);
       if (close !== -1 && inner.length > 0) {
         flush();
@@ -260,7 +286,7 @@ export function markSpans(value) {
       }
       const delim = matchDelim(text, i);
       if (delim) {
-        const close = findClosing(text, i + delim.len, delim.marker);
+        const close = canOpen(text, i, delim.marker) ? findClosing(text, i + delim.len, delim.marker) : -1;
         if (close !== -1 && close > i + delim.len) {
           spans.push({
             marker: delim.marker,
